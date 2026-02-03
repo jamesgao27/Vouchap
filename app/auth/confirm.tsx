@@ -6,12 +6,54 @@ import * as Linking from 'expo-linking';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUser } from '@/lib/auth';
 
+// 根据认证类型返回对应的成功消息和跳转路径
+function getSuccessConfig(type: string | undefined): { message: string; redirect: string } {
+  switch (type) {
+    case 'recovery':
+      return {
+        message: 'Password reset verified! Redirecting to set new password...',
+        redirect: '/set-password',
+      };
+    case 'invite':
+      return {
+        message: 'Invitation accepted! Setting up your account...',
+        redirect: '/handle-invitations',
+      };
+    case 'email_change':
+      return {
+        message: 'Email changed successfully! Redirecting...',
+        redirect: '/login',
+      };
+    case 'signup':
+    default:
+      return {
+        message: 'Email confirmed successfully! Redirecting to sign in...',
+        redirect: '/login',
+      };
+  }
+}
+
+// 根据认证类型返回对应的验证中消息
+function getVerifyingMessage(type: string | undefined): string {
+  switch (type) {
+    case 'recovery':
+      return 'Verifying password reset link...';
+    case 'invite':
+      return 'Processing invitation...';
+    case 'email_change':
+      return 'Confirming email change...';
+    case 'signup':
+    default:
+      return 'Verifying your email...';
+  }
+}
+
 export default function EmailConfirmScreen() {
   const router = useRouter();
   const localParams = useLocalSearchParams<{ token_hash?: string; type?: string; access_token?: string }>();
   const globalParams = useGlobalSearchParams<{ token_hash?: string; type?: string; access_token?: string }>();
   const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
-  const [message, setMessage] = useState('Verifying your email...');
+  const [message, setMessage] = useState('Verifying...');
 
   useEffect(() => {
     handleEmailConfirmation();
@@ -26,6 +68,11 @@ export default function EmailConfirmScreen() {
       let token_hash = localParams.token_hash || globalParams.token_hash;
       let type = (localParams.type || globalParams.type) as any;
       let access_token = localParams.access_token || globalParams.access_token;
+      
+      // 根据类型更新验证中消息
+      if (type) {
+        setMessage(getVerifyingMessage(type));
+      }
 
       // 如果没有从查询参数获取到，尝试从 URL hash 中解析
       if (!token_hash && !access_token) {
@@ -128,22 +175,13 @@ export default function EmailConfirmScreen() {
                 await ensureUserRecord(sessionData.user);
                 
                 setStatus('success');
-                const isPasswordReset = type === 'recovery';
-                setMessage(
-                  isPasswordReset
-                    ? 'Password reset link verified! Redirecting to set new password...'
-                    : 'Email confirmed successfully! Redirecting to sign in...'
-                );
+                // 根据类型设置不同的消息和跳转目标
+                const { message: successMessage, redirect } = getSuccessConfig(type);
+                setMessage(successMessage);
                 
-                // 如果是密码重置，跳转到设置新密码页面；否则跳转到登录页
                 setTimeout(() => {
-                  if (isPasswordReset) {
-                    console.log('Redirecting to set-password');
-                    router.replace('/set-password');
-                  } else {
-                    console.log('Redirecting to login');
-                    router.replace('/login');
-                  }
+                  console.log('Redirecting to:', redirect);
+                  router.replace(redirect as any);
                 }, 1500);
                 return;
               } else {
@@ -183,20 +221,13 @@ export default function EmailConfirmScreen() {
           await ensureUserRecord(data.user);
           
           setStatus('success');
-          const isPasswordReset = type === 'recovery';
-          setMessage(
-            isPasswordReset
-              ? 'Password reset link verified! Redirecting to set new password...'
-              : 'Email confirmed successfully! Redirecting to sign in...'
-          );
+          // 根据类型设置不同的消息和跳转目标
+          const { message: successMessage, redirect } = getSuccessConfig(type);
+          setMessage(successMessage);
           
-          // 如果是密码重置，跳转到设置新密码页面；否则跳转到登录页
           setTimeout(() => {
-            if (isPasswordReset) {
-              router.replace('/set-password');
-            } else {
-              router.replace('/login');
-            }
+            console.log('Redirecting to:', redirect);
+            router.replace(redirect as any);
           }, 2000);
           return;
         }

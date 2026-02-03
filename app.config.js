@@ -2,7 +2,7 @@ export default {
   expo: {
     name: "Vouchap",
     slug: "vouchap",
-    version: "2.1.0",
+    version: "2.1.1",
     owner: "aimlink",
     orientation: "portrait",
     icon: "./assets/icon.png",
@@ -16,11 +16,11 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.vouchap.app",
-      associatedDomains: ["applinks:vouchap.app"]
+      associatedDomains: ["applinks:vouchap.com"]
     },
     android: {
       package: "com.vouchap.app",
-      versionCode: 8,
+      versionCode: 13,
       permissions: [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
@@ -40,7 +40,7 @@ export default {
           data: [
             {
               scheme: "https",
-              host: "vouchap.app",
+              host: "vouchap.com",
               pathPrefix: "/"
             },
             {

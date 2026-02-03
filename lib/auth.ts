@@ -800,11 +800,12 @@ export async function signUp(email: string, password: string, householdName?: st
     // 注意：如果 Supabase 启用了邮箱确认，注册后需要确认邮箱才能登录
     // 邮箱确认后，用户会被重定向到应用的登录页面
     // 详细配置请参考 EMAIL_CONFIRMATION_SETUP.md
+    // 使用 HTTPS Universal Links / App Links 以支持从邮件客户端打开
     const isDev = Constants.expoConfig?.extra?.supabaseUrl?.includes('localhost') || 
                   process.env.NODE_ENV === 'development';
     const redirectUrl = isDev 
       ? 'exp://localhost:8081/--/auth/confirm' // 开发环境
-      : 'vouchap://auth/confirm'; // 生产环境
+      : 'https://vouchap.com/auth/confirm'; // 生产环境使用 HTTPS Universal/App Links
     
     // 准备用户信息，用于在 data 中传递（即使需要邮箱确认也能使用）
     const userNameFinal = userName || email.split('@')[0];
@@ -1224,11 +1225,12 @@ export async function resetPassword(email: string): Promise<{ error: Error | nul
     }
 
     // 构建重置密码的重定向 URL
+    // 使用 HTTPS Universal Links / App Links 以支持从邮件客户端打开
     const isDev = Constants.expoConfig?.extra?.supabaseUrl?.includes('localhost') || 
                   process.env.NODE_ENV === 'development';
     const redirectUrl = isDev 
       ? 'exp://localhost:8081/--/auth/confirm' // 开发环境
-      : 'vouchap://auth/confirm'; // 生产环境
+      : 'https://vouchap.com/auth/confirm'; // 生产环境使用 HTTPS Universal/App Links
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: redirectUrl,
