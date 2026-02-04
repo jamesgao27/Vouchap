@@ -21,11 +21,11 @@ export default {
     android: {
       package: "com.vouchap.app",
       versionCode: 13,
+      // 使用系统照片选择器，不再声明 READ_MEDIA_IMAGES，符合 Google Play 照片权限政策
       permissions: [
         "CAMERA",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
-        "READ_MEDIA_IMAGES",
         "ACCESS_NETWORK_STATE",
         "INTERNET"
       ],
