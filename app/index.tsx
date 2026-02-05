@@ -14,6 +14,9 @@ import { saveReceipt } from '@/lib/database';
 import { processReceiptInBackground } from '@/lib/receipt-processor';
 import { processImageForUpload } from '@/lib/image-processor';
 
+/** 首页是否显示「AI 进销存」入口，发布时可设为 false 隐藏 */
+const SHOW_AI_INVENTORY_ENTRY = false;
+
 export default function HomeScreen() {
   const router = useRouter();
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
@@ -625,13 +628,15 @@ export default function HomeScreen() {
         <Text style={styles.secondaryButtonText}>Receipts List</Text>
       </TouchableOpacity>
 
-      <TouchableOpacity 
-        style={[styles.secondaryButton, { marginTop: 12 }]}
-        onPress={() => router.push('/ai-inventory')}
-      >
-        <Ionicons name="cube-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
-        <Text style={styles.secondaryButtonText}>AI 进销存</Text>
-      </TouchableOpacity>
+      {SHOW_AI_INVENTORY_ENTRY && (
+        <TouchableOpacity 
+          style={[styles.secondaryButton, { marginTop: 12 }]}
+          onPress={() => router.push('/ai-inventory')}
+        >
+          <Ionicons name="cube-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
+          <Text style={styles.secondaryButtonText}>AI 进销存</Text>
+        </TouchableOpacity>
+      )}
 
       {/* Space Switch Modal */}
       <Modal

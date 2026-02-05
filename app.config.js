@@ -1,8 +1,10 @@
+const pkg = require("./package.json");
+
 export default {
   expo: {
     name: "Vouchap",
     slug: "vouchap",
-    version: "2.1.1",
+    version: pkg.version,
     owner: "aimlink",
     // 使用 default 以支持大屏/平板旋转，符合 Google Play「移除屏幕方向限制」建议
     orientation: "default",
@@ -22,7 +24,7 @@ export default {
     },
     android: {
       package: "com.vouchap.app",
-      versionCode: 13,
+      versionCode: 15,
       // 使用系统照片选择器，不再声明 READ_MEDIA_IMAGES，符合 Google Play 照片权限政策
       permissions: [
         "CAMERA",
