@@ -4,7 +4,8 @@ export default {
     slug: "vouchap",
     version: "2.1.1",
     owner: "aimlink",
-    orientation: "portrait",
+    // 使用 default 以支持大屏/平板旋转，符合 Google Play「移除屏幕方向限制」建议
+    orientation: "default",
     icon: "./assets/icon.png",
     scheme: "vouchap", // 关键：解决邮件跳转的核心配置
     userInterfaceStyle: "light",
@@ -12,7 +13,8 @@ export default {
       backgroundColor: "#ffffff",
       resizeMode: "contain"
     },
-    assetBundlePatterns: ["**/*"],
+    // 仅打包实际引用的资源，避免 "**/*" 把整个项目打进包导致体积暴增（原 315MB+）
+    assetBundlePatterns: [],
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.vouchap.app",

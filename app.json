@@ -6,10 +6,10 @@
       }
     },
     "ios": {
-      "buildNumber": "1"
+      "buildNumber": "2"
     },
     "android": {
-      "versionCode": 13
+      "versionCode": 14
     }
   }
 }

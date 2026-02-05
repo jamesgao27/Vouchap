@@ -1,6 +1,14 @@
 # EAS Build 忽略文件
 # 这些文件不会上传到 EAS 构建服务器
 
+# iOS 本地构建产物（服务器上会重新执行 pod install，无需上传）
+ios/Pods
+ios/build
+ios/.xcode.env.local
+
+# 依赖由服务器 npm install 安装，无需上传
+node_modules
+
 # SQL 数据库脚本
 *.sql
 
@@ -26,6 +34,7 @@ test-*.js
 # 开发工具配置
 .vscode/
 .idea/
+.cursor/
 
 # 本地环境文件
 .env.local

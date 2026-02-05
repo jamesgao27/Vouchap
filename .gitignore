@@ -1,6 +1,11 @@
 node_modules/
 .expo/
 dist/
+
+# iOS CocoaPods（本地 pod install 生成，不提交）
+ios/Pods
+ios/build
+ios/.xcode.env.local
 npm-debug.*
 *.jks
 *.p8
