@@ -13,18 +13,18 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  getPaymentAccounts,
-  createPaymentAccount,
-  updatePaymentAccount,
-  deletePaymentAccount,
-  mergePaymentAccount,
-} from '@/lib/payment-accounts';
-import { PaymentAccount } from '@/types';
+  getAccounts,
+  createAccount,
+  updateAccount,
+  deleteAccount,
+  mergeAccount,
+} from '@/lib/accounts';
+import { Account } from '@/types';
 import { GradientText } from '@/lib/GradientText';
 
-export default function PaymentAccountsManageScreen() {
+export default function AccountsManageScreen() {
   const router = useRouter();
-  const [accounts, setAccounts] = useState<PaymentAccount[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -40,11 +40,11 @@ export default function PaymentAccountsManageScreen() {
   const loadAccounts = async () => {
     try {
       setLoading(true);
-      const data = await getPaymentAccounts();
+      const data = await getAccounts();
       setAccounts(data);
     } catch (error) {
-      console.error('Error loading payment accounts:', error);
-      Alert.alert('Error', 'Failed to load payment accounts');
+      console.error('Error loading accounts:', error);
+      Alert.alert('Error', 'Failed to load accounts');
     } finally {
       setLoading(false);
     }
@@ -52,20 +52,20 @@ export default function PaymentAccountsManageScreen() {
 
   const handleAddAccount = async () => {
     if (!newName.trim()) {
-      Alert.alert('Error', 'Please enter payment account name');
+      Alert.alert('Error', 'Please enter account name');
       return;
     }
 
     try {
-      const newAccount = await createPaymentAccount(newName.trim(), false);
+      const newAccount = await createAccount(newName.trim(), false);
       // 乐观更新：直接添加到列表中，不需要重新加载所有账户
       setAccounts(prev => [...prev, newAccount]);
       setNewName('');
       setShowAddForm(false);
-      Alert.alert('Success', 'Payment account created');
+      Alert.alert('Success', 'Account created');
     } catch (error: any) {
-      console.error('Error creating payment account:', error);
-      Alert.alert('Error', error.message || 'Failed to create payment account');
+      console.error('Error creating account:', error);
+      Alert.alert('Error', error.message || 'Failed to create account');
       // 如果失败，重新加载以确保数据一致
       loadAccounts();
     }
@@ -73,12 +73,12 @@ export default function PaymentAccountsManageScreen() {
 
   const handleUpdateAccount = async (accountId: string) => {
     if (!editName.trim()) {
-      Alert.alert('Error', 'Please enter payment account name');
+      Alert.alert('Error', 'Please enter account name');
       return;
     }
 
     try {
-      await updatePaymentAccount(accountId, {
+      await updateAccount(accountId, {
         name: editName.trim(),
       });
       // 乐观更新：直接更新列表中的账户，不需要重新加载所有账户
@@ -91,16 +91,16 @@ export default function PaymentAccountsManageScreen() {
       setEditName('');
       // 移除成功提示对话框
     } catch (error: any) {
-      console.error('Error updating payment account:', error);
-      Alert.alert('Error', error.message || 'Failed to update payment account');
+      console.error('Error updating account:', error);
+      Alert.alert('Error', error.message || 'Failed to update account');
       // 如果失败，重新加载以确保数据一致
       loadAccounts();
     }
   };
 
-  const handleDeleteAccount = async (account: PaymentAccount) => {
+  const handleDeleteAccount = async (account: Account) => {
     Alert.alert(
-      'Delete Payment Account',
+      'Delete Account',
       `Are you sure you want to delete "${account.name}"?`,
       [
         { text: 'Cancel', style: 'cancel' },
@@ -109,13 +109,13 @@ export default function PaymentAccountsManageScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              await deletePaymentAccount(account.id);
+              await deleteAccount(account.id);
               // 乐观更新：直接从列表中移除，不需要重新加载所有账户
               setAccounts(prev => prev.filter(acc => acc.id !== account.id));
-              Alert.alert('Success', 'Payment account deleted');
+              Alert.alert('Success', 'Account deleted');
             } catch (error: any) {
-              console.error('Error deleting payment account:', error);
-              Alert.alert('Error', error.message || 'Failed to delete payment account');
+              console.error('Error deleting account:', error);
+              Alert.alert('Error', error.message || 'Failed to delete account');
               // 如果失败，重新加载以确保数据一致
               loadAccounts();
             }
@@ -125,7 +125,7 @@ export default function PaymentAccountsManageScreen() {
     );
   };
 
-  const startEdit = (account: PaymentAccount) => {
+  const startEdit = (account: Account) => {
     setEditingId(account.id);
     setEditName(account.name);
   };
@@ -185,14 +185,14 @@ export default function PaymentAccountsManageScreen() {
 
   const performMerge = async (sourceAccountIds: string[], targetAccountId: string) => {
     try {
-      await mergePaymentAccount(sourceAccountIds, targetAccountId);
+      await mergeAccount(sourceAccountIds, targetAccountId);
       await loadAccounts();
       setMergeMode(false);
       setSelectedAccountIds(new Set());
-      Alert.alert('Success', 'Payment accounts merged successfully');
+      Alert.alert('Success', 'Accounts merged successfully');
     } catch (error: any) {
-      console.error('Error merging payment accounts:', error);
-      Alert.alert('Error', error.message || 'Failed to merge payment accounts');
+      console.error('Error merging accounts:', error);
+      Alert.alert('Error', error.message || 'Failed to merge accounts');
     }
   };
 
@@ -215,7 +215,7 @@ export default function PaymentAccountsManageScreen() {
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
           <GradientText
-            text="AI identifies payment sources, support for merged accounts."
+            text="Accounts for receipts & invoices, support merged accounts."
             style={styles.headerTitle}
             containerStyle={styles.gradientTextContainer}
           />
@@ -273,7 +273,7 @@ export default function PaymentAccountsManageScreen() {
                 style={styles.editInputInline}
                 value={newName}
                 onChangeText={setNewName}
-                placeholder="Payment account name"
+                placeholder="Account name"
                 placeholderTextColor="#95A5A6"
               />
 
@@ -307,7 +307,7 @@ export default function PaymentAccountsManageScreen() {
                     style={styles.editInputInline}
                     value={editName}
                     onChangeText={setEditName}
-                    placeholder="Payment account name"
+                    placeholder="Account name"
                     placeholderTextColor="#95A5A6"
                   />
                   {/* 第二行：确认取消按钮 */}

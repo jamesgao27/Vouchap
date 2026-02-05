@@ -393,7 +393,7 @@ export default function ReceiptsScreen() {
             }
           });
 
-        // 3. 监听 payment_accounts 表的变化（支付账户名称变化会影响显示）
+        // 3. 监听 accounts 表的变化（账户名称变化会影响显示）
         paymentAccountsChannel = supabase
           .channel(`payment-accounts-changes-${spaceId}`)
           .on(
@@ -401,7 +401,7 @@ export default function ReceiptsScreen() {
             {
               event: '*', // INSERT, UPDATE, DELETE
               schema: 'public',
-              table: 'payment_accounts',
+              table: 'accounts',
               filter: `space_id=eq.${spaceId}`,
             },
             (payload) => {
@@ -412,7 +412,7 @@ export default function ReceiptsScreen() {
           )
           .subscribe((status) => {
             if (status === 'SUBSCRIBED') {
-              console.log('✅ Subscribed to payment_accounts changes');
+              console.log('✅ Subscribed to accounts changes');
             }
           });
 
@@ -650,12 +650,12 @@ export default function ReceiptsScreen() {
   }, []);
 
   // 按支付账户分组小票
-  const groupReceiptsByPaymentAccount = useCallback((receipts: Receipt[]): SectionData[] => {
+  const groupReceiptsByAccount = useCallback((receipts: Receipt[]): SectionData[] => {
     const grouped = new Map<string, Receipt[]>();
     
     receipts.forEach(receipt => {
-      const accountName = receipt.paymentAccount?.name || 'Not Set';
-      const accountKey = `account-${receipt.paymentAccount?.id || 'none'}`;
+      const accountName = receipt.account?.name || 'Not Set';
+      const accountKey = `account-${receipt.account?.id || 'none'}`;
       
       if (!grouped.has(accountKey)) {
         grouped.set(accountKey, []);
@@ -666,7 +666,7 @@ export default function ReceiptsScreen() {
     // 转换为数组并按账户名称排序
     return Array.from(grouped.entries())
       .map(([accountKey, data]) => {
-        const accountName = data[0].paymentAccount?.name || 'Not Set';
+        const accountName = data[0].account?.name || 'Not Set';
         return {
           title: accountName,
           monthKey: accountKey,
@@ -714,14 +714,14 @@ export default function ReceiptsScreen() {
       case 'recordDate':
         return groupReceiptsByRecordDate(receipts);
       case 'paymentAccount':
-        return groupReceiptsByPaymentAccount(receipts);
+        return groupReceiptsByAccount(receipts);
       case 'createdBy':
         return groupReceiptsByCreatedBy(receipts);
       case 'month':
       default:
         return groupReceiptsByMonth(receipts);
     }
-  }, [groupBy, groupReceiptsByMonth, groupReceiptsByRecordDate, groupReceiptsByPaymentAccount, groupReceiptsByCreatedBy]);
+  }, [groupBy, groupReceiptsByMonth, groupReceiptsByRecordDate, groupReceiptsByAccount, groupReceiptsByCreatedBy]);
 
   // 筛选小票（交集筛选）
   const filteredReceipts = useMemo(() => {
@@ -760,7 +760,7 @@ export default function ReceiptsScreen() {
     // 按账户筛选
     if (selectedAccounts.size > 0) {
       filtered = filtered.filter(receipt => {
-        const accountId = receipt.paymentAccount?.id || 'none';
+        const accountId = receipt.account?.id || 'none';
         return selectedAccounts.has(accountId);
       });
     }
@@ -804,8 +804,8 @@ export default function ReceiptsScreen() {
       }
 
       // 账户
-      if (receipt.paymentAccount) {
-        accounts.set(receipt.paymentAccount.id, receipt.paymentAccount.name);
+      if (receipt.account) {
+        accounts.set(receipt.account.id, receipt.account.name);
       } else {
         accounts.set('none', 'Not Set');
       }

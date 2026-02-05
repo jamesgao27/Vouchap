@@ -23,8 +23,8 @@ export interface Category {
   updatedAt?: string;
 }
 
-// 支付账户
-export interface PaymentAccount {
+// 账户（收付款共用，原 PaymentAccount）
+export interface Account {
   id: string;
   spaceId: string;
   name: string;
@@ -72,8 +72,8 @@ export interface Receipt {
   supplier?: Supplier; // 关联的供应商对象
   totalAmount: number;
   date: string;
-  paymentAccountId?: string;
-  paymentAccount?: PaymentAccount; // 关联的支付账户对象
+  accountId?: string;
+  account?: Account; // 关联的账户对象（付款）
   status: ReceiptStatus;
   imageUrl?: string;
   inputType?: InputType; // 提交方式：image（相机）、text（文字）、audio（语音）
@@ -130,6 +130,118 @@ export interface DataConsistency {
   itemsSumMatchesTotal?: boolean; // 明细总和是否与总金额一致
   missingItems?: boolean; // 是否可能有遗漏的商品项
   consistencyComment?: string; // 一致性评价文字
+}
+
+// ---------- AI 进销存 ----------
+
+// 标准 SKU（商品主数据）
+export interface Sku {
+  id: string;
+  spaceId: string;
+  code?: string;
+  name: string;
+  unit: string;
+  description?: string;
+  isAiRecognized?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// 发票/入库/出库通用状态
+export type VoucherStatus = 'pending' | 'processing' | 'confirmed' | 'needs_retake';
+
+// 发票明细
+export interface InvoiceItem {
+  id?: string;
+  name: string;
+  categoryId?: string | null;
+  purposeId?: string | null;
+  price: number;
+  isAsset?: boolean;
+  confidence?: number;
+}
+
+// 销售发票（资金流入）
+export interface Invoice {
+  id?: string;
+  spaceId: string;
+  customerName: string;
+  totalAmount: number;
+  currency?: string;
+  tax?: number;
+  date: string;
+  accountId?: string | null;
+  status: VoucherStatus;
+  imageUrl?: string;
+  inputType?: InputType;
+  confidence?: number;
+  processedBy?: string;
+  createdBy?: string | null;
+  items: InvoiceItem[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// 入库/出库明细（含数量，可关联 SKU）
+export interface InboundItem {
+  id?: string;
+  inboundId: string;
+  skuId?: string | null;
+  productName: string;
+  quantity: number;
+  unit: string;
+  unitPrice?: number;
+  confidence?: number;
+}
+
+export interface OutboundItem {
+  id?: string;
+  outboundId: string;
+  skuId?: string | null;
+  productName: string;
+  quantity: number;
+  unit: string;
+  unitPrice?: number;
+  confidence?: number;
+}
+
+// 入库单（采购端）
+export interface Inbound {
+  id?: string;
+  spaceId: string;
+  documentNo?: string;
+  supplierId?: string | null;
+  supplierName?: string;
+  totalAmount?: number;
+  currency?: string;
+  date: string;
+  status: VoucherStatus;
+  imageUrl?: string;
+  inputType?: InputType;
+  confidence?: number;
+  createdBy?: string | null;
+  items: InboundItem[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// 出库单（销售端）
+export interface Outbound {
+  id?: string;
+  spaceId: string;
+  documentNo?: string;
+  customerName?: string;
+  totalAmount?: number;
+  currency?: string;
+  date: string;
+  status: VoucherStatus;
+  imageUrl?: string;
+  inputType?: InputType;
+  confidence?: number;
+  createdBy?: string | null;
+  items: OutboundItem[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 // Gemini识别结果（使用分类名称，后续会匹配到分类ID）

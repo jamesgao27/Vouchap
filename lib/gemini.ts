@@ -1,7 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getCategories } from './categories';
 import { getPurposes } from './purposes';
-import { getPaymentAccounts } from './payment-accounts';
+import { getAccounts } from './accounts';
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as FileSystemNew from 'expo-file-system';
@@ -122,8 +122,8 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
   // 获取用户已有的支付账户列表（按使用频率排序）
   let paymentAccountNames: string[] = [];
   try {
-    const paymentAccounts = await getPaymentAccounts();
-    paymentAccountNames = paymentAccounts.map(pa => pa.name);
+    const accounts = await getAccounts();
+    paymentAccountNames = accounts.map(pa => pa.name);
   } catch (error) {
     console.warn('Failed to fetch payment accounts:', error);
   }
@@ -749,8 +749,8 @@ export async function recognizeReceiptFromText(text: string): Promise<GeminiRece
   // 获取用户已有的支付账户列表（按使用频率排序）
   let paymentAccountNames: string[] = [];
   try {
-    const paymentAccounts = await getPaymentAccounts();
-    paymentAccountNames = paymentAccounts.map(pa => pa.name);
+    const accounts = await getAccounts();
+    paymentAccountNames = accounts.map(pa => pa.name);
   } catch (error) {
     console.warn('Failed to fetch payment accounts:', error);
   }
@@ -1131,8 +1131,8 @@ export async function recognizeReceiptFromAudio(audioUri: string): Promise<Gemin
   // 获取用户已有的支付账户列表（按使用频率排序）
   let paymentAccountNames: string[] = [];
   try {
-    const paymentAccounts = await getPaymentAccounts();
-    paymentAccountNames = paymentAccounts.map(pa => pa.name);
+    const accounts = await getAccounts();
+    paymentAccountNames = accounts.map(pa => pa.name);
   } catch (error) {
     console.warn('Failed to fetch payment accounts:', error);
   }

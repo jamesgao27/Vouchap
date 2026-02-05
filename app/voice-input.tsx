@@ -405,8 +405,8 @@ export default function VoiceInputScreen() {
           ...receiptToSave, 
           id: receiptId,
           status: 'pending' as ReceiptStatus,
-          paymentAccount: result.paymentAccountName ? {
-            id: receipt.paymentAccountId || '',
+          account: result.paymentAccountName ? {
+            id: receipt.accountId || '',
             spaceId: receipt.spaceId,
             name: result.paymentAccountName,
             isAiRecognized: true,
@@ -598,8 +598,8 @@ export default function VoiceInputScreen() {
           ...receiptToSave, 
           id: receiptId,
           status: 'pending' as ReceiptStatus,
-          paymentAccount: result.paymentAccountName ? {
-            id: receipt.paymentAccountId || '',
+          account: result.paymentAccountName ? {
+            id: receipt.accountId || '',
             spaceId: receipt.spaceId,
             name: result.paymentAccountName,
             isAiRecognized: true,
@@ -792,11 +792,11 @@ export default function VoiceInputScreen() {
                       {formatCurrency(message.receiptPreview.totalAmount, message.receiptPreview.currency)}
                     </Text>
                   </View>
-                  {message.receiptPreview.paymentAccount && (
+                  {message.receiptPreview.account && (
                     <View style={styles.receiptPreviewRow}>
                       <Text style={styles.receiptPreviewLabel}>Account:</Text>
                       <Text style={styles.receiptPreviewValue}>
-                        {message.receiptPreview.paymentAccount.name}
+                        {message.receiptPreview.account.name}
                       </Text>
                     </View>
                   )}

@@ -21,10 +21,10 @@ import { getReceiptById, updateReceipt, updateReceiptItem } from '@/lib/database
 import { uploadReceiptImage } from '@/lib/supabase';
 import { getCategories } from '@/lib/categories';
 import { getPurposes } from '@/lib/purposes';
-import { getPaymentAccounts } from '@/lib/payment-accounts';
+import { getAccounts } from '@/lib/accounts';
 import { getChatLogsByReceiptId } from '@/lib/chat-logs';
 import { playAudio, stopPlayback } from '@/lib/audio';
-import { Receipt, ReceiptItem, Category, Purpose, ReceiptStatus, PaymentAccount } from '@/types';
+import { Receipt, ReceiptItem, Category, Purpose, ReceiptStatus, Account } from '@/types';
 import { format } from 'date-fns';
 
 export default function ReceiptDetailsScreen() {
@@ -38,10 +38,10 @@ export default function ReceiptDetailsScreen() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [purposes, setPurposes] = useState<Purpose[]>([]);
-  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
+  const [accounts, setAccounts] = useState<Account[]>([]);
   const [showCategoryPicker, setShowCategoryPicker] = useState<number | null>(null);
   const [showPurposePicker, setShowPurposePicker] = useState<number | null>(null);
-  const [showPaymentAccountPicker, setShowPaymentAccountPicker] = useState<boolean>(false);
+  const [showAccountPicker, setShowAccountPicker] = useState<boolean>(false);
   const [showCurrencyPicker, setShowCurrencyPicker] = useState<boolean>(false);
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const [taxInputText, setTaxInputText] = useState<string>('');
@@ -53,7 +53,7 @@ export default function ReceiptDetailsScreen() {
     loadReceipt();
     loadCategories();
     loadPurposes();
-    loadPaymentAccounts();
+    loadAccounts();
   }, [id]);
 
   // 当页面获得焦点时（从其他页面返回），只重新加载分类、用途和支付账户（因为这些可能在管理页面被修改）
@@ -62,7 +62,7 @@ export default function ReceiptDetailsScreen() {
     useCallback(() => {
       loadCategories();
       loadPurposes();
-      loadPaymentAccounts();
+      loadAccounts();
     }, [])
   );
 
@@ -84,10 +84,10 @@ export default function ReceiptDetailsScreen() {
     }
   };
 
-  const loadPaymentAccounts = async () => {
+  const loadAccounts = async () => {
     try {
-      const accounts = await getPaymentAccounts();
-      setPaymentAccounts(accounts);
+      const data = await getAccounts();
+      setAccounts(data);
     } catch (error) {
       console.error('Error loading payment accounts:', error);
     }
@@ -705,14 +705,14 @@ export default function ReceiptDetailsScreen() {
         {/* 支付账户 */}
         <View style={styles.paymentCard}>
           <View style={styles.paymentRow}>
-            <Text style={styles.cardLabel}>Payment Account</Text>
+            <Text style={styles.cardLabel}>Account</Text>
             <TouchableOpacity
-              style={editing ? styles.paymentAccountTouchable : undefined}
+              style={editing ? styles.accountTouchable : undefined}
               onPress={() => {
                 console.log('Payment account button pressed');
                 console.log('Current editing state:', editing);
-                console.log('Current picker state:', showPaymentAccountPicker);
-                console.log('Payment accounts available:', paymentAccounts.length);
+                console.log('Current picker state:', showAccountPicker);
+                console.log('Payment accounts available:', accounts.length);
                 
                 if (!editing) {
                   setEditedReceipt({ ...currentReceipt });
@@ -728,26 +728,26 @@ export default function ReceiptDetailsScreen() {
                 }
                 
                 // 直接设置状态，不使用 setTimeout
-                console.log('Setting showPaymentAccountPicker to true');
-                setShowPaymentAccountPicker(true);
+                console.log('Setting showAccountPicker to true');
+                setShowAccountPicker(true);
                 
                 // 验证状态是否更新
                 setTimeout(() => {
-                  console.log('Picker state after update:', showPaymentAccountPicker);
+                  console.log('Picker state after update:', showAccountPicker);
                 }, 100);
               }}
               activeOpacity={0.7}
             >
               {editing ? (
-                <View style={styles.paymentAccountTag}>
-                  <Text style={styles.paymentAccountText} numberOfLines={1} ellipsizeMode="tail">
-                    {currentReceipt.paymentAccount?.name || 'Not set'}
+                <View style={styles.accountTag}>
+                  <Text style={styles.accountText} numberOfLines={1} ellipsizeMode="tail">
+                    {currentReceipt.account?.name || 'Not set'}
                   </Text>
                   <Ionicons name="chevron-down" size={14} color="#6C5CE7" style={styles.tagIcon} />
                 </View>
               ) : (
                 <Text style={styles.cardValue}>
-                  {currentReceipt.paymentAccount?.name || 'Not set'}
+                  {currentReceipt.account?.name || 'Not set'}
                 </Text>
               )}
             </TouchableOpacity>
@@ -1151,13 +1151,13 @@ export default function ReceiptDetailsScreen() {
 
       {/* 支付账户选择器 */}
       <Modal
-        visible={showPaymentAccountPicker}
+        visible={showAccountPicker}
         transparent={true}
         animationType="slide"
         statusBarTranslucent={true}
         onRequestClose={() => {
           console.log('Modal onRequestClose called');
-          setShowPaymentAccountPicker(false);
+          setShowAccountPicker(false);
         }}
       >
         <TouchableOpacity
@@ -1165,7 +1165,7 @@ export default function ReceiptDetailsScreen() {
           activeOpacity={1}
           onPress={() => {
             console.log('Overlay pressed, closing picker');
-            setShowPaymentAccountPicker(false);
+            setShowAccountPicker(false);
           }}
         >
           <View 
@@ -1174,12 +1174,12 @@ export default function ReceiptDetailsScreen() {
           >
             <View style={styles.pickerHandle} />
             <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>Select Payment Account</Text>
+              <Text style={styles.pickerTitle}>Select Account</Text>
               <TouchableOpacity
                 style={styles.pickerManageButton}
                 onPress={() => {
-                  setShowPaymentAccountPicker(false);
-                  router.push('/payment-accounts-manage');
+                  setShowAccountPicker(false);
+                  router.push('/accounts-manage');
                 }}
               >
                 <Ionicons name="settings-outline" size={18} color="#6C5CE7" />
@@ -1191,7 +1191,7 @@ export default function ReceiptDetailsScreen() {
               <TouchableOpacity
                 style={[
                   styles.pickerOption,
-                  !(editing ? editedReceipt : currentReceipt)?.paymentAccount && styles.pickerOptionSelected,
+                  !(editing ? editedReceipt : currentReceipt)?.account && styles.pickerOptionSelected,
                 ]}
                 onPress={() => {
                   const receiptToUpdate = editing ? editedReceipt : currentReceipt;
@@ -1199,14 +1199,14 @@ export default function ReceiptDetailsScreen() {
                     if (editing && editedReceipt) {
                       setEditedReceipt({
                         ...editedReceipt,
-                        paymentAccount: undefined,
-                        paymentAccountId: undefined,
+                        account: undefined,
+                        accountId: undefined,
                       });
                     } else {
                       setEditedReceipt({
                         ...currentReceipt,
-                        paymentAccount: undefined,
-                        paymentAccountId: undefined,
+                        account: undefined,
+                        accountId: undefined,
                       });
                       setEditing(true);
         // 初始化输入文本状态
@@ -1219,7 +1219,7 @@ export default function ReceiptDetailsScreen() {
         setPriceInputTexts(priceTexts);
                     }
                   }
-                  setShowPaymentAccountPicker(false);
+                  setShowAccountPicker(false);
                 }}
               >
                 <View
@@ -1231,20 +1231,20 @@ export default function ReceiptDetailsScreen() {
                 <Text
                   style={[
                     styles.pickerOptionText,
-                    !(editing ? editedReceipt : currentReceipt)?.paymentAccount && styles.pickerOptionTextSelected,
+                    !(editing ? editedReceipt : currentReceipt)?.account && styles.pickerOptionTextSelected,
                   ]}
                 >
                   Not set
                 </Text>
-                {!(editing ? editedReceipt : currentReceipt)?.paymentAccount && (
+                {!(editing ? editedReceipt : currentReceipt)?.account && (
                   <Ionicons name="checkmark" size={20} color="#6C5CE7" />
                 )}
               </TouchableOpacity>
 
               {/* 支付账户列表 */}
-              {paymentAccounts.map((account) => {
+              {accounts.map((account) => {
                 const receiptToCheck = editing ? editedReceipt : currentReceipt;
-                const isSelected = receiptToCheck?.paymentAccount?.id === account.id;
+                const isSelected = receiptToCheck?.account?.id === account.id;
                 return (
                   <TouchableOpacity
                     key={account.id}
@@ -1256,14 +1256,14 @@ export default function ReceiptDetailsScreen() {
                       if (editing && editedReceipt) {
                         setEditedReceipt({
                           ...editedReceipt,
-                          paymentAccount: account,
-                          paymentAccountId: account.id,
+                          account: account,
+                          accountId: account.id,
                         });
                       } else {
                         setEditedReceipt({
                           ...currentReceipt,
-                          paymentAccount: account,
-                          paymentAccountId: account.id,
+                          account: account,
+                          accountId: account.id,
                         });
                         setEditing(true);
         // 初始化输入文本状态
@@ -1275,7 +1275,7 @@ export default function ReceiptDetailsScreen() {
         });
         setPriceInputTexts(priceTexts);
                       }
-                      setShowPaymentAccountPicker(false);
+                      setShowAccountPicker(false);
                     }}
                   >
                     <View
@@ -1738,7 +1738,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   cardValue: {
-    // 与编辑模式下的 paymentAccountText 保持一致的文字样式
+    // 与编辑模式下的 accountText 保持一致的文字样式
     fontSize: 14,
     color: '#2D3436',
     fontWeight: '500',
@@ -1747,13 +1747,13 @@ const styles = StyleSheet.create({
     // 阅读模式下账户名整体向左移动约 20 像素（通过增加右侧留白实现，不改变卡片高度）
     marginRight: 37,
   },
-  paymentAccountTouchable: {
+  accountTouchable: {
     flex: 1,
     alignItems: 'flex-end',
     justifyContent: 'center',
     minHeight: 40, // 保持最小高度一致
   },
-  paymentAccountTag: {
+  accountTag: {
     flexDirection: 'row',
     alignItems: 'center',
     // 与币种、税、日期等编辑套框统一底色
@@ -1767,7 +1767,7 @@ const styles = StyleSheet.create({
     minWidth: 120,
     flexShrink: 0,
   },
-  paymentAccountText: {
+  accountText: {
     fontSize: 14,
     color: '#2D3436',
     fontWeight: '500',

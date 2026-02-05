@@ -28,6 +28,41 @@ export default function RootLayout() {
           }} 
         />
         <Stack.Screen 
+          name="ai-inventory" 
+          options={{ 
+            title: 'AI 进销存',
+            headerBackTitle: 'Home'
+          }} 
+        />
+        <Stack.Screen 
+          name="invoices" 
+          options={{ 
+            title: 'Invoices',
+            headerBackTitle: 'Back'
+          }} 
+        />
+        <Stack.Screen 
+          name="inbound" 
+          options={{ 
+            title: 'Inbound',
+            headerBackTitle: 'Back'
+          }} 
+        />
+        <Stack.Screen 
+          name="outbound" 
+          options={{ 
+            title: 'Outbound',
+            headerBackTitle: 'Back'
+          }} 
+        />
+        <Stack.Screen 
+          name="skus-manage" 
+          options={{ 
+            title: 'SKU 管理',
+            headerBackTitle: 'Back'
+          }} 
+        />
+        <Stack.Screen 
           name="receipt-details/[id]" 
           options={{ 
           title: 'Receipt Details'
@@ -74,9 +109,9 @@ export default function RootLayout() {
           }} 
         />
         <Stack.Screen 
-          name="payment-accounts-manage" 
+          name="accounts-manage" 
           options={{ 
-            title: 'Manage Payment Accounts',
+            title: 'Manage Accounts',
             headerBackTitle: 'Back',
             headerBackButtonVisible: true,
           }} 

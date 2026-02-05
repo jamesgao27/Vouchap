@@ -331,34 +331,10 @@ export default function ManagementScreen() {
   };
 
   const menuItems = [
-    {
-      id: 'members',
-      title: 'Members',
-      icon: 'people-outline',
-      route: '/space-members',
-      description: 'Manage space members',
-    },
-    {
-      id: 'categories',
-      title: 'Categories',
-      icon: 'pricetags-outline',
-      route: '/categories-manage',
-      description: 'Manage expense categories',
-    },
-    {
-      id: 'purposes',
-      title: 'Purposes',
-      icon: 'briefcase-outline',
-      route: '/purposes-manage',
-      description: 'Manage item purposes',
-    },
-    {
-      id: 'accounts',
-      title: 'Accounts',
-      icon: 'wallet-outline',
-      route: '/payment-accounts-manage',
-      description: 'Manage payment accounts',
-    },
+    { id: 'members', title: 'Members', icon: 'people-outline', route: '/space-members', description: 'Manage members & invitations' },
+    { id: 'categories', title: 'Categories', icon: 'pricetags-outline', route: '/categories-manage', description: 'Manage expense categories' },
+    { id: 'purposes', title: 'Purposes', icon: 'briefcase-outline', route: '/purposes-manage', description: 'Manage procurement purpose' },
+    { id: 'accounts', title: 'Accounts', icon: 'wallet-outline', route: '/accounts-manage', description: 'Manage and merge accounts' },
   ];
 
   return (

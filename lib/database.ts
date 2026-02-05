@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import { Receipt, ReceiptItem, ReceiptStatus } from '@/types';
 import { getCurrentUser } from './auth';
 import { findCategoryByName } from './categories';
-import { findOrCreatePaymentAccount } from './payment-accounts';
+import { findOrCreateAccount } from './accounts';
 import { findOrCreateSupplier } from './suppliers';
 
 // 将日期数据转换为 YYYY-MM-DD 格式的字符串，完全忠实于票面日期，不做任何时区转换
@@ -87,10 +87,10 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
     }
 
     // 处理支付账户ID
-    let paymentAccountId = receipt.paymentAccountId;
-    if (!paymentAccountId && receipt.paymentAccount) {
-      const account = await findOrCreatePaymentAccount(receipt.paymentAccount.name || receipt.paymentAccount.id, true);
-      paymentAccountId = account.id;
+    let accountId = receipt.accountId;
+    if (!accountId && receipt.account) {
+      const account = await findOrCreateAccount(receipt.account.name || receipt.account.id, true);
+      accountId = account.id;
     }
 
     // 先保存小票主记录
@@ -104,7 +104,7 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
         currency: receipt.currency,
         tax: receipt.tax,
         date: receipt.date,
-        payment_account_id: paymentAccountId,
+        account_id: accountId,
         status: receipt.status,
         image_url: receipt.imageUrl,
         input_type: receipt.inputType || 'image', // 提交方式，默认为图片
@@ -281,10 +281,10 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
     }
 
     // 处理支付账户ID
-    let paymentAccountId = receipt.paymentAccountId;
-    if (!paymentAccountId && receipt.paymentAccount) {
-      const account = await findOrCreatePaymentAccount(receipt.paymentAccount.name || receipt.paymentAccount.id, true);
-      paymentAccountId = account.id;
+    let accountId = receipt.accountId;
+    if (!accountId && receipt.account) {
+      const account = await findOrCreateAccount(receipt.account.name || receipt.account.id, true);
+      accountId = account.id;
     }
 
     // 更新小票主记录
@@ -296,7 +296,7 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
     if (receipt.currency !== undefined) updateData.currency = receipt.currency;
     if (receipt.tax !== undefined) updateData.tax = receipt.tax;
     if (receipt.date !== undefined) updateData.date = receipt.date;
-    if (paymentAccountId !== undefined) updateData.payment_account_id = paymentAccountId;
+    if (accountId !== undefined) updateData.account_id = accountId;
     if (receipt.status !== undefined) updateData.status = receipt.status;
     if (receipt.confidence !== undefined) updateData.confidence = receipt.confidence;
     if (receipt.imageUrl !== undefined) updateData.image_url = receipt.imageUrl;
@@ -375,7 +375,7 @@ export async function getAllReceipts(): Promise<Receipt[]> {
       .select(`
         *,
         suppliers (*),
-        payment_accounts (*),
+        accounts (*),
         created_by_user:users!created_by (
           id,
           email,
@@ -415,14 +415,14 @@ export async function getAllReceipts(): Promise<Receipt[]> {
       currency: row.currency,
       tax: row.tax,
       date: normalizeDate(row.date),
-      paymentAccountId: row.payment_account_id,
-      paymentAccount: row.payment_accounts ? {
-        id: row.payment_accounts.id,
-        spaceId: row.payment_accounts.space_id,
-        name: row.payment_accounts.name,
-        isAiRecognized: row.payment_accounts.is_ai_recognized,
-        createdAt: row.payment_accounts.created_at,
-        updatedAt: row.payment_accounts.updated_at,
+      accountId: row.account_id,
+      account: row.accounts ? {
+        id: row.accounts.id,
+        spaceId: row.accounts.space_id,
+        name: row.accounts.name,
+        isAiRecognized: row.accounts.is_ai_recognized,
+        createdAt: row.accounts.created_at,
+        updatedAt: row.accounts.updated_at,
       } : undefined,
       status: row.status as ReceiptStatus,
       imageUrl: row.image_url,
@@ -575,7 +575,7 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
       .select(`
         *,
         suppliers (*),
-        payment_accounts (*),
+        accounts (*),
         created_by_user:users!created_by (
           id,
           email,
@@ -619,14 +619,14 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
       currency: data.currency,
       tax: data.tax,
       date: normalizeDate(data.date),
-      paymentAccountId: data.payment_account_id,
-      paymentAccount: data.payment_accounts ? {
-        id: data.payment_accounts.id,
-        spaceId: data.payment_accounts.space_id,
-        name: data.payment_accounts.name,
-        isAiRecognized: data.payment_accounts.is_ai_recognized,
-        createdAt: data.payment_accounts.created_at,
-        updatedAt: data.payment_accounts.updated_at,
+      accountId: data.account_id,
+      account: data.accounts ? {
+        id: data.accounts.id,
+        spaceId: data.accounts.space_id,
+        name: data.accounts.name,
+        isAiRecognized: data.accounts.is_ai_recognized,
+        createdAt: data.accounts.created_at,
+        updatedAt: data.accounts.updated_at,
       } : undefined,
       status: data.status as ReceiptStatus,
       imageUrl: data.image_url,
@@ -694,7 +694,7 @@ export async function deleteReceipt(receiptId: string): Promise<void> {
     }
 
     const supplierId = receipt.supplierId;
-    const paymentAccountId = receipt.paymentAccountId;
+    const accountId = receipt.accountId;
 
     // 1. 删除关联的图片
     if (receipt.imageUrl) {
@@ -812,36 +812,38 @@ export async function deleteReceipt(receiptId: string): Promise<void> {
       }
     }
 
-    // 5. 清理孤立的支付账户（如果未被其他小票引用）
-    if (paymentAccountId) {
+    // 5. 清理孤立的账户（若未被 receipts/invoices 引用）
+    if (accountId) {
       try {
-        const { count: accountRefCount } = await supabase
+        const { count: receiptRefCount } = await supabase
           .from('receipts')
           .select('id', { count: 'exact', head: true })
-          .eq('payment_account_id', paymentAccountId);
+          .eq('account_id', accountId);
+        const { count: invoiceRefCount } = await supabase
+          .from('invoices')
+          .select('id', { count: 'exact', head: true })
+          .eq('account_id', accountId);
 
-        if (accountRefCount === 0) {
-          // 检查是否有合并记录指向该账户
-          const { count: mergeCount } = await supabase
-            .from('payment_account_merge_history')
-            .select('id', { count: 'exact', head: true })
-            .or(`source_id.eq.${paymentAccountId},target_id.eq.${paymentAccountId}`);
-
-          if (!mergeCount || mergeCount === 0) {
+        if (receiptRefCount === 0 && invoiceRefCount === 0) {
+          const { data: mergeRows } = await supabase
+            .from('account_merge_history')
+            .select('id')
+            .eq('target_account_id', accountId)
+            .limit(1);
+          if (!mergeRows?.length) {
             const { error: deleteAccountError } = await supabase
-              .from('payment_accounts')
+              .from('accounts')
               .delete()
-              .eq('id', paymentAccountId);
-
+              .eq('id', accountId);
             if (deleteAccountError) {
-              console.warn('Failed to delete orphan payment account:', deleteAccountError);
+              console.warn('Failed to delete orphan account:', deleteAccountError);
             } else {
-              console.log('Deleted orphan payment account:', paymentAccountId);
+              console.log('Deleted orphan account:', accountId);
             }
           }
         }
       } catch (accountError) {
-        console.warn('Error cleaning up payment account:', accountError);
+        console.warn('Error cleaning up account:', accountError);
       }
     }
 

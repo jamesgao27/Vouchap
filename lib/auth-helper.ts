@@ -33,24 +33,21 @@ export async function createDefaultCategoriesAndAccounts(spaceId: string): Promi
     }
   }
 
-  // 创建默认支付账户（只创建 Cash）
-  console.log('Creating default payment account (Cash only)');
-  const { error: paymentAccountsError } = await supabase.rpc('create_default_payment_accounts', {
+  // 创建默认账户（只创建 Cash）
+  console.log('Creating default account (Cash only)');
+  const { error: paymentAccountsError } = await supabase.rpc('create_default_accounts', {
     p_space_id: spaceId,
   });
 
   if (paymentAccountsError) {
-    console.warn('RPC创建默认支付账户失败，尝试手动创建:', paymentAccountsError);
-    // 如果RPC失败，手动创建默认支付账户（只创建 Cash）
-    const { error: manualPaymentAccountsError } = await supabase.from('payment_accounts').insert([
+    console.warn('RPC创建默认账户失败，尝试手动创建:', paymentAccountsError);
+    const { error: manualAccountsError } = await supabase.from('accounts').insert([
       { space_id: spaceId, name: 'Cash', is_ai_recognized: true },
     ]);
-    
-    if (manualPaymentAccountsError) {
-      console.error('手动创建默认支付账户也失败:', manualPaymentAccountsError);
-      // 不抛出错误，允许继续，用户可以稍后手动创建
+    if (manualAccountsError) {
+      console.error('手动创建默认账户也失败:', manualAccountsError);
     } else {
-      console.log('默认支付账户（Cash）创建成功');
+      console.log('默认账户（Cash）创建成功');
     }
   }
 

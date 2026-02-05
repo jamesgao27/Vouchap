@@ -143,8 +143,8 @@ export async function checkDuplicateReceipt(newReceipt: Receipt): Promise<Receip
       }
       
       // 4. 检查支付账户是否相同（如果都有支付账户）
-      if (newReceipt.paymentAccountId && existingReceipt.paymentAccountId) {
-        if (newReceipt.paymentAccountId === existingReceipt.paymentAccountId) {
+      if (newReceipt.accountId && existingReceipt.accountId) {
+        if (newReceipt.accountId === existingReceipt.accountId) {
           matchScore += 1;
           totalChecks++;
         }

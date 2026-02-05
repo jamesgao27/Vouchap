@@ -15,8 +15,8 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { saveReceipt } from '@/lib/database';
-import { getPaymentAccounts } from '@/lib/payment-accounts';
-import { Receipt, ReceiptStatus, PaymentAccount } from '@/types';
+import { getAccounts } from '@/lib/accounts';
+import { Receipt, ReceiptStatus, Account } from '@/types';
 import { format } from 'date-fns';
 
 export default function ManualEntryScreen() {
@@ -24,19 +24,19 @@ export default function ManualEntryScreen() {
   const [supplierName, setSupplierName] = useState('');
   const [date, setDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [totalAmount, setTotalAmount] = useState('');
-  const [paymentAccountId, setPaymentAccountId] = useState<string | undefined>(undefined);
-  const [paymentAccounts, setPaymentAccounts] = useState<PaymentAccount[]>([]);
-  const [showPaymentAccountPicker, setShowPaymentAccountPicker] = useState(false);
+  const [accountId, setAccountId] = useState<string | undefined>(undefined);
+  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [showAccountPicker, setShowAccountPicker] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    loadPaymentAccounts();
+    loadAccounts();
   }, []);
 
-  const loadPaymentAccounts = async () => {
+  const loadAccounts = async () => {
     try {
-      const accounts = await getPaymentAccounts();
-      setPaymentAccounts(accounts);
+      const data = await getAccounts();
+      setAccounts(data);
     } catch (error) {
       console.error('Error loading payment accounts:', error);
     }
@@ -72,7 +72,7 @@ export default function ManualEntryScreen() {
         items: [],
         currency: 'USD',
         tax: 0,
-        paymentAccountId: paymentAccountId,
+        accountId: accountId,
       };
 
       const receiptId = await saveReceipt(receipt);
@@ -81,7 +81,7 @@ export default function ManualEntryScreen() {
       setSupplierName('');
       setDate(format(new Date(), 'yyyy-MM-dd'));
       setTotalAmount('');
-      setPaymentAccountId(undefined);
+      setAccountId(undefined);
       router.back();
     } catch (error) {
       console.error('Error saving receipt:', error);
@@ -91,7 +91,7 @@ export default function ManualEntryScreen() {
     }
   };
 
-  const selectedPaymentAccount = paymentAccounts.find(acc => acc.id === paymentAccountId);
+  const selectedAccount = accounts.find(acc => acc.id === accountId);
 
   return (
     <KeyboardAvoidingView
@@ -153,13 +153,13 @@ export default function ManualEntryScreen() {
             <Text style={styles.label}>Payment Account</Text>
             <TouchableOpacity
               style={styles.pickerButton}
-              onPress={() => setShowPaymentAccountPicker(true)}
+              onPress={() => setShowAccountPicker(true)}
             >
               <Text style={[
                 styles.pickerText,
-                !selectedPaymentAccount && styles.pickerPlaceholder
+                !selectedAccount && styles.pickerPlaceholder
               ]}>
-                {selectedPaymentAccount ? selectedPaymentAccount.name : 'Select payment account'}
+                {selectedAccount ? selectedAccount.name : 'Select account'}
               </Text>
               <Ionicons name="chevron-down" size={20} color="#636E72" />
             </TouchableOpacity>
@@ -185,13 +185,13 @@ export default function ManualEntryScreen() {
       </View>
 
       {/* Payment Account Picker Modal */}
-      {showPaymentAccountPicker && (
+      {showAccountPicker && (
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Select Payment Account</Text>
               <TouchableOpacity
-                onPress={() => setShowPaymentAccountPicker(false)}
+                onPress={() => setShowAccountPicker(false)}
                 style={styles.modalCloseButton}
               >
                 <Ionicons name="close" size={24} color="#2D3436" />
@@ -201,36 +201,36 @@ export default function ManualEntryScreen() {
               <TouchableOpacity
                 style={styles.modalItem}
                 onPress={() => {
-                  setPaymentAccountId(undefined);
-                  setShowPaymentAccountPicker(false);
+                  setAccountId(undefined);
+                  setShowAccountPicker(false);
                 }}
               >
                 <Text style={[
                   styles.modalItemText,
-                  !paymentAccountId && styles.modalItemTextSelected
+                  !accountId && styles.modalItemTextSelected
                 ]}>
                   None
                 </Text>
-                {!paymentAccountId && (
+                {!accountId && (
                   <Ionicons name="checkmark" size={20} color="#6C5CE7" />
                 )}
               </TouchableOpacity>
-              {paymentAccounts.map((account) => (
+              {accounts.map((account) => (
                 <TouchableOpacity
                   key={account.id}
                   style={styles.modalItem}
                   onPress={() => {
-                    setPaymentAccountId(account.id);
-                    setShowPaymentAccountPicker(false);
+                    setAccountId(account.id);
+                    setShowAccountPicker(false);
                   }}
                 >
                   <Text style={[
                     styles.modalItemText,
-                    paymentAccountId === account.id && styles.modalItemTextSelected
+                    accountId === account.id && styles.modalItemTextSelected
                   ]}>
                     {account.name}
                   </Text>
-                  {paymentAccountId === account.id && (
+                  {accountId === account.id && (
                     <Ionicons name="checkmark" size={20} color="#6C5CE7" />
                   )}
                 </TouchableOpacity>

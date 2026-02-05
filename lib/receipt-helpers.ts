@@ -2,7 +2,7 @@ import { GeminiReceiptResult, Receipt, ReceiptStatus } from '@/types';
 import { getCurrentUser } from './auth';
 import { findCategoryByName, getCategories } from './categories';
 import { findPurposeByName, getPurposes } from './purposes';
-import { findOrCreatePaymentAccount } from './payment-accounts';
+import { findOrCreateAccount } from './accounts';
 import { findOrCreateSupplier } from './suppliers';
 
 // 将 Gemini 识别结果转换为 Receipt 格式
@@ -43,10 +43,10 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
   }
 
   // 处理支付账户
-  let paymentAccountId: string | undefined;
+  let accountId: string | undefined;
   if (result.paymentAccountName) {
-    const account = await findOrCreatePaymentAccount(result.paymentAccountName, true);
-    paymentAccountId = account.id;
+    const account = await findOrCreateAccount(result.paymentAccountName, true);
+    accountId = account.id;
   }
 
   // 处理商品项，匹配分类
@@ -236,7 +236,7 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
     currency: result.currency,
     tax: result.tax,
     date: result.date,
-    paymentAccountId: paymentAccountId,
+    accountId: accountId,
     status: status,
     items: items,
     confidence: adjustedConfidence, // 使用调整后的置信度

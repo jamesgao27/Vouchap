@@ -625,6 +625,7 @@ export default function HomeScreen() {
         <Text style={styles.secondaryButtonText}>Receipts List</Text>
       </TouchableOpacity>
 
+      {/* AI 进销存入口已隐藏，待后续版本开放 */}
       {/* Space Switch Modal */}
       <Modal
         animationType="slide"
