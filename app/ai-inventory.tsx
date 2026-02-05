@@ -30,6 +30,7 @@ export default function AIInventoryScreen() {
       title: '基础数据',
       items: [
         { label: '商品 SKU 管理', route: '/skus-manage', icon: 'cube-outline' as const },
+        { label: '仓库仓位管理', route: '/warehouse-manage', icon: 'business-outline' as const },
       ],
     },
   ];

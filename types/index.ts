@@ -134,6 +134,27 @@ export interface DataConsistency {
 
 // ---------- AI 进销存 ----------
 
+// 仓库
+export interface Warehouse {
+  id: string;
+  spaceId: string;
+  name: string;
+  code?: string;
+  address?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// 仓位（归属仓库）
+export interface Location {
+  id: string;
+  warehouseId: string;
+  name: string;
+  code?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 // 标准 SKU（商品主数据）
 export interface Sku {
   id: string;

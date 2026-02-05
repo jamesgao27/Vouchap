@@ -625,7 +625,14 @@ export default function HomeScreen() {
         <Text style={styles.secondaryButtonText}>Receipts List</Text>
       </TouchableOpacity>
 
-      {/* AI 进销存入口已隐藏，待后续版本开放 */}
+      <TouchableOpacity 
+        style={[styles.secondaryButton, { marginTop: 12 }]}
+        onPress={() => router.push('/ai-inventory')}
+      >
+        <Ionicons name="cube-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
+        <Text style={styles.secondaryButtonText}>AI 进销存</Text>
+      </TouchableOpacity>
+
       {/* Space Switch Modal */}
       <Modal
         animationType="slide"

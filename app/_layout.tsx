@@ -63,6 +63,13 @@ export default function RootLayout() {
           }} 
         />
         <Stack.Screen 
+          name="warehouse-manage" 
+          options={{ 
+            title: '仓库仓位管理',
+            headerBackTitle: 'Back'
+          }} 
+        />
+        <Stack.Screen 
           name="receipt-details/[id]" 
           options={{ 
           title: 'Receipt Details'
