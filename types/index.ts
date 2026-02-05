@@ -176,7 +176,9 @@ export interface InvoiceItem {
   id?: string;
   name: string;
   categoryId?: string | null;
+  category?: Category;
   purposeId?: string | null;
+  purpose?: Purpose | null;
   price: number;
   isAsset?: boolean;
   confidence?: number;
@@ -192,12 +194,14 @@ export interface Invoice {
   tax?: number;
   date: string;
   accountId?: string | null;
+  account?: Account;
   status: VoucherStatus;
   imageUrl?: string;
   inputType?: InputType;
   confidence?: number;
   processedBy?: string;
   createdBy?: string | null;
+  createdByUser?: User;
   items: InvoiceItem[];
   createdAt?: string;
   updatedAt?: string;
@@ -265,6 +269,9 @@ export interface Outbound {
   updatedAt?: string;
 }
 
+// 凭证记录类别：由列表页入口决定，不由大模型判断
+export type VoucherLogType = 'receipt' | 'invoice' | 'inbound' | 'outbound';
+
 // Gemini识别结果（使用分类名称，后续会匹配到分类ID）
 export interface GeminiReceiptResult {
   supplierName: string;
@@ -289,5 +296,32 @@ export interface GeminiReceiptResult {
   confidence?: number; // 可选，整体识别置信度 0-1
   imageQuality?: ImageQuality; // 图片质量评价
   dataConsistency?: DataConsistency; // 数据一致性检查
+}
+
+/** 统一凭证识别结果：receipt 用 supplierName，invoice 用 customerName，其余字段共用 */
+export interface GeminiVoucherResult {
+  supplierName?: string;
+  customerName?: string;
+  supplierInfo?: {
+    taxNumber?: string;
+    phone?: string;
+    address?: string;
+  };
+  date: string;
+  totalAmount: number;
+  currency?: string;
+  paymentAccountName?: string;
+  tax?: number;
+  items: Array<{
+    name: string;
+    categoryName: string;
+    price: number;
+    purposeName?: string;
+    isAsset?: boolean;
+    confidence?: number;
+  }>;
+  confidence?: number;
+  imageQuality?: ImageQuality;
+  dataConsistency?: DataConsistency;
 }
 

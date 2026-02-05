@@ -12,19 +12,33 @@ function rowToInvoice(row: any, items: InvoiceItem[] = []): Invoice {
     tax: row.tax != null ? Number(row.tax) : undefined,
     date: row.date,
     accountId: row.account_id ?? undefined,
+    account: row.accounts ? {
+      id: row.accounts.id,
+      spaceId: row.accounts.space_id,
+      name: row.accounts.name,
+      isAiRecognized: row.accounts.is_ai_recognized,
+      createdAt: row.accounts.created_at,
+      updatedAt: row.accounts.updated_at,
+    } : undefined,
     status: row.status ?? 'pending',
     imageUrl: row.image_url ?? undefined,
     inputType: row.input_type ?? 'image',
     confidence: row.confidence != null ? Number(row.confidence) : undefined,
     processedBy: row.processed_by ?? undefined,
     createdBy: row.created_by ?? undefined,
+    createdByUser: row.created_by_user ? {
+      id: row.created_by_user.id,
+      email: row.created_by_user.email,
+      name: row.created_by_user.name,
+      spaceId: row.created_by_user.current_space_id ?? null,
+    } : undefined,
     items,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-/** 获取当前空间下所有发票（列表用，不含明细） */
+/** 获取当前空间下所有发票（列表用，含 account / createdByUser，不含明细） */
 export async function getAllInvoices(): Promise<Invoice[]> {
   const user = await getCurrentUser();
   if (!user) throw new Error('Not logged in');
@@ -33,7 +47,16 @@ export async function getAllInvoices(): Promise<Invoice[]> {
 
   const { data, error } = await supabase
     .from('invoices')
-    .select('*')
+    .select(`
+      *,
+      accounts (*),
+      created_by_user:users!created_by (
+        id,
+        email,
+        name,
+        current_space_id
+      )
+    `)
     .eq('space_id', spaceId)
     .order('date', { ascending: false });
 
@@ -41,18 +64,31 @@ export async function getAllInvoices(): Promise<Invoice[]> {
   return (data || []).map((r: any) => rowToInvoice(r, []));
 }
 
-/** 根据 ID 获取发票（含明细） */
+/** 根据 ID 获取发票（含明细、account、createdByUser、items 的 category/purpose） */
 export async function getInvoiceById(invoiceId: string): Promise<Invoice | null> {
   const { data: inv, error: invError } = await supabase
     .from('invoices')
-    .select('*')
+    .select(`
+      *,
+      accounts (*),
+      created_by_user:users!created_by (
+        id,
+        email,
+        name,
+        current_space_id
+      )
+    `)
     .eq('id', invoiceId)
     .single();
   if (invError || !inv) return null;
 
   const { data: itemRows, error: itemsError } = await supabase
     .from('invoice_items')
-    .select('*')
+    .select(`
+      *,
+      categories (*),
+      purposes (*)
+    `)
     .eq('invoice_id', invoiceId)
     .order('id', { ascending: true });
   if (itemsError) return rowToInvoice(inv, []);
@@ -61,7 +97,25 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
     id: r.id,
     name: r.name,
     categoryId: r.category_id ?? undefined,
+    category: r.categories ? {
+      id: r.categories.id,
+      spaceId: r.categories.space_id,
+      name: r.categories.name,
+      color: r.categories.color,
+      isDefault: r.categories.is_default,
+      createdAt: r.categories.created_at,
+      updatedAt: r.categories.updated_at,
+    } : undefined,
     purposeId: r.purpose_id ?? undefined,
+    purpose: r.purposes ? {
+      id: r.purposes.id,
+      spaceId: r.purposes.space_id,
+      name: r.purposes.name,
+      color: r.purposes.color,
+      isDefault: r.purposes.is_default,
+      createdAt: r.purposes.created_at,
+      updatedAt: r.purposes.updated_at,
+    } : undefined,
     price: Number(r.price),
     isAsset: r.is_asset ?? false,
     confidence: r.confidence != null ? Number(r.confidence) : undefined,
@@ -149,5 +203,21 @@ export async function saveInvoice(invoice: Invoice): Promise<string> {
 /** 删除发票 */
 export async function deleteInvoice(invoiceId: string): Promise<void> {
   const { error } = await supabase.from('invoices').delete().eq('id', invoiceId);
+  if (error) throw error;
+}
+
+/** 更新发票单条明细的某个字段（用于详情页直接点选分类/用途/资产） */
+export async function updateInvoiceItem(
+  invoiceId: string,
+  itemId: string,
+  field: 'categoryId' | 'purposeId' | 'isAsset',
+  value: any
+): Promise<void> {
+  const col = field === 'categoryId' ? 'category_id' : field === 'purposeId' ? 'purpose_id' : 'is_asset';
+  const { error } = await supabase
+    .from('invoice_items')
+    .update({ [col]: value })
+    .eq('id', itemId)
+    .eq('invoice_id', invoiceId);
   if (error) throw error;
 }

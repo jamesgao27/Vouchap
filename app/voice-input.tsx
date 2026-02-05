@@ -14,14 +14,15 @@ import {
   Keyboard,
   Animated,
 } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { recognizeReceiptFromText, recognizeReceiptFromAudio } from '@/lib/gemini';
+import { recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio } from '@/lib/gemini';
 import { saveReceipt, updateReceipt, getReceiptById } from '@/lib/database';
-import { saveChatLog, getChatLogsPaginated } from '@/lib/chat-logs';
-import { ReceiptStatus, Receipt } from '@/types';
-import { convertGeminiResultToReceipt } from '@/lib/receipt-helpers';
+import { saveInvoice, getInvoiceById } from '@/lib/invoices';
+import { saveChatLog, getChatLogsPaginated, VoucherLogType } from '@/lib/chat-logs';
+import { ReceiptStatus, Receipt, Invoice } from '@/types';
+import { convertGeminiResultToReceipt, convertGeminiResultToInvoice } from '@/lib/receipt-helpers';
 import { format } from 'date-fns';
 import { 
   startRecording, 
@@ -52,17 +53,23 @@ interface Message {
   text: string;
   isUser: boolean;
   timestamp: Date;
-  receiptPreview?: Receipt; // 识别结果预览
-  receiptDeleted?: boolean; // 对应小票是否已被删除（用于更新按钮状态）
-  audioUrl?: string; // 语音消息的录音 URL
-  isPlayingAudio?: boolean; // 是否正在播放此音频
+  receiptPreview?: Receipt;
+  invoicePreview?: Invoice;
+  receiptDeleted?: boolean;
+  invoiceDeleted?: boolean;
+  voucherType?: VoucherLogType; // 当前记录类别，用于详情跳转
+  audioUrl?: string;
+  isPlayingAudio?: boolean;
 }
 
 export default function VoiceInputScreen() {
   const router = useRouter();
+  const params = useLocalSearchParams<{ type?: string }>();
+  const voucherType: VoucherLogType = (params.type === 'invoice' || params.type === 'inbound' || params.type === 'outbound') ? params.type : 'receipt';
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmedReceipts, setConfirmedReceipts] = useState<Set<string>>(new Set());
+  const [confirmedInvoices, setConfirmedInvoices] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -113,19 +120,13 @@ export default function VoiceInputScreen() {
     const loadInitialHistory = async () => {
       try {
         setIsLoadingHistory(true);
-        const logs = await getChatLogsPaginated(20);
+        const logs = await getChatLogsPaginated(20, undefined, voucherType);
 
         if (!logs || logs.length === 0) {
-          // 没有历史时，显示默认欢迎文案
-          setMessages([
-            {
-              id: 'welcome',
-              text:
-                'Hi! I can help you create receipts from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"',
-              isUser: false,
-              timestamp: new Date(),
-            },
-          ]);
+          const welcomeText = voucherType === 'invoice'
+            ? 'Hi! Describe your invoice (sale / money received). I\'ll extract customer, amount, and items.\n\nExample: "Client ABC paid $500 on March 15 for consulting. Items: Service $500"'
+            : 'Hi! I can help you create receipts from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"';
+          setMessages([{ id: 'welcome', text: welcomeText, isUser: false, timestamp: new Date() }]);
           setHasMoreHistory(false);
           return;
         }
@@ -149,8 +150,18 @@ export default function VoiceInputScreen() {
             });
           }
 
-          // 系统回复 + 预览卡片
-          if (log.responseData?.receiptPreview) {
+          const logType = log.voucherType ?? 'receipt';
+          if (log.responseData?.invoicePreview && logType === 'invoice') {
+            const preview = log.responseData.invoicePreview as Invoice;
+            restoredMessages.push({
+              id: `${log.id}-preview`,
+              text: '',
+              isUser: false,
+              timestamp: new Date(log.createdAt),
+              invoicePreview: preview,
+              voucherType: 'invoice',
+            });
+          } else if (log.responseData?.receiptPreview) {
             const preview = log.responseData.receiptPreview as Receipt;
             restoredMessages.push({
               id: `${log.id}-preview`,
@@ -158,6 +169,7 @@ export default function VoiceInputScreen() {
               isUser: false,
               timestamp: new Date(log.createdAt),
               receiptPreview: preview,
+              voucherType: 'receipt',
             });
           } else if (log.response) {
             restoredMessages.push({
@@ -170,37 +182,33 @@ export default function VoiceInputScreen() {
         }
 
         if (restoredMessages.length === 0) {
-          // 兜底：如果没有任何可还原的消息，也展示欢迎文案一次
-          setMessages([
-            {
-              id: 'welcome',
-              text:
-                'Hi! I can help you create receipts from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"',
-              isUser: false,
-              timestamp: new Date(),
-            },
-          ]);
+          const welcomeText = voucherType === 'invoice'
+            ? 'Hi! Describe your invoice (sale / money received). I\'ll extract customer, amount, and items.'
+            : 'Hi! I can help you create receipts from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"';
+          setMessages([{ id: 'welcome', text: welcomeText, isUser: false, timestamp: new Date() }]);
           setHasMoreHistory(false);
         } else {
-          // 加载时就根据真实小票状态，预先打上已删除 / 已确认等标记
           const enriched = await Promise.all(
             restoredMessages.map(async (msg) => {
+              if (msg.invoicePreview?.id) {
+                try {
+                  const invoice = await getInvoiceById(msg.invoicePreview.id);
+                  if (!invoice) return { ...msg, invoiceDeleted: true };
+                  return { ...msg, invoicePreview: { ...msg.invoicePreview, status: invoice.status }, invoiceDeleted: false };
+                } catch {
+                  return { ...msg, invoiceDeleted: true };
+                }
+              }
               if (!msg.receiptPreview?.id) return msg;
               try {
                 const receipt = await getReceiptById(msg.receiptPreview.id);
-                if (!receipt) {
-                  return { ...msg, receiptDeleted: true };
-                }
+                if (!receipt) return { ...msg, receiptDeleted: true };
                 return {
                   ...msg,
-                  receiptPreview: {
-                    ...msg.receiptPreview,
-                    status: receipt.status as ReceiptStatus,
-                  },
+                  receiptPreview: { ...msg.receiptPreview, status: receipt.status as ReceiptStatus },
                   receiptDeleted: false,
                 };
               } catch {
-                // 查询失败时，保守认为已删除
                 return { ...msg, receiptDeleted: true };
               }
             }),
@@ -244,7 +252,7 @@ export default function VoiceInputScreen() {
       keyboardWillShow.remove();
       keyboardWillHide.remove();
     };
-  }, []);
+  }, [voucherType]);
 
   // 向上滚动时加载更多历史记录
   const handleScroll = async (event: any) => {
@@ -254,7 +262,7 @@ export default function VoiceInputScreen() {
     if (contentOffset.y <= 0) {
       try {
         setIsLoadingHistory(true);
-        const moreLogs = await getChatLogsPaginated(20, oldestLoadedAt);
+        const moreLogs = await getChatLogsPaginated(20, oldestLoadedAt, voucherType);
 
         if (!moreLogs || moreLogs.length === 0) {
           setHasMoreHistory(false);
@@ -275,7 +283,18 @@ export default function VoiceInputScreen() {
               timestamp: new Date(log.createdAt),
             });
           }
-          if (log.responseData?.receiptPreview) {
+          const logType = log.voucherType ?? 'receipt';
+          if (log.responseData?.invoicePreview && logType === 'invoice') {
+            const preview = log.responseData.invoicePreview as Invoice;
+            moreMessagesRaw.push({
+              id: `${log.id}-preview`,
+              text: '',
+              isUser: false,
+              timestamp: new Date(log.createdAt),
+              invoicePreview: preview,
+              voucherType: 'invoice',
+            });
+          } else if (log.responseData?.receiptPreview) {
             const preview = log.responseData.receiptPreview as Receipt;
             moreMessagesRaw.push({
               id: `${log.id}-preview`,
@@ -283,6 +302,7 @@ export default function VoiceInputScreen() {
               isUser: false,
               timestamp: new Date(log.createdAt),
               receiptPreview: preview,
+              voucherType: 'receipt',
             });
           } else if (log.response) {
             moreMessagesRaw.push({
@@ -294,21 +314,24 @@ export default function VoiceInputScreen() {
           }
         }
 
-        // 向上加载更多历史时，同样在加载阶段就识别删除/状态
         const moreMessages = await Promise.all(
           moreMessagesRaw.map(async (msg) => {
+            if (msg.invoicePreview?.id) {
+              try {
+                const invoice = await getInvoiceById(msg.invoicePreview.id);
+                if (!invoice) return { ...msg, invoiceDeleted: true };
+                return { ...msg, invoicePreview: { ...msg.invoicePreview, status: invoice.status }, invoiceDeleted: false };
+              } catch {
+                return { ...msg, invoiceDeleted: true };
+              }
+            }
             if (!msg.receiptPreview?.id) return msg;
             try {
               const receipt = await getReceiptById(msg.receiptPreview.id);
-              if (!receipt) {
-                return { ...msg, receiptDeleted: true };
-              }
+              if (!receipt) return { ...msg, receiptDeleted: true };
               return {
                 ...msg,
-                receiptPreview: {
-                  ...msg.receiptPreview,
-                  status: receipt.status as ReceiptStatus,
-                },
+                receiptPreview: { ...msg.receiptPreview, status: receipt.status as ReceiptStatus },
                 receiptDeleted: false,
               };
             } catch {
@@ -329,33 +352,35 @@ export default function VoiceInputScreen() {
     }
   };
 
-  // 详情按钮：进入前先检查小票是否还存在，删除的话更新卡片状态
   const handlePreviewDetails = async (message: Message) => {
+    const invoiceId = message.invoicePreview?.id;
+    if (invoiceId) {
+      try {
+        const invoice = await getInvoiceById(invoiceId);
+        if (!invoice) {
+          setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, invoiceDeleted: true } : m)));
+          Alert.alert('Invoice Deleted', 'This invoice has been deleted.');
+          return;
+        }
+        router.push(`/invoice-details/${invoiceId}`);
+      } catch (error) {
+        setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, invoiceDeleted: true } : m)));
+        Alert.alert('Invoice Deleted', 'This invoice has been deleted.');
+      }
+      return;
+    }
     const receiptId = message.receiptPreview?.id;
     if (!receiptId) return;
-
     try {
       const receipt = await getReceiptById(receiptId);
       if (!receipt) {
-        // 视为已删除
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === message.id ? { ...m, receiptDeleted: true } : m,
-          ),
-        );
+        setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, receiptDeleted: true } : m)));
         Alert.alert('Receipt Deleted', 'This receipt has been deleted.');
         return;
       }
-
       router.push(`/receipt-details/${receiptId}`);
     } catch (error) {
-      console.error('Error loading receipt for preview:', error);
-      // 绝大多数情况下，异常意味着记录已被删除或无权限访问
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === message.id ? { ...m, receiptDeleted: true } : m,
-        ),
-      );
+      setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, receiptDeleted: true } : m)));
       Alert.alert('Receipt Deleted', 'This receipt has been deleted.');
     }
   };
@@ -381,51 +406,66 @@ export default function VoiceInputScreen() {
     }, 100);
 
     try {
-      // 调用Gemini识别文字
-      const result = await recognizeReceiptFromText(text);
-      
-      // 转换为Receipt格式
-      const receipt = await convertGeminiResultToReceipt(result);
-      
-      // 保存到数据库（确保状态为pending，标记为文字输入）
-      const receiptToSave = {
-        ...receipt,
-        status: 'pending' as ReceiptStatus,
-        inputType: 'text' as const,
-      };
-      const receiptId = await saveReceipt(receiptToSave);
-
-      // 添加识别结果预览消息（包含支付账户信息用于显示，状态为pending）
-      const previewMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: '',
-        isUser: false,
-        timestamp: new Date(),
-        receiptPreview: { 
-          ...receiptToSave, 
-          id: receiptId,
-          status: 'pending' as ReceiptStatus,
-          account: result.paymentAccountName ? {
-            id: receipt.accountId || '',
-            spaceId: receipt.spaceId,
-            name: result.paymentAccountName,
-            isAiRecognized: true,
-          } : undefined,
-        },
-      };
-      setMessages(prev => [...prev, previewMessage]);
-
-      // 将本次对话写入 ai_chat_logs，便于下次进入继续看到历史
-      await saveChatLog({
-        receiptId,
-        type: 'text',
-        modelName: 'gemini',
-        prompt: text,
-        response: previewMessage.text,
-        requestData: { rawText: text },
-        responseData: { receiptPreview: previewMessage.receiptPreview },
-        success: true,
-      });
+      if (voucherType === 'invoice') {
+        const result = await recognizeVoucherFromText(text, 'invoice');
+        const invoice = await convertGeminiResultToInvoice(result);
+        const invoiceToSave = { ...invoice, status: 'pending' as const, inputType: 'text' as const };
+        const invoiceId = await saveInvoice(invoiceToSave);
+        const previewMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: '',
+          isUser: false,
+          timestamp: new Date(),
+          invoicePreview: {
+            ...invoiceToSave,
+            id: invoiceId,
+            status: 'pending',
+            account: result.paymentAccountName ? { id: invoice.accountId || '', spaceId: invoice.spaceId, name: result.paymentAccountName, isAiRecognized: true } : undefined,
+          } as Invoice,
+          voucherType: 'invoice',
+        };
+        setMessages(prev => [...prev, previewMessage]);
+        await saveChatLog({
+          receiptId: undefined,
+          voucherType: 'invoice',
+          type: 'text',
+          modelName: 'gemini',
+          prompt: text,
+          response: '',
+          requestData: { rawText: text },
+          responseData: { invoicePreview: previewMessage.invoicePreview },
+          success: true,
+        });
+      } else {
+        const result = await recognizeReceiptFromText(text);
+        const receipt = await convertGeminiResultToReceipt(result);
+        const receiptToSave = { ...receipt, status: 'pending' as ReceiptStatus, inputType: 'text' as const };
+        const receiptId = await saveReceipt(receiptToSave);
+        const previewMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: '',
+          isUser: false,
+          timestamp: new Date(),
+          receiptPreview: {
+            ...receiptToSave,
+            id: receiptId,
+            status: 'pending' as ReceiptStatus,
+            account: result.paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: result.paymentAccountName, isAiRecognized: true } : undefined,
+          },
+        };
+        setMessages(prev => [...prev, previewMessage]);
+        await saveChatLog({
+          receiptId,
+          voucherType: 'receipt',
+          type: 'text',
+          modelName: 'gemini',
+          prompt: text,
+          response: previewMessage.text,
+          requestData: { rawText: text },
+          responseData: { receiptPreview: previewMessage.receiptPreview },
+          success: true,
+        });
+      }
 
       // 滚动到底部
       setTimeout(() => {
@@ -574,52 +614,68 @@ export default function VoiceInputScreen() {
         msg.id === userMessageId ? { ...msg, audioUrl } : msg
       ));
 
-      // 调用 Gemini 识别语音
-      const result = await recognizeReceiptFromAudio(localUri);
-      
-      // 转换为 Receipt 格式
-      const receipt = await convertGeminiResultToReceipt(result);
-      
-      // 保存到数据库（标记为语音输入）
-      const receiptToSave = {
-        ...receipt,
-        status: 'pending' as ReceiptStatus,
-        inputType: 'audio' as const,
-      };
-      const receiptId = await saveReceipt(receiptToSave);
-
-      // 添加识别结果预览消息
-      const previewMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: '',
-        isUser: false,
-        timestamp: new Date(),
-        receiptPreview: { 
-          ...receiptToSave, 
-          id: receiptId,
-          status: 'pending' as ReceiptStatus,
-          account: result.paymentAccountName ? {
-            id: receipt.accountId || '',
-            spaceId: receipt.spaceId,
-            name: result.paymentAccountName,
-            isAiRecognized: true,
-          } : undefined,
-        },
-      };
-      setMessages(prev => [...prev, previewMessage]);
-
-      // 保存聊天记录（包含 audioUrl）
-      await saveChatLog({
-        receiptId,
-        type: 'audio',
-        modelName: 'gemini',
-        prompt: `Voice input (${recordingDuration}s)`,
-        response: previewMessage.text,
-        requestData: { audioUrl },
-        responseData: { receiptPreview: previewMessage.receiptPreview },
-        success: true,
-        audioUrl,
-      });
+      if (voucherType === 'invoice') {
+        const result = await recognizeVoucherFromAudio(localUri, 'invoice');
+        const invoice = await convertGeminiResultToInvoice(result);
+        const invoiceToSave = { ...invoice, status: 'pending' as const, inputType: 'audio' as const };
+        const invoiceId = await saveInvoice(invoiceToSave);
+        const previewMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: '',
+          isUser: false,
+          timestamp: new Date(),
+          invoicePreview: {
+            ...invoiceToSave,
+            id: invoiceId,
+            status: 'pending',
+            account: result.paymentAccountName ? { id: invoice.accountId || '', spaceId: invoice.spaceId, name: result.paymentAccountName, isAiRecognized: true } : undefined,
+          } as Invoice,
+          voucherType: 'invoice',
+        };
+        setMessages(prev => [...prev, previewMessage]);
+        await saveChatLog({
+          receiptId: undefined,
+          voucherType: 'invoice',
+          type: 'audio',
+          modelName: 'gemini',
+          prompt: `Voice input (${recordingDuration}s)`,
+          response: '',
+          requestData: { audioUrl },
+          responseData: { invoicePreview: previewMessage.invoicePreview },
+          success: true,
+          audioUrl,
+        });
+      } else {
+        const result = await recognizeReceiptFromAudio(localUri);
+        const receipt = await convertGeminiResultToReceipt(result);
+        const receiptToSave = { ...receipt, status: 'pending' as ReceiptStatus, inputType: 'audio' as const };
+        const receiptId = await saveReceipt(receiptToSave);
+        const previewMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: '',
+          isUser: false,
+          timestamp: new Date(),
+          receiptPreview: {
+            ...receiptToSave,
+            id: receiptId,
+            status: 'pending' as ReceiptStatus,
+            account: result.paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: result.paymentAccountName, isAiRecognized: true } : undefined,
+          },
+        };
+        setMessages(prev => [...prev, previewMessage]);
+        await saveChatLog({
+          receiptId,
+          voucherType: 'receipt',
+          type: 'audio',
+          modelName: 'gemini',
+          prompt: `Voice input (${recordingDuration}s)`,
+          response: previewMessage.text,
+          requestData: { audioUrl },
+          responseData: { receiptPreview: previewMessage.receiptPreview },
+          success: true,
+          audioUrl,
+        });
+      }
 
       // 滚动到底部
       setTimeout(() => {
@@ -926,6 +982,97 @@ export default function VoiceInputScreen() {
                           message.receiptPreview!.status === 'confirmed'
                         ? 'Confirmed'
                         : 'Confirm'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* 发票识别结果预览卡片 */}
+            {message.invoicePreview && (
+              <View style={styles.receiptPreviewCard}>
+                <View style={styles.receiptPreviewHeader}>
+                  <Ionicons name="document-text" size={20} color="#6C5CE7" />
+                  <Text style={styles.receiptPreviewTitle}>Invoice Preview</Text>
+                </View>
+                <View style={styles.receiptPreviewContent}>
+                  <View style={styles.receiptPreviewRow}>
+                    <Text style={styles.receiptPreviewLabel}>Customer:</Text>
+                    <Text style={styles.receiptPreviewValue}>{message.invoicePreview.customerName}</Text>
+                  </View>
+                  <View style={styles.receiptPreviewRow}>
+                    <Text style={styles.receiptPreviewLabel}>Date:</Text>
+                    <Text style={styles.receiptPreviewValue}>
+                      {(() => {
+                        try {
+                          const [y, m, d] = message.invoicePreview.date.split('-').map(Number);
+                          return format(new Date(y, m - 1, d), 'MMM dd, yyyy');
+                        } catch {
+                          return message.invoicePreview.date;
+                        }
+                      })()}
+                    </Text>
+                  </View>
+                  <View style={styles.receiptPreviewRow}>
+                    <Text style={styles.receiptPreviewLabel}>Amount:</Text>
+                    <Text style={[styles.receiptPreviewValue, styles.receiptPreviewAmount]}>
+                      {formatCurrency(message.invoicePreview.totalAmount, message.invoicePreview.currency)}
+                    </Text>
+                  </View>
+                  {message.invoicePreview.account && (
+                    <View style={styles.receiptPreviewRow}>
+                      <Text style={styles.receiptPreviewLabel}>Account:</Text>
+                      <Text style={styles.receiptPreviewValue}>{message.invoicePreview.account.name}</Text>
+                    </View>
+                  )}
+                  {message.invoicePreview.items && message.invoicePreview.items.length > 0 && (
+                    <View style={styles.receiptPreviewItems}>
+                      <Text style={styles.receiptPreviewLabel}>Items:</Text>
+                      {message.invoicePreview.items.map((item, index) => (
+                        <View key={index} style={styles.receiptPreviewItemRow}>
+                          <Text style={styles.receiptPreviewItemName}>{item.name}</Text>
+                          <Text style={styles.receiptPreviewItemPrice}>{item.price.toFixed(2)}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+                <View style={styles.receiptPreviewActions}>
+                  {!message.invoiceDeleted && (
+                    <TouchableOpacity style={styles.previewActionButton} onPress={() => handlePreviewDetails(message)}>
+                      <Ionicons name="eye-outline" size={16} color="#6C5CE7" />
+                      <Text style={styles.previewActionText}>View Details</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[
+                      styles.previewActionButton,
+                      message.invoiceDeleted ? styles.previewActionButtonDisabled
+                        : confirmedInvoices.has(message.invoicePreview!.id!) || message.invoicePreview!.status === 'confirmed'
+                        ? styles.previewActionButtonConfirmed
+                        : styles.previewActionButtonPrimary,
+                    ]}
+                    onPress={async () => {
+                      if (!message.invoicePreview?.id) return;
+                      if (message.invoiceDeleted) return;
+                      if (confirmedInvoices.has(message.invoicePreview.id) || message.invoicePreview.status === 'confirmed') return;
+                      try {
+                        await saveInvoice({ ...message.invoicePreview, id: message.invoicePreview.id, status: 'confirmed' });
+                        setConfirmedInvoices((prev) => new Set(prev).add(message.invoicePreview!.id!));
+                        setMessages((prev) => prev.map((msg) =>
+                          msg.id === message.id && msg.invoicePreview
+                            ? { ...msg, invoicePreview: { ...msg.invoicePreview, status: 'confirmed' as const } }
+                            : msg
+                        ));
+                      } catch (e) {
+                        Alert.alert('Error', 'Failed to confirm invoice.');
+                      }
+                    }}
+                    disabled={message.invoiceDeleted || confirmedInvoices.has(message.invoicePreview!.id!) || message.invoicePreview!.status === 'confirmed'}
+                  >
+                    <Ionicons name={confirmedInvoices.has(message.invoicePreview!.id!) || message.invoicePreview!.status === 'confirmed' ? 'checkmark-circle' : 'checkmark-circle-outline'} size={16} color="#fff" />
+                    <Text style={[styles.previewActionText, styles.previewActionTextPrimary]}>
+                      {message.invoiceDeleted ? 'Deleted' : confirmedInvoices.has(message.invoicePreview!.id!) || message.invoicePreview!.status === 'confirmed' ? 'Confirmed' : 'Confirm'}
                     </Text>
                   </TouchableOpacity>
                 </View>

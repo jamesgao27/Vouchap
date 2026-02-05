@@ -1,4 +1,4 @@
-import { GeminiReceiptResult, Receipt, ReceiptStatus } from '@/types';
+import { GeminiReceiptResult, GeminiVoucherResult, Receipt, ReceiptStatus, Invoice, InvoiceItem, VoucherStatus } from '@/types';
 import { getCurrentUser } from './auth';
 import { findCategoryByName, getCategories } from './categories';
 import { findPurposeByName, getPurposes } from './purposes';
@@ -240,6 +240,82 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
     status: status,
     items: items,
     confidence: adjustedConfidence, // 使用调整后的置信度
+  };
+}
+
+/** 将 Gemini 统一凭证结果（发票）转换为 Invoice */
+export async function convertGeminiResultToInvoice(result: GeminiVoucherResult): Promise<Invoice> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+
+  const categories = await getCategories();
+  const purposes = await getPurposes();
+
+  let accountId: string | undefined;
+  if (result.paymentAccountName) {
+    const account = await findOrCreateAccount(result.paymentAccountName, true);
+    accountId = account.id;
+  }
+
+  if (!result.items || !Array.isArray(result.items)) {
+    result.items = [];
+  }
+
+  const items: InvoiceItem[] = await Promise.all(
+    result.items.map(async (item) => {
+      let category = categories.find((c) => c.name.toLowerCase() === (item.categoryName || '').toLowerCase());
+      if (!category) {
+        category = await findCategoryByName(item.categoryName) || undefined;
+      }
+      if (!category) {
+        category = categories.find((c) => c.name === 'Shopping') || categories[0];
+      }
+      if (!category) {
+        throw new Error('No category available. Please create at least one category.');
+      }
+
+      let purposeId: string | null = null;
+      const purposeName = item.purposeName || (item as any).purpose;
+      if (purposeName) {
+        const purpose = purposes.find((p) => p.name.toLowerCase() === purposeName.toLowerCase()) || await findPurposeByName(purposeName);
+        if (purpose) purposeId = purpose.id;
+      }
+      if (!purposeId && purposes.length > 0) {
+        purposeId = (purposes.find((p) => p.isDefault) || purposes[0]).id;
+      }
+
+      return {
+        name: item.name,
+        categoryId: category.id,
+        category,
+        purposeId,
+        purpose: purposes.find((p) => p.id === purposeId) || undefined,
+        price: item.price,
+        isAsset: item.isAsset ?? false,
+        confidence: item.confidence,
+      };
+    })
+  );
+
+  const spaceId = user.spaceId || user.currentSpaceId;
+  if (!spaceId) throw new Error('User must have a space selected');
+
+  const customerName = result.customerName || result.supplierName || 'Customer';
+  const itemsSum = items.reduce((sum, i) => sum + i.price, 0);
+  const tax = result.tax ?? 0;
+  const totalAmount = result.totalAmount ?? itemsSum + tax;
+
+  return {
+    spaceId,
+    customerName,
+    totalAmount,
+    currency: result.currency,
+    tax,
+    date: result.date,
+    accountId: accountId ?? null,
+    status: 'pending' as VoucherStatus,
+    items,
+    confidence: result.confidence,
   };
 }
 

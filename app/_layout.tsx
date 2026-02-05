@@ -44,14 +44,14 @@ export default function RootLayout() {
         <Stack.Screen 
           name="inbound" 
           options={{ 
-            title: 'Inbound',
+            title: 'Inbound lists',
             headerBackTitle: 'Back'
           }} 
         />
         <Stack.Screen 
           name="outbound" 
           options={{ 
-            title: 'Outbound',
+            title: 'Outbound lists',
             headerBackTitle: 'Back'
           }} 
         />
@@ -72,7 +72,13 @@ export default function RootLayout() {
         <Stack.Screen 
           name="receipt-details/[id]" 
           options={{ 
-          title: 'Receipt Details'
+            title: 'Receipt Details'
+          }} 
+        />
+        <Stack.Screen 
+          name="invoice-details/[id]" 
+          options={{ 
+            title: 'Invoice Details'
           }} 
         />
         <Stack.Screen 

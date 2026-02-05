@@ -5,7 +5,7 @@ import { getAccounts } from './accounts';
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as FileSystemNew from 'expo-file-system';
-import { GeminiReceiptResult } from '@/types';
+import { GeminiReceiptResult, GeminiVoucherResult, VoucherLogType } from '@/types';
 import { getAvailableImageModel } from './gemini-helper';
 import { getMostFrequentCurrency, getCurrenciesByUsage } from './database';
 
@@ -1326,4 +1326,233 @@ Please return strictly in JSON format without any extra text. JSON format as fol
     console.error('Error recognizing receipt from audio:', error);
     throw error;
   }
+}
+
+// ---------- 按凭证类型识别（由列表页入口决定类型，不由大模型判断） ----------
+
+/** 按凭证类型从文字识别：receipt 用 supplierName，invoice 用 customerName，其余结构一致 */
+export async function recognizeVoucherFromText(text: string, voucherType: VoucherLogType): Promise<GeminiVoucherResult> {
+  if (voucherType === 'receipt') {
+    const r = await recognizeReceiptFromText(text);
+    return { ...r, customerName: undefined } as GeminiVoucherResult;
+  }
+  if (voucherType === 'invoice') {
+    return recognizeInvoiceFromText(text);
+  }
+  // inbound/outbound 暂未实现，回退为 receipt
+  const r = await recognizeReceiptFromText(text);
+  return { ...r, customerName: undefined } as GeminiVoucherResult;
+}
+
+/** 发票文字识别：输出 customerName、items、totalAmount、date、currency、paymentAccountName 等 */
+async function recognizeInvoiceFromText(text: string): Promise<GeminiVoucherResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const error = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
+    error.code = 'GEMINI_API_KEY_MISSING';
+    throw error;
+  }
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+
+  let categoryNames: string[] = [];
+  try {
+    const categories = await getCategories();
+    categoryNames = categories.map(cat => cat.name);
+  } catch {
+    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+  }
+  if (categoryNames.length === 0) categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+
+  let purposeNames: string[] = [];
+  try {
+    const purposes = await getPurposes();
+    purposeNames = purposes.map(p => p.name);
+  } catch {
+    purposeNames = ['Home', 'Gifts', 'Business'];
+  }
+  if (purposeNames.length === 0) purposeNames = ['Home', 'Gifts', 'Business'];
+
+  let paymentAccountNames: string[] = [];
+  try {
+    const accounts = await getAccounts();
+    paymentAccountNames = accounts.map(pa => pa.name);
+  } catch {}
+
+  let userCurrencies: string[] = [];
+  try {
+    userCurrencies = await getCurrenciesByUsage();
+  } catch {}
+  const categoryList = categoryNames.join(', ');
+  const purposeList = purposeNames.join(', ');
+  const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
+  const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
+  const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, CNY';
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  const currentYear = now.getFullYear();
+
+  const prompt = `You are a financial expert. Extract INVOICE (sales / money received) information from the text. The user is describing a sale or payment they received — extract the CUSTOMER/CLIENT/PAYER name (who paid them), not the supplier.
+
+CURRENT DATE: ${today}, year ${currentYear}.
+
+REQUIRED FIELDS:
+1. Customer name (customerName) - string, REQUIRED. Extract the complete customer/client/payer name (who paid the user). Look for: "from [Customer]", "paid by [Customer]", "invoice to [Customer]", "[Customer] paid". If not mentioned, use "Customer" or infer from context.
+2. Date (date) - string YYYY-MM-DD, REQUIRED. Use ${today} if not mentioned.
+3. Total amount (totalAmount) - number, REQUIRED (amount received).
+4. Currency (currency) - string. User currencies: [${currencyList}]. Default "${defaultCurrency}".
+5. Tax (tax) - number, default 0.
+6. Payment/Receiving account (paymentAccountName) - string. If matches existing: [${paymentAccountList || 'None'}], use exact name. Otherwise describe e.g. "Bank", "Cash", "PayPal".
+7. Items (items) - array, REQUIRED. Each: name, categoryName (one of [${categoryList}]), purpose (one of [${purposeList}], default "${purposeNames[0]}"), price.
+8. dataConsistency: itemsSum, itemsSumMatchesTotal (boolean), missingItems (boolean), consistencyComment (string).
+9. confidence: 0.0-1.0.
+
+Return ONLY valid JSON, no markdown. Example:
+{
+  "customerName": "Client Name",
+  "date": "${today}",
+  "totalAmount": 123.45,
+  "currency": "USD",
+  "paymentAccountName": "Bank",
+  "tax": 0,
+  "items": [{"name": "Item", "categoryName": "Shopping", "purpose": "Home", "price": 123.45}],
+  "dataConsistency": {"itemsSum": 123.45, "itemsSumMatchesTotal": true, "missingItems": false, "consistencyComment": "OK"},
+  "confidence": 0.9
+}
+
+User input:
+"${text}"`;
+
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch {}
+  const modelsToTry = availableModel ? [availableModel, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+  let lastError: Error | null = null;
+
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+
+      if (!parsed.customerName) parsed.customerName = 'Customer';
+      if (!parsed.date) parsed.date = today;
+      if (parsed.totalAmount === undefined) parsed.totalAmount = 0;
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
+      parsed.items = parsed.items.map((item: any) => ({
+        ...item,
+        purpose: item.purpose || item.purposeName || purposeNames[0] || 'Home',
+        purposeName: item.purposeName || item.purpose || purposeNames[0] || 'Home',
+      })).filter((item: any) => item.name != null && item.price !== undefined && item.categoryName);
+      if (parsed.items.length === 0) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
+      if (!parsed.currency) parsed.currency = defaultCurrency;
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      if (!parsed.dataConsistency) parsed.dataConsistency = {};
+
+      return parsed as GeminiVoucherResult;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+/** 按凭证类型从语音识别 */
+export async function recognizeVoucherFromAudio(audioUri: string, voucherType: VoucherLogType): Promise<GeminiVoucherResult> {
+  if (voucherType === 'receipt') {
+    const r = await recognizeReceiptFromAudio(audioUri);
+    return { ...r, customerName: undefined } as GeminiVoucherResult;
+  }
+  if (voucherType === 'invoice') {
+    return recognizeInvoiceFromAudio(audioUri);
+  }
+  const r = await recognizeReceiptFromAudio(audioUri);
+  return { ...r, customerName: undefined } as GeminiVoucherResult;
+}
+
+/** 发票语音识别：与文字相同结构，输出 customerName 等 */
+async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVoucherResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const error = new Error('Gemini API Key 未配置。') as any;
+    error.code = 'GEMINI_API_KEY_MISSING';
+    throw error;
+  }
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+
+  let categoryNames: string[] = [];
+  try {
+    const categories = await getCategories();
+    categoryNames = categories.map(cat => cat.name);
+  } catch {
+    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+  }
+  let purposeNames: string[] = [];
+  try {
+    const purposes = await getPurposes();
+    purposeNames = purposes.map(p => p.name);
+  } catch {
+    purposeNames = ['Home', 'Gifts', 'Business'];
+  }
+  let paymentAccountNames: string[] = [];
+  try {
+    const accounts = await getAccounts();
+    paymentAccountNames = accounts.map(pa => pa.name);
+  } catch {}
+  let userCurrencies: string[] = [];
+  try {
+    userCurrencies = await getCurrenciesByUsage();
+  } catch {}
+  const categoryList = categoryNames.join(', ');
+  const purposeList = purposeNames.join(', ');
+  const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
+  const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
+  const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, CNY';
+  const today = new Date().toISOString().split('T')[0];
+
+  const prompt = `You are a financial expert. From this AUDIO, extract INVOICE (sales / money received) information. Extract the CUSTOMER/CLIENT/PAYER name (who paid the user), not the supplier. Today is ${today}. User currencies: [${currencyList}], default ${defaultCurrency}. Existing accounts: [${paymentAccountList || 'None'}]. Categories: [${categoryList}]. Purposes: [${purposeList}], default "${purposeNames[0]}". Return ONLY valid JSON with: customerName, date (YYYY-MM-DD), totalAmount, currency, tax, paymentAccountName, items (each: name, categoryName, purpose, price), dataConsistency (itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment), confidence. Example: {"customerName":"Client","date":"${today}","totalAmount":100,"currency":"USD","tax":0,"paymentAccountName":"Bank","items":[{"name":"Item","categoryName":"Shopping","purpose":"Home","price":100}],"dataConsistency":{"itemsSum":100,"itemsSumMatchesTotal":true,"missingItems":false,"consistencyComment":"OK"},"confidence":0.9}`;
+
+  const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch {}
+  const modelsToTry = availableModel ? [availableModel, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+  let lastError: Error | null = null;
+
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([
+        { inlineData: { data: audioBase64, mimeType: 'audio/m4a' } },
+        prompt,
+      ]);
+      const text = result.response.text();
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+      if (!parsed.customerName) parsed.customerName = 'Customer';
+      if (!parsed.date) parsed.date = today;
+      if (parsed.totalAmount === undefined) parsed.totalAmount = 0;
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
+      parsed.items = parsed.items.map((item: any) => ({
+        ...item,
+        purpose: item.purpose || item.purposeName || purposeNames[0] || 'Home',
+        purposeName: item.purposeName || item.purpose || purposeNames[0] || 'Home',
+      })).filter((item: any) => item.name != null && item.price !== undefined && item.categoryName);
+      if (parsed.items.length === 0) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
+      if (!parsed.currency) parsed.currency = defaultCurrency;
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      if (!parsed.dataConsistency) parsed.dataConsistency = {};
+      return parsed as GeminiVoucherResult;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
 }

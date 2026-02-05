@@ -138,6 +138,28 @@ export function getReceiptImageUrl(filePath: string): string {
   return publicUrl;
 }
 
+/** 上传发票图片到 Storage，路径 invoices/{invoiceId}.{ext} */
+export async function uploadInvoiceImage(fileUri: string, invoiceId: string): Promise<string> {
+  try {
+    const base64 = await FileSystem.readAsStringAsync(fileUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    const arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const fileExt = fileUri.split('.').pop()?.toLowerCase() || 'jpg';
+    const filePath = `invoices/${invoiceId}.${fileExt}`;
+    const mimeType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
+    const { error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(filePath, arrayBuffer, { contentType: mimeType, upsert: true });
+    if (error) throw error;
+    const { data: { publicUrl } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
+    return publicUrl;
+  } catch (error) {
+    console.error('Error uploading invoice image:', error);
+    throw error;
+  }
+}
+
 // 从公共URL中提取文件路径
 function extractFilePathFromUrl(url: string): string | null {
   try {

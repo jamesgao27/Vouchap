@@ -4,8 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 
 /**
  * AI 进销存 - 入口 Hub
- * 采购端：receipts（收据）、inbound（入库单）
- * 销售端：invoices（发票）、outbound（出库单）
+ * 采购端：receipts（支付单）、inbound（入库单）
+ * 销售端：invoices（收款单）、outbound（出库单）
  * 商品：skus（标准 SKU 管理）
  */
 export default function AIInventoryScreen() {
@@ -15,15 +15,15 @@ export default function AIInventoryScreen() {
     {
       title: '采购端',
       items: [
-        { label: '收据 Receipts', route: '/receipts', icon: 'receipt-outline' as const },
-        { label: '入库单 Inbound', route: '/inbound', icon: 'arrow-down-circle-outline' as const },
+        { label: '支付单 Receipts', route: '/receipts', icon: 'receipt-outline' as const },
+        { label: '入库单 Inbound lists', route: '/inbound', icon: 'arrow-down-circle-outline' as const },
       ],
     },
     {
       title: '销售端',
       items: [
-        { label: '发票 Invoices', route: '/invoices', icon: 'document-text-outline' as const },
-        { label: '出库单 Outbound', route: '/outbound', icon: 'arrow-up-circle-outline' as const },
+        { label: '收款单 Invoices', route: '/invoices', icon: 'document-text-outline' as const },
+        { label: '出库单 Outbound lists', route: '/outbound', icon: 'arrow-up-circle-outline' as const },
       ],
     },
     {
