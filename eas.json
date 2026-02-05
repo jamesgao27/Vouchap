@@ -22,6 +22,9 @@
     "production": {
       "ios": {
         "ascAppId": "6758536342"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./vouchap-f2d1043256dd.json"
       }
     }
   }

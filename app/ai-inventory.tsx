@@ -3,42 +3,44 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 
 /**
- * AI 进销存 - 入口 Hub
- * 采购端：receipts（支付单）、inbound（入库单）
- * 销售端：invoices（收款单）、outbound（出库单）
- * 商品：skus（标准 SKU 管理）
+ * AI Inventory - Entry Hub
+ * Purchase: receipts (payment receipts), inbound (inbound orders)
+ * Sales: invoices (payment invoices), outbound (outbound orders)
+ * Products: skus (SKU management)
  */
 export default function AIInventoryScreen() {
   const router = useRouter();
 
   const sections = [
     {
-      title: '采购端',
+      title: 'Purchase',
       items: [
-        { label: '支付单 Receipts', route: '/receipts', icon: 'receipt-outline' as const },
-        { label: '入库单 Inbound lists', route: '/inbound', icon: 'arrow-down-circle-outline' as const },
+        { label: 'Receipts', route: '/receipts', icon: 'receipt-outline' as const },
+        { label: 'Inbound Lists', route: '/inbound', icon: 'arrow-down-circle-outline' as const },
       ],
     },
     {
-      title: '销售端',
+      title: 'Sales',
       items: [
-        { label: '收款单 Invoices', route: '/invoices', icon: 'document-text-outline' as const },
-        { label: '出库单 Outbound lists', route: '/outbound', icon: 'arrow-up-circle-outline' as const },
+        { label: 'Invoices', route: '/invoices', icon: 'document-text-outline' as const },
+        { label: 'Outbound Lists', route: '/outbound', icon: 'arrow-up-circle-outline' as const },
       ],
     },
     {
-      title: '基础数据',
+      title: 'Master Data',
       items: [
-        { label: '商品 SKU 管理', route: '/skus-manage', icon: 'cube-outline' as const },
-        { label: '仓库仓位管理', route: '/warehouse-manage', icon: 'business-outline' as const },
+        { label: 'SKU', route: '/skus-manage', icon: 'cube-outline' as const },
+        { label: 'Warehouse', route: '/warehouse-manage', icon: 'business-outline' as const },
+        { label: 'Suppliers', route: '/suppliers-manage', icon: 'storefront-outline' as const },
+        { label: 'Customers', route: '/customers-manage', icon: 'person-outline' as const },
       ],
     },
   ];
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>AI 进销存</Text>
-      <Text style={styles.subtitle}>采购 · 销售 · 库存</Text>
+      <Text style={styles.title}>AI Inventory</Text>
+      <Text style={styles.subtitle}>Purchase · Sales · Inventory</Text>
       {sections.map((section) => (
         <View key={section.title} style={styles.section}>
           <Text style={styles.sectionTitle}>{section.title}</Text>

@@ -1,14 +1,40 @@
 import { supabase } from './supabase';
 import { Supplier } from '@/types';
 import { getCurrentUser } from './auth';
+import { normalizeNameForCompare } from './name-utils';
 
-// 获取当前空间的所有供应商
+// 获取当前空间的所有供应商（仅展示“无指向”的，即未被合并的）
 export async function getSuppliers(): Promise<Supplier[]> {
   try {
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
 
-    // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
+    const spaceId = user.currentSpaceId || user.spaceId;
+    if (!spaceId) throw new Error('No space selected');
+
+    const { data, error } = await supabase
+      .from('suppliers')
+      .select('*')
+      .eq('space_id', spaceId)
+      .is('merged_into_id', null)
+      .order('is_ai_recognized', { ascending: false })
+      .order('name', { ascending: true });
+
+    if (error) throw error;
+
+    return (data || []).map((row: any) => mapSupplierRow(row));
+  } catch (error) {
+    console.error('Error fetching suppliers:', error);
+    throw error;
+  }
+}
+
+/** 获取全部供应商（含已合并指向的），供选单与大模型选项用 */
+export async function getSuppliersForOptions(): Promise<Supplier[]> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) throw new Error('Not logged in');
+
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
@@ -21,21 +47,26 @@ export async function getSuppliers(): Promise<Supplier[]> {
 
     if (error) throw error;
 
-    return (data || []).map((row: any) => ({
-      id: row.id,
-      spaceId: row.space_id,
-      name: row.name,
-      taxNumber: row.tax_number,
-      phone: row.phone,
-      address: row.address,
-      isAiRecognized: row.is_ai_recognized,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    return (data || []).map((row: any) => mapSupplierRow(row));
   } catch (error) {
-    console.error('Error fetching suppliers:', error);
+    console.error('Error fetching suppliers for options:', error);
     throw error;
   }
+}
+
+function mapSupplierRow(row: any): Supplier {
+  return {
+    id: row.id,
+    spaceId: row.space_id,
+    name: row.name,
+    taxNumber: row.tax_number,
+    phone: row.phone,
+    address: row.address,
+    isAiRecognized: row.is_ai_recognized,
+    isCustomer: row.is_customer || false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 // 创建供应商
@@ -44,7 +75,8 @@ export async function createSupplier(
   isAiRecognized: boolean = false,
   taxNumber?: string,
   phone?: string,
-  address?: string
+  address?: string,
+  isCustomer: boolean = false // 若该供应商同时也是客户，设为 true
 ): Promise<Supplier> {
   try {
     const user = await getCurrentUser();
@@ -63,30 +95,21 @@ export async function createSupplier(
         phone: phone?.trim() || null,
         address: address?.trim() || null,
         is_ai_recognized: isAiRecognized,
+        is_customer: isCustomer,
       })
-      .select()
+      .select('*')
       .single();
 
-    if (error) throw error;
+    if     (error) throw error;
 
-    return {
-      id: data.id,
-      spaceId: data.space_id,
-      name: data.name,
-      taxNumber: data.tax_number,
-      phone: data.phone,
-      address: data.address,
-      isAiRecognized: data.is_ai_recognized,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    };
+    return mapSupplierRow(data);
   } catch (error) {
     console.error('Error creating supplier:', error);
     throw error;
   }
 }
 
-// 更新供应商
+// 更新供应商（仅更新 suppliers 表，不创建/删除 customers 行）
 export async function updateSupplier(
   supplierId: string,
   updates: {
@@ -94,21 +117,43 @@ export async function updateSupplier(
     taxNumber?: string;
     phone?: string;
     address?: string;
+    isCustomer?: boolean;
   }
 ): Promise<void> {
   try {
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
 
+    const spaceId = user.currentSpaceId || user.spaceId;
+    if (!spaceId) throw new Error('No space selected');
+
+    // 改名称时：先按规范化名称检查是否与同空间其他供应商一致（含已合并），一致则抛错供管理页弹 维持/合并
+    if (updates.name !== undefined) {
+      const trimmedName = updates.name.trim();
+      if (trimmedName.length > 0) {
+        const all = await getSuppliersForOptions();
+        const found = all.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(trimmedName));
+        if (found) {
+          const currentResolved = await resolveSupplierId(spaceId, supplierId);
+          const targetResolved = await resolveSupplierId(spaceId, found.id);
+          if (currentResolved !== targetResolved) {
+            throw Object.assign(new Error('供应商名称已存在'), {
+              code: 'SUPPLIER_NAME_EXISTS' as const,
+              duplicateName: trimmedName,
+              targetId: targetResolved,
+              targetSource: 'supplier' as const,
+            });
+          }
+        }
+      }
+    }
+
     const updateData: any = {};
     if (updates.name !== undefined) updateData.name = updates.name.trim();
     if (updates.taxNumber !== undefined) updateData.tax_number = updates.taxNumber?.trim() || null;
     if (updates.phone !== undefined) updateData.phone = updates.phone?.trim() || null;
     if (updates.address !== undefined) updateData.address = updates.address?.trim() || null;
-
-    // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
-    const spaceId = user.currentSpaceId || user.spaceId;
-    if (!spaceId) throw new Error('No space selected');
+    if (updates.isCustomer !== undefined) updateData.is_customer = updates.isCustomer;
 
     const { error } = await supabase
       .from('suppliers')
@@ -116,8 +161,15 @@ export async function updateSupplier(
       .eq('id', supplierId)
       .eq('space_id', spaceId);
 
-    if (error) throw error;
+    if (error) {
+      if (error.code === '23505') {
+        console.warn('Supplier name already exists in this space:', error.message);
+        throw new Error('供应商名称已存在');
+      }
+      throw error;
+    }
   } catch (error) {
+    if (error instanceof Error && error.message === '供应商名称已存在') throw error;
     console.error('Error updating supplier:', error);
     throw error;
   }
@@ -379,8 +431,7 @@ export async function findOrCreateSupplier(
   }
 }
 
-// 合并供应商（将源供应商的所有小票合并到目标供应商，然后删除源供应商）
-// 支持合并多个供应商到一个目标供应商
+// 合并供应商：只设置“合并指向”，不删记录、不修改小票；A.merged_into_id = 目标；若目标本身有指向则指到最终目标；指向源的所有记录一并指到最终目标
 export async function mergeSupplier(
   sourceSupplierIds: string[],
   targetSupplierId: string
@@ -389,87 +440,60 @@ export async function mergeSupplier(
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
 
-    if (sourceSupplierIds.length === 0) {
-      throw new Error('No source suppliers to merge');
-    }
+    if (sourceSupplierIds.length === 0) throw new Error('No source suppliers to merge');
+    if (sourceSupplierIds.includes(targetSupplierId)) throw new Error('Cannot merge supplier to itself');
 
-    if (sourceSupplierIds.includes(targetSupplierId)) {
-      throw new Error('Cannot merge supplier to itself');
-    }
-
-    // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
-    // 验证所有供应商都属于当前空间
-    const allSupplierIds = [...sourceSupplierIds, targetSupplierId];
+    const allIds = [...sourceSupplierIds, targetSupplierId];
     const { data: allSuppliers, error: fetchError } = await supabase
       .from('suppliers')
-      .select('*')
+      .select('id, merged_into_id')
       .eq('space_id', spaceId)
-      .in('id', allSupplierIds);
+      .in('id', allIds);
 
     if (fetchError) throw fetchError;
-    if (!allSuppliers || allSuppliers.length !== allSupplierIds.length) {
+    if (!allSuppliers || allSuppliers.length !== allIds.length) {
       throw new Error('Supplier does not exist or does not belong to current space');
     }
 
-    const targetSupplier = allSuppliers.find(supplier => supplier.id === targetSupplierId);
-    if (!targetSupplier) {
-      throw new Error('Target supplier does not exist');
-    }
+    const mergeMap = new Map<string, string>();
+    const { data: withPointer } = await supabase
+      .from('suppliers')
+      .select('id, merged_into_id')
+      .eq('space_id', spaceId)
+      .not('merged_into_id', 'is', null);
+    (withPointer || []).forEach((r: any) => {
+      if (r.merged_into_id) mergeMap.set(r.id, r.merged_into_id);
+    });
 
-    // 对每个源供应商执行合并操作
-    for (const sourceSupplierId of sourceSupplierIds) {
-      const sourceSupplier = allSuppliers.find(supplier => supplier.id === sourceSupplierId);
-      if (!sourceSupplier) continue;
-
-      // 更新所有使用源供应商的小票，将它们指向目标供应商
-      const { error: updateError } = await supabase
-        .from('receipts')
-        .update({ supplier_id: targetSupplierId })
-        .eq('supplier_id', sourceSupplierId)
-        .eq('space_id', spaceId);
-
-      if (updateError) throw updateError;
-
-      // 如果目标供应商缺少某些信息，尝试从源供应商补充
-      const updates: any = {};
-      if (!targetSupplier.tax_number && sourceSupplier.tax_number) {
-        updates.taxNumber = sourceSupplier.tax_number;
+    const resolveToFinal = (id: string): string => {
+      let current = id;
+      const seen = new Set<string>();
+      while (mergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = mergeMap.get(current)!;
       }
-      if (!targetSupplier.phone && sourceSupplier.phone) {
-        updates.phone = sourceSupplier.phone;
-      }
-      if (!targetSupplier.address && sourceSupplier.address) {
-        updates.address = sourceSupplier.address;
-      }
-      if (Object.keys(updates).length > 0) {
-        await updateSupplier(targetSupplierId, updates);
-      }
+      return current;
+    };
 
-      // 记录合并历史（保存源供应商的原始名称）
-      const { error: historyError } = await supabase
-        .from('supplier_merge_history')
-        .insert({
-          space_id: spaceId,
-          source_supplier_name: sourceSupplier.name,
-          target_supplier_id: targetSupplierId,
-        });
+    const finalTargetId = resolveToFinal(targetSupplierId);
 
-      if (historyError) {
-        console.warn('Failed to record merge history:', historyError);
-        // 不阻止合并操作，只记录警告
-      }
-
-      // 删除源供应商
-      const { error: deleteError } = await supabase
+    for (const sourceId of sourceSupplierIds) {
+      const { error: updatePointers } = await supabase
         .from('suppliers')
-        .delete()
-        .eq('id', sourceSupplierId)
-        .eq('space_id', spaceId);
+        .update({ merged_into_id: finalTargetId })
+        .eq('space_id', spaceId)
+        .eq('merged_into_id', sourceId);
+      if (updatePointers) throw updatePointers;
 
-      if (deleteError) throw deleteError;
+      const { error: setSource } = await supabase
+        .from('suppliers')
+        .update({ merged_into_id: finalTargetId })
+        .eq('id', sourceId)
+        .eq('space_id', spaceId);
+      if (setSource) throw setSource;
     }
   } catch (error) {
     console.error('Error merging supplier:', error);
@@ -477,61 +501,93 @@ export async function mergeSupplier(
   }
 }
 
-// 获取合并历史记录（用于查找应该自动归并的供应商）
+/** 从 suppliers 表构建合并指向映射 id -> merged_into_id（用于解析） */
+export async function getSupplierMergeMap(spaceId: string): Promise<Map<string, string>> {
+  const { data: rows } = await supabase
+    .from('suppliers')
+    .select('id, merged_into_id')
+    .eq('space_id', spaceId)
+    .not('merged_into_id', 'is', null);
+
+  const map = new Map<string, string>();
+  (rows || []).forEach((r: any) => {
+    if (r.id && r.merged_into_id) map.set(r.id, r.merged_into_id);
+  });
+  return map;
+}
+
+/** 用已有 map 解析供应商 ID（同步） */
+function resolveSupplierIdWithMap(map: Map<string, string>, supplierId: string): string {
+  let current = supplierId;
+  const seen = new Set<string>();
+  while (map.has(current) && !seen.has(current)) {
+    seen.add(current);
+    current = map.get(current)!;
+  }
+  return current;
+}
+
+/** 按 merged_into_id 解析供应商 ID：返回应展示的目标 ID */
+export async function resolveSupplierId(spaceId: string, supplierId: string): Promise<string> {
+  const map = await getSupplierMergeMap(spaceId);
+  return resolveSupplierIdWithMap(map, supplierId);
+}
+
+/** 按 ID 获取单个供应商（用于合并后展示） */
+export async function getSupplierById(id: string): Promise<Supplier | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) return null;
+
+  const { data, error } = await supabase
+    .from('suppliers')
+    .select('*')
+    .eq('id', id)
+    .eq('space_id', spaceId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return mapSupplierRow(data);
+}
+
+// 获取“名称 -> 应归并到的目标 ID”映射（用于 findOrCreateSupplier：已合并指向的记录按名称匹配到最终目标）
 async function getMergeHistory(): Promise<Map<string, string>> {
   try {
     const user = await getCurrentUser();
     if (!user) return new Map();
 
-    // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) return new Map();
 
-    // 获取合并历史记录
-    const { data: historyData, error: historyError } = await supabase
-      .from('supplier_merge_history')
-      .select('source_supplier_name, target_supplier_id')
-      .eq('space_id', spaceId);
-
-    if (historyError) {
-      // 如果表不存在，返回空 Map（兼容性处理）
-      if (historyError.code === '42P01' || historyError.message?.includes('does not exist')) {
-        console.log('Supplier merge history table does not exist yet');
-        return new Map();
-      }
-      console.warn('Failed to fetch merge history:', historyError);
-      return new Map();
-    }
-
-    if (!historyData || historyData.length === 0) {
-      return new Map();
-    }
-
-    // 获取所有有效的目标供应商 ID
-    const targetSupplierIds = [...new Set(historyData.map(r => r.target_supplier_id))];
-    const { data: validSuppliers, error: suppliersError } = await supabase
+    const { data: withPointer, error } = await supabase
       .from('suppliers')
-      .select('id')
+      .select('id, name, merged_into_id')
       .eq('space_id', spaceId)
-      .in('id', targetSupplierIds);
+      .not('merged_into_id', 'is', null);
 
-    if (suppliersError) {
-      console.warn('Failed to validate target suppliers:', suppliersError);
-      return new Map();
-    }
+    if (error) return new Map();
+    if (!withPointer?.length) return new Map();
 
-    const validSupplierIds = new Set(validSuppliers?.map(supplier => supplier.id) || []);
-
-    // 只返回目标供应商仍然存在的合并历史记录
-    const historyMap = new Map<string, string>();
-    for (const record of historyData) {
-      if (validSupplierIds.has(record.target_supplier_id)) {
-        // 使用标准化名称作为 key，以便匹配时忽略大小写和空格
-        const normalizedName = normalizeSupplierName(record.source_supplier_name);
-        historyMap.set(normalizedName, record.target_supplier_id);
+    const mergeMap = new Map<string, string>();
+    (withPointer || []).forEach((r: any) => {
+      if (r.id && r.merged_into_id) mergeMap.set(r.id, r.merged_into_id);
+    });
+    const resolveToFinal = (id: string): string => {
+      let current = id;
+      const seen = new Set<string>();
+      while (mergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = mergeMap.get(current)!;
       }
-    }
+      return current;
+    };
 
+    const historyMap = new Map<string, string>();
+    for (const r of withPointer) {
+      const normalizedName = normalizeSupplierName(r.name);
+      historyMap.set(normalizedName, resolveToFinal(r.id));
+    }
     return historyMap;
   } catch (error) {
     console.warn('Error getting merge history:', error);

@@ -1,12 +1,45 @@
 import { supabase } from './supabase';
 import { Invoice, InvoiceItem } from '@/types';
 import { getCurrentUser } from './auth';
+import { findOrCreateCustomer, updateCustomer, getCustomerMergeMap, getCustomerById, resolveCustomerId } from './customers';
+import { updateSupplier, getSupplierMergeMap, getSupplierById, resolveSupplierId } from './suppliers';
+import { getAccountMergeMap, getAccountById } from './accounts';
+import { getCustomerOptions, getCustomerOptionsForDuplicateCheck } from './customer-supplier-list';
+import { normalizeNameForCompare } from './name-utils';
 
 function rowToInvoice(row: any, items: InvoiceItem[] = []): Invoice {
+  const customerName =
+    row.customer_name || row.customers?.name || row.suppliers?.name;
   return {
     id: row.id,
     spaceId: row.space_id,
-    customerName: row.customer_name,
+    customerName,
+    customerId: row.customer_id ?? undefined,
+    customerSupplierId: row.customer_supplier_id ?? undefined,
+    customer: row.customers ? {
+      id: row.customers.id,
+      spaceId: row.customers.space_id,
+      name: row.customers.name,
+      taxNumber: row.customers.tax_number,
+      phone: row.customers.phone,
+      address: row.customers.address,
+      isAiRecognized: row.customers.is_ai_recognized,
+      isSupplier: row.customers.is_supplier || false,
+      createdAt: row.customers.created_at,
+      updatedAt: row.customers.updated_at,
+    } : undefined,
+    customerSupplier: row.suppliers ? {
+      id: row.suppliers.id,
+      spaceId: row.suppliers.space_id,
+      name: row.suppliers.name,
+      taxNumber: row.suppliers.tax_number,
+      phone: row.suppliers.phone,
+      address: row.suppliers.address,
+      isAiRecognized: row.suppliers.is_ai_recognized,
+      isCustomer: row.suppliers.is_customer || false,
+      createdAt: row.suppliers.created_at,
+      updatedAt: row.suppliers.updated_at,
+    } : undefined,
     totalAmount: Number(row.total_amount),
     currency: row.currency ?? undefined,
     tax: row.tax != null ? Number(row.tax) : undefined,
@@ -38,7 +71,7 @@ function rowToInvoice(row: any, items: InvoiceItem[] = []): Invoice {
   };
 }
 
-/** 获取当前空间下所有发票（列表用，含 account / createdByUser，不含明细） */
+/** 获取当前空间下所有发票（列表用，含 account / createdByUser / customer，不含明细）；合并指向会解析为最终目标展示 */
 export async function getAllInvoices(): Promise<Invoice[]> {
   const user = await getCurrentUser();
   if (!user) throw new Error('Not logged in');
@@ -49,6 +82,8 @@ export async function getAllInvoices(): Promise<Invoice[]> {
     .from('invoices')
     .select(`
       *,
+      customers (*),
+      suppliers!invoices_customer_supplier_id_fkey (*),
       accounts (*),
       created_by_user:users!created_by (
         id,
@@ -61,15 +96,63 @@ export async function getAllInvoices(): Promise<Invoice[]> {
     .order('date', { ascending: false });
 
   if (error) throw error;
-  return (data || []).map((r: any) => rowToInvoice(r, []));
+  const rows = data || [];
+  const [customerMergeMap, supplierMergeMap, accountMergeMap] = await Promise.all([
+    getCustomerMergeMap(spaceId),
+    getSupplierMergeMap(spaceId),
+    getAccountMergeMap(spaceId),
+  ]);
+  const resolve = (map: Map<string, string>, id: string) => {
+    let current = id;
+    const seen = new Set<string>();
+    while (map.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = map.get(current)!;
+    }
+    return current;
+  };
+  const needCustomer = new Set<string>();
+  const needSupplier = new Set<string>();
+  const needAccount = new Set<string>();
+  for (const r of rows) {
+    if (r.customer_id && !r.customers) needCustomer.add(resolve(customerMergeMap, r.customer_id));
+    if (r.customer_supplier_id && !r.suppliers) needSupplier.add(resolve(supplierMergeMap, r.customer_supplier_id));
+    if (r.account_id && !r.accounts) needAccount.add(resolve(accountMergeMap, r.account_id));
+  }
+  const [customerCache, supplierCache, accountCache] = await Promise.all([
+    (async () => {
+      const m = new Map<string, Awaited<ReturnType<typeof getCustomerById>>>();
+      await Promise.all(Array.from(needCustomer).map(async (id) => { const c = await getCustomerById(id); if (c) m.set(id, c); }));
+      return m;
+    })(),
+    (async () => {
+      const m = new Map<string, Awaited<ReturnType<typeof getSupplierById>>>();
+      await Promise.all(Array.from(needSupplier).map(async (id) => { const s = await getSupplierById(id); if (s) m.set(id, s); }));
+      return m;
+    })(),
+    (async () => {
+      const m = new Map<string, Awaited<ReturnType<typeof getAccountById>>>();
+      await Promise.all(Array.from(needAccount).map(async (id) => { const a = await getAccountById(id); if (a) m.set(id, a); }));
+      return m;
+    })(),
+  ]);
+  return rows.map((r: any) => {
+    const rc = { ...r };
+    if (r.customer_id && !r.customers) rc.customers = customerCache.get(resolve(customerMergeMap, r.customer_id));
+    if (r.customer_supplier_id && !r.suppliers) rc.suppliers = supplierCache.get(resolve(supplierMergeMap, r.customer_supplier_id));
+    if (r.account_id && !r.accounts) rc.accounts = accountCache.get(resolve(accountMergeMap, r.account_id));
+    return rowToInvoice(rc, []);
+  });
 }
 
-/** 根据 ID 获取发票（含明细、account、createdByUser、items 的 category/purpose） */
+/** 根据 ID 获取发票（含明细、account、createdByUser、customer、items 的 category/purpose）；合并指向的客户/供应商会解析为最终目标展示 */
 export async function getInvoiceById(invoiceId: string): Promise<Invoice | null> {
   const { data: inv, error: invError } = await supabase
     .from('invoices')
     .select(`
       *,
+      customers (*),
+      suppliers!invoices_customer_supplier_id_fkey (*),
       accounts (*),
       created_by_user:users!created_by (
         id,
@@ -81,6 +164,47 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
     .eq('id', invoiceId)
     .single();
   if (invError || !inv) return null;
+
+  const user = await getCurrentUser();
+  const spaceId = user?.currentSpaceId || user?.spaceId;
+  if (spaceId) {
+    let customerRow = inv.customers;
+    if (inv.customer_id && !customerRow) {
+      const customerMergeMap = await getCustomerMergeMap(spaceId);
+      let current = inv.customer_id;
+      const seen = new Set<string>();
+      while (customerMergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = customerMergeMap.get(current)!;
+      }
+      customerRow = (await getCustomerById(current)) ?? undefined;
+    }
+    let supplierRow = inv.suppliers;
+    if (inv.customer_supplier_id && !supplierRow) {
+      const supplierMergeMap = await getSupplierMergeMap(spaceId);
+      let current = inv.customer_supplier_id;
+      const seen = new Set<string>();
+      while (supplierMergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = supplierMergeMap.get(current)!;
+      }
+      supplierRow = (await getSupplierById(current)) ?? undefined;
+    }
+    let accountRow = inv.accounts;
+    if (inv.account_id && !accountRow) {
+      const accountMergeMap = await getAccountMergeMap(spaceId);
+      let current = inv.account_id;
+      const seen = new Set<string>();
+      while (accountMergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = accountMergeMap.get(current)!;
+      }
+      accountRow = (await getAccountById(current)) ?? undefined;
+    }
+    inv.customers = customerRow;
+    inv.suppliers = supplierRow;
+    inv.accounts = accountRow;
+  }
 
   const { data: itemRows, error: itemsError } = await supabase
     .from('invoice_items')
@@ -130,11 +254,83 @@ export async function saveInvoice(invoice: Invoice): Promise<string> {
   const spaceId = user.currentSpaceId || user.spaceId;
   if (!spaceId) throw new Error('No space selected');
 
-  if (invoice.id) {
+  // 客户：要么来自 customers 表（customer_id），要么来自“标记也是客户”的供应商（customer_supplier_id）
+  let customerSupplierId = invoice.customerSupplierId ?? invoice.customerSupplier?.id ?? null;
+  let customerId = invoice.customerId ?? invoice.customer?.id ?? null;
+  const customerName = invoice.customerName ?? '';
+  const trimmedCustomerName = customerName.trim();
+  const invalidNames = ['processing', 'processing...', 'pending', 'pending...', 'loading', 'loading...', '识别中', '处理中', '待处理'];
+  const isValidName = trimmedCustomerName.length > 0 && !invalidNames.includes(trimmedCustomerName.toLowerCase());
+
+  const isUpdate = !!invoice.id;
+  if (customerSupplierId) {
+    customerId = null; // 二选一
+  } else if (!customerId && invoice.customer) {
+    customerId = invoice.customer.id;
+  }
+  // 仅新建时根据名称查找/创建客户；更新时不再创建新客户
+  if (!isUpdate && !customerId && !customerSupplierId && isValidName) {
+    try {
+      const customer = await findOrCreateCustomer(trimmedCustomerName, true);
+      customerId = customer.id;
+    } catch (error) {
+      console.warn('Failed to create or find customer:', error);
+    }
+  }
+
+  if (invoice.id && spaceId) {
+    if (isValidName) {
+      const options = await getCustomerOptionsForDuplicateCheck();
+      const foundByName = options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(trimmedCustomerName));
+      const currentResolvedId = customerSupplierId
+        ? (await resolveSupplierId(spaceId, customerSupplierId))
+        : customerId
+          ? (await resolveCustomerId(spaceId, customerId))
+          : null;
+
+      if (foundByName) {
+        const targetId = foundByName.source === 'supplier'
+          ? await resolveSupplierId(spaceId, foundByName.id)
+          : await resolveCustomerId(spaceId, foundByName.id);
+        if (targetId !== currentResolvedId) {
+          const code = foundByName.source === 'customer' ? ('CUSTOMER_NAME_EXISTS' as const) : ('SUPPLIER_NAME_EXISTS' as const);
+          throw Object.assign(new Error(foundByName.source === 'customer' ? '客户名称已存在' : '供应商名称已存在'), {
+            code,
+            duplicateName: trimmedCustomerName,
+            targetId,
+            targetSource: foundByName.source,
+          });
+        }
+      }
+
+      if (customerSupplierId) {
+        try {
+          const targetId = await resolveSupplierId(spaceId, customerSupplierId);
+          await updateSupplier(targetId, { name: trimmedCustomerName });
+        } catch (e) {
+          if (e instanceof Error && e.message === '供应商名称已存在') {
+            throw Object.assign(new Error(e.message), { code: 'SUPPLIER_NAME_EXISTS' as const, duplicateName: trimmedCustomerName });
+          }
+          console.warn('Failed to update supplier name for invoice:', e);
+        }
+      } else if (customerId) {
+        try {
+          const targetId = await resolveCustomerId(spaceId, customerId);
+          await updateCustomer(targetId, { name: trimmedCustomerName });
+        } catch (e) {
+          if (e instanceof Error && e.message === '客户名称已存在') {
+            throw Object.assign(new Error(e.message), { code: 'CUSTOMER_NAME_EXISTS' as const, duplicateName: trimmedCustomerName });
+          }
+          console.warn('Failed to update customer name for invoice:', e);
+        }
+      }
+    }
     await supabase
       .from('invoices')
       .update({
         customer_name: invoice.customerName,
+        customer_id: customerId ?? null,
+        customer_supplier_id: customerSupplierId ?? null,
         total_amount: invoice.totalAmount,
         currency: invoice.currency ?? null,
         tax: invoice.tax ?? null,
@@ -169,6 +365,8 @@ export async function saveInvoice(invoice: Invoice): Promise<string> {
     .insert({
       space_id: spaceId,
       customer_name: invoice.customerName,
+      customer_id: customerId ?? null,
+      customer_supplier_id: customerSupplierId ?? null,
       total_amount: invoice.totalAmount,
       currency: invoice.currency ?? null,
       tax: invoice.tax ?? null,

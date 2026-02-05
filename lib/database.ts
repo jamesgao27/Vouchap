@@ -2,8 +2,11 @@ import { supabase } from './supabase';
 import { Receipt, ReceiptItem, ReceiptStatus } from '@/types';
 import { getCurrentUser } from './auth';
 import { findCategoryByName } from './categories';
-import { findOrCreateAccount } from './accounts';
-import { findOrCreateSupplier } from './suppliers';
+import { findOrCreateAccount, getAccountMergeMap, getAccountById } from './accounts';
+import { updateSupplier, getSupplierMergeMap, getSupplierById, resolveSupplierId } from './suppliers';
+import { updateCustomer, getCustomerMergeMap, getCustomerById, resolveCustomerId } from './customers';
+import { getSupplierOptions, getSupplierOptionsForDuplicateCheck } from './customer-supplier-list';
+import { normalizeNameForCompare } from './name-utils';
 
 // 将日期数据转换为 YYYY-MM-DD 格式的字符串，完全忠实于票面日期，不做任何时区转换
 function normalizeDate(dateValue: any): string {
@@ -60,30 +63,29 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
       throw new Error('User not associated with space account, please sign in again');
     }
 
-    // 处理供应商ID（排除无效的供应商名称，如 "Processing..." 等）
-    let supplierId = receipt.supplierId;
-    const supplierName = receipt.supplierName || receipt.storeName; // 向后兼容
-    if (!supplierId && supplierName) {
+    // 供应商：要么来自 suppliers 表（supplier_id），要么来自“标记也是供应商”的客户（supplier_customer_id）
+    let supplierId: string | null = receipt.supplierId ?? null;
+    const supplierCustomerId = receipt.supplierCustomerId ?? null;
+    const supplierName = receipt.supplierName || receipt.storeName;
+
+    if (supplierCustomerId) {
+      supplierId = null; // 二选一
+    } else if (!supplierId && supplierName) {
       const trimmedSupplierName = supplierName.trim();
-      // 排除处理状态等无效名称
       const invalidNames = ['processing', 'processing...', 'pending', 'pending...', 'loading', 'loading...', '识别中', '处理中', '待处理'];
       const isValidName = !invalidNames.includes(trimmedSupplierName.toLowerCase());
-
       if (isValidName) {
         try {
-          // 如果没有 supplierId 但有 storeName，尝试查找或创建供应商
           const supplier = await findOrCreateSupplier(trimmedSupplierName, true);
           supplierId = supplier.id;
         } catch (error) {
           console.warn('Failed to create or find supplier:', error);
-          // 如果供应商创建失败，继续处理其他信息，不阻塞整个流程
         }
-      } else {
-        console.warn(`Skipping invalid supplier name: "${trimmedSupplierName}"`);
       }
     } else if (!supplierId && receipt.supplier) {
-      // 如果有 supplier 对象，使用其 ID
       supplierId = receipt.supplier.id;
+    } else if (!supplierId && receipt.supplierCustomer) {
+      // 已由 supplierCustomerId 处理
     }
 
     // 处理支付账户ID
@@ -93,25 +95,26 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
       accountId = account.id;
     }
 
-    // 先保存小票主记录
+    // 先保存小票主记录（名称以 ID 为准，不写 supplier_name；若表仍有该列可为空）
+    const insertPayload: Record<string, unknown> = {
+      space_id: spaceId,
+      supplier_id: supplierId,
+      supplier_customer_id: supplierCustomerId || null,
+      total_amount: receipt.totalAmount,
+      currency: receipt.currency,
+      tax: receipt.tax,
+      date: receipt.date,
+      account_id: accountId,
+      status: receipt.status,
+      image_url: receipt.imageUrl,
+      input_type: receipt.inputType || 'image',
+      confidence: receipt.confidence,
+      processed_by: receipt.processedBy,
+      created_by: user.id,
+    };
     const { data: receiptData, error: receiptError } = await supabase
       .from('receipts')
-      .insert({
-        space_id: spaceId,
-        supplier_name: receipt.supplierName || receipt.storeName,
-        supplier_id: supplierId,
-        total_amount: receipt.totalAmount,
-        currency: receipt.currency,
-        tax: receipt.tax,
-        date: receipt.date,
-        account_id: accountId,
-        status: receipt.status,
-        image_url: receipt.imageUrl,
-        input_type: receipt.inputType || 'image', // 提交方式，默认为图片
-        confidence: receipt.confidence,
-        processed_by: receipt.processedBy,
-        created_by: user.id, // 记录提交者
-      })
+      .insert(insertPayload)
       .select()
       .single();
 
@@ -124,7 +127,6 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
       });
       console.error('Receipt data being inserted:', {
         space_id: spaceId,
-        supplier_name: receipt.supplierName || receipt.storeName,
         total_amount: receipt.totalAmount,
         date: receipt.date,
       });
@@ -248,36 +250,74 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
   }
 }
 
-// 更新小票
+// 更新小票（不创建新供应商/客户：有关联则更新实体名称，无关联则仅更新小票上的商家名称文本）
 export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>): Promise<void> {
   try {
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
 
-    // 处理供应商ID（排除无效的供应商名称，如 "Processing..." 等）
-    let supplierId = receipt.supplierId;
-    const supplierName = receipt.supplierName || receipt.storeName; // 向后兼容
-    if (supplierName && !supplierId) {
-      const trimmedSupplierName = supplierName.trim();
-      // 排除处理状态等无效名称
-      const invalidNames = ['processing', 'processing...', 'pending', 'pending...', 'loading', 'loading...', '识别中', '处理中', '待处理'];
-      const isValidName = !invalidNames.includes(trimmedSupplierName.toLowerCase());
+    const spaceId = user.currentSpaceId || user.spaceId;
+    if (!spaceId) throw new Error('No space selected');
 
-      if (isValidName) {
-        try {
-          // 如果更新了 storeName 但没有 supplierId，尝试查找或创建供应商
-          const supplier = await findOrCreateSupplier(trimmedSupplierName, true);
-          supplierId = supplier.id;
-        } catch (error) {
-          console.warn('Failed to create or find supplier:', error);
-          // 如果供应商创建失败，继续处理其他信息，不阻塞整个流程
-        }
-      } else {
-        console.warn(`Skipping invalid supplier name: "${trimmedSupplierName}"`);
-      }
-    } else if (receipt.supplier && !supplierId) {
-      // 如果有 supplier 对象，使用其 ID
+    const supplierCustomerId = receipt.supplierCustomerId ?? undefined;
+    let supplierId = receipt.supplierId;
+    const supplierName = receipt.supplierName ?? receipt.storeName ?? '';
+    const trimmedSupplierName = supplierName.trim();
+    const invalidNames = ['processing', 'processing...', 'pending', 'pending...', 'loading', 'loading...', '识别中', '处理中', '待处理'];
+    const isValidName = trimmedSupplierName.length > 0 && !invalidNames.includes(trimmedSupplierName.toLowerCase());
+
+    if (!supplierCustomerId && receipt.supplier && !supplierId) {
       supplierId = receipt.supplier.id;
+    }
+
+    // 名称有效时：先按名称检查是否与已有供应商/客户重复（含已合并指向的），再决定是抛错（触发三选项）还是执行重命名
+    if (isValidName) {
+      const options = await getSupplierOptionsForDuplicateCheck();
+      const foundByName = options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(trimmedSupplierName));
+      const currentResolvedId = supplierCustomerId
+        ? (await resolveCustomerId(spaceId, supplierCustomerId))
+        : supplierId
+          ? (await resolveSupplierId(spaceId, supplierId))
+          : null;
+
+      if (foundByName) {
+        // 解析到最终目标，避免 A→B→C 链；合并时 A 直接指向 C
+        const targetId = foundByName.source === 'supplier'
+          ? await resolveSupplierId(spaceId, foundByName.id)
+          : await resolveCustomerId(spaceId, foundByName.id);
+        if (targetId !== currentResolvedId) {
+          const code = foundByName.source === 'customer' ? ('CUSTOMER_NAME_EXISTS' as const) : ('SUPPLIER_NAME_EXISTS' as const);
+          throw Object.assign(new Error(foundByName.source === 'customer' ? '客户名称已存在' : '供应商名称已存在'), {
+            code,
+            duplicateName: trimmedSupplierName,
+            targetId,
+            targetSource: foundByName.source,
+          });
+        }
+      }
+
+      // 未重复或与当前同一条：更新“最终指向”的那条名称
+      if (supplierCustomerId) {
+        try {
+          const targetId = await resolveCustomerId(spaceId, supplierCustomerId);
+          await updateCustomer(targetId, { name: trimmedSupplierName });
+        } catch (e) {
+          if (e instanceof Error && e.message === '客户名称已存在') {
+            throw Object.assign(new Error(e.message), { code: 'CUSTOMER_NAME_EXISTS' as const, duplicateName: trimmedSupplierName });
+          }
+          console.warn('Failed to update customer name:', e);
+        }
+      } else if (supplierId) {
+        try {
+          const targetId = await resolveSupplierId(spaceId, supplierId);
+          await updateSupplier(targetId, { name: trimmedSupplierName });
+        } catch (e) {
+          if (e instanceof Error && e.message === '供应商名称已存在') {
+            throw Object.assign(new Error(e.message), { code: 'SUPPLIER_NAME_EXISTS' as const, duplicateName: trimmedSupplierName });
+          }
+          console.warn('Failed to update supplier name:', e);
+        }
+      }
     }
 
     // 处理支付账户ID
@@ -287,11 +327,18 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
       accountId = account.id;
     }
 
-    // 更新小票主记录
+    // 更新小票主记录（名称以 ID 为准；更换 ID 由详情页在用户选“更换”后再次调用并传入新 supplierId/supplierCustomerId）
     const updateData: any = {};
-    if (receipt.supplierName !== undefined) updateData.supplier_name = receipt.supplierName;
-    else if (receipt.storeName !== undefined) updateData.supplier_name = receipt.storeName; // 向后兼容
-    if (supplierId !== undefined) updateData.supplier_id = supplierId;
+    if (supplierCustomerId !== undefined && supplierCustomerId) {
+      updateData.supplier_customer_id = supplierCustomerId;
+      updateData.supplier_id = null;
+    } else if (supplierId !== undefined && supplierId) {
+      updateData.supplier_id = supplierId;
+      updateData.supplier_customer_id = null;
+    } else {
+      updateData.supplier_id = null;
+      updateData.supplier_customer_id = null;
+    }
     if (receipt.totalAmount !== undefined) updateData.total_amount = receipt.totalAmount;
     if (receipt.currency !== undefined) updateData.currency = receipt.currency;
     if (receipt.tax !== undefined) updateData.tax = receipt.tax;
@@ -300,10 +347,6 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
     if (receipt.status !== undefined) updateData.status = receipt.status;
     if (receipt.confidence !== undefined) updateData.confidence = receipt.confidence;
     if (receipt.imageUrl !== undefined) updateData.image_url = receipt.imageUrl;
-
-    // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
-    const spaceId = user.currentSpaceId || user.spaceId;
-    if (!spaceId) throw new Error('No space selected');
 
     const { error: receiptError } = await supabase
       .from('receipts')
@@ -354,7 +397,10 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
         }
       }
     }
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.code === 'SUPPLIER_NAME_EXISTS' || error?.code === 'CUSTOMER_NAME_EXISTS') {
+      throw error;
+    }
     console.error('Error updating receipt:', error);
     throw error;
   }
@@ -376,6 +422,7 @@ export async function getAllReceipts(): Promise<Receipt[]> {
         *,
         suppliers (*),
         accounts (*),
+        customers!receipts_supplier_customer_id_fkey (*),
         created_by_user:users!created_by (
           id,
           email,
@@ -388,41 +435,140 @@ export async function getAllReceipts(): Promise<Receipt[]> {
           purposes (*)
         )
       `)
-                .eq('space_id', spaceId)
+      .eq('space_id', spaceId)
       .order('created_at', { ascending: false })
       .order('created_at', { foreignTable: 'receipt_items', ascending: true });
 
     if (error) throw error;
 
-    return (data || []).map((row: any) => ({
+    const [mergeMap, customerMergeMap, accountMergeMap] = await Promise.all([
+      getSupplierMergeMap(spaceId),
+      getCustomerMergeMap(spaceId),
+      getAccountMergeMap(spaceId),
+    ]);
+    const resolveSupplier = (sid: string) => {
+      let current = sid;
+      const seen = new Set<string>();
+      while (mergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = mergeMap.get(current)!;
+      }
+      return current;
+    };
+    const resolveCustomer = (cid: string) => {
+      let current = cid;
+      const seen = new Set<string>();
+      while (customerMergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = customerMergeMap.get(current)!;
+      }
+      return current;
+    };
+    const resolveAccount = (aid: string) => {
+      let current = aid;
+      const seen = new Set<string>();
+      while (accountMergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = accountMergeMap.get(current)!;
+      }
+      return current;
+    };
+
+    const rows = data || [];
+    const needResolvedSupplier = new Set<string>();
+    const needResolvedCustomer = new Set<string>();
+    const needResolvedAccount = new Set<string>();
+    for (const row of rows) {
+      if (row.supplier_id) needResolvedSupplier.add(resolveSupplier(row.supplier_id));
+      if (row.supplier_customer_id) needResolvedCustomer.add(resolveCustomer(row.supplier_customer_id));
+      if (row.account_id) needResolvedAccount.add(resolveAccount(row.account_id));
+    }
+    const [resolvedSupplierCache, resolvedCustomerCache, resolvedAccountCache] = await Promise.all([
+      (async () => {
+        const m = new Map<string, Awaited<ReturnType<typeof getSupplierById>>>();
+        await Promise.all(
+          Array.from(needResolvedSupplier).map(async (id) => {
+            const s = await getSupplierById(id);
+            if (s) m.set(id, s);
+          })
+        );
+        return m;
+      })(),
+      (async () => {
+        const m = new Map<string, Awaited<ReturnType<typeof getCustomerById>>>();
+        await Promise.all(
+          Array.from(needResolvedCustomer).map(async (id) => {
+            const c = await getCustomerById(id);
+            if (c) m.set(id, c);
+          })
+        );
+        return m;
+      })(),
+      (async () => {
+        const m = new Map<string, Awaited<ReturnType<typeof getAccountById>>>();
+        await Promise.all(
+          Array.from(needResolvedAccount).map(async (id) => {
+            const a = await getAccountById(id);
+            if (a) m.set(id, a);
+          })
+        );
+        return m;
+      })(),
+    ]);
+
+    return rows.map((row: any) => {
+      const resolvedSupplierId = row.supplier_id ? resolveSupplier(row.supplier_id) : null;
+      const resolvedCustomerId = row.supplier_customer_id ? resolveCustomer(row.supplier_customer_id) : null;
+      const resolvedAccountId = row.account_id ? resolveAccount(row.account_id) : null;
+      // 优先用解析后的目标行（合并后显示目标名称），无则用 join 行
+      const supplierRow = (resolvedSupplierId ? resolvedSupplierCache.get(resolvedSupplierId) : null) ?? row.suppliers;
+      const customerRow = (resolvedCustomerId ? resolvedCustomerCache.get(resolvedCustomerId) : null) ?? row.customers;
+      const accountRow = (resolvedAccountId ? resolvedAccountCache.get(resolvedAccountId) : null) ?? row.accounts;
+      // 有 ID 时以解析出的供应商/客户名称为准，避免与冗余文本不一致导致列表/详情与编辑显示不同
+      const supplierName = supplierRow?.name || customerRow?.name || row.supplier_name;
+      return {
       id: row.id,
       spaceId: row.space_id,
-      supplierName: row.supplier_name,
-      storeName: row.supplier_name, // 向后兼容
-      supplierId: row.supplier_id,
-      supplier: row.suppliers ? {
-        id: row.suppliers.id,
-        spaceId: row.suppliers.space_id,
-        name: row.suppliers.name,
-        taxNumber: row.suppliers.tax_number,
-        phone: row.suppliers.phone,
-        address: row.suppliers.address,
-        isAiRecognized: row.suppliers.is_ai_recognized,
-        createdAt: row.suppliers.created_at,
-        updatedAt: row.suppliers.updated_at,
+      supplierName,
+      storeName: supplierRow?.name ?? customerRow?.name ?? row.supplier_name,
+      supplierId: row.supplier_id ?? undefined,
+      supplierCustomerId: row.supplier_customer_id ?? undefined,
+      supplier: supplierRow ? {
+        id: supplierRow.id,
+        spaceId: supplierRow.space_id,
+        name: supplierRow.name,
+        taxNumber: supplierRow.tax_number,
+        phone: supplierRow.phone,
+        address: supplierRow.address,
+        isAiRecognized: supplierRow.is_ai_recognized,
+        isCustomer: (supplierRow as any).is_customer ?? false,
+        createdAt: supplierRow.created_at,
+        updatedAt: supplierRow.updated_at,
+      } : undefined,
+      supplierCustomer: customerRow ? {
+        id: customerRow.id,
+        spaceId: customerRow.space_id,
+        name: customerRow.name,
+        taxNumber: customerRow.tax_number,
+        phone: customerRow.phone,
+        address: customerRow.address,
+        isAiRecognized: customerRow.is_ai_recognized,
+        isSupplier: customerRow.is_supplier || false,
+        createdAt: customerRow.created_at,
+        updatedAt: customerRow.updated_at,
       } : undefined,
       totalAmount: row.total_amount,
       currency: row.currency,
       tax: row.tax,
       date: normalizeDate(row.date),
       accountId: row.account_id,
-      account: row.accounts ? {
-        id: row.accounts.id,
-        spaceId: row.accounts.space_id,
-        name: row.accounts.name,
-        isAiRecognized: row.accounts.is_ai_recognized,
-        createdAt: row.accounts.created_at,
-        updatedAt: row.accounts.updated_at,
+      account: accountRow ? {
+        id: accountRow.id,
+        spaceId: accountRow.space_id,
+        name: accountRow.name,
+        isAiRecognized: accountRow.is_ai_recognized,
+        createdAt: accountRow.created_at,
+        updatedAt: accountRow.updated_at,
       } : undefined,
       status: row.status as ReceiptStatus,
       imageUrl: row.image_url,
@@ -465,7 +611,8 @@ export async function getAllReceipts(): Promise<Receipt[]> {
         isAsset: item.is_asset,
         confidence: item.confidence,
       })),
-    }));
+    };
+    });
   } catch (error) {
     console.error('Error fetching receipts:', error);
     throw error;
@@ -576,6 +723,7 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
         *,
         suppliers (*),
         accounts (*),
+        customers!receipts_supplier_customer_id_fkey (*),
         created_by_user:users!created_by (
           id,
           email,
@@ -599,34 +747,91 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
     }
     if (!data) return null;
 
+    // 有 supplier_id 时始终按 merge 解析到最终目标，再取目标行展示名称（避免合并后仍显示源名称）
+    let supplierRow: Awaited<ReturnType<typeof getSupplierById>> | undefined;
+    if (data.supplier_id) {
+      const mergeMap = await getSupplierMergeMap(spaceId);
+      let current = data.supplier_id;
+      const seen = new Set<string>();
+      while (mergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = mergeMap.get(current)!;
+      }
+      supplierRow = (await getSupplierById(current)) ?? undefined;
+    }
+    if (!supplierRow && data.suppliers) supplierRow = data.suppliers;
+
+    // 有 supplier_customer_id 时始终按 merge 解析到最终目标再展示名称
+    let customerRow: Awaited<ReturnType<typeof getCustomerById>> | undefined;
+    if (data.supplier_customer_id) {
+      const customerMergeMap = await getCustomerMergeMap(spaceId);
+      let current = data.supplier_customer_id;
+      const seen = new Set<string>();
+      while (customerMergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = customerMergeMap.get(current)!;
+      }
+      customerRow = (await getCustomerById(current)) ?? undefined;
+    }
+    if (!customerRow && data.customers) customerRow = data.customers;
+
+    // 有 account_id 时始终按 merge 解析到最终目标再展示名称
+    let accountRow: Awaited<ReturnType<typeof getAccountById>> | undefined;
+    if (data.account_id) {
+      const accountMergeMap = await getAccountMergeMap(spaceId);
+      let current = data.account_id;
+      const seen = new Set<string>();
+      while (accountMergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = accountMergeMap.get(current)!;
+      }
+      accountRow = (await getAccountById(current)) ?? undefined;
+    }
+    if (!accountRow && data.accounts) accountRow = data.accounts;
+
     return {
       id: data.id,
       spaceId: data.space_id,
-      supplierName: data.supplier_name,
-      supplierId: data.supplier_id,
-      supplier: data.suppliers ? {
-        id: data.suppliers.id,
-        spaceId: data.suppliers.space_id,
-        name: data.suppliers.name,
-        taxNumber: data.suppliers.tax_number,
-        phone: data.suppliers.phone,
-        address: data.suppliers.address,
-        isAiRecognized: data.suppliers.is_ai_recognized,
-        createdAt: data.suppliers.created_at,
-        updatedAt: data.suppliers.updated_at,
+      supplierName: supplierRow?.name ?? customerRow?.name ?? data.supplier_name,
+      storeName: supplierRow?.name ?? customerRow?.name ?? data.supplier_name,
+      supplierId: data.supplier_id ?? undefined,
+      supplierCustomerId: data.supplier_customer_id ?? undefined,
+      supplier: supplierRow ? {
+        id: supplierRow.id,
+        spaceId: supplierRow.space_id,
+        name: supplierRow.name,
+        taxNumber: supplierRow.tax_number,
+        phone: supplierRow.phone,
+        address: supplierRow.address,
+        isAiRecognized: supplierRow.is_ai_recognized,
+        isCustomer: (supplierRow as any).is_customer ?? false,
+        createdAt: supplierRow.created_at,
+        updatedAt: supplierRow.updated_at,
+      } : undefined,
+      supplierCustomer: customerRow ? {
+        id: customerRow.id,
+        spaceId: customerRow.space_id,
+        name: customerRow.name,
+        taxNumber: customerRow.tax_number,
+        phone: customerRow.phone,
+        address: customerRow.address,
+        isAiRecognized: customerRow.is_ai_recognized,
+        isSupplier: customerRow.is_supplier || false,
+        createdAt: customerRow.created_at,
+        updatedAt: customerRow.updated_at,
       } : undefined,
       totalAmount: data.total_amount,
       currency: data.currency,
       tax: data.tax,
       date: normalizeDate(data.date),
       accountId: data.account_id,
-      account: data.accounts ? {
-        id: data.accounts.id,
-        spaceId: data.accounts.space_id,
-        name: data.accounts.name,
-        isAiRecognized: data.accounts.is_ai_recognized,
-        createdAt: data.accounts.created_at,
-        updatedAt: data.accounts.updated_at,
+      account: accountRow ? {
+        id: accountRow.id,
+        spaceId: accountRow.space_id,
+        name: accountRow.name,
+        isAiRecognized: accountRow.is_ai_recognized,
+        createdAt: accountRow.created_at,
+        updatedAt: accountRow.updated_at,
       } : undefined,
       status: data.status as ReceiptStatus,
       imageUrl: data.image_url,
@@ -788,13 +993,13 @@ export async function deleteReceipt(receiptId: string): Promise<void> {
           .eq('supplier_id', supplierId);
 
         if (supplierRefCount === 0) {
-          // 检查是否有合并记录指向该供应商
-          const { count: mergeCount } = await supabase
-            .from('supplier_merge_history')
+          // 检查是否有其他供应商的 merged_into_id 指向该供应商
+          const { count: pointedCount } = await supabase
+            .from('suppliers')
             .select('id', { count: 'exact', head: true })
-            .or(`source_id.eq.${supplierId},target_id.eq.${supplierId}`);
+            .eq('merged_into_id', supplierId);
 
-          if (!mergeCount || mergeCount === 0) {
+          if (!pointedCount || pointedCount === 0) {
             const { error: deleteSupplierError } = await supabase
               .from('suppliers')
               .delete()
@@ -825,12 +1030,11 @@ export async function deleteReceipt(receiptId: string): Promise<void> {
           .eq('account_id', accountId);
 
         if (receiptRefCount === 0 && invoiceRefCount === 0) {
-          const { data: mergeRows } = await supabase
-            .from('account_merge_history')
-            .select('id')
-            .eq('target_account_id', accountId)
-            .limit(1);
-          if (!mergeRows?.length) {
+          const { count: pointedCount } = await supabase
+            .from('accounts')
+            .select('id', { count: 'exact', head: true })
+            .eq('merged_into_id', accountId);
+          if (!pointedCount || pointedCount === 0) {
             const { error: deleteAccountError } = await supabase
               .from('accounts')
               .delete()

@@ -2,8 +2,35 @@ import { supabase } from './supabase';
 import { Account } from '@/types';
 import { getCurrentUser } from './auth';
 
-// 获取当前空间的所有账户（收付款共用）
+// 获取当前空间的所有账户（仅展示“无指向”的，即未被合并的）
 export async function getAccounts(): Promise<Account[]> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) throw new Error('Not logged in');
+
+    const spaceId = user.currentSpaceId || user.spaceId;
+    if (!spaceId) throw new Error('No space selected');
+
+    const { data, error } = await supabase
+      .from('accounts')
+      .select('*')
+      .eq('space_id', spaceId)
+      .is('merged_into_id', null)
+      .order('usage_count', { ascending: false, nullsFirst: false })
+      .order('is_ai_recognized', { ascending: false })
+      .order('name', { ascending: true });
+
+    if (error) throw error;
+
+    return (data || []).map(mapAccountRow);
+  } catch (error) {
+    console.error('Error fetching accounts:', error);
+    throw error;
+  }
+}
+
+/** 获取全部账户（含已合并指向的），供大模型选项等用 */
+export async function getAccountsForOptions(): Promise<Account[]> {
   try {
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
@@ -21,18 +48,22 @@ export async function getAccounts(): Promise<Account[]> {
 
     if (error) throw error;
 
-    return (data || []).map((row: any) => ({
-      id: row.id,
-      spaceId: row.space_id,
-      name: row.name,
-      isAiRecognized: row.is_ai_recognized,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    return (data || []).map(mapAccountRow);
   } catch (error) {
-    console.error('Error fetching accounts:', error);
+    console.error('Error fetching accounts for options:', error);
     throw error;
   }
+}
+
+function mapAccountRow(row: any): Account {
+  return {
+    id: row.id,
+    spaceId: row.space_id,
+    name: row.name,
+    isAiRecognized: row.is_ai_recognized,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 export async function createAccount(name: string, isAiRecognized: boolean = false): Promise<Account> {
@@ -53,16 +84,9 @@ export async function createAccount(name: string, isAiRecognized: boolean = fals
       .select()
       .single();
 
-    if (error) throw error;
+    if     (error) throw error;
 
-    return {
-      id: data.id,
-      spaceId: data.space_id,
-      name: data.name,
-      isAiRecognized: data.is_ai_recognized,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    };
+    return mapAccountRow(data);
   } catch (error) {
     console.error('Error creating account:', error);
     throw error;
@@ -211,6 +235,7 @@ export async function findOrCreateAccount(name: string, isAiRecognized: boolean 
   }
 }
 
+// 合并账户：只设置“合并指向”，不删记录、不修改小票/发票
 export async function mergeAccount(
   sourceAccountIds: string[],
   targetAccountId: string
@@ -227,7 +252,7 @@ export async function mergeAccount(
     const allAccountIds = [...sourceAccountIds, targetAccountId];
     const { data: accounts, error: fetchError } = await supabase
       .from('accounts')
-      .select('*')
+      .select('id, merged_into_id')
       .eq('space_id', spaceId)
       .in('id', allAccountIds);
 
@@ -236,39 +261,42 @@ export async function mergeAccount(
       throw new Error('Account does not exist or does not belong to current space');
     }
 
-    const targetAccount = accounts.find(acc => acc.id === targetAccountId);
-    if (!targetAccount) throw new Error('Target account does not exist');
+    const { data: withPointer } = await supabase
+      .from('accounts')
+      .select('id, merged_into_id')
+      .eq('space_id', spaceId)
+      .not('merged_into_id', 'is', null);
 
-    for (const sourceAccountId of sourceAccountIds) {
-      const sourceAccount = accounts.find(acc => acc.id === sourceAccountId);
-      if (!sourceAccount) continue;
+    const mergeMap = new Map<string, string>();
+    (withPointer || []).forEach((r: any) => {
+      if (r.merged_into_id) mergeMap.set(r.id, r.merged_into_id);
+    });
+    const resolveToFinal = (id: string): string => {
+      let current = id;
+      const seen = new Set<string>();
+      while (mergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = mergeMap.get(current)!;
+      }
+      return current;
+    };
 
-      const { error: updateError } = await supabase
-        .from('receipts')
-        .update({ account_id: targetAccountId })
-        .eq('account_id', sourceAccountId)
-        .eq('space_id', spaceId);
-      if (updateError) throw updateError;
+    const finalTargetId = resolveToFinal(targetAccountId);
 
-      const { error: invError } = await supabase
-        .from('invoices')
-        .update({ account_id: targetAccountId })
-        .eq('account_id', sourceAccountId)
-        .eq('space_id', spaceId);
-      if (invError) throw invError;
-
-      await supabase.from('account_merge_history').insert({
-        space_id: spaceId,
-        source_account_name: sourceAccount.name,
-        target_account_id: targetAccountId,
-      });
-
-      const { error: deleteError } = await supabase
+    for (const sourceId of sourceAccountIds) {
+      const { error: updatePointers } = await supabase
         .from('accounts')
-        .delete()
-        .eq('id', sourceAccountId)
+        .update({ merged_into_id: finalTargetId })
+        .eq('space_id', spaceId)
+        .eq('merged_into_id', sourceId);
+      if (updatePointers) throw updatePointers;
+
+      const { error: setSource } = await supabase
+        .from('accounts')
+        .update({ merged_into_id: finalTargetId })
+        .eq('id', sourceId)
         .eq('space_id', spaceId);
-      if (deleteError) throw deleteError;
+      if (setSource) throw setSource;
     }
   } catch (error) {
     console.error('Error merging account:', error);
@@ -276,6 +304,52 @@ export async function mergeAccount(
   }
 }
 
+/** 从 accounts 表构建合并指向映射 id -> merged_into_id */
+export async function getAccountMergeMap(spaceId: string): Promise<Map<string, string>> {
+  const { data: rows } = await supabase
+    .from('accounts')
+    .select('id, merged_into_id')
+    .eq('space_id', spaceId)
+    .not('merged_into_id', 'is', null);
+
+  const map = new Map<string, string>();
+  (rows || []).forEach((r: any) => {
+    if (r.id && r.merged_into_id) map.set(r.id, r.merged_into_id);
+  });
+  return map;
+}
+
+/** 按 merged_into_id 解析账户 ID：返回应展示的目标 ID */
+export async function resolveAccountId(spaceId: string, accountId: string): Promise<string> {
+  const map = await getAccountMergeMap(spaceId);
+  let current = accountId;
+  const seen = new Set<string>();
+  while (map.has(current) && !seen.has(current)) {
+    seen.add(current);
+    current = map.get(current)!;
+  }
+  return current;
+}
+
+/** 按 ID 获取单个账户（用于合并后展示） */
+export async function getAccountById(id: string): Promise<Account | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) return null;
+
+  const { data, error } = await supabase
+    .from('accounts')
+    .select('*')
+    .eq('id', id)
+    .eq('space_id', spaceId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return mapAccountRow(data);
+}
+
+// 名称 -> 应归并到的目标账户 ID（用于 findOrCreateAccount：已合并指向的记录按名称匹配到最终目标）
 async function getMergeHistory(): Promise<Map<string, string>> {
   try {
     const user = await getCurrentUser();
@@ -283,34 +357,32 @@ async function getMergeHistory(): Promise<Map<string, string>> {
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) return new Map();
 
-    const { data: historyData, error: historyError } = await supabase
-      .from('account_merge_history')
-      .select('source_account_name, target_account_id')
-      .eq('space_id', spaceId);
-
-    if (historyError) {
-      if (historyError.code === '42P01' || historyError.message?.includes('does not exist')) return new Map();
-      console.warn('Failed to fetch merge history:', historyError);
-      return new Map();
-    }
-
-    if (!historyData?.length) return new Map();
-
-    const targetAccountIds = [...new Set(historyData.map(r => r.target_account_id))];
-    const { data: validAccounts, error: accountsError } = await supabase
+    const { data: withPointer, error } = await supabase
       .from('accounts')
-      .select('id')
+      .select('id, name, merged_into_id')
       .eq('space_id', spaceId)
-      .in('id', targetAccountIds);
+      .not('merged_into_id', 'is', null);
 
-    if (accountsError) return new Map();
-    const validAccountIds = new Set(validAccounts?.map(acc => acc.id) || []);
+    if (error) return new Map();
+    if (!withPointer?.length) return new Map();
+
+    const mergeMap = new Map<string, string>();
+    (withPointer || []).forEach((r: any) => {
+      if (r.id && r.merged_into_id) mergeMap.set(r.id, r.merged_into_id);
+    });
+    const resolveToFinal = (id: string): string => {
+      let current = id;
+      const seen = new Set<string>();
+      while (mergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = mergeMap.get(current)!;
+      }
+      return current;
+    };
 
     const historyMap = new Map<string, string>();
-    for (const record of historyData) {
-      if (validAccountIds.has(record.target_account_id)) {
-        historyMap.set(normalizeAccountName(record.source_account_name), record.target_account_id);
-      }
+    for (const r of withPointer) {
+      historyMap.set(normalizeAccountName(r.name), resolveToFinal(r.id));
     }
     return historyMap;
   } catch (error) {

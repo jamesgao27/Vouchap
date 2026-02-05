@@ -30,7 +30,7 @@ export default function RootLayout() {
         <Stack.Screen 
           name="ai-inventory" 
           options={{ 
-            title: 'AI 进销存',
+            title: 'AI Inventory',
             headerBackTitle: 'Home'
           }} 
         />
@@ -58,15 +58,31 @@ export default function RootLayout() {
         <Stack.Screen 
           name="skus-manage" 
           options={{ 
-            title: 'SKU 管理',
+            title: 'SKU Management',
             headerBackTitle: 'Back'
           }} 
         />
         <Stack.Screen 
           name="warehouse-manage" 
           options={{ 
-            title: '仓库仓位管理',
+            title: 'Warehouse Management',
             headerBackTitle: 'Back'
+          }} 
+        />
+        <Stack.Screen 
+          name="suppliers-manage" 
+          options={{ 
+            title: 'Suppliers',
+            headerBackTitle: 'Back',
+            headerBackButtonVisible: true,
+          }} 
+        />
+        <Stack.Screen 
+          name="customers-manage" 
+          options={{ 
+            title: 'Customers',
+            headerBackTitle: 'Back',
+            headerBackButtonVisible: true,
           }} 
         />
         <Stack.Screen 

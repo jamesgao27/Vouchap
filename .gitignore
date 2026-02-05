@@ -13,6 +13,8 @@ npm-debug.*
 *.key
 *.mobileprovision
 *.orig.*
+# Google Service Account JSON（敏感文件，不要提交）
+vouchap-f2d1043256dd.json
 web-build/
 .env
 .env.local

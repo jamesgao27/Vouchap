@@ -1,4 +1,11 @@
 pluginManagement {
+  // 确保本地 / EAS 本地构建都能正确解析 Gradle 插件（包括 com.facebook.react.settings、Expo 插件等）
+  repositories {
+    mavenCentral()
+    gradlePluginPortal()
+    google()
+  }
+
   def reactNativeGradlePlugin = new File(
     providers.exec {
       workingDir(rootDir)
@@ -6,7 +13,7 @@ pluginManagement {
     }.standardOutput.asText.get().trim()
   ).getParentFile().absolutePath
   includeBuild(reactNativeGradlePlugin)
-  
+
   def expoPluginsPath = new File(
     providers.exec {
       workingDir(rootDir)

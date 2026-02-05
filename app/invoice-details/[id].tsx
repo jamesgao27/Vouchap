@@ -22,6 +22,10 @@ import { uploadInvoiceImage } from '@/lib/supabase';
 import { getCategories } from '@/lib/categories';
 import { getPurposes } from '@/lib/purposes';
 import { getAccounts } from '@/lib/accounts';
+import { getCustomerOptions } from '@/lib/customer-supplier-list';
+import { normalizeNameForCompare } from '@/lib/name-utils';
+import { mergeCustomer } from '@/lib/customers';
+import { mergeSupplier } from '@/lib/suppliers';
 import { Invoice, InvoiceItem, Category, Purpose, VoucherStatus, Account } from '@/types';
 import { format } from 'date-fns';
 
@@ -40,6 +44,8 @@ export default function InvoiceDetailsScreen() {
   const [showCategoryPicker, setShowCategoryPicker] = useState<number | null>(null);
   const [showPurposePicker, setShowPurposePicker] = useState<number | null>(null);
   const [showAccountPicker, setShowAccountPicker] = useState<boolean>(false);
+  const [showCustomerPicker, setShowCustomerPicker] = useState<boolean>(false);
+  const [customerOptions, setCustomerOptions] = useState<{ id: string; name: string; source: 'customer' | 'supplier' }[]>([]);
   const [showCurrencyPicker, setShowCurrencyPicker] = useState<boolean>(false);
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const [taxInputText, setTaxInputText] = useState<string>('');
@@ -112,7 +118,7 @@ export default function InvoiceDetailsScreen() {
   };
 
   const handleSave = async () => {
-    if (!editedInvoice || !id) return;
+    if (!editedInvoice || !id || !invoice) return;
     try {
       await saveInvoice({
         ...editedInvoice,
@@ -122,7 +128,129 @@ export default function InvoiceDetailsScreen() {
       Alert.alert('Success', 'Invoice confirmed and saved');
       setEditing(false);
       loadInvoice();
-    } catch (error) {
+    } catch (error: any) {
+      const code = error?.code as string | undefined;
+      const duplicateName = (error?.duplicateName ?? '') as string;
+      const targetId = error?.targetId as string | undefined;
+      const targetSource = error?.targetSource as 'customer' | 'supplier' | undefined;
+
+      if (code === 'CUSTOMER_NAME_EXISTS' || code === 'SUPPLIER_NAME_EXISTS') {
+        const currentSource = invoice.customerId ? ('customer' as const) : invoice.customerSupplierId ? ('supplier' as const) : null;
+        const currentId = invoice.customerId ?? invoice.customerSupplierId ?? null;
+
+        Alert.alert(
+          '名称重复',
+          `客户名称「${duplicateName}」已存在，请选择操作：`,
+          [
+            {
+              text: '维持',
+              style: 'cancel',
+              onPress: () => {
+                const origName = invoice.customer?.name ?? invoice.customerSupplier?.name ?? invoice.customerName ?? '';
+                setEditedInvoice((prev) => prev ? { ...prev, customerName: origName } : prev);
+              },
+            },
+            {
+              text: '替换ID',
+              onPress: async () => {
+                try {
+                  let finalTargetId = targetId;
+                  let finalTargetSource = targetSource;
+                  if (finalTargetId == null || finalTargetSource == null) {
+                    const options = await getCustomerOptions();
+                    const nameToFind = (duplicateName || '').trim();
+                    const found = nameToFind ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFind)) : null;
+                    if (!found) {
+                      if (!nameToFind) {
+                        Alert.alert('提示', '请从列表中选择要关联的客户', [
+                          { text: '确定', onPress: () => setShowCustomerPicker(true) },
+                        ]);
+                      } else {
+                        Alert.alert('提示', `未找到名称为「${duplicateName}」的客户，请改用选择器`);
+                      }
+                      return;
+                    }
+                    finalTargetId = found.id;
+                    finalTargetSource = found.source;
+                  }
+                  const payload = {
+                    ...editedInvoice!,
+                    id,
+                    status: 'confirmed' as VoucherStatus,
+                    customerName: duplicateName || editedInvoice!.customerName,
+                    customerId: finalTargetSource === 'customer' ? finalTargetId : undefined,
+                    customerSupplierId: finalTargetSource === 'supplier' ? finalTargetId : undefined,
+                    customer: finalTargetSource === 'customer' ? { id: finalTargetId, name: duplicateName } : undefined,
+                    customerSupplier: finalTargetSource === 'supplier' ? { id: finalTargetId, name: duplicateName } : undefined,
+                  };
+                  if (finalTargetSource === 'customer') {
+                    (payload as any).customerSupplierId = undefined;
+                    (payload as any).customerSupplier = undefined;
+                  } else {
+                    (payload as any).customerId = undefined;
+                    (payload as any).customer = undefined;
+                  }
+                  await saveInvoice(payload);
+                  setEditing(false);
+                  loadInvoice();
+                } catch (e) {
+                  Alert.alert('Error', '替换ID失败');
+                  console.error(e);
+                }
+              },
+            },
+            {
+              text: '合并',
+              onPress: async () => {
+                try {
+                  if (!currentId || !currentSource) {
+                    Alert.alert('提示', '当前发票未关联客户，无法合并');
+                    return;
+                  }
+                  let finalTargetId = targetId;
+                  let finalTargetSource = targetSource;
+                  if (finalTargetId == null || finalTargetSource == null) {
+                    const options = await getCustomerOptions();
+                    const nameToFindMerge = (duplicateName || '').trim();
+                    const found = nameToFindMerge ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFindMerge)) : null;
+                    if (!found) {
+                      if (!nameToFindMerge) {
+                        Alert.alert('提示', '请从列表中选择要合并到的客户');
+                      } else {
+                        Alert.alert('提示', `未找到名称为「${duplicateName}」的客户`);
+                      }
+                      return;
+                    }
+                    finalTargetId = found.id;
+                    finalTargetSource = found.source;
+                  }
+                  if (finalTargetId === currentId) {
+                    Alert.alert('提示', '当前已是该客户，无需合并');
+                    return;
+                  }
+                  if (currentSource !== finalTargetSource) {
+                    Alert.alert('提示', '当前关联与目标类型不同，请使用替换ID');
+                    return;
+                  }
+                  if (currentSource === 'customer') {
+                    await mergeCustomer([currentId], finalTargetId);
+                  } else {
+                    await mergeSupplier([currentId], finalTargetId);
+                  }
+                  setEditing(false);
+                  loadInvoice();
+                } catch (e: any) {
+                  const msg = e?.message || String(e);
+                  Alert.alert('合并失败', msg);
+                  console.warn('Merge invoices customer link failed:', e);
+                }
+              },
+            },
+          ],
+          { cancelable: true }
+        );
+        return;
+      }
       Alert.alert('Error', 'Failed to save');
       console.error(error);
     }
@@ -198,9 +326,55 @@ export default function InvoiceDetailsScreen() {
     setEditedInvoice({ ...editedInvoice, currency: currency || undefined });
   };
 
+  // 仅更新发票上的客户名称文本，保留已有关联 ID（有关联时后端会更新对应表）
   const handleCustomerNameChange = (customerName: string) => {
     if (!editedInvoice) return;
     setEditedInvoice({ ...editedInvoice, customerName });
+  };
+
+  const openCustomerPicker = async () => {
+    try {
+      const options = await getCustomerOptions();
+      setCustomerOptions(options);
+      setShowCustomerPicker(true);
+    } catch (e) {
+      console.warn('Failed to load customer options:', e);
+    }
+  };
+
+  const handleSelectCustomer = (option: { id: string; name: string; source: 'customer' | 'supplier' } | null) => {
+    if (!editedInvoice) return;
+    setShowCustomerPicker(false);
+    if (option === null) {
+      setEditedInvoice({
+        ...editedInvoice,
+        customerName: editedInvoice.customerName ?? '',
+        customerId: undefined,
+        customerSupplierId: undefined,
+        customer: undefined,
+        customerSupplier: undefined,
+      });
+      return;
+    }
+    if (option.source === 'customer') {
+      setEditedInvoice({
+        ...editedInvoice,
+        customerName: option.name,
+        customerId: option.id,
+        customerSupplierId: undefined,
+        customer: { id: option.id, name: option.name } as any,
+        customerSupplier: undefined,
+      });
+    } else {
+      setEditedInvoice({
+        ...editedInvoice,
+        customerName: option.name,
+        customerId: undefined,
+        customerSupplierId: option.id,
+        customer: undefined,
+        customerSupplier: { id: option.id, name: option.name } as any,
+      });
+    }
   };
 
   const handleItemChangeDirect = async (
@@ -398,16 +572,25 @@ export default function InvoiceDetailsScreen() {
             <View style={styles.summaryContentTop}>
               <View style={styles.summaryContentMain}>
                 {editing ? (
-                  <TextInput
-                    style={styles.storeNameInput}
-                    value={editedInvoice?.customerName ?? ''}
-                    onChangeText={handleCustomerNameChange}
-                    placeholder="Customer name"
-                    maxLength={100}
-                  />
+                  <View style={styles.storeNameInputRow}>
+                    <TextInput
+                      style={styles.storeNameInput}
+                      value={editedInvoice?.customerName ?? editedInvoice?.customer?.name ?? editedInvoice?.customerSupplier?.name ?? currentInvoice.customerName ?? ''}
+                      onChangeText={handleCustomerNameChange}
+                      placeholder="Customer name"
+                      maxLength={100}
+                    />
+                    <TouchableOpacity
+                      style={styles.storeNameDropdownIcon}
+                      onPress={openCustomerPicker}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="chevron-down" size={18} color="#6C5CE7" />
+                    </TouchableOpacity>
+                  </View>
                 ) : (
                   <Text style={styles.storeName} numberOfLines={1}>
-                    {currentInvoice.customerName || 'Customer'}
+                    {currentInvoice.customer?.name || currentInvoice.customerSupplier?.name || currentInvoice.customerName || 'Customer'}
                   </Text>
                 )}
                 <View style={styles.amountRow}>
@@ -806,6 +989,39 @@ export default function InvoiceDetailsScreen() {
         </TouchableOpacity>
       </Modal>
 
+      <Modal visible={showCustomerPicker} transparent animationType="slide" onRequestClose={() => setShowCustomerPicker(false)}>
+        <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowCustomerPicker(false)}>
+          <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
+            <View style={styles.pickerHandle} />
+            <View style={styles.pickerHeader}>
+              <Text style={styles.pickerTitle}>选择其他客户</Text>
+              <TouchableOpacity onPress={() => setShowCustomerPicker(false)} style={styles.pickerCloseButton}>
+                <Text style={styles.pickerCloseText}>取消</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
+              {customerOptions.map((opt) => {
+                const isSelected =
+                  (opt.source === 'customer' && editedInvoice?.customerId === opt.id) ||
+                  (opt.source === 'supplier' && editedInvoice?.customerSupplierId === opt.id);
+                return (
+                  <TouchableOpacity
+                    key={`${opt.source}-${opt.id}`}
+                    style={[styles.pickerOption, isSelected && styles.pickerOptionSelected]}
+                    onPress={() => handleSelectCustomer(opt)}
+                  >
+                    <View style={[styles.pickerColorIndicator, { backgroundColor: '#6C5CE7' }]} />
+                    <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected]} numberOfLines={1}>{opt.name}</Text>
+                    {opt.source === 'supplier' && <Text style={styles.pickerOptionSubtext}>供应商</Text>}
+                    {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       <Modal visible={showCurrencyPicker} transparent animationType="slide" onRequestClose={() => setShowCurrencyPicker(false)}>
         <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowCurrencyPicker(false)}>
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
@@ -889,7 +1105,10 @@ const styles = StyleSheet.create({
   submittedInfo: { alignSelf: 'flex-end', marginTop: 4 },
   submittedText: { fontSize: 11, color: '#95A5A6', textAlign: 'right' },
   storeName: { fontSize: 17, fontWeight: '600', color: '#2D3436', lineHeight: 22, height: 22, marginBottom: 2, borderBottomWidth: 1, borderBottomColor: 'transparent', paddingVertical: 0 },
-  storeNameInput: { fontSize: 17, fontWeight: '600', color: '#2D3436', lineHeight: 22, borderBottomWidth: 1, borderBottomColor: '#6C5CE7', height: 22, paddingVertical: 0, marginBottom: 2, transform: [{ translateY: -1 }] },
+  storeNameInputRow: { flexDirection: 'row', alignItems: 'center', height: 22, marginBottom: 2 },
+  storeNameInput: { flex: 1, fontSize: 17, fontWeight: '600', color: '#2D3436', lineHeight: 22, borderBottomWidth: 1, borderBottomColor: '#6C5CE7', height: 22, paddingVertical: 0, paddingRight: 4, transform: [{ translateY: -1 }] },
+  storeNameDropdownIcon: { paddingLeft: 4, justifyContent: 'center', alignItems: 'center', height: 22 },
+  pickerOptionSubtext: { fontSize: 12, color: '#95A5A6', marginRight: 8 },
   amountRow: { flexDirection: 'row', justifyContent: 'flex-start', alignItems: 'baseline', marginTop: 2 },
   amountContainer: { flexDirection: 'row', alignItems: 'baseline', flexWrap: 'wrap' },
   currencyLabel: { fontSize: 14, fontWeight: '600', color: '#636E72', lineHeight: 18 },
@@ -898,7 +1117,7 @@ const styles = StyleSheet.create({
   taxInputContainer: { flexDirection: 'row', alignItems: 'center', marginLeft: 8 },
   taxLabel: { fontSize: 11, color: '#636E72', fontWeight: '500', lineHeight: 16 },
   taxValueText: { fontSize: 11, color: '#636E72', fontWeight: '500', lineHeight: 16, marginLeft: 8 },
-  taxInput: { fontSize: 11, color: '#636E72', fontWeight: '500', borderWidth: 1, borderColor: '#6C5CE7', borderRadius: 4, paddingVertical: 1, height: 20, paddingHorizontal: 4, minWidth: 50, textAlign: 'left', lineHeight: 16, transform: [{ translateY: -3 }] },
+  taxInput: { fontSize: 11, color: '#636E72', fontWeight: '500', borderWidth: 1, borderColor: '#6C5CE7', borderRadius: 4, paddingVertical: 1, height: 20, paddingHorizontal: 4, minWidth: 50, textAlign: 'left', lineHeight: 16 },
   date: { fontSize: 14, fontWeight: '600', color: '#636E72', lineHeight: 18, marginTop: 2, marginLeft: 11, marginBottom: 0 },
   currencyContainer: { marginLeft: 0, marginRight: 4, minHeight: 20 },
   currencyPickerTouchable: { flexDirection: 'row', alignItems: 'center', paddingLeft: 8, paddingRight: 8, paddingVertical: 1, borderRadius: 16, borderWidth: 1, borderColor: '#6C5CE7', backgroundColor: '#F8F9FA', height: 20 },

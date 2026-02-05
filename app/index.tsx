@@ -15,7 +15,7 @@ import { processReceiptInBackground } from '@/lib/receipt-processor';
 import { processImageForUpload } from '@/lib/image-processor';
 
 /** 首页是否显示「AI 进销存」入口，发布时可设为 false 隐藏 */
-const SHOW_AI_INVENTORY_ENTRY = false;
+const SHOW_AI_INVENTORY_ENTRY = true;
 
 export default function HomeScreen() {
   const router = useRouter();

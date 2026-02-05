@@ -38,10 +38,25 @@ export interface Supplier {
   id: string;
   spaceId: string;
   name: string;
-  taxNumber?: string; // 税号
-  phone?: string; // 电话
-  address?: string; // 地址
+  taxNumber?: string;
+  phone?: string;
+  address?: string;
   isAiRecognized: boolean;
+  isCustomer?: boolean; // 是否也作为客户；为 true 时在客户列表和选客户时可选，不创建 customers 行
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// 客户
+export interface Customer {
+  id: string;
+  spaceId: string;
+  name: string;
+  taxNumber?: string;
+  phone?: string;
+  address?: string;
+  isAiRecognized: boolean;
+  isSupplier?: boolean; // 是否也作为供应商；为 true 时在供应商列表和选供应商时可选，不创建 suppliers 行
   createdAt?: string;
   updatedAt?: string;
 }
@@ -66,10 +81,12 @@ export type InputType = 'image' | 'text' | 'audio';
 export interface Receipt {
   id?: string;
   spaceId: string;
-  supplierName: string; // 供应商名称（保留 storeName 作为向后兼容）
-  storeName?: string; // 向后兼容字段，实际使用 supplierName
-  supplierId?: string; // 关联的供应商ID
-  supplier?: Supplier; // 关联的供应商对象
+  supplierName: string;
+  storeName?: string;
+  supplierId?: string; // 关联的供应商ID（suppliers 表）
+  supplierCustomerId?: string; // 当供应商实为“标记也是供应商”的客户时，填客户ID
+  supplier?: Supplier; // 关联的供应商对象（supplier_id 时）
+  supplierCustomer?: Customer; // 关联的客户对象（supplier_customer_id 时，作为供应商）
   totalAmount: number;
   date: string;
   accountId?: string;
@@ -189,6 +206,10 @@ export interface Invoice {
   id?: string;
   spaceId: string;
   customerName: string;
+  customerId?: string; // 关联的客户ID（customers 表）
+  customerSupplierId?: string; // 当客户实为“标记也是客户”的供应商时，填供应商ID
+  customer?: Customer; // 关联的客户对象（customer_id 时）
+  customerSupplier?: Supplier; // 关联的供应商对象（customer_supplier_id 时，作为客户）
   totalAmount: number;
   currency?: string;
   tax?: number;

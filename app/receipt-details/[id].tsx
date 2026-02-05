@@ -22,6 +22,10 @@ import { uploadReceiptImage } from '@/lib/supabase';
 import { getCategories } from '@/lib/categories';
 import { getPurposes } from '@/lib/purposes';
 import { getAccounts } from '@/lib/accounts';
+import { getSupplierOptions } from '@/lib/customer-supplier-list';
+import { normalizeNameForCompare } from '@/lib/name-utils';
+import { mergeSupplier } from '@/lib/suppliers';
+import { mergeCustomer } from '@/lib/customers';
 import { getChatLogsByReceiptId } from '@/lib/chat-logs';
 import { playAudio, stopPlayback } from '@/lib/audio';
 import { Receipt, ReceiptItem, Category, Purpose, ReceiptStatus, Account } from '@/types';
@@ -42,6 +46,8 @@ export default function ReceiptDetailsScreen() {
   const [showCategoryPicker, setShowCategoryPicker] = useState<number | null>(null);
   const [showPurposePicker, setShowPurposePicker] = useState<number | null>(null);
   const [showAccountPicker, setShowAccountPicker] = useState<boolean>(false);
+  const [showSupplierPicker, setShowSupplierPicker] = useState<boolean>(false);
+  const [supplierOptions, setSupplierOptions] = useState<{ id: string; name: string; source: 'supplier' | 'customer' }[]>([]);
   const [showCurrencyPicker, setShowCurrencyPicker] = useState<boolean>(false);
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const [taxInputText, setTaxInputText] = useState<string>('');
@@ -132,18 +138,139 @@ export default function ReceiptDetailsScreen() {
   };
 
   const handleSave = async () => {
-    if (!editedReceipt || !id) return;
+    if (!editedReceipt || !id || !receipt) return;
 
     try {
       await updateReceipt(id, {
         ...editedReceipt,
         status: 'confirmed' as ReceiptStatus,
       });
-      Alert.alert('Success', 'Receipt confirmed and saved');
       setEditing(false);
-      // 只重新加载当前小票，不需要重新加载分类、用途和支付账户
       loadReceipt();
-    } catch (error) {
+    } catch (error: any) {
+      const code = error?.code as string | undefined;
+      const duplicateName = (error?.duplicateName ?? '') as string;
+      const targetId = error?.targetId as string | undefined;
+      const targetSource = error?.targetSource as 'supplier' | 'customer' | undefined;
+
+      if (code === 'SUPPLIER_NAME_EXISTS' || code === 'CUSTOMER_NAME_EXISTS') {
+        const label = code === 'SUPPLIER_NAME_EXISTS' ? '供应商' : '客户';
+        const currentSource = receipt.supplierId ? ('supplier' as const) : receipt.supplierCustomerId ? ('customer' as const) : null;
+        const currentId = receipt.supplierId ?? receipt.supplierCustomerId ?? null;
+
+        Alert.alert(
+          '名称重复',
+          `${label}名称「${duplicateName}」已存在，请选择操作：`,
+          [
+            {
+              text: '维持',
+              style: 'cancel',
+              onPress: () => {
+                const origName = receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
+                setEditedReceipt((prev) => prev ? { ...prev, supplierName: origName, storeName: origName } : prev);
+              },
+            },
+            {
+              text: '替换ID',
+              onPress: async () => {
+                try {
+                  let finalTargetId = targetId;
+                  let finalTargetSource = targetSource;
+                  if (finalTargetId == null || finalTargetSource == null) {
+                    const options = await getSupplierOptions();
+                    const nameToFind = (duplicateName || '').trim();
+                    const found = nameToFind ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFind)) : null;
+                    if (!found) {
+                      if (!nameToFind) {
+                        Alert.alert('提示', '请从列表中选择要关联的供应商', [
+                          { text: '确定', onPress: () => setShowSupplierPicker(true) },
+                        ]);
+                      } else {
+                        Alert.alert('提示', `未找到名称为「${duplicateName}」的${label}，请改用选择器`);
+                      }
+                      return;
+                    }
+                    finalTargetId = found.id;
+                    finalTargetSource = found.source;
+                  }
+                  const payload = {
+                    ...editedReceipt!,
+                    status: 'confirmed' as ReceiptStatus,
+                    supplierName: duplicateName || editedReceipt!.supplierName,
+                    storeName: duplicateName || editedReceipt!.storeName,
+                    supplierId: finalTargetSource === 'supplier' ? finalTargetId : undefined,
+                    supplierCustomerId: finalTargetSource === 'customer' ? finalTargetId : undefined,
+                    supplier: finalTargetSource === 'supplier' ? { id: finalTargetId, name: duplicateName } : undefined,
+                    supplierCustomer: finalTargetSource === 'customer' ? { id: finalTargetId, name: duplicateName } : undefined,
+                  };
+                  if (finalTargetSource === 'supplier') {
+                    (payload as any).supplierCustomerId = undefined;
+                    (payload as any).supplierCustomer = undefined;
+                  } else {
+                    (payload as any).supplierId = undefined;
+                    (payload as any).supplier = undefined;
+                  }
+                  await updateReceipt(id, payload);
+                  setEditing(false);
+                  loadReceipt();
+                } catch (e) {
+                  Alert.alert('Error', '替换ID失败');
+                  console.error(e);
+                }
+              },
+            },
+            {
+              text: '合并',
+              onPress: async () => {
+                try {
+                  if (!currentId || !currentSource) {
+                    Alert.alert('提示', '当前小票未关联供应商/客户，无法合并');
+                    return;
+                  }
+                  let finalTargetId = targetId;
+                  let finalTargetSource = targetSource;
+                  if (finalTargetId == null || finalTargetSource == null) {
+                    const options = await getSupplierOptions();
+                    const nameToFindMerge = (duplicateName || '').trim();
+                    const found = nameToFindMerge ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFindMerge)) : null;
+                    if (!found) {
+                      if (!nameToFindMerge) {
+                        Alert.alert('提示', '请从列表中选择要合并到的供应商');
+                      } else {
+                        Alert.alert('提示', `未找到名称为「${duplicateName}」的${label}`);
+                      }
+                      return;
+                    }
+                    finalTargetId = found.id;
+                    finalTargetSource = found.source;
+                  }
+                  if (finalTargetId === currentId) {
+                    Alert.alert('提示', '当前已是该供应商/客户，无需合并');
+                    return;
+                  }
+                  if (currentSource !== finalTargetSource) {
+                    Alert.alert('提示', '当前关联与目标类型不同，请使用替换ID');
+                    return;
+                  }
+                  if (currentSource === 'supplier') {
+                    await mergeSupplier([currentId], finalTargetId);
+                  } else {
+                    await mergeCustomer([currentId], finalTargetId);
+                  }
+                  setEditing(false);
+                  loadReceipt();
+                } catch (e: any) {
+                  const msg = e?.message || String(e);
+                  Alert.alert('合并失败', msg);
+                  console.warn('Merge receipts supplier link failed:', e);
+                }
+              },
+            },
+          ],
+          { cancelable: true }
+        );
+        return;
+      }
       Alert.alert('Error', 'Failed to save');
       console.error(error);
     }
@@ -245,16 +372,62 @@ export default function ReceiptDetailsScreen() {
     });
   };
 
-  // 处理供应商名称变更
+  // 处理供应商名称变更：仅更新小票上的名称文本，保留已有关联 ID（有关联时后端会更新对应表）
   const handleSupplierNameChange = (supplierName: string) => {
     if (!editedReceipt) return;
     setEditedReceipt({
       ...editedReceipt,
-      supplierName: supplierName,
-      // 如果修改了供应商名称，清除 supplierId，让系统重新查找或创建供应商
-      supplierId: undefined,
-      supplier: undefined,
+      supplierName,
+      storeName: supplierName,
     });
+  };
+
+  const openSupplierPicker = async () => {
+    try {
+      const options = await getSupplierOptions();
+      setSupplierOptions(options);
+      setShowSupplierPicker(true);
+    } catch (e) {
+      console.warn('Failed to load supplier options:', e);
+    }
+  };
+
+  const handleSelectSupplier = (option: { id: string; name: string; source: 'supplier' | 'customer' } | null) => {
+    if (!editedReceipt) return;
+    setShowSupplierPicker(false);
+    if (option === null) {
+      setEditedReceipt({
+        ...editedReceipt,
+        supplierName: editedReceipt.supplierName ?? editedReceipt.storeName ?? '',
+        storeName: editedReceipt.supplierName ?? editedReceipt.storeName ?? '',
+        supplierId: undefined,
+        supplierCustomerId: undefined,
+        supplier: undefined,
+        supplierCustomer: undefined,
+      });
+      return;
+    }
+    if (option.source === 'supplier') {
+      setEditedReceipt({
+        ...editedReceipt,
+        supplierName: option.name,
+        storeName: option.name,
+        supplierId: option.id,
+        supplierCustomerId: undefined,
+        supplier: { id: option.id, name: option.name } as any,
+        supplierCustomer: undefined,
+      });
+    } else {
+      setEditedReceipt({
+        ...editedReceipt,
+        supplierName: option.name,
+        storeName: option.name,
+        supplierId: undefined,
+        supplierCustomerId: option.id,
+        supplier: undefined,
+        supplierCustomer: { id: option.id, name: option.name } as any,
+      });
+    }
   };
 
   // 直接更新商品项并保存（不进入编辑模式）
@@ -565,16 +738,25 @@ export default function ReceiptDetailsScreen() {
             <View style={styles.summaryContentTop}>
               <View style={styles.summaryContentMain}>
                 {editing ? (
-                  <TextInput
-                    style={styles.storeNameInput}
-                    value={editedReceipt?.supplierName || editedReceipt?.supplier?.name || currentReceipt.supplier?.name || currentReceipt.supplierName || ''}
-                    onChangeText={handleSupplierNameChange}
-                    placeholder="Supplier name"
-                    maxLength={100}
-                  />
+                  <View style={styles.storeNameInputRow}>
+                    <TextInput
+                      style={styles.storeNameInput}
+                      value={editedReceipt?.supplierName ?? editedReceipt?.storeName ?? editedReceipt?.supplier?.name ?? editedReceipt?.supplierCustomer?.name ?? currentReceipt.supplierName ?? ''}
+                      onChangeText={handleSupplierNameChange}
+                      placeholder="Supplier name"
+                      maxLength={100}
+                    />
+                    <TouchableOpacity
+                      style={styles.storeNameDropdownIcon}
+                      onPress={openSupplierPicker}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="chevron-down" size={18} color="#6C5CE7" />
+                    </TouchableOpacity>
+                  </View>
                 ) : (
                   <Text style={styles.storeName} numberOfLines={1}>
-                    {currentReceipt.supplier?.name || currentReceipt.supplierName || 'Unknown Supplier'}
+                    {currentReceipt.supplier?.name || currentReceipt.supplierCustomer?.name || currentReceipt.supplierName || 'Unknown Supplier'}
                   </Text>
                 )}
                 <View style={styles.amountRow}>
@@ -1303,6 +1485,56 @@ export default function ReceiptDetailsScreen() {
         </TouchableOpacity>
       </Modal>
 
+      {/* 选择其他供应商 */}
+      <Modal
+        visible={showSupplierPicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowSupplierPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.pickerOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSupplierPicker(false)}
+        >
+          <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
+            <View style={styles.pickerHandle} />
+            <View style={styles.pickerHeader}>
+              <Text style={styles.pickerTitle}>选择其他供应商</Text>
+              <TouchableOpacity
+                onPress={() => setShowSupplierPicker(false)}
+                style={styles.pickerCloseButton}
+              >
+                <Text style={styles.pickerCloseText}>取消</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
+              {supplierOptions.map((opt) => {
+                const isSelected =
+                  (opt.source === 'supplier' && editedReceipt?.supplierId === opt.id) ||
+                  (opt.source === 'customer' && editedReceipt?.supplierCustomerId === opt.id);
+                return (
+                  <TouchableOpacity
+                    key={`${opt.source}-${opt.id}`}
+                    style={[styles.pickerOption, isSelected && styles.pickerOptionSelected]}
+                    onPress={() => handleSelectSupplier(opt)}
+                  >
+                    <View style={[styles.pickerColorIndicator, { backgroundColor: '#6C5CE7' }]} />
+                    <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected]} numberOfLines={1}>
+                      {opt.name}
+                    </Text>
+                    {opt.source === 'customer' && (
+                      <Text style={styles.pickerOptionSubtext}>客户</Text>
+                    )}
+                    {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* 币种选择器 */}
       <Modal
         visible={showCurrencyPicker}
@@ -1542,19 +1774,35 @@ const styles = StyleSheet.create({
     borderBottomColor: 'transparent',
     paddingVertical: 0,
   },
+  storeNameInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 22,
+    marginBottom: 2,
+  },
   storeNameInput: {
+    flex: 1,
     fontSize: 17,
     fontWeight: '600',
     color: '#2D3436',
     lineHeight: 22,
     borderBottomWidth: 1,
-    // 使用与套框相同的主题色和线宽
     borderBottomColor: '#6C5CE7',
-    height: 22, // 与非编辑态严格相同的高度
+    height: 22,
     paddingVertical: 0,
-    marginBottom: 2,
-    // 微调渲染位置，抵消 Text 与 TextInput 基线差异导致的下移约 1–2px
+    paddingRight: 4,
     transform: [{ translateY: -1 }],
+  },
+  storeNameDropdownIcon: {
+    paddingLeft: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: 22,
+  },
+  pickerOptionSubtext: {
+    fontSize: 12,
+    color: '#95A5A6',
+    marginRight: 8,
   },
   amountRow: {
     flexDirection: 'row',
@@ -1617,16 +1865,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#6C5CE7',
     borderRadius: 4,
-    // 高度与币种套框保持一致，方便上下对齐
     paddingVertical: 1,
     height: 20,
     paddingHorizontal: 4,
     minWidth: 50,
-    // 文本左对齐，避免在数值变化时产生左右跳动
     textAlign: 'left',
     lineHeight: 16,
-    // 再上移 2 像素（总计约 4px），只影响文字位置，不改变高度
-    transform: [{ translateY: -3 }],
   },
   date: {
     fontSize: 14, // 与币种相同
