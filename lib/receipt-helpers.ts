@@ -1,4 +1,4 @@
-import { GeminiReceiptResult, GeminiVoucherResult, Receipt, ReceiptStatus, Invoice, InvoiceItem, VoucherStatus } from '@/types';
+import { GeminiReceiptResult, GeminiVoucherResult, GeminiInboundOutboundResult, Receipt, ReceiptStatus, Invoice, InvoiceItem, Inbound, InboundItem, Outbound, OutboundItem, VoucherStatus } from '@/types';
 import { getCurrentUser } from './auth';
 import { findCategoryByName, getCategories } from './categories';
 import { findPurposeByName, getPurposes } from './purposes';
@@ -315,6 +315,77 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
     accountId: accountId ?? null,
     status: 'pending' as VoucherStatus,
     items,
+    confidence: result.confidence,
+  };
+}
+
+/** 将 Gemini 入库/出库识别结果转换为 Inbound */
+export async function convertGeminiResultToInbound(result: GeminiInboundOutboundResult): Promise<Inbound> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  let supplierId: string | undefined;
+  const supplierName = result.supplierName?.trim();
+  if (supplierName) {
+    const invalidNames = ['processing', 'pending', 'loading', '识别中', '处理中', '待处理'];
+    if (!invalidNames.includes(supplierName.toLowerCase())) {
+      try {
+        const supplier = await findOrCreateSupplier(supplierName, true);
+        supplierId = supplier.id;
+      } catch (_) {}
+    }
+  }
+
+  const items: InboundItem[] = (result.items || []).map((it) => ({
+    inboundId: '',
+    productName: it.productName || 'Item',
+    quantity: Number(it.quantity) || 1,
+    unit: it.unit || '件',
+    unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
+  }));
+
+  const totalAmount = result.totalAmount ?? items.reduce((sum, i) => sum + (i.quantity || 0) * (i.unitPrice ?? 0), 0);
+
+  return {
+    spaceId,
+    supplierId,
+    supplierName: result.supplierName || undefined,
+    totalAmount: totalAmount > 0 ? totalAmount : undefined,
+    currency: result.currency,
+    date: result.date,
+    status: 'pending' as VoucherStatus,
+    items: items.length ? items : [{ inboundId: '', productName: 'Goods', quantity: 1, unit: '件' }],
+    confidence: result.confidence,
+  };
+}
+
+/** 将 Gemini 入库/出库识别结果转换为 Outbound */
+export async function convertGeminiResultToOutbound(result: GeminiInboundOutboundResult): Promise<Outbound> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const items: OutboundItem[] = (result.items || []).map((it) => ({
+    outboundId: '',
+    productName: it.productName || 'Item',
+    quantity: Number(it.quantity) || 1,
+    unit: it.unit || '件',
+    unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
+  }));
+
+  const totalAmount = result.totalAmount ?? items.reduce((sum, i) => sum + (i.quantity || 0) * (i.unitPrice ?? 0), 0);
+
+  return {
+    spaceId,
+    customerName: result.customerName || undefined,
+    totalAmount: totalAmount > 0 ? totalAmount : undefined,
+    currency: result.currency,
+    date: result.date,
+    status: 'pending' as VoucherStatus,
+    items: items.length ? items : [{ outboundId: '', productName: 'Goods', quantity: 1, unit: '件' }],
     confidence: result.confidence,
   };
 }

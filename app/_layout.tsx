@@ -98,6 +98,18 @@ export default function RootLayout() {
           }} 
         />
         <Stack.Screen 
+          name="inbound-details/[id]" 
+          options={{ 
+            title: 'Inbound Details'
+          }} 
+        />
+        <Stack.Screen 
+          name="outbound-details/[id]" 
+          options={{ 
+            title: 'Outbound Details'
+          }} 
+        />
+        <Stack.Screen 
           name="login" 
           options={{ 
             headerShown: false

@@ -160,6 +160,78 @@ export async function uploadInvoiceImage(fileUri: string, invoiceId: string): Pr
   }
 }
 
+/** 上传入库单图片（临时），路径 inbound/temp-{tempFileName}.{ext} */
+export async function uploadInboundImageTemp(fileUri: string, tempFileName: string): Promise<string> {
+  try {
+    const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+    const arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const fileExt = fileUri.split('.').pop()?.toLowerCase() || 'jpg';
+    const filePath = `inbound/${tempFileName}.${fileExt}`;
+    const mimeType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(filePath, arrayBuffer, { contentType: mimeType, upsert: true });
+    if (error) throw error;
+    const { data: { publicUrl } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
+    return publicUrl;
+  } catch (error) {
+    console.error('Error uploading inbound image temp:', error);
+    throw error;
+  }
+}
+
+/** 上传入库单图片（正式），路径 inbound/{inboundId}.{ext} */
+export async function uploadInboundImage(fileUri: string, inboundId: string): Promise<string> {
+  try {
+    const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+    const arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const fileExt = fileUri.split('.').pop()?.toLowerCase() || 'jpg';
+    const filePath = `inbound/${inboundId}.${fileExt}`;
+    const mimeType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(filePath, arrayBuffer, { contentType: mimeType, upsert: true });
+    if (error) throw error;
+    const { data: { publicUrl } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
+    return publicUrl;
+  } catch (error) {
+    console.error('Error uploading inbound image:', error);
+    throw error;
+  }
+}
+
+/** 上传出库单图片（临时），路径 outbound/temp-{tempFileName}.{ext} */
+export async function uploadOutboundImageTemp(fileUri: string, tempFileName: string): Promise<string> {
+  try {
+    const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+    const arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const fileExt = fileUri.split('.').pop()?.toLowerCase() || 'jpg';
+    const filePath = `outbound/${tempFileName}.${fileExt}`;
+    const mimeType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(filePath, arrayBuffer, { contentType: mimeType, upsert: true });
+    if (error) throw error;
+    const { data: { publicUrl } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
+    return publicUrl;
+  } catch (error) {
+    console.error('Error uploading outbound image temp:', error);
+    throw error;
+  }
+}
+
+/** 上传出库单图片（正式），路径 outbound/{outboundId}.{ext} */
+export async function uploadOutboundImage(fileUri: string, outboundId: string): Promise<string> {
+  try {
+    const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+    const arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const fileExt = fileUri.split('.').pop()?.toLowerCase() || 'jpg';
+    const filePath = `outbound/${outboundId}.${fileExt}`;
+    const mimeType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
+    const { error } = await supabase.storage.from(STORAGE_BUCKET).upload(filePath, arrayBuffer, { contentType: mimeType, upsert: true });
+    if (error) throw error;
+    const { data: { publicUrl } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
+    return publicUrl;
+  } catch (error) {
+    console.error('Error uploading outbound image:', error);
+    throw error;
+  }
+}
+
 // 从公共URL中提取文件路径
 function extractFilePathFromUrl(url: string): string | null {
   try {

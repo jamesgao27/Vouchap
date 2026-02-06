@@ -17,12 +17,14 @@ import {
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio } from '@/lib/gemini';
+import { recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio, recognizeInboundFromText, recognizeInboundFromAudio, recognizeOutboundFromText, recognizeOutboundFromAudio } from '@/lib/gemini';
 import { saveReceipt, updateReceipt, getReceiptById } from '@/lib/database';
 import { saveInvoice, getInvoiceById } from '@/lib/invoices';
+import { saveInbound, getInboundById } from '@/lib/inbound';
+import { saveOutbound, getOutboundById } from '@/lib/outbound';
 import { saveChatLog, getChatLogsPaginated, VoucherLogType } from '@/lib/chat-logs';
-import { ReceiptStatus, Receipt, Invoice } from '@/types';
-import { convertGeminiResultToReceipt, convertGeminiResultToInvoice } from '@/lib/receipt-helpers';
+import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound } from '@/types';
+import { convertGeminiResultToReceipt, convertGeminiResultToInvoice, convertGeminiResultToInbound, convertGeminiResultToOutbound } from '@/lib/receipt-helpers';
 import { format } from 'date-fns';
 import { 
   startRecording, 
@@ -55,8 +57,12 @@ interface Message {
   timestamp: Date;
   receiptPreview?: Receipt;
   invoicePreview?: Invoice;
+  inboundPreview?: Inbound;
+  outboundPreview?: Outbound;
   receiptDeleted?: boolean;
   invoiceDeleted?: boolean;
+  inboundDeleted?: boolean;
+  outboundDeleted?: boolean;
   voucherType?: VoucherLogType; // 当前记录类别，用于详情跳转
   audioUrl?: string;
   isPlayingAudio?: boolean;
@@ -70,6 +76,8 @@ export default function VoiceInputScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmedReceipts, setConfirmedReceipts] = useState<Set<string>>(new Set());
   const [confirmedInvoices, setConfirmedInvoices] = useState<Set<string>>(new Set());
+  const [confirmedInbounds, setConfirmedInbounds] = useState<Set<string>>(new Set());
+  const [confirmedOutbounds, setConfirmedOutbounds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -123,9 +131,16 @@ export default function VoiceInputScreen() {
         const logs = await getChatLogsPaginated(20, undefined, voucherType);
 
         if (!logs || logs.length === 0) {
-          const welcomeText = voucherType === 'invoice'
-            ? 'Hi! Describe your invoice (sale / money received). I\'ll extract customer, amount, and items.\n\nExample: "Client ABC paid $500 on March 15 for consulting. Items: Service $500"'
-            : 'Hi! I can help you create receipts from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"';
+          let welcomeText: string;
+          if (voucherType === 'invoice') {
+            welcomeText = 'Hi! Describe your invoice (sale / money received). I\'ll extract customer, amount, and items.\n\nExample: "Client ABC paid $500 on March 15 for consulting. Items: Service $500"';
+          } else if (voucherType === 'inbound') {
+            welcomeText = 'Hi! Describe your inbound (goods received from supplier). I\'ll extract supplier, date, and items with quantity and unit.\n\nExample: "ABC Supplier delivered on March 15: Widget A 10 boxes @ $50, Widget B 20 pcs"';
+          } else if (voucherType === 'outbound') {
+            welcomeText = 'Hi! Describe your outbound (goods shipped to customer). I\'ll extract customer, date, and items with quantity and unit.\n\nExample: "Shipped to XYZ Customer on March 15: Product A 5 boxes @ $60, Product B 10 pcs"';
+          } else {
+            welcomeText = 'Hi! I can help you create receipts from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"';
+          }
           setMessages([{ id: 'welcome', text: welcomeText, isUser: false, timestamp: new Date() }]);
           setHasMoreHistory(false);
           return;
@@ -161,6 +176,26 @@ export default function VoiceInputScreen() {
               invoicePreview: preview,
               voucherType: 'invoice',
             });
+          } else if (log.responseData?.inboundPreview && logType === 'inbound') {
+            const preview = log.responseData.inboundPreview as Inbound;
+            restoredMessages.push({
+              id: `${log.id}-preview`,
+              text: '',
+              isUser: false,
+              timestamp: new Date(log.createdAt),
+              inboundPreview: preview,
+              voucherType: 'inbound',
+            });
+          } else if (log.responseData?.outboundPreview && logType === 'outbound') {
+            const preview = log.responseData.outboundPreview as Outbound;
+            restoredMessages.push({
+              id: `${log.id}-preview`,
+              text: '',
+              isUser: false,
+              timestamp: new Date(log.createdAt),
+              outboundPreview: preview,
+              voucherType: 'outbound',
+            });
           } else if (log.responseData?.receiptPreview) {
             const preview = log.responseData.receiptPreview as Receipt;
             restoredMessages.push({
@@ -182,9 +217,11 @@ export default function VoiceInputScreen() {
         }
 
         if (restoredMessages.length === 0) {
-          const welcomeText = voucherType === 'invoice'
-            ? 'Hi! Describe your invoice (sale / money received). I\'ll extract customer, amount, and items.'
-            : 'Hi! I can help you create receipts from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"';
+          let welcomeText: string;
+          if (voucherType === 'invoice') welcomeText = 'Hi! Describe your invoice (sale / money received). I\'ll extract customer, amount, and items.';
+          else if (voucherType === 'inbound') welcomeText = 'Hi! Describe your inbound (goods received). I\'ll extract supplier, date, and items with quantity and unit.';
+          else if (voucherType === 'outbound') welcomeText = 'Hi! Describe your outbound (goods shipped). I\'ll extract customer, date, and items with quantity and unit.';
+          else welcomeText = 'Hi! I can help you create receipts from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"';
           setMessages([{ id: 'welcome', text: welcomeText, isUser: false, timestamp: new Date() }]);
           setHasMoreHistory(false);
         } else {
@@ -197,6 +234,24 @@ export default function VoiceInputScreen() {
                   return { ...msg, invoicePreview: { ...msg.invoicePreview, status: invoice.status }, invoiceDeleted: false };
                 } catch {
                   return { ...msg, invoiceDeleted: true };
+                }
+              }
+              if (msg.inboundPreview?.id) {
+                try {
+                  const inbound = await getInboundById(msg.inboundPreview.id);
+                  if (!inbound) return { ...msg, inboundDeleted: true };
+                  return { ...msg, inboundPreview: { ...msg.inboundPreview, status: inbound.status }, inboundDeleted: false };
+                } catch {
+                  return { ...msg, inboundDeleted: true };
+                }
+              }
+              if (msg.outboundPreview?.id) {
+                try {
+                  const outbound = await getOutboundById(msg.outboundPreview.id);
+                  if (!outbound) return { ...msg, outboundDeleted: true };
+                  return { ...msg, outboundPreview: { ...msg.outboundPreview, status: outbound.status }, outboundDeleted: false };
+                } catch {
+                  return { ...msg, outboundDeleted: true };
                 }
               }
               if (!msg.receiptPreview?.id) return msg;
@@ -294,6 +349,26 @@ export default function VoiceInputScreen() {
               invoicePreview: preview,
               voucherType: 'invoice',
             });
+          } else if (log.responseData?.inboundPreview && logType === 'inbound') {
+            const preview = log.responseData.inboundPreview as Inbound;
+            moreMessagesRaw.push({
+              id: `${log.id}-preview`,
+              text: '',
+              isUser: false,
+              timestamp: new Date(log.createdAt),
+              inboundPreview: preview,
+              voucherType: 'inbound',
+            });
+          } else if (log.responseData?.outboundPreview && logType === 'outbound') {
+            const preview = log.responseData.outboundPreview as Outbound;
+            moreMessagesRaw.push({
+              id: `${log.id}-preview`,
+              text: '',
+              isUser: false,
+              timestamp: new Date(log.createdAt),
+              outboundPreview: preview,
+              voucherType: 'outbound',
+            });
           } else if (log.responseData?.receiptPreview) {
             const preview = log.responseData.receiptPreview as Receipt;
             moreMessagesRaw.push({
@@ -323,6 +398,24 @@ export default function VoiceInputScreen() {
                 return { ...msg, invoicePreview: { ...msg.invoicePreview, status: invoice.status }, invoiceDeleted: false };
               } catch {
                 return { ...msg, invoiceDeleted: true };
+              }
+            }
+            if (msg.inboundPreview?.id) {
+              try {
+                const inbound = await getInboundById(msg.inboundPreview.id);
+                if (!inbound) return { ...msg, inboundDeleted: true };
+                return { ...msg, inboundPreview: { ...msg.inboundPreview, status: inbound.status }, inboundDeleted: false };
+              } catch {
+                return { ...msg, inboundDeleted: true };
+              }
+            }
+            if (msg.outboundPreview?.id) {
+              try {
+                const outbound = await getOutboundById(msg.outboundPreview.id);
+                if (!outbound) return { ...msg, outboundDeleted: true };
+                return { ...msg, outboundPreview: { ...msg.outboundPreview, status: outbound.status }, outboundDeleted: false };
+              } catch {
+                return { ...msg, outboundDeleted: true };
               }
             }
             if (!msg.receiptPreview?.id) return msg;
@@ -366,6 +459,38 @@ export default function VoiceInputScreen() {
       } catch (error) {
         setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, invoiceDeleted: true } : m)));
         Alert.alert('Invoice Deleted', 'This invoice has been deleted.');
+      }
+      return;
+    }
+    const inboundId = message.inboundPreview?.id;
+    if (inboundId) {
+      try {
+        const inbound = await getInboundById(inboundId);
+        if (!inbound) {
+          setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, inboundDeleted: true } : m)));
+          Alert.alert('Inbound Deleted', 'This inbound has been deleted.');
+          return;
+        }
+        router.push(`/inbound-details/${inboundId}`);
+      } catch (error) {
+        setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, inboundDeleted: true } : m)));
+        Alert.alert('Inbound Deleted', 'This inbound has been deleted.');
+      }
+      return;
+    }
+    const outboundId = message.outboundPreview?.id;
+    if (outboundId) {
+      try {
+        const outbound = await getOutboundById(outboundId);
+        if (!outbound) {
+          setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, outboundDeleted: true } : m)));
+          Alert.alert('Outbound Deleted', 'This outbound has been deleted.');
+          return;
+        }
+        router.push(`/outbound-details/${outboundId}`);
+      } catch (error) {
+        setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, outboundDeleted: true } : m)));
+        Alert.alert('Outbound Deleted', 'This outbound has been deleted.');
       }
       return;
     }
@@ -434,6 +559,56 @@ export default function VoiceInputScreen() {
           response: '',
           requestData: { rawText: text },
           responseData: { invoicePreview: previewMessage.invoicePreview },
+          success: true,
+        });
+      } else if (voucherType === 'inbound') {
+        const result = await recognizeInboundFromText(text);
+        const inbound = await convertGeminiResultToInbound(result);
+        const inboundToSave = { ...inbound, status: 'pending' as const, inputType: 'text' as const };
+        const inboundId = await saveInbound(inboundToSave);
+        const previewMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: '',
+          isUser: false,
+          timestamp: new Date(),
+          inboundPreview: { ...inboundToSave, id: inboundId, status: 'pending' },
+          voucherType: 'inbound',
+        };
+        setMessages(prev => [...prev, previewMessage]);
+        await saveChatLog({
+          receiptId: undefined,
+          voucherType: 'inbound',
+          type: 'text',
+          modelName: 'gemini',
+          prompt: text,
+          response: '',
+          requestData: { rawText: text },
+          responseData: { inboundPreview: previewMessage.inboundPreview },
+          success: true,
+        });
+      } else if (voucherType === 'outbound') {
+        const result = await recognizeOutboundFromText(text);
+        const outbound = await convertGeminiResultToOutbound(result);
+        const outboundToSave = { ...outbound, status: 'pending' as const, inputType: 'text' as const };
+        const outboundId = await saveOutbound(outboundToSave);
+        const previewMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: '',
+          isUser: false,
+          timestamp: new Date(),
+          outboundPreview: { ...outboundToSave, id: outboundId, status: 'pending' },
+          voucherType: 'outbound',
+        };
+        setMessages(prev => [...prev, previewMessage]);
+        await saveChatLog({
+          receiptId: undefined,
+          voucherType: 'outbound',
+          type: 'text',
+          modelName: 'gemini',
+          prompt: text,
+          response: '',
+          requestData: { rawText: text },
+          responseData: { outboundPreview: previewMessage.outboundPreview },
           success: true,
         });
       } else {
@@ -642,6 +817,58 @@ export default function VoiceInputScreen() {
           response: '',
           requestData: { audioUrl },
           responseData: { invoicePreview: previewMessage.invoicePreview },
+          success: true,
+          audioUrl,
+        });
+      } else if (voucherType === 'inbound') {
+        const result = await recognizeInboundFromAudio(localUri);
+        const inbound = await convertGeminiResultToInbound(result);
+        const inboundToSave = { ...inbound, status: 'pending' as const, inputType: 'audio' as const };
+        const inboundId = await saveInbound(inboundToSave);
+        const previewMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: '',
+          isUser: false,
+          timestamp: new Date(),
+          inboundPreview: { ...inboundToSave, id: inboundId, status: 'pending' },
+          voucherType: 'inbound',
+        };
+        setMessages(prev => [...prev, previewMessage]);
+        await saveChatLog({
+          receiptId: undefined,
+          voucherType: 'inbound',
+          type: 'audio',
+          modelName: 'gemini',
+          prompt: `Voice input (${recordingDuration}s)`,
+          response: '',
+          requestData: { audioUrl },
+          responseData: { inboundPreview: previewMessage.inboundPreview },
+          success: true,
+          audioUrl,
+        });
+      } else if (voucherType === 'outbound') {
+        const result = await recognizeOutboundFromAudio(localUri);
+        const outbound = await convertGeminiResultToOutbound(result);
+        const outboundToSave = { ...outbound, status: 'pending' as const, inputType: 'audio' as const };
+        const outboundId = await saveOutbound(outboundToSave);
+        const previewMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: '',
+          isUser: false,
+          timestamp: new Date(),
+          outboundPreview: { ...outboundToSave, id: outboundId, status: 'pending' },
+          voucherType: 'outbound',
+        };
+        setMessages(prev => [...prev, previewMessage]);
+        await saveChatLog({
+          receiptId: undefined,
+          voucherType: 'outbound',
+          type: 'audio',
+          modelName: 'gemini',
+          prompt: `Voice input (${recordingDuration}s)`,
+          response: '',
+          requestData: { audioUrl },
+          responseData: { outboundPreview: previewMessage.outboundPreview },
           success: true,
           audioUrl,
         });
@@ -1079,6 +1306,184 @@ export default function VoiceInputScreen() {
                     <Ionicons name={confirmedInvoices.has(message.invoicePreview!.id!) || message.invoicePreview!.status === 'confirmed' ? 'checkmark-circle' : 'checkmark-circle-outline'} size={16} color="#fff" />
                     <Text style={[styles.previewActionText, styles.previewActionTextPrimary]}>
                       {message.invoiceDeleted ? 'Deleted' : confirmedInvoices.has(message.invoicePreview!.id!) || message.invoicePreview!.status === 'confirmed' ? 'Confirmed' : 'Confirm'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* 入库单识别结果预览卡片 */}
+            {message.inboundPreview && (
+              <View style={styles.receiptPreviewCard}>
+                <View style={styles.receiptPreviewHeader}>
+                  <Ionicons name="arrow-down-circle" size={20} color="#6C5CE7" />
+                  <Text style={styles.receiptPreviewTitle}>Inbound Preview</Text>
+                </View>
+                <View style={styles.receiptPreviewContent}>
+                  <View style={styles.receiptPreviewRow}>
+                    <Text style={styles.receiptPreviewLabel}>Supplier:</Text>
+                    <Text style={styles.receiptPreviewValue}>{message.inboundPreview.supplierName || '—'}</Text>
+                  </View>
+                  <View style={styles.receiptPreviewRow}>
+                    <Text style={styles.receiptPreviewLabel}>Date:</Text>
+                    <Text style={styles.receiptPreviewValue}>
+                      {(() => {
+                        try {
+                          const [y, m, d] = message.inboundPreview.date.split('-').map(Number);
+                          return format(new Date(y, m - 1, d), 'MMM dd, yyyy');
+                        } catch {
+                          return message.inboundPreview.date;
+                        }
+                      })()}
+                    </Text>
+                  </View>
+                  {(message.inboundPreview.totalAmount != null && message.inboundPreview.totalAmount > 0) && (
+                    <View style={styles.receiptPreviewRow}>
+                      <Text style={styles.receiptPreviewLabel}>Amount:</Text>
+                      <Text style={[styles.receiptPreviewValue, styles.receiptPreviewAmount]}>
+                        {formatCurrency(message.inboundPreview.totalAmount, message.inboundPreview.currency)}
+                      </Text>
+                    </View>
+                  )}
+                  {message.inboundPreview.items && message.inboundPreview.items.length > 0 && (
+                    <View style={styles.receiptPreviewItems}>
+                      <Text style={styles.receiptPreviewLabel}>Items:</Text>
+                      {message.inboundPreview.items.map((item, index) => (
+                        <View key={index} style={styles.receiptPreviewItemRow}>
+                          <Text style={styles.receiptPreviewItemName}>{item.productName}</Text>
+                          <Text style={styles.receiptPreviewItemPrice}>
+                            {item.quantity} {item.unit}{item.unitPrice != null ? ` @ ${item.unitPrice.toFixed(2)}` : ''}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+                <View style={styles.receiptPreviewActions}>
+                  {!message.inboundDeleted && (
+                    <TouchableOpacity style={styles.previewActionButton} onPress={() => handlePreviewDetails(message)}>
+                      <Ionicons name="eye-outline" size={16} color="#6C5CE7" />
+                      <Text style={styles.previewActionText}>View Details</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[
+                      styles.previewActionButton,
+                      message.inboundDeleted ? styles.previewActionButtonDisabled
+                        : confirmedInbounds.has(message.inboundPreview!.id!) || message.inboundPreview!.status === 'confirmed'
+                        ? styles.previewActionButtonConfirmed
+                        : styles.previewActionButtonPrimary,
+                    ]}
+                    onPress={async () => {
+                      if (!message.inboundPreview?.id) return;
+                      if (message.inboundDeleted) return;
+                      if (confirmedInbounds.has(message.inboundPreview.id) || message.inboundPreview.status === 'confirmed') return;
+                      try {
+                        const full = await getInboundById(message.inboundPreview.id);
+                        if (!full) { Alert.alert('Error', 'Inbound not found.'); return; }
+                        await saveInbound({ ...full, status: 'confirmed' });
+                        setConfirmedInbounds((prev) => new Set(prev).add(message.inboundPreview!.id!));
+                        setMessages((prev) => prev.map((msg) =>
+                          msg.id === message.id && msg.inboundPreview ? { ...msg, inboundPreview: { ...msg.inboundPreview, status: 'confirmed' as const } } : msg
+                        ));
+                      } catch (e) {
+                        Alert.alert('Error', e instanceof Error ? e.message : 'Failed to confirm inbound.');
+                      }
+                    }}
+                    disabled={message.inboundDeleted || confirmedInbounds.has(message.inboundPreview!.id!) || message.inboundPreview!.status === 'confirmed'}
+                  >
+                    <Ionicons name={confirmedInbounds.has(message.inboundPreview!.id!) || message.inboundPreview!.status === 'confirmed' ? 'checkmark-circle' : 'checkmark-circle-outline'} size={16} color="#fff" />
+                    <Text style={[styles.previewActionText, styles.previewActionTextPrimary]}>
+                      {message.inboundDeleted ? 'Deleted' : confirmedInbounds.has(message.inboundPreview!.id!) || message.inboundPreview!.status === 'confirmed' ? 'Confirmed' : 'Confirm'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* 出库单识别结果预览卡片 */}
+            {message.outboundPreview && (
+              <View style={styles.receiptPreviewCard}>
+                <View style={styles.receiptPreviewHeader}>
+                  <Ionicons name="arrow-up-circle" size={20} color="#6C5CE7" />
+                  <Text style={styles.receiptPreviewTitle}>Outbound Preview</Text>
+                </View>
+                <View style={styles.receiptPreviewContent}>
+                  <View style={styles.receiptPreviewRow}>
+                    <Text style={styles.receiptPreviewLabel}>Customer:</Text>
+                    <Text style={styles.receiptPreviewValue}>{message.outboundPreview.customerName || '—'}</Text>
+                  </View>
+                  <View style={styles.receiptPreviewRow}>
+                    <Text style={styles.receiptPreviewLabel}>Date:</Text>
+                    <Text style={styles.receiptPreviewValue}>
+                      {(() => {
+                        try {
+                          const [y, m, d] = message.outboundPreview.date.split('-').map(Number);
+                          return format(new Date(y, m - 1, d), 'MMM dd, yyyy');
+                        } catch {
+                          return message.outboundPreview.date;
+                        }
+                      })()}
+                    </Text>
+                  </View>
+                  {(message.outboundPreview.totalAmount != null && message.outboundPreview.totalAmount > 0) && (
+                    <View style={styles.receiptPreviewRow}>
+                      <Text style={styles.receiptPreviewLabel}>Amount:</Text>
+                      <Text style={[styles.receiptPreviewValue, styles.receiptPreviewAmount]}>
+                        {formatCurrency(message.outboundPreview.totalAmount, message.outboundPreview.currency)}
+                      </Text>
+                    </View>
+                  )}
+                  {message.outboundPreview.items && message.outboundPreview.items.length > 0 && (
+                    <View style={styles.receiptPreviewItems}>
+                      <Text style={styles.receiptPreviewLabel}>Items:</Text>
+                      {message.outboundPreview.items.map((item, index) => (
+                        <View key={index} style={styles.receiptPreviewItemRow}>
+                          <Text style={styles.receiptPreviewItemName}>{item.productName}</Text>
+                          <Text style={styles.receiptPreviewItemPrice}>
+                            {item.quantity} {item.unit}{item.unitPrice != null ? ` @ ${item.unitPrice.toFixed(2)}` : ''}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+                <View style={styles.receiptPreviewActions}>
+                  {!message.outboundDeleted && (
+                    <TouchableOpacity style={styles.previewActionButton} onPress={() => handlePreviewDetails(message)}>
+                      <Ionicons name="eye-outline" size={16} color="#6C5CE7" />
+                      <Text style={styles.previewActionText}>View Details</Text>
+                    </TouchableOpacity>
+                  )}
+                  <TouchableOpacity
+                    style={[
+                      styles.previewActionButton,
+                      message.outboundDeleted ? styles.previewActionButtonDisabled
+                        : confirmedOutbounds.has(message.outboundPreview!.id!) || message.outboundPreview!.status === 'confirmed'
+                        ? styles.previewActionButtonConfirmed
+                        : styles.previewActionButtonPrimary,
+                    ]}
+                    onPress={async () => {
+                      if (!message.outboundPreview?.id) return;
+                      if (message.outboundDeleted) return;
+                      if (confirmedOutbounds.has(message.outboundPreview.id) || message.outboundPreview.status === 'confirmed') return;
+                      try {
+                        const full = await getOutboundById(message.outboundPreview.id);
+                        if (!full) { Alert.alert('Error', 'Outbound not found.'); return; }
+                        await saveOutbound({ ...full, status: 'confirmed' });
+                        setConfirmedOutbounds((prev) => new Set(prev).add(message.outboundPreview!.id!));
+                        setMessages((prev) => prev.map((msg) =>
+                          msg.id === message.id && msg.outboundPreview ? { ...msg, outboundPreview: { ...msg.outboundPreview, status: 'confirmed' as const } } : msg
+                        ));
+                      } catch (e) {
+                        Alert.alert('Error', e instanceof Error ? e.message : 'Failed to confirm outbound.');
+                      }
+                    }}
+                    disabled={message.outboundDeleted || confirmedOutbounds.has(message.outboundPreview!.id!) || message.outboundPreview!.status === 'confirmed'}
+                  >
+                    <Ionicons name={confirmedOutbounds.has(message.outboundPreview!.id!) || message.outboundPreview!.status === 'confirmed' ? 'checkmark-circle' : 'checkmark-circle-outline'} size={16} color="#fff" />
+                    <Text style={[styles.previewActionText, styles.previewActionTextPrimary]}>
+                      {message.outboundDeleted ? 'Deleted' : confirmedOutbounds.has(message.outboundPreview!.id!) || message.outboundPreview!.status === 'confirmed' ? 'Confirmed' : 'Confirm'}
                     </Text>
                   </TouchableOpacity>
                 </View>

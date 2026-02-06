@@ -5,7 +5,7 @@ import { getAccountsForOptions } from './accounts';
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as FileSystemNew from 'expo-file-system';
-import { GeminiReceiptResult, GeminiVoucherResult, VoucherLogType } from '@/types';
+import { GeminiReceiptResult, GeminiVoucherResult, GeminiInboundOutboundResult, VoucherLogType } from '@/types';
 import { getAvailableImageModel } from './gemini-helper';
 import { getMostFrequentCurrency, getCurrenciesByUsage } from './database';
 
@@ -1549,6 +1549,320 @@ async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVouche
       if (parsed.confidence === undefined) parsed.confidence = 0.8;
       if (!parsed.dataConsistency) parsed.dataConsistency = {};
       return parsed as GeminiVoucherResult;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+// ---------- 入库/出库识别（另一套 prompt：货物流，明细为 数量+单位+单价） ----------
+
+const INBOUND_OUTBOUND_POSSIBLE_MODELS = [
+  'gemini-1.5-flash',
+  'gemini-1.5-flash-latest',
+  'gemini-1.5-pro-latest',
+  'gemini-1.5-pro',
+];
+
+/** 入库单文字识别：采购入库，供应商、日期、总金额、币种、明细（商品名、数量、单位、单价） */
+export async function recognizeInboundFromText(text: string): Promise<GeminiInboundOutboundResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  const prompt = `You are a warehouse/inventory expert. Extract INBOUND (purchase / goods received) information from the text. INBOUND = goods coming in from a supplier.
+
+CURRENT DATE: ${today}.
+
+REQUIRED:
+1. supplierName - string. The supplier/vendor who delivered the goods. If not mentioned, use "Supplier".
+2. date - string YYYY-MM-DD. Use ${today} if not mentioned.
+3. totalAmount - number, optional. Total value if mentioned.
+4. currency - string, e.g. USD, CNY. Default USD.
+5. items - array, REQUIRED. Each item: productName (string), quantity (number, > 0), unit (string, e.g. 件/个/箱/kg/box/pcs), unitPrice (number, optional).
+
+Return ONLY valid JSON, no markdown. Example:
+{"supplierName":"ABC Supplier","date":"${today}","totalAmount":500,"currency":"USD","items":[{"productName":"Widget A","quantity":10,"unit":"箱","unitPrice":50},{"productName":"Widget B","quantity":20,"unit":"个","unitPrice":null}],"confidence":0.9}
+
+User input:
+"${text}"`;
+
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  let lastError: Error | null = null;
+  for (const modelName of INBOUND_OUTBOUND_POSSIBLE_MODELS) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+      if (!parsed.supplierName) parsed.supplierName = 'Supplier';
+      if (!parsed.date) parsed.date = today;
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
+      parsed.items = parsed.items
+        .filter((it: any) => it && (it.productName != null || it.name != null) && (typeof it.quantity === 'number' || typeof it.quantity === 'string'))
+        .map((it: any) => ({
+          productName: it.productName ?? it.name ?? 'Item',
+          quantity: Number(it.quantity) || 1,
+          unit: it.unit ?? '件',
+          unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
+        }));
+      if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      return parsed as GeminiInboundOutboundResult;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+/** 出库单文字识别：销售出库，客户、日期、总金额、币种、明细（商品名、数量、单位、单价） */
+export async function recognizeOutboundFromText(text: string): Promise<GeminiInboundOutboundResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  const prompt = `You are a warehouse/inventory expert. Extract OUTBOUND (sale / goods shipped) information from the text. OUTBOUND = goods going out to a customer.
+
+CURRENT DATE: ${today}.
+
+REQUIRED:
+1. customerName - string. The customer/client who received the goods. If not mentioned, use "Customer".
+2. date - string YYYY-MM-DD. Use ${today} if not mentioned.
+3. totalAmount - number, optional. Total value if mentioned.
+4. currency - string, e.g. USD, CNY. Default USD.
+5. items - array, REQUIRED. Each item: productName (string), quantity (number, > 0), unit (string, e.g. 件/个/箱/kg/box/pcs), unitPrice (number, optional).
+
+Return ONLY valid JSON, no markdown. Example:
+{"customerName":"XYZ Customer","date":"${today}","totalAmount":300,"currency":"USD","items":[{"productName":"Product A","quantity":5,"unit":"箱","unitPrice":60},{"productName":"Product B","quantity":10,"unit":"个","unitPrice":null}],"confidence":0.9}
+
+User input:
+"${text}"`;
+
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  let lastError: Error | null = null;
+  for (const modelName of INBOUND_OUTBOUND_POSSIBLE_MODELS) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+      if (!parsed.customerName) parsed.customerName = 'Customer';
+      if (!parsed.date) parsed.date = today;
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
+      parsed.items = parsed.items
+        .filter((it: any) => it && (it.productName != null || it.name != null) && (typeof it.quantity === 'number' || typeof it.quantity === 'string'))
+        .map((it: any) => ({
+          productName: it.productName ?? it.name ?? 'Item',
+          quantity: Number(it.quantity) || 1,
+          unit: it.unit ?? '件',
+          unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
+        }));
+      if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      return parsed as GeminiInboundOutboundResult;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+/** 语音转文字（供入库/出库语音识别复用） */
+async function transcribeAudioToText(audioUri: string): Promise<string> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key 未配置。') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  const prompt = 'Transcribe this audio to plain text. Output only the transcribed text, no JSON, no explanation.';
+  let lastError: Error | null = null;
+  for (const modelName of INBOUND_OUTBOUND_POSSIBLE_MODELS) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([
+        { inlineData: { data: audioBase64, mimeType: 'audio/m4a' } },
+        prompt,
+      ]);
+      const text = result.response.text()?.trim() || '';
+      if (text) return text;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('Transcription failed');
+}
+
+/** 入库单语音识别：先转写再按入库单 prompt 解析 */
+export async function recognizeInboundFromAudio(audioUri: string): Promise<GeminiInboundOutboundResult> {
+  const text = await transcribeAudioToText(audioUri);
+  return recognizeInboundFromText(text);
+}
+
+/** 出库单语音识别：先转写再按出库单 prompt 解析 */
+export async function recognizeOutboundFromAudio(audioUri: string): Promise<GeminiInboundOutboundResult> {
+  const text = await transcribeAudioToText(audioUri);
+  return recognizeOutboundFromText(text);
+}
+
+/** 从 URL 下载图片并转为 base64 + mimeType（入库/出库图片识别复用） */
+async function downloadImageToBase64(imageUrl: string): Promise<{ base64: string; mimeType: string }> {
+  const downloadResult = await FileSystem.downloadAsync(
+    imageUrl,
+    FileSystem.documentDirectory + `temp-img-${Date.now()}.jpg`
+  );
+  if (!downloadResult.uri) throw new Error('Failed to download image from URL');
+  const base64 = await FileSystem.readAsStringAsync(downloadResult.uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  try {
+    await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true });
+  } catch (_) {}
+  let mimeType = 'image/jpeg';
+  if (imageUrl.includes('.png')) mimeType = 'image/png';
+  else if (imageUrl.includes('.gif')) mimeType = 'image/gif';
+  else if (imageUrl.includes('.webp')) mimeType = 'image/webp';
+  return { base64, mimeType };
+}
+
+/** 入库单图片识别：分析入库单/采购单照片，返回供应商、日期、明细（数量+单位+单价） */
+export async function recognizeInboundFromImage(imageUrl: string): Promise<GeminiInboundOutboundResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key 未配置。') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  const prompt = `You are a warehouse/inventory expert. Analyze this IMAGE of an INBOUND document (purchase / goods received). INBOUND = goods coming in from a supplier. Extract all visible information.
+
+CURRENT DATE: ${today}.
+
+REQUIRED:
+1. supplierName - string. The supplier/vendor who delivered the goods. If not visible, use "Supplier".
+2. date - string YYYY-MM-DD. Use ${today} if not visible.
+3. totalAmount - number, optional. Total value if visible.
+4. currency - string, e.g. USD, CNY. Default USD.
+5. items - array, REQUIRED. Each item: productName (string), quantity (number, > 0), unit (string, e.g. 件/个/箱/kg/box/pcs), unitPrice (number, optional).
+
+Return ONLY valid JSON, no markdown. Example:
+{"supplierName":"ABC Supplier","date":"${today}","totalAmount":500,"currency":"USD","items":[{"productName":"Widget A","quantity":10,"unit":"箱","unitPrice":50}],"confidence":0.9}`;
+
+  const { base64, mimeType } = await downloadImageToBase64(imageUrl);
+  const imagePart = { inlineData: { data: base64, mimeType } };
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch (_) {}
+  const modelsToTry = availableModel ? [availableModel, ...INBOUND_OUTBOUND_POSSIBLE_MODELS] : INBOUND_OUTBOUND_POSSIBLE_MODELS;
+  let lastError: Error | null = null;
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([prompt, imagePart]);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+      if (!parsed.supplierName) parsed.supplierName = 'Supplier';
+      if (!parsed.date) parsed.date = today;
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
+      parsed.items = parsed.items
+        .filter((it: any) => it && (it.productName != null || it.name != null) && (typeof it.quantity === 'number' || typeof it.quantity === 'string'))
+        .map((it: any) => ({
+          productName: it.productName ?? it.name ?? 'Item',
+          quantity: Number(it.quantity) || 1,
+          unit: it.unit ?? '件',
+          unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
+        }));
+      if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      return parsed as GeminiInboundOutboundResult;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+/** 出库单图片识别：分析出库单/发货单照片，返回客户、日期、明细（数量+单位+单价） */
+export async function recognizeOutboundFromImage(imageUrl: string): Promise<GeminiInboundOutboundResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key 未配置。') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const now = new Date();
+  const today = now.toISOString().split('T')[0];
+  const prompt = `You are a warehouse/inventory expert. Analyze this IMAGE of an OUTBOUND document (sale / goods shipped). OUTBOUND = goods going out to a customer. Extract all visible information.
+
+CURRENT DATE: ${today}.
+
+REQUIRED:
+1. customerName - string. The customer who received the goods. If not visible, use "Customer".
+2. date - string YYYY-MM-DD. Use ${today} if not visible.
+3. totalAmount - number, optional. Total value if visible.
+4. currency - string. Default USD.
+5. items - array, REQUIRED. Each item: productName (string), quantity (number, > 0), unit (string), unitPrice (number, optional).
+
+Return ONLY valid JSON, no markdown. Example:
+{"customerName":"XYZ Customer","date":"${today}","totalAmount":300,"currency":"USD","items":[{"productName":"Product A","quantity":5,"unit":"箱","unitPrice":60}],"confidence":0.9}`;
+
+  const { base64, mimeType } = await downloadImageToBase64(imageUrl);
+  const imagePart = { inlineData: { data: base64, mimeType } };
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch (_) {}
+  const modelsToTry = availableModel ? [availableModel, ...INBOUND_OUTBOUND_POSSIBLE_MODELS] : INBOUND_OUTBOUND_POSSIBLE_MODELS;
+  let lastError: Error | null = null;
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([prompt, imagePart]);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+      if (!parsed.customerName) parsed.customerName = 'Customer';
+      if (!parsed.date) parsed.date = today;
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
+      parsed.items = parsed.items
+        .filter((it: any) => it && (it.productName != null || it.name != null) && (typeof it.quantity === 'number' || typeof it.quantity === 'string'))
+        .map((it: any) => ({
+          productName: it.productName ?? it.name ?? 'Item',
+          quantity: Number(it.quantity) || 1,
+          unit: it.unit ?? '件',
+          unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
+        }));
+      if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      return parsed as GeminiInboundOutboundResult;
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       continue;

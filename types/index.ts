@@ -346,3 +346,22 @@ export interface GeminiVoucherResult {
   dataConsistency?: DataConsistency;
 }
 
+/** 入库/出库识别结果：与 receipt/invoice 不同，明细为数量+单位+单价（货物流） */
+export interface GeminiInboundOutboundResult {
+  /** 入库单用：供应商名称 */
+  supplierName?: string;
+  /** 出库单用：客户名称 */
+  customerName?: string;
+  date: string;
+  totalAmount?: number;
+  currency?: string;
+  /** 明细：商品名、数量、单位、单价 */
+  items: Array<{
+    productName: string;
+    quantity: number;
+    unit: string;
+    unitPrice?: number;
+  }>;
+  confidence?: number;
+}
+
