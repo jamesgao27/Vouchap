@@ -595,8 +595,9 @@ export default function HomeScreen() {
       </View>
       
       <View style={styles.content}>
-        <Text style={styles.title}>📸 Snap Vouchers,</Text>
-        <Text style={styles.subtitle}>Master Accounting.</Text>
+        <Text style={styles.title}>📸</Text>
+        <Text style={styles.title}>Voucher Snapping,</Text>
+        <Text style={styles.subtitle}>Balance Clarity.</Text>
         
         <TouchableOpacity 
           style={styles.iconContainer}

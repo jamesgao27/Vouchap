@@ -329,7 +329,7 @@ export default function CustomersManageScreen() {
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
           <GradientText
-            text="Customers for invoices."
+            text="Customers for invoices and outbound, Keep collecting and connecting."
             style={styles.headerTitle}
             containerStyle={styles.gradientTextContainer}
           />

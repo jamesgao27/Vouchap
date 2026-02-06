@@ -390,7 +390,7 @@ export default function SuppliersManageScreen() {
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
           <GradientText
-            text="Suppliers for receipts, support merged suppliers."
+            text="Suppliers for receipts and inbound, AI-recognized and collected."
             style={styles.headerTitle}
             containerStyle={styles.gradientTextContainer}
           />
