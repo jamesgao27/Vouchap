@@ -3,7 +3,7 @@ import { Invoice, InvoiceItem } from '@/types';
 import { getCurrentUser } from './auth';
 import { findOrCreateCustomer, updateCustomer, getCustomerMergeMap, getCustomerById, resolveCustomerId } from './customers';
 import { updateSupplier, getSupplierMergeMap, getSupplierById, resolveSupplierId } from './suppliers';
-import { getAccountMergeMap, getAccountById } from './accounts';
+import { getAccountMergeMap, getAccountById, getAccountOptionsForDuplicateCheck, resolveAccountId, normalizeAccountName } from './accounts';
 import { getCustomerOptions, getCustomerOptionsForDuplicateCheck } from './customer-supplier-list';
 import { normalizeNameForCompare } from './name-utils';
 
@@ -322,6 +322,26 @@ export async function saveInvoice(invoice: Invoice): Promise<string> {
             throw Object.assign(new Error(e.message), { code: 'CUSTOMER_NAME_EXISTS' as const, duplicateName: trimmedCustomerName });
           }
           console.warn('Failed to update customer name for invoice:', e);
+        }
+      }
+    }
+    // 账户重复名校验（在客户校验之后，先处理客户再处理账户）
+    if (invoice.accountId) {
+      const accountName =
+        ((invoice.account?.name ?? '').trim() || (await getAccountById(invoice.accountId))?.name) ?? '';
+      if (accountName) {
+        const accountOptions = await getAccountOptionsForDuplicateCheck();
+        const currentResolvedId = await resolveAccountId(spaceId, invoice.accountId);
+        const normalizedAccountName = normalizeAccountName(accountName);
+        const found = accountOptions.find(
+          (o) => o.id !== currentResolvedId && normalizeAccountName(o.name) === normalizedAccountName
+        );
+        if (found) {
+          throw Object.assign(new Error('账户名称已存在'), {
+            code: 'ACCOUNT_NAME_EXISTS' as const,
+            duplicateName: accountName,
+            targetId: found.id,
+          });
         }
       }
     }

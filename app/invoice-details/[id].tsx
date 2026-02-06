@@ -21,7 +21,7 @@ import { getInvoiceById, saveInvoice, updateInvoiceItem } from '@/lib/invoices';
 import { uploadInvoiceImage } from '@/lib/supabase';
 import { getCategories } from '@/lib/categories';
 import { getPurposes } from '@/lib/purposes';
-import { getAccounts } from '@/lib/accounts';
+import { getAccounts, mergeAccount } from '@/lib/accounts';
 import { getCustomerOptions } from '@/lib/customer-supplier-list';
 import { normalizeNameForCompare } from '@/lib/name-utils';
 import { mergeCustomer } from '@/lib/customers';
@@ -50,6 +50,21 @@ export default function InvoiceDetailsScreen() {
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
   const [taxInputText, setTaxInputText] = useState<string>('');
   const [priceInputTexts, setPriceInputTexts] = useState<{ [index: number]: string }>({});
+  const [showDuplicateNameModal, setShowDuplicateNameModal] = useState(false);
+  const [duplicateNameModalPayload, setDuplicateNameModalPayload] = useState<{
+    code: string;
+    duplicateName: string;
+    targetId?: string;
+    targetSource?: 'customer' | 'supplier';
+    triggeredBy: 'save' | 'dropdown';
+  } | null>(null);
+  const [pendingDuplicateChoice, setPendingDuplicateChoice] = useState<'replace' | 'merge' | 'keep_original' | null>(null);
+  const [pendingDuplicatePayload, setPendingDuplicatePayload] = useState<{
+    code: string;
+    duplicateName: string;
+    targetId?: string;
+    targetSource?: 'customer' | 'supplier';
+  } | null>(null);
 
   useEffect(() => {
     loadInvoice();
@@ -119,6 +134,58 @@ export default function InvoiceDetailsScreen() {
 
   const handleSave = async () => {
     if (!editedInvoice || !id || !invoice) return;
+
+    if (pendingDuplicateChoice && pendingDuplicatePayload) {
+      const choice = pendingDuplicateChoice;
+      const payload = pendingDuplicatePayload;
+      setPendingDuplicateChoice(null);
+      setPendingDuplicatePayload(null);
+      try {
+        if (choice === 'replace') {
+          await saveInvoice({ ...editedInvoice, id, status: 'confirmed' as VoucherStatus });
+        } else if (choice === 'merge') {
+          if (payload.code === 'ACCOUNT_NAME_EXISTS') {
+            const currentId = invoice.accountId;
+            const targetId = payload.targetId;
+            if (currentId && targetId && currentId !== targetId) {
+              await mergeAccount([currentId], targetId);
+            }
+            await saveInvoice({ ...editedInvoice, id, status: 'confirmed' as VoucherStatus });
+          } else {
+            const currentSource = invoice.customerId ? ('customer' as const) : invoice.customerSupplierId ? ('supplier' as const) : null;
+            const currentId = invoice.customerId ?? invoice.customerSupplierId ?? null;
+            const targetId = payload.targetId;
+            const targetSource = payload.targetSource;
+            if (currentId && targetId && currentSource && targetSource && currentId !== targetId && currentSource === targetSource) {
+              if (currentSource === 'customer') await mergeCustomer([currentId], targetId);
+              else await mergeSupplier([currentId], targetId);
+            }
+            await saveInvoice({ ...editedInvoice, id, status: 'confirmed' as VoucherStatus });
+          }
+        } else {
+          const reverted = { ...editedInvoice, id, status: 'confirmed' as VoucherStatus };
+          if (payload.code === 'ACCOUNT_NAME_EXISTS') {
+            reverted.accountId = invoice.accountId;
+            reverted.account = invoice.account;
+          } else {
+            reverted.customerName = invoice.customer?.name ?? invoice.customerSupplier?.name ?? invoice.customerName ?? '';
+            reverted.customerId = invoice.customerId;
+            reverted.customerSupplierId = invoice.customerSupplierId;
+            reverted.customer = invoice.customer;
+            reverted.customerSupplier = invoice.customerSupplier;
+          }
+          await saveInvoice(reverted);
+        }
+        Alert.alert('Success', 'Invoice confirmed and saved');
+        setEditing(false);
+        loadInvoice();
+      } catch (e: any) {
+        Alert.alert('Error', e?.message ?? 'Failed to save');
+        console.error(e);
+      }
+      return;
+    }
+
     try {
       await saveInvoice({
         ...editedInvoice,
@@ -135,124 +202,214 @@ export default function InvoiceDetailsScreen() {
       const targetSource = error?.targetSource as 'customer' | 'supplier' | undefined;
 
       if (code === 'CUSTOMER_NAME_EXISTS' || code === 'SUPPLIER_NAME_EXISTS') {
-        const currentSource = invoice.customerId ? ('customer' as const) : invoice.customerSupplierId ? ('supplier' as const) : null;
-        const currentId = invoice.customerId ?? invoice.customerSupplierId ?? null;
-
-        Alert.alert(
-          '名称重复',
-          `客户名称「${duplicateName}」已存在，请选择操作：`,
-          [
-            {
-              text: '维持',
-              style: 'cancel',
-              onPress: () => {
-                const origName = invoice.customer?.name ?? invoice.customerSupplier?.name ?? invoice.customerName ?? '';
-                setEditedInvoice((prev) => prev ? { ...prev, customerName: origName } : prev);
-              },
-            },
-            {
-              text: '替换ID',
-              onPress: async () => {
-                try {
-                  let finalTargetId = targetId;
-                  let finalTargetSource = targetSource;
-                  if (finalTargetId == null || finalTargetSource == null) {
-                    const options = await getCustomerOptions();
-                    const nameToFind = (duplicateName || '').trim();
-                    const found = nameToFind ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFind)) : null;
-                    if (!found) {
-                      if (!nameToFind) {
-                        Alert.alert('提示', '请从列表中选择要关联的客户', [
-                          { text: '确定', onPress: () => setShowCustomerPicker(true) },
-                        ]);
-                      } else {
-                        Alert.alert('提示', `未找到名称为「${duplicateName}」的客户，请改用选择器`);
-                      }
-                      return;
-                    }
-                    finalTargetId = found.id;
-                    finalTargetSource = found.source;
-                  }
-                  const payload = {
-                    ...editedInvoice!,
-                    id,
-                    status: 'confirmed' as VoucherStatus,
-                    customerName: duplicateName || editedInvoice!.customerName,
-                    customerId: finalTargetSource === 'customer' ? finalTargetId : undefined,
-                    customerSupplierId: finalTargetSource === 'supplier' ? finalTargetId : undefined,
-                    customer: finalTargetSource === 'customer' ? { id: finalTargetId, name: duplicateName } : undefined,
-                    customerSupplier: finalTargetSource === 'supplier' ? { id: finalTargetId, name: duplicateName } : undefined,
-                  };
-                  if (finalTargetSource === 'customer') {
-                    (payload as any).customerSupplierId = undefined;
-                    (payload as any).customerSupplier = undefined;
-                  } else {
-                    (payload as any).customerId = undefined;
-                    (payload as any).customer = undefined;
-                  }
-                  await saveInvoice(payload);
-                  setEditing(false);
-                  loadInvoice();
-                } catch (e) {
-                  Alert.alert('Error', '替换ID失败');
-                  console.error(e);
-                }
-              },
-            },
-            {
-              text: '合并',
-              onPress: async () => {
-                try {
-                  if (!currentId || !currentSource) {
-                    Alert.alert('提示', '当前发票未关联客户，无法合并');
-                    return;
-                  }
-                  let finalTargetId = targetId;
-                  let finalTargetSource = targetSource;
-                  if (finalTargetId == null || finalTargetSource == null) {
-                    const options = await getCustomerOptions();
-                    const nameToFindMerge = (duplicateName || '').trim();
-                    const found = nameToFindMerge ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFindMerge)) : null;
-                    if (!found) {
-                      if (!nameToFindMerge) {
-                        Alert.alert('提示', '请从列表中选择要合并到的客户');
-                      } else {
-                        Alert.alert('提示', `未找到名称为「${duplicateName}」的客户`);
-                      }
-                      return;
-                    }
-                    finalTargetId = found.id;
-                    finalTargetSource = found.source;
-                  }
-                  if (finalTargetId === currentId) {
-                    Alert.alert('提示', '当前已是该客户，无需合并');
-                    return;
-                  }
-                  if (currentSource !== finalTargetSource) {
-                    Alert.alert('提示', '当前关联与目标类型不同，请使用替换ID');
-                    return;
-                  }
-                  if (currentSource === 'customer') {
-                    await mergeCustomer([currentId], finalTargetId);
-                  } else {
-                    await mergeSupplier([currentId], finalTargetId);
-                  }
-                  setEditing(false);
-                  loadInvoice();
-                } catch (e: any) {
-                  const msg = e?.message || String(e);
-                  Alert.alert('合并失败', msg);
-                  console.warn('Merge invoices customer link failed:', e);
-                }
-              },
-            },
-          ],
-          { cancelable: true }
-        );
+        setDuplicateNameModalPayload({
+          code,
+          duplicateName: duplicateName || '',
+          targetId,
+          targetSource,
+          triggeredBy: 'save',
+        });
+        setShowDuplicateNameModal(true);
+        return;
+      }
+      if (code === 'ACCOUNT_NAME_EXISTS') {
+        setDuplicateNameModalPayload({
+          code: 'ACCOUNT_NAME_EXISTS',
+          duplicateName: duplicateName || '',
+          targetId,
+          targetSource: undefined,
+          triggeredBy: 'save',
+        });
+        setShowDuplicateNameModal(true);
         return;
       }
       Alert.alert('Error', 'Failed to save');
       console.error(error);
+    }
+  };
+
+  /** Close modal only; keep edited state (mask/back). */
+  const handleDuplicateNameCloseOnly = () => {
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+  };
+
+  /** 保留原来的：dropdown 只记选择；save 则立即恢复并关闭。 */
+  const handleDuplicateNameDontChange = () => {
+    const payload = duplicateNameModalPayload;
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    if (payload?.triggeredBy === 'dropdown') {
+      setPendingDuplicateChoice('keep_original');
+      setPendingDuplicatePayload({
+        code: payload.code,
+        duplicateName: payload.duplicateName,
+        targetId: payload.targetId,
+        targetSource: payload.targetSource,
+      });
+      return;
+    }
+    if (!invoice) return;
+    if (payload?.code === 'ACCOUNT_NAME_EXISTS') {
+      setEditedInvoice((prev) =>
+        prev ? { ...prev, accountId: invoice.accountId, account: invoice.account } : prev
+      );
+      return;
+    }
+    const origName = invoice.customer?.name ?? invoice.customerSupplier?.name ?? invoice.customerName ?? '';
+    setEditedInvoice((prev) => prev ? { ...prev, customerName: origName } : prev);
+  };
+
+  const handleDuplicateNameReplace = async () => {
+    const payload = duplicateNameModalPayload;
+    if (!payload || !editedInvoice || !id) return;
+    if (payload.triggeredBy === 'dropdown') {
+      setPendingDuplicateChoice('replace');
+      setPendingDuplicatePayload({
+        code: payload.code,
+        duplicateName: payload.duplicateName,
+        targetId: payload.targetId,
+        targetSource: payload.targetSource,
+      });
+      setShowDuplicateNameModal(false);
+      setDuplicateNameModalPayload(null);
+      return;
+    }
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    try {
+      if (payload.code === 'ACCOUNT_NAME_EXISTS') {
+        const finalTargetId = payload.targetId;
+        if (!finalTargetId) {
+          Alert.alert('Notice', 'Target account not found.');
+          return;
+        }
+        const savePayload = {
+          ...editedInvoice,
+          id,
+          status: 'confirmed' as VoucherStatus,
+          accountId: finalTargetId,
+          account: { id: finalTargetId, name: payload.duplicateName } as Account,
+        };
+        await saveInvoice(savePayload);
+        setEditing(false);
+        loadInvoice();
+        return;
+      }
+      let finalTargetId = payload.targetId;
+      let finalTargetSource = payload.targetSource;
+      if (finalTargetId == null || finalTargetSource == null) {
+        const options = await getCustomerOptions();
+        const nameToFind = (payload.duplicateName || '').trim();
+        const found = nameToFind ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFind)) : null;
+        if (!found) {
+          if (!nameToFind) {
+            Alert.alert('Notice', 'Please select from the list', [{ text: 'OK', onPress: () => setShowCustomerPicker(true) }]);
+          } else {
+            Alert.alert('Notice', `No customer found with name "${payload.duplicateName}". Please use the picker.`);
+          }
+          return;
+        }
+        finalTargetId = found.id;
+        finalTargetSource = found.source;
+      }
+      const savePayload = {
+        ...editedInvoice,
+        id,
+        status: 'confirmed' as VoucherStatus,
+        customerName: payload.duplicateName || editedInvoice.customerName,
+        customerId: finalTargetSource === 'customer' ? finalTargetId : undefined,
+        customerSupplierId: finalTargetSource === 'supplier' ? finalTargetId : undefined,
+        customer: finalTargetSource === 'customer' ? { id: finalTargetId, name: payload.duplicateName } : undefined,
+        customerSupplier: finalTargetSource === 'supplier' ? { id: finalTargetId, name: payload.duplicateName } : undefined,
+      };
+      if (finalTargetSource === 'customer') {
+        (savePayload as any).customerSupplierId = undefined;
+        (savePayload as any).customerSupplier = undefined;
+      } else {
+        (savePayload as any).customerId = undefined;
+        (savePayload as any).customer = undefined;
+      }
+      await saveInvoice(savePayload);
+      setEditing(false);
+      loadInvoice();
+    } catch (e) {
+      Alert.alert('Error', 'Failed to replace voucher');
+      console.error(e);
+    }
+  };
+
+  const handleDuplicateNameMerge = async () => {
+    const payload = duplicateNameModalPayload;
+    if (!payload || !invoice) return;
+    if (payload.triggeredBy === 'dropdown') {
+      setPendingDuplicateChoice('merge');
+      setPendingDuplicatePayload({
+        code: payload.code,
+        duplicateName: payload.duplicateName,
+        targetId: payload.targetId,
+        targetSource: payload.targetSource,
+      });
+      setShowDuplicateNameModal(false);
+      setDuplicateNameModalPayload(null);
+      return;
+    }
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    try {
+      if (payload.code === 'ACCOUNT_NAME_EXISTS') {
+        const currentAccountId = invoice.accountId;
+        const finalTargetId = payload.targetId;
+        if (!currentAccountId || !finalTargetId) {
+          Alert.alert('Notice', 'This invoice has no linked account or target not found.');
+          return;
+        }
+        if (currentAccountId === finalTargetId) {
+          Alert.alert('Notice', 'Already linked to this account.');
+          return;
+        }
+        await mergeAccount([currentAccountId], finalTargetId);
+        setEditing(false);
+        loadInvoice();
+        return;
+      }
+      const currentSource = invoice.customerId ? ('customer' as const) : invoice.customerSupplierId ? ('supplier' as const) : null;
+      const currentId = invoice.customerId ?? invoice.customerSupplierId ?? null;
+      if (!currentId || !currentSource) {
+        Alert.alert('Notice', 'This invoice has no linked customer to merge.');
+        return;
+      }
+      let finalTargetId = payload.targetId;
+      let finalTargetSource = payload.targetSource;
+      if (finalTargetId == null || finalTargetSource == null) {
+        const options = await getCustomerOptions();
+        const nameToFindMerge = (payload.duplicateName || '').trim();
+        const found = nameToFindMerge ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFindMerge)) : null;
+        if (!found) {
+          Alert.alert('Notice', nameToFindMerge ? `No customer found with name "${payload.duplicateName}".` : 'Please select from the list.');
+          return;
+        }
+        finalTargetId = found.id;
+        finalTargetSource = found.source;
+      }
+      if (finalTargetId === currentId) {
+        Alert.alert('Notice', 'Already linked to this customer.');
+        return;
+      }
+      if (currentSource !== finalTargetSource) {
+        Alert.alert('Notice', 'Current link type differs from target. Use "Replace this voucher" instead.');
+        return;
+      }
+      if (currentSource === 'customer') {
+        await mergeCustomer([currentId], finalTargetId);
+      } else {
+        await mergeSupplier([currentId], finalTargetId);
+      }
+      setEditing(false);
+      loadInvoice();
+    } catch (e: any) {
+      Alert.alert('Merge failed', e?.message ?? String(e));
+      console.warn('Merge invoices customer/account link failed:', e);
     }
   };
 
@@ -345,6 +502,8 @@ export default function InvoiceDetailsScreen() {
   const handleSelectCustomer = (option: { id: string; name: string; source: 'customer' | 'supplier' } | null) => {
     if (!editedInvoice) return;
     setShowCustomerPicker(false);
+    const currentId = invoice?.customerId ?? invoice?.customerSupplierId ?? null;
+    const currentSource = invoice?.customerId ? ('customer' as const) : invoice?.customerSupplierId ? ('supplier' as const) : null;
     if (option === null) {
       setEditedInvoice({
         ...editedInvoice,
@@ -374,6 +533,16 @@ export default function InvoiceDetailsScreen() {
         customer: undefined,
         customerSupplier: { id: option.id, name: option.name } as any,
       });
+    }
+    if (currentSource !== option.source || currentId !== option.id) {
+      setDuplicateNameModalPayload({
+        code: option.source === 'customer' ? 'CUSTOMER_NAME_EXISTS' : 'SUPPLIER_NAME_EXISTS',
+        duplicateName: option.name,
+        targetId: option.id,
+        targetSource: option.source,
+        triggeredBy: 'dropdown',
+      });
+      setShowDuplicateNameModal(true);
     }
   };
 
@@ -855,6 +1024,44 @@ export default function InvoiceDetailsScreen() {
         </View>
       </Modal>
 
+      <Modal visible={showDuplicateNameModal} transparent animationType="fade" onRequestClose={handleDuplicateNameCloseOnly}>
+        <TouchableOpacity style={styles.duplicateModalOverlay} activeOpacity={1} onPress={handleDuplicateNameCloseOnly}>
+          <View style={styles.duplicateModalContentContainer} onStartShouldSetResponder={() => true}>
+            <View style={styles.duplicateModalContent}>
+              <View style={styles.duplicateModalHeader}>
+                <Ionicons
+                  name={duplicateNameModalPayload?.code === 'ACCOUNT_NAME_EXISTS' ? 'wallet-outline' : 'person-outline'}
+                  size={48}
+                  color="#6C5CE7"
+                />
+                <Text style={styles.duplicateModalTitle}>
+                  {duplicateNameModalPayload?.code === 'ACCOUNT_NAME_EXISTS' ? 'Replace account with:' : 'Replace customer with:'}
+                </Text>
+              </View>
+              <View style={styles.duplicateModalMessageBlock}>
+                <View style={styles.duplicateModalNameContainer}>
+                  <Text style={styles.duplicateModalNameText}>{duplicateNameModalPayload?.duplicateName || '—'}</Text>
+                </View>
+              </View>
+              <View style={styles.duplicateModalButtons}>
+                <TouchableOpacity style={[styles.duplicateModalButton, styles.duplicateModalButtonReplace]} onPress={handleDuplicateNameReplace} activeOpacity={0.8}>
+                  <Ionicons name="swap-horizontal" size={20} color="#fff" style={{ marginRight: 8 }} />
+                  <Text style={styles.duplicateModalButtonReplaceText}>Replace only this</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge]} onPress={handleDuplicateNameMerge} activeOpacity={0.8}>
+                  <Ionicons name="git-merge-outline" size={20} color="#E74C3C" style={{ marginRight: 8 }} />
+                  <Text style={styles.duplicateModalButtonMergeText}>Replace all (Merge)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.duplicateModalButton, styles.duplicateModalButtonDontChange]} onPress={handleDuplicateNameDontChange} activeOpacity={0.8}>
+                  <Ionicons name="time-outline" size={18} color="#95A5A6" style={{ marginRight: 6 }} />
+                  <Text style={styles.duplicateModalButtonDontChangeText}>Do not replace</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       <Modal visible={showCategoryPicker !== null} transparent animationType="slide" onRequestClose={() => setShowCategoryPicker(null)}>
         <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowCategoryPicker(null)}>
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
@@ -962,6 +1169,7 @@ export default function InvoiceDetailsScreen() {
               {accounts.map((account) => {
                 const receiptToCheck = editing ? editedInvoice : currentInvoice;
                 const isSelected = receiptToCheck?.account?.id === account.id;
+                const currentAccountId = receiptToCheck?.accountId ?? receiptToCheck?.account?.id;
                 return (
                   <TouchableOpacity
                     key={account.id}
@@ -976,6 +1184,16 @@ export default function InvoiceDetailsScreen() {
                         setPriceInputTexts({});
                       }
                       setShowAccountPicker(false);
+                      if (account.id !== currentAccountId) {
+                        setDuplicateNameModalPayload({
+                          code: 'ACCOUNT_NAME_EXISTS',
+                          duplicateName: account.name,
+                          targetId: account.id,
+                          targetSource: undefined,
+                          triggeredBy: 'dropdown',
+                        });
+                        setShowDuplicateNameModal(true);
+                      }
                     }}
                   >
                     <View style={[styles.pickerColorIndicator, { backgroundColor: '#6C5CE7' }]} />
@@ -1186,4 +1404,21 @@ const styles = StyleSheet.create({
   pickerOptionTextSelected: { color: '#6C5CE7', fontWeight: '600' },
   pickerCloseButton: { paddingHorizontal: 12, paddingVertical: 6 },
   pickerCloseText: { fontSize: 16, color: '#6C5CE7', fontWeight: '600' },
+  duplicateModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  duplicateModalContentContainer: { width: '100%', maxWidth: 400, alignItems: 'center' },
+  duplicateModalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '100%', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8 },
+  duplicateModalHeader: { alignItems: 'center', marginBottom: 16 },
+  duplicateModalTitle: { fontSize: 22, fontWeight: '600', color: '#2D3436', marginTop: 12, marginBottom: 0 },
+  duplicateModalMessageBlock: { marginBottom: 24, paddingHorizontal: 8, alignItems: 'center', width: '100%' },
+  duplicateModalNameContainer: { marginTop: 8, marginBottom: 20, alignSelf: 'stretch', borderBottomWidth: 1, borderBottomColor: '#E0E7FF', paddingBottom: 8 },
+  duplicateModalNameText: { fontSize: 18, fontWeight: '800', color: '#6C5CE7', textAlign: 'center', letterSpacing: 0.3 },
+  duplicateModalMessage: { fontSize: 15, color: '#636E72', textAlign: 'center', marginTop: 4 },
+  duplicateModalButtons: { flexDirection: 'column', width: '100%', gap: 10 },
+  duplicateModalButton: { width: '100%', paddingVertical: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', minHeight: 52, flexDirection: 'row' },
+  duplicateModalButtonReplace: { backgroundColor: '#27AE60', shadowColor: '#27AE60', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
+  duplicateModalButtonReplaceText: { fontSize: 17, fontWeight: '700', color: '#fff', letterSpacing: 0.5 },
+  duplicateModalButtonMerge: { backgroundColor: '#FFF5F5', borderWidth: 2, borderColor: '#E74C3C' },
+  duplicateModalButtonMergeText: { fontSize: 16, fontWeight: '600', color: '#E74C3C' },
+  duplicateModalButtonDontChange: { backgroundColor: '#F8F9FA', borderWidth: 1, borderColor: '#E9ECEF' },
+  duplicateModalButtonDontChangeText: { fontSize: 15, fontWeight: '500', color: '#95A5A6' },
 });

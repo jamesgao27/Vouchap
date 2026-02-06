@@ -1057,7 +1057,12 @@ export default function VoiceInputScreen() {
                       if (message.invoiceDeleted) return;
                       if (confirmedInvoices.has(message.invoicePreview.id) || message.invoicePreview.status === 'confirmed') return;
                       try {
-                        await saveInvoice({ ...message.invoicePreview, id: message.invoicePreview.id, status: 'confirmed' });
+                        const fullInvoice = await getInvoiceById(message.invoicePreview.id);
+                        if (!fullInvoice) {
+                          Alert.alert('Error', 'Invoice not found.');
+                          return;
+                        }
+                        await saveInvoice({ ...fullInvoice, status: 'confirmed' });
                         setConfirmedInvoices((prev) => new Set(prev).add(message.invoicePreview!.id!));
                         setMessages((prev) => prev.map((msg) =>
                           msg.id === message.id && msg.invoicePreview
@@ -1065,7 +1070,8 @@ export default function VoiceInputScreen() {
                             : msg
                         ));
                       } catch (e) {
-                        Alert.alert('Error', 'Failed to confirm invoice.');
+                        const msg = e instanceof Error ? e.message : 'Failed to confirm invoice.';
+                        Alert.alert('Error', msg);
                       }
                     }}
                     disabled={message.invoiceDeleted || confirmedInvoices.has(message.invoicePreview!.id!) || message.invoicePreview!.status === 'confirmed'}

@@ -120,8 +120,9 @@ export default function LoginScreen() {
                 onChangeText={setEmail}
                 autoCapitalize="none"
                 keyboardType="email-address"
-                autoComplete="username"
-                textContentType="username"
+                autoComplete="email"
+                textContentType="emailAddress"
+                importantForAutofill="yes"
                 autoCorrect={false}
                 returnKeyType="next"
                 onSubmitEditing={() => {
@@ -145,6 +146,7 @@ export default function LoginScreen() {
                 autoCapitalize="none"
                 autoComplete="password"
                 textContentType="password"
+                importantForAutofill="yes"
                 autoCorrect={false}
                 returnKeyType="done"
                 onSubmitEditing={handleLogin}

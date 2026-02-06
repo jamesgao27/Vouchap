@@ -104,6 +104,22 @@ export async function updateAccount(accountId: string, updates: { name?: string 
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
+    if (updates.name !== undefined && updates.name.trim()) {
+      const options = await getAccountOptionsForDuplicateCheck();
+      const currentResolvedId = await resolveAccountId(spaceId, accountId);
+      const normalizedNew = normalizeAccountName(updates.name.trim());
+      const found = options.find(
+        (o) => o.id !== currentResolvedId && normalizeAccountName(o.name) === normalizedNew
+      );
+      if (found) {
+        throw Object.assign(new Error('账户名称已存在'), {
+          code: 'ACCOUNT_NAME_EXISTS' as const,
+          duplicateName: updates.name.trim(),
+          targetId: found.id,
+        });
+      }
+    }
+
     const { error } = await supabase
       .from('accounts')
       .update(updateData)
@@ -156,8 +172,50 @@ function extractCardSuffix(name: string): string | null {
   return null;
 }
 
-function normalizeAccountName(name: string): string {
+export function normalizeAccountName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, ' ').replace(/[：:]/g, ':').replace(/\*+/g, '*');
+}
+
+/** 供发票/重复名校验：返回 { id: 解析后最终 id, name } 列表，每个最终账户一条 */
+export async function getAccountOptionsForDuplicateCheck(): Promise<{ id: string; name: string }[]> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const { data: rows, error } = await supabase
+    .from('accounts')
+    .select('id, name, merged_into_id')
+    .eq('space_id', spaceId);
+
+  if (error) throw error;
+  if (!rows?.length) return [];
+
+  const mergeMap = new Map<string, string>();
+  rows.forEach((r: any) => {
+    if (r.id && r.merged_into_id) mergeMap.set(r.id, r.merged_into_id);
+  });
+  const resolveToFinal = (id: string): string => {
+    let current = id;
+    const seen = new Set<string>();
+    while (mergeMap.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = mergeMap.get(current)!;
+    }
+    return current;
+  };
+
+  const byFinalId = new Map<string, string>();
+  const rowMap = new Map<string, { id: string; name: string }>();
+  rows.forEach((r: any) => rowMap.set(r.id, { id: r.id, name: r.name }));
+  for (const r of rows) {
+    const finalId = resolveToFinal(r.id);
+    if (!byFinalId.has(finalId)) {
+      const finalRow = rowMap.get(finalId);
+      byFinalId.set(finalId, finalRow?.name ?? r.name);
+    }
+  }
+  return Array.from(byFinalId.entries()).map(([id, name]) => ({ id, name }));
 }
 
 export async function findOrCreateAccount(name: string, isAiRecognized: boolean = true): Promise<Account> {

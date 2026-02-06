@@ -21,7 +21,7 @@ import { getReceiptById, updateReceipt, updateReceiptItem } from '@/lib/database
 import { uploadReceiptImage } from '@/lib/supabase';
 import { getCategories } from '@/lib/categories';
 import { getPurposes } from '@/lib/purposes';
-import { getAccounts } from '@/lib/accounts';
+import { getAccounts, mergeAccount } from '@/lib/accounts';
 import { getSupplierOptions } from '@/lib/customer-supplier-list';
 import { normalizeNameForCompare } from '@/lib/name-utils';
 import { mergeSupplier } from '@/lib/suppliers';
@@ -54,6 +54,21 @@ export default function ReceiptDetailsScreen() {
   const [priceInputTexts, setPriceInputTexts] = useState<{ [index: number]: string }>({});
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [showDuplicateNameModal, setShowDuplicateNameModal] = useState(false);
+  const [duplicateNameModalPayload, setDuplicateNameModalPayload] = useState<{
+    code: string;
+    duplicateName: string;
+    targetId?: string;
+    targetSource?: 'supplier' | 'customer';
+    triggeredBy: 'save' | 'dropdown';
+  } | null>(null);
+  const [pendingDuplicateChoice, setPendingDuplicateChoice] = useState<'replace' | 'merge' | 'keep_original' | null>(null);
+  const [pendingDuplicatePayload, setPendingDuplicatePayload] = useState<{
+    code: string;
+    duplicateName: string;
+    targetId?: string;
+    targetSource?: 'supplier' | 'customer';
+  } | null>(null);
 
   useEffect(() => {
     loadReceipt();
@@ -140,6 +155,65 @@ export default function ReceiptDetailsScreen() {
   const handleSave = async () => {
     if (!editedReceipt || !id || !receipt) return;
 
+    if (pendingDuplicateChoice && pendingDuplicatePayload) {
+      const choice = pendingDuplicateChoice;
+      const payload = pendingDuplicatePayload;
+      setPendingDuplicateChoice(null);
+      setPendingDuplicatePayload(null);
+      try {
+        if (choice === 'replace') {
+          await updateReceipt(id, { ...editedReceipt, status: 'confirmed' as ReceiptStatus });
+        } else if (choice === 'merge') {
+          if (payload.code === 'ACCOUNT_NAME_EXISTS') {
+            const currentAccountId = receipt.accountId;
+            const targetId = payload.targetId;
+            if (currentAccountId && targetId && currentAccountId !== targetId) {
+              await mergeAccount([currentAccountId], targetId);
+            }
+            await updateReceipt(id, { ...editedReceipt, status: 'confirmed' as ReceiptStatus });
+          } else {
+            const currentSource = receipt.supplierId ? ('supplier' as const) : receipt.supplierCustomerId ? ('customer' as const) : null;
+            const currentId = receipt.supplierId ?? receipt.supplierCustomerId ?? null;
+            const targetId = payload.targetId;
+            const targetSource = payload.targetSource;
+            if (currentId && targetId && currentSource && targetSource && currentId !== targetId && currentSource === targetSource) {
+              if (currentSource === 'supplier') await mergeSupplier([currentId], targetId);
+              else await mergeCustomer([currentId], targetId);
+            }
+            await updateReceipt(id, { ...editedReceipt, status: 'confirmed' as ReceiptStatus });
+          }
+        } else {
+          if (payload.code === 'ACCOUNT_NAME_EXISTS') {
+            const reverted = {
+              ...editedReceipt,
+              status: 'confirmed' as ReceiptStatus,
+              accountId: receipt.accountId,
+              account: receipt.account,
+            };
+            await updateReceipt(id, reverted);
+          } else {
+            const reverted = {
+              ...editedReceipt,
+              status: 'confirmed' as ReceiptStatus,
+              supplierName: receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '',
+              storeName: receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.storeName ?? '',
+              supplierId: receipt.supplierId,
+              supplierCustomerId: receipt.supplierCustomerId,
+              supplier: receipt.supplier,
+              supplierCustomer: receipt.supplierCustomer,
+            };
+            await updateReceipt(id, reverted);
+          }
+        }
+        setEditing(false);
+        loadReceipt();
+      } catch (e: any) {
+        Alert.alert('Error', e?.message ?? 'Failed to save');
+        console.error(e);
+      }
+      return;
+    }
+
     try {
       await updateReceipt(id, {
         ...editedReceipt,
@@ -154,125 +228,209 @@ export default function ReceiptDetailsScreen() {
       const targetSource = error?.targetSource as 'supplier' | 'customer' | undefined;
 
       if (code === 'SUPPLIER_NAME_EXISTS' || code === 'CUSTOMER_NAME_EXISTS') {
-        const label = code === 'SUPPLIER_NAME_EXISTS' ? '供应商' : '客户';
-        const currentSource = receipt.supplierId ? ('supplier' as const) : receipt.supplierCustomerId ? ('customer' as const) : null;
-        const currentId = receipt.supplierId ?? receipt.supplierCustomerId ?? null;
-
-        Alert.alert(
-          '名称重复',
-          `${label}名称「${duplicateName}」已存在，请选择操作：`,
-          [
-            {
-              text: '维持',
-              style: 'cancel',
-              onPress: () => {
-                const origName = receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
-                setEditedReceipt((prev) => prev ? { ...prev, supplierName: origName, storeName: origName } : prev);
-              },
-            },
-            {
-              text: '替换ID',
-              onPress: async () => {
-                try {
-                  let finalTargetId = targetId;
-                  let finalTargetSource = targetSource;
-                  if (finalTargetId == null || finalTargetSource == null) {
-                    const options = await getSupplierOptions();
-                    const nameToFind = (duplicateName || '').trim();
-                    const found = nameToFind ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFind)) : null;
-                    if (!found) {
-                      if (!nameToFind) {
-                        Alert.alert('提示', '请从列表中选择要关联的供应商', [
-                          { text: '确定', onPress: () => setShowSupplierPicker(true) },
-                        ]);
-                      } else {
-                        Alert.alert('提示', `未找到名称为「${duplicateName}」的${label}，请改用选择器`);
-                      }
-                      return;
-                    }
-                    finalTargetId = found.id;
-                    finalTargetSource = found.source;
-                  }
-                  const payload = {
-                    ...editedReceipt!,
-                    status: 'confirmed' as ReceiptStatus,
-                    supplierName: duplicateName || editedReceipt!.supplierName,
-                    storeName: duplicateName || editedReceipt!.storeName,
-                    supplierId: finalTargetSource === 'supplier' ? finalTargetId : undefined,
-                    supplierCustomerId: finalTargetSource === 'customer' ? finalTargetId : undefined,
-                    supplier: finalTargetSource === 'supplier' ? { id: finalTargetId, name: duplicateName } : undefined,
-                    supplierCustomer: finalTargetSource === 'customer' ? { id: finalTargetId, name: duplicateName } : undefined,
-                  };
-                  if (finalTargetSource === 'supplier') {
-                    (payload as any).supplierCustomerId = undefined;
-                    (payload as any).supplierCustomer = undefined;
-                  } else {
-                    (payload as any).supplierId = undefined;
-                    (payload as any).supplier = undefined;
-                  }
-                  await updateReceipt(id, payload);
-                  setEditing(false);
-                  loadReceipt();
-                } catch (e) {
-                  Alert.alert('Error', '替换ID失败');
-                  console.error(e);
-                }
-              },
-            },
-            {
-              text: '合并',
-              onPress: async () => {
-                try {
-                  if (!currentId || !currentSource) {
-                    Alert.alert('提示', '当前小票未关联供应商/客户，无法合并');
-                    return;
-                  }
-                  let finalTargetId = targetId;
-                  let finalTargetSource = targetSource;
-                  if (finalTargetId == null || finalTargetSource == null) {
-                    const options = await getSupplierOptions();
-                    const nameToFindMerge = (duplicateName || '').trim();
-                    const found = nameToFindMerge ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFindMerge)) : null;
-                    if (!found) {
-                      if (!nameToFindMerge) {
-                        Alert.alert('提示', '请从列表中选择要合并到的供应商');
-                      } else {
-                        Alert.alert('提示', `未找到名称为「${duplicateName}」的${label}`);
-                      }
-                      return;
-                    }
-                    finalTargetId = found.id;
-                    finalTargetSource = found.source;
-                  }
-                  if (finalTargetId === currentId) {
-                    Alert.alert('提示', '当前已是该供应商/客户，无需合并');
-                    return;
-                  }
-                  if (currentSource !== finalTargetSource) {
-                    Alert.alert('提示', '当前关联与目标类型不同，请使用替换ID');
-                    return;
-                  }
-                  if (currentSource === 'supplier') {
-                    await mergeSupplier([currentId], finalTargetId);
-                  } else {
-                    await mergeCustomer([currentId], finalTargetId);
-                  }
-                  setEditing(false);
-                  loadReceipt();
-                } catch (e: any) {
-                  const msg = e?.message || String(e);
-                  Alert.alert('合并失败', msg);
-                  console.warn('Merge receipts supplier link failed:', e);
-                }
-              },
-            },
-          ],
-          { cancelable: true }
-        );
+        setDuplicateNameModalPayload({
+          code,
+          duplicateName: duplicateName || '',
+          targetId,
+          targetSource,
+          triggeredBy: 'save',
+        });
+        setShowDuplicateNameModal(true);
         return;
       }
       Alert.alert('Error', 'Failed to save');
       console.error(error);
+    }
+  };
+
+  /** Close modal only; keep edited state (mask/back). */
+  const handleDuplicateNameCloseOnly = () => {
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+  };
+
+  /** 保留原来的：dropdown 只记选择；save 则立即恢复并关闭。 */
+  const handleDuplicateNameDontChange = () => {
+    const payload = duplicateNameModalPayload;
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    if (payload?.triggeredBy === 'dropdown') {
+      setPendingDuplicateChoice('keep_original');
+      setPendingDuplicatePayload({
+        code: payload.code,
+        duplicateName: payload.duplicateName,
+        targetId: payload.targetId,
+        targetSource: payload.targetSource,
+      });
+      return;
+    }
+    if (!receipt) return;
+    if (payload?.code === 'ACCOUNT_NAME_EXISTS') {
+      setEditedReceipt((prev) => prev ? { ...prev, accountId: receipt.accountId, account: receipt.account } : prev);
+      return;
+    }
+    const origName = receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
+    setEditedReceipt((prev) => prev ? { ...prev, supplierName: origName, storeName: origName } : prev);
+  };
+
+  const handleDuplicateNameReplace = async () => {
+    const payload = duplicateNameModalPayload;
+    if (!payload || !editedReceipt || !id) return;
+    if (payload.triggeredBy === 'dropdown') {
+      setPendingDuplicateChoice('replace');
+      setPendingDuplicatePayload({
+        code: payload.code,
+        duplicateName: payload.duplicateName,
+        targetId: payload.targetId,
+        targetSource: payload.targetSource,
+      });
+      setShowDuplicateNameModal(false);
+      setDuplicateNameModalPayload(null);
+      return;
+    }
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    try {
+      if (payload.code === 'ACCOUNT_NAME_EXISTS') {
+        const finalTargetId = payload.targetId;
+        if (!finalTargetId) {
+          Alert.alert('Notice', 'Target account not found.');
+          return;
+        }
+        await updateReceipt(id, {
+          ...editedReceipt,
+          status: 'confirmed' as ReceiptStatus,
+          accountId: finalTargetId,
+          account: { id: finalTargetId, name: payload.duplicateName, spaceId: '', isAiRecognized: false } as Account,
+        });
+        setEditing(false);
+        loadReceipt();
+        return;
+      }
+      let finalTargetId = payload.targetId;
+      let finalTargetSource = payload.targetSource;
+      const label = payload.code === 'SUPPLIER_NAME_EXISTS' ? 'Supplier' : 'Customer';
+      if (finalTargetId == null || finalTargetSource == null) {
+        const options = await getSupplierOptions();
+        const nameToFind = (payload.duplicateName || '').trim();
+        const found = nameToFind ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFind)) : null;
+        if (!found) {
+          if (!nameToFind) {
+            Alert.alert('Notice', 'Please select from the list', [{ text: 'OK', onPress: () => setShowSupplierPicker(true) }]);
+          } else {
+            Alert.alert('Notice', `No ${label.toLowerCase()} found with name "${payload.duplicateName}". Please use the picker.`);
+          }
+          return;
+        }
+        finalTargetId = found.id;
+        finalTargetSource = found.source;
+      }
+      const updatePayload = {
+        ...editedReceipt,
+        status: 'confirmed' as ReceiptStatus,
+        supplierName: payload.duplicateName || editedReceipt.supplierName,
+        storeName: payload.duplicateName || editedReceipt.storeName,
+        supplierId: finalTargetSource === 'supplier' ? finalTargetId : undefined,
+        supplierCustomerId: finalTargetSource === 'customer' ? finalTargetId : undefined,
+        supplier: finalTargetSource === 'supplier' ? { id: finalTargetId, name: payload.duplicateName } : undefined,
+        supplierCustomer: finalTargetSource === 'customer' ? { id: finalTargetId, name: payload.duplicateName } : undefined,
+      };
+      if (finalTargetSource === 'supplier') {
+        (updatePayload as any).supplierCustomerId = undefined;
+        (updatePayload as any).supplierCustomer = undefined;
+      } else {
+        (updatePayload as any).supplierId = undefined;
+        (updatePayload as any).supplier = undefined;
+      }
+      await updateReceipt(id, updatePayload);
+      setEditing(false);
+      loadReceipt();
+    } catch (e) {
+      Alert.alert('Error', 'Failed to replace voucher');
+      console.error(e);
+    }
+  };
+
+  const handleDuplicateNameMerge = async () => {
+    const payload = duplicateNameModalPayload;
+    if (!payload || !receipt) return;
+    if (payload.triggeredBy === 'dropdown') {
+      setPendingDuplicateChoice('merge');
+      setPendingDuplicatePayload({
+        code: payload.code,
+        duplicateName: payload.duplicateName,
+        targetId: payload.targetId,
+        targetSource: payload.targetSource,
+      });
+      setShowDuplicateNameModal(false);
+      setDuplicateNameModalPayload(null);
+      return;
+    }
+    if (payload.code === 'ACCOUNT_NAME_EXISTS') {
+      const currentAccountId = receipt.accountId;
+      const finalTargetId = payload.targetId;
+      setShowDuplicateNameModal(false);
+      setDuplicateNameModalPayload(null);
+      if (!currentAccountId || !finalTargetId) {
+        Alert.alert('Notice', 'This receipt has no linked account or target not found.');
+        return;
+      }
+      if (currentAccountId === finalTargetId) {
+        Alert.alert('Notice', 'Already linked to this account.');
+        return;
+      }
+      try {
+        await mergeAccount([currentAccountId], finalTargetId);
+        setEditing(false);
+        loadReceipt();
+      } catch (e: any) {
+        Alert.alert('Merge failed', e?.message ?? String(e));
+      }
+      return;
+    }
+    const currentSource = receipt.supplierId ? ('supplier' as const) : receipt.supplierCustomerId ? ('customer' as const) : null;
+    const currentId = receipt.supplierId ?? receipt.supplierCustomerId ?? null;
+    if (!currentId || !currentSource) {
+      setShowDuplicateNameModal(false);
+      setDuplicateNameModalPayload(null);
+      Alert.alert('Notice', 'This receipt has no linked supplier/customer to merge.');
+      return;
+    }
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    try {
+      let finalTargetId = payload.targetId;
+      let finalTargetSource = payload.targetSource;
+      const label = payload.code === 'SUPPLIER_NAME_EXISTS' ? 'Supplier' : 'Customer';
+      if (finalTargetId == null || finalTargetSource == null) {
+        const options = await getSupplierOptions();
+        const nameToFindMerge = (payload.duplicateName || '').trim();
+        const found = nameToFindMerge ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFindMerge)) : null;
+        if (!found) {
+          Alert.alert('Notice', nameToFindMerge ? `No ${label.toLowerCase()} found with name "${payload.duplicateName}".` : 'Please select from the list.');
+          return;
+        }
+        finalTargetId = found.id;
+        finalTargetSource = found.source;
+      }
+      if (finalTargetId === currentId) {
+        Alert.alert('Notice', 'Already linked to this supplier/customer.');
+        return;
+      }
+      if (currentSource !== finalTargetSource) {
+        Alert.alert('Notice', 'Current link type differs from target. Use "Replace this voucher" instead.');
+        return;
+      }
+      if (currentSource === 'supplier') {
+        await mergeSupplier([currentId], finalTargetId);
+      } else {
+        await mergeCustomer([currentId], finalTargetId);
+      }
+      setEditing(false);
+      loadReceipt();
+    } catch (e: any) {
+      Alert.alert('Merge failed', e?.message ?? String(e));
+      console.warn('Merge receipts supplier link failed:', e);
     }
   };
 
@@ -395,6 +553,8 @@ export default function ReceiptDetailsScreen() {
   const handleSelectSupplier = (option: { id: string; name: string; source: 'supplier' | 'customer' } | null) => {
     if (!editedReceipt) return;
     setShowSupplierPicker(false);
+    const currentId = receipt?.supplierId ?? receipt?.supplierCustomerId ?? null;
+    const currentSource = receipt?.supplierId ? ('supplier' as const) : receipt?.supplierCustomerId ? ('customer' as const) : null;
     if (option === null) {
       setEditedReceipt({
         ...editedReceipt,
@@ -427,6 +587,16 @@ export default function ReceiptDetailsScreen() {
         supplier: undefined,
         supplierCustomer: { id: option.id, name: option.name } as any,
       });
+    }
+    if (currentSource !== option.source || currentId !== option.id) {
+      setDuplicateNameModalPayload({
+        code: option.source === 'supplier' ? 'SUPPLIER_NAME_EXISTS' : 'CUSTOMER_NAME_EXISTS',
+        duplicateName: option.name,
+        targetId: option.id,
+        targetSource: option.source,
+        triggeredBy: 'dropdown',
+      });
+      setShowDuplicateNameModal(true);
     }
   };
 
@@ -1191,6 +1361,66 @@ export default function ReceiptDetailsScreen() {
         </View>
       </Modal>
 
+      {/* Duplicate name: Replace only this / Replace all (Merge) / Save as original */}
+      <Modal
+        visible={showDuplicateNameModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleDuplicateNameCloseOnly}
+      >
+        <TouchableOpacity style={styles.duplicateModalOverlay} activeOpacity={1} onPress={handleDuplicateNameCloseOnly}>
+          <View style={styles.duplicateModalContentContainer} onStartShouldSetResponder={() => true}>
+            <View style={styles.duplicateModalContent}>
+              <View style={styles.duplicateModalHeader}>
+                <Ionicons
+                  name={duplicateNameModalPayload?.code === 'ACCOUNT_NAME_EXISTS' ? 'wallet-outline' : 'business-outline'}
+                  size={48}
+                  color="#6C5CE7"
+                />
+                <Text style={styles.duplicateModalTitle}>
+                  {duplicateNameModalPayload?.code === 'ACCOUNT_NAME_EXISTS'
+                    ? 'Replace account with:'
+                    : duplicateNameModalPayload?.code === 'SUPPLIER_NAME_EXISTS'
+                      ? 'Replace supplier with:'
+                      : 'Replace customer with:'}
+                </Text>
+              </View>
+              <View style={styles.duplicateModalMessageBlock}>
+                <View style={styles.duplicateModalNameContainer}>
+                  <Text style={styles.duplicateModalNameText}>{duplicateNameModalPayload?.duplicateName || '—'}</Text>
+                </View>
+              </View>
+              <View style={styles.duplicateModalButtons}>
+                <TouchableOpacity
+                  style={[styles.duplicateModalButton, styles.duplicateModalButtonReplace]}
+                  onPress={handleDuplicateNameReplace}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="swap-horizontal" size={20} color="#fff" style={{ marginRight: 8 }} />
+                  <Text style={styles.duplicateModalButtonReplaceText}>Replace only this</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge]}
+                  onPress={handleDuplicateNameMerge}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="git-merge-outline" size={20} color="#E74C3C" style={{ marginRight: 8 }} />
+                  <Text style={styles.duplicateModalButtonMergeText}>Replace all (Merge)</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.duplicateModalButton, styles.duplicateModalButtonDontChange]}
+                  onPress={handleDuplicateNameDontChange}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="time-outline" size={18} color="#95A5A6" style={{ marginRight: 6 }} />
+                  <Text style={styles.duplicateModalButtonDontChangeText}>Do not replace</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
       {/* 分类选择器 */}
       <Modal
         visible={showCategoryPicker !== null}
@@ -1427,6 +1657,7 @@ export default function ReceiptDetailsScreen() {
               {accounts.map((account) => {
                 const receiptToCheck = editing ? editedReceipt : currentReceipt;
                 const isSelected = receiptToCheck?.account?.id === account.id;
+                const currentAccountId = receiptToCheck?.accountId ?? receiptToCheck?.account?.id;
                 return (
                   <TouchableOpacity
                     key={account.id}
@@ -1458,6 +1689,16 @@ export default function ReceiptDetailsScreen() {
         setPriceInputTexts(priceTexts);
                       }
                       setShowAccountPicker(false);
+                      if (account.id !== currentAccountId) {
+                        setDuplicateNameModalPayload({
+                          code: 'ACCOUNT_NAME_EXISTS',
+                          duplicateName: account.name,
+                          targetId: account.id,
+                          targetSource: undefined,
+                          triggeredBy: 'dropdown',
+                        });
+                        setShowDuplicateNameModal(true);
+                      }
                     }}
                   >
                     <View
@@ -2438,6 +2679,116 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#6C5CE7',
     fontWeight: '600',
+  },
+  duplicateModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  duplicateModalContentContainer: {
+    width: '100%',
+    maxWidth: 400,
+    alignItems: 'center',
+  },
+  duplicateModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  duplicateModalHeader: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  duplicateModalTitle: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#2D3436',
+    marginTop: 12,
+    marginBottom: 0,
+  },
+  duplicateModalMessageBlock: {
+    marginBottom: 24,
+    paddingHorizontal: 8,
+    alignItems: 'center',
+    width: '100%',
+  },
+  duplicateModalNameContainer: {
+    marginTop: 8,
+    marginBottom: 20,
+    alignSelf: 'stretch',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E7FF',
+    paddingBottom: 8,
+  },
+  duplicateModalNameText: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: '#6C5CE7',
+    textAlign: 'center',
+    letterSpacing: 0.3,
+  },
+  duplicateModalMessage: {
+    fontSize: 15,
+    color: '#636E72',
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  duplicateModalButtons: {
+    flexDirection: 'column',
+    width: '100%',
+    gap: 10,
+  },
+  duplicateModalButton: {
+    width: '100%',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+    flexDirection: 'row',
+  },
+  duplicateModalButtonReplace: {
+    backgroundColor: '#27AE60',
+    shadowColor: '#27AE60',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  duplicateModalButtonReplaceText: {
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#fff',
+    letterSpacing: 0.5,
+  },
+  duplicateModalButtonMerge: {
+    backgroundColor: '#FFF5F5',
+    borderWidth: 2,
+    borderColor: '#E74C3C',
+  },
+  duplicateModalButtonMergeText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#E74C3C',
+  },
+  duplicateModalButtonDontChange: {
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+  },
+  duplicateModalButtonDontChangeText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#95A5A6',
   },
 });
 

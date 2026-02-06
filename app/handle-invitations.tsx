@@ -434,7 +434,7 @@ export default function HandleInvitationsScreen() {
         visible={showInviteModal}
         transparent={true}
         animationType="fade"
-        onRequestClose={handleDeclineInvitation}
+        onRequestClose={handleLaterInvitation}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContentContainer}>

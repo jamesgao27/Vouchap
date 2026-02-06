@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -43,6 +43,16 @@ export default function SuppliersManageScreen() {
   const [newIsCustomer, setNewIsCustomer] = useState(false);
   const [mergeMode, setMergeMode] = useState(false);
   const [selectedSupplierIds, setSelectedSupplierIds] = useState<Set<string>>(new Set());
+  const editNameInputRef = useRef<TextInput>(null);
+  const [showDuplicateNameModal, setShowDuplicateNameModal] = useState(false);
+  const [duplicateNameModalPayload, setDuplicateNameModalPayload] = useState<{
+    code: string;
+    duplicateName: string;
+    targetId?: string;
+    targetSource?: 'supplier' | 'customer';
+    editingId: string;
+    editingSource: 'supplier' | 'customer';
+  } | null>(null);
 
   useEffect(() => {
     loadList();
@@ -127,46 +137,82 @@ export default function SuppliersManageScreen() {
       const code = error?.code;
       const targetId = error?.targetId as string | undefined;
       const targetSource = error?.targetSource as 'supplier' | 'customer' | undefined;
-      if ((code === 'SUPPLIER_NAME_EXISTS' || code === 'CUSTOMER_NAME_EXISTS') && targetId && targetSource != null) {
-        const label = code === 'SUPPLIER_NAME_EXISTS' ? '供应商' : '客户';
-        Alert.alert(
-          '名称重复',
-          `${label}名称「${error?.duplicateName ?? editName}」已存在，请选择操作：`,
-          [
-            { text: '维持', style: 'cancel', onPress: () => { setEditingId(null); setEditName(''); setEditTaxNumber(''); setEditPhone(''); setEditAddress(''); setEditIsCustomer(false); setEditIsSupplier(false); } },
-            {
-              text: '合并',
-              onPress: async () => {
-                try {
-                  if (source !== targetSource) {
-                    Alert.alert('提示', '当前与目标类型不同，无法合并');
-                    return;
-                  }
-                  if (source === 'supplier') {
-                    await mergeSupplier([id], targetId);
-                  } else {
-                    await mergeCustomer([id], targetId);
-                  }
-                  setEditingId(null);
-                  setEditName('');
-                  setEditTaxNumber('');
-                  setEditPhone('');
-                  setEditAddress('');
-                  setEditIsCustomer(false);
-                  setEditIsSupplier(false);
-                  loadList();
-                } catch (e: any) {
-                  Alert.alert('合并失败', e?.message ?? String(e));
-                  loadList();
-                }
-              },
-            },
-          ]
-        );
+      if (code === 'SUPPLIER_NAME_EXISTS' || code === 'CUSTOMER_NAME_EXISTS') {
+        setDuplicateNameModalPayload({
+          code,
+          duplicateName: (error?.duplicateName ?? editName) || '',
+          targetId,
+          targetSource,
+          editingId: id,
+          editingSource: source,
+        });
+        setShowDuplicateNameModal(true);
         return;
       }
       console.error('Error updating:', error);
       Alert.alert('Error', error.message || 'Failed to update');
+      loadList();
+    }
+  };
+
+  /** Close modal only; keep edited state (mask/back). */
+  const handleDuplicateNameCloseOnly = () => {
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+  };
+
+  /** Keep editing: close modal, stay in edit mode and focus name input + keyboard. */
+  const handleDuplicateNameKeepEditing = () => {
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    setTimeout(() => editNameInputRef.current?.focus(), 300);
+  };
+
+  /** Do not modify: close modal and cancel editing. */
+  const handleDuplicateNameDontChange = () => {
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    setEditingId(null);
+    setEditName('');
+    setEditTaxNumber('');
+    setEditPhone('');
+    setEditAddress('');
+    setEditIsCustomer(false);
+    setEditIsSupplier(false);
+  };
+
+  const handleDuplicateNameMerge = async () => {
+    const payload = duplicateNameModalPayload;
+    if (!payload?.targetId || payload.targetSource == null) {
+      setShowDuplicateNameModal(false);
+      setDuplicateNameModalPayload(null);
+      Alert.alert('Notice', 'Cannot merge: target not found.');
+      return;
+    }
+    if (payload.editingSource !== payload.targetSource) {
+      setShowDuplicateNameModal(false);
+      setDuplicateNameModalPayload(null);
+      Alert.alert('Notice', 'Current and target types differ. Cannot merge.');
+      return;
+    }
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    try {
+      if (payload.editingSource === 'supplier') {
+        await mergeSupplier([payload.editingId], payload.targetId);
+      } else {
+        await mergeCustomer([payload.editingId], payload.targetId);
+      }
+      setEditingId(null);
+      setEditName('');
+      setEditTaxNumber('');
+      setEditPhone('');
+      setEditAddress('');
+      setEditIsCustomer(false);
+      setEditIsSupplier(false);
+      loadList();
+    } catch (e: any) {
+      Alert.alert('Merge failed', e?.message ?? String(e));
       loadList();
     }
   };
@@ -305,6 +351,40 @@ export default function SuppliersManageScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
+
+      <Modal visible={showDuplicateNameModal} transparent animationType="fade" onRequestClose={handleDuplicateNameCloseOnly}>
+        <TouchableOpacity style={styles.duplicateModalOverlay} activeOpacity={1} onPress={handleDuplicateNameCloseOnly}>
+          <View style={styles.duplicateModalContentContainer} onStartShouldSetResponder={() => true}>
+            <View style={styles.duplicateModalContent}>
+              <View style={styles.duplicateModalHeader}>
+                <Ionicons name="business-outline" size={48} color="#6C5CE7" />
+                <Text style={styles.duplicateModalTitle}>
+                  {duplicateNameModalPayload?.code === 'SUPPLIER_NAME_EXISTS' ? 'Duplicate supplier name:' : 'Duplicate customer name:'}
+                </Text>
+              </View>
+              <View style={styles.duplicateModalMessageBlock}>
+                <View style={styles.duplicateModalNameContainer}>
+                  <Text style={styles.duplicateModalNameText}>{duplicateNameModalPayload?.duplicateName || '—'}</Text>
+                </View>
+              </View>
+              <View style={styles.duplicateModalButtons}>
+                <TouchableOpacity style={[styles.duplicateModalButton, styles.duplicateModalButtonReplace]} onPress={handleDuplicateNameKeepEditing} activeOpacity={0.8}>
+                  <Ionicons name="create-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+                  <Text style={styles.duplicateModalButtonReplaceText}>Keep editing</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge]} onPress={handleDuplicateNameMerge} activeOpacity={0.8}>
+                  <Ionicons name="git-merge-outline" size={20} color="#E74C3C" style={{ marginRight: 8 }} />
+                  <Text style={styles.duplicateModalButtonMergeText}>Merge into existing</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.duplicateModalButton, styles.duplicateModalButtonDontChange]} onPress={handleDuplicateNameDontChange} activeOpacity={0.8}>
+                  <Ionicons name="close-outline" size={18} color="#95A5A6" style={{ marginRight: 6 }} />
+                  <Text style={styles.duplicateModalButtonDontChangeText}>Do not modify</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
       
       {/* Header */}
       <View style={styles.header}>
@@ -437,6 +517,7 @@ export default function SuppliersManageScreen() {
                 // Edit Mode
                 <View style={styles.editRow}>
                   <TextInput
+                    ref={editNameInputRef}
                     style={styles.editInputInline}
                     value={editName}
                     onChangeText={setEditName}
@@ -962,4 +1043,21 @@ const styles = StyleSheet.create({
     color: '#636E72',
     marginTop: 2,
   },
+  duplicateModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  duplicateModalContentContainer: { width: '100%', maxWidth: 400, alignItems: 'center' },
+  duplicateModalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '100%', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8 },
+  duplicateModalHeader: { alignItems: 'center', marginBottom: 16 },
+  duplicateModalTitle: { fontSize: 22, fontWeight: '600', color: '#2D3436', marginTop: 12, marginBottom: 0 },
+  duplicateModalMessageBlock: { marginBottom: 24, paddingHorizontal: 8, alignItems: 'center', width: '100%' },
+  duplicateModalNameContainer: { marginTop: 8, marginBottom: 20, alignSelf: 'stretch', borderBottomWidth: 1, borderBottomColor: '#E0E7FF', paddingBottom: 8 },
+  duplicateModalNameText: { fontSize: 18, fontWeight: '800', color: '#6C5CE7', textAlign: 'center', letterSpacing: 0.3 },
+  duplicateModalMessage: { fontSize: 15, color: '#636E72', textAlign: 'center', marginTop: 4 },
+  duplicateModalButtons: { flexDirection: 'column', width: '100%', gap: 10 },
+  duplicateModalButton: { width: '100%', paddingVertical: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', minHeight: 52, flexDirection: 'row' },
+  duplicateModalButtonReplace: { backgroundColor: '#27AE60', shadowColor: '#27AE60', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
+  duplicateModalButtonReplaceText: { fontSize: 17, fontWeight: '700', color: '#fff', letterSpacing: 0.5 },
+  duplicateModalButtonMerge: { backgroundColor: '#FFF5F5', borderWidth: 2, borderColor: '#E74C3C' },
+  duplicateModalButtonMergeText: { fontSize: 16, fontWeight: '600', color: '#E74C3C' },
+  duplicateModalButtonDontChange: { backgroundColor: '#F8F9FA', borderWidth: 1, borderColor: '#E9ECEF' },
+  duplicateModalButtonDontChangeText: { fontSize: 15, fontWeight: '500', color: '#95A5A6' },
 });

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   TextInput,
   Alert,
   ActivityIndicator,
+  Modal,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -32,6 +33,13 @@ export default function AccountsManageScreen() {
   const [newName, setNewName] = useState('');
   const [mergeMode, setMergeMode] = useState(false);
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set());
+  const editNameInputRef = useRef<TextInput>(null);
+  const [showDuplicateNameModal, setShowDuplicateNameModal] = useState(false);
+  const [duplicateNameModalPayload, setDuplicateNameModalPayload] = useState<{
+    duplicateName: string;
+    targetId: string;
+    editingId: string;
+  } | null>(null);
 
   useEffect(() => {
     loadAccounts();
@@ -91,9 +99,53 @@ export default function AccountsManageScreen() {
       setEditName('');
       // 移除成功提示对话框
     } catch (error: any) {
+      if (error?.code === 'ACCOUNT_NAME_EXISTS') {
+        setDuplicateNameModalPayload({
+          duplicateName: (error?.duplicateName ?? editName) || '',
+          targetId: error?.targetId ?? '',
+          editingId: accountId,
+        });
+        setShowDuplicateNameModal(true);
+        return;
+      }
       console.error('Error updating account:', error);
       Alert.alert('Error', error.message || 'Failed to update account');
-      // 如果失败，重新加载以确保数据一致
+      loadAccounts();
+    }
+  };
+
+  const handleDuplicateNameCloseOnly = () => {
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+  };
+
+  /** Keep editing: close modal, stay in edit mode and focus name input + keyboard. */
+  const handleDuplicateNameKeepEditing = () => {
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    setTimeout(() => editNameInputRef.current?.focus(), 300);
+  };
+
+  /** Do not modify: close modal and cancel editing. */
+  const handleDuplicateNameDontChange = () => {
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    setEditingId(null);
+    setEditName('');
+  };
+
+  const handleDuplicateNameMerge = async () => {
+    const payload = duplicateNameModalPayload;
+    if (!payload?.targetId || !payload?.editingId) return;
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    try {
+      await mergeAccount([payload.editingId], payload.targetId);
+      setEditingId(null);
+      setEditName('');
+      loadAccounts();
+    } catch (e: any) {
+      Alert.alert('Merge failed', e?.message ?? String(e));
       loadAccounts();
     }
   };
@@ -210,6 +262,38 @@ export default function AccountsManageScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
+
+      <Modal visible={showDuplicateNameModal} transparent animationType="fade" onRequestClose={handleDuplicateNameCloseOnly}>
+        <TouchableOpacity style={styles.duplicateModalOverlay} activeOpacity={1} onPress={handleDuplicateNameCloseOnly}>
+          <View style={styles.duplicateModalContentContainer} onStartShouldSetResponder={() => true}>
+            <View style={styles.duplicateModalContent}>
+              <View style={styles.duplicateModalHeader}>
+                <Ionicons name="wallet-outline" size={48} color="#6C5CE7" />
+                <Text style={styles.duplicateModalTitle}>Duplicate account name:</Text>
+              </View>
+              <View style={styles.duplicateModalMessageBlock}>
+                <View style={styles.duplicateModalNameContainer}>
+                  <Text style={styles.duplicateModalNameText}>{duplicateNameModalPayload?.duplicateName || '—'}</Text>
+                </View>
+              </View>
+              <View style={styles.duplicateModalButtons}>
+                <TouchableOpacity style={[styles.duplicateModalButton, styles.duplicateModalButtonReplace]} onPress={handleDuplicateNameKeepEditing} activeOpacity={0.8}>
+                  <Ionicons name="create-outline" size={20} color="#fff" style={{ marginRight: 8 }} />
+                  <Text style={styles.duplicateModalButtonReplaceText}>Keep editing</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge]} onPress={handleDuplicateNameMerge} activeOpacity={0.8}>
+                  <Ionicons name="git-merge-outline" size={20} color="#E74C3C" style={{ marginRight: 8 }} />
+                  <Text style={styles.duplicateModalButtonMergeText}>Merge into existing</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.duplicateModalButton, styles.duplicateModalButtonDontChange]} onPress={handleDuplicateNameDontChange} activeOpacity={0.8}>
+                  <Ionicons name="close-outline" size={18} color="#95A5A6" style={{ marginRight: 6 }} />
+                  <Text style={styles.duplicateModalButtonDontChangeText}>Do not modify</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
       
       {/* Header */}
       <View style={styles.header}>
@@ -304,6 +388,7 @@ export default function AccountsManageScreen() {
                 <View style={styles.editRow}>
                   {/* 第一行：名称 */}
                   <TextInput
+                    ref={editNameInputRef}
                     style={styles.editInputInline}
                     value={editName}
                     onChangeText={setEditName}
@@ -623,5 +708,21 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     padding: 4,
   },
+  duplicateModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  duplicateModalContentContainer: { width: '100%', maxWidth: 400, alignItems: 'center' },
+  duplicateModalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '100%', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8 },
+  duplicateModalHeader: { alignItems: 'center', marginBottom: 16 },
+  duplicateModalTitle: { fontSize: 22, fontWeight: '600', color: '#2D3436', marginTop: 12, marginBottom: 0 },
+  duplicateModalMessageBlock: { marginBottom: 24, paddingHorizontal: 8, alignItems: 'center', width: '100%' },
+  duplicateModalNameContainer: { marginTop: 8, marginBottom: 20, alignSelf: 'stretch', borderBottomWidth: 1, borderBottomColor: '#E0E7FF', paddingBottom: 8 },
+  duplicateModalNameText: { fontSize: 18, fontWeight: '800', color: '#6C5CE7', textAlign: 'center', letterSpacing: 0.3 },
+  duplicateModalButtons: { flexDirection: 'column', width: '100%', gap: 10 },
+  duplicateModalButton: { width: '100%', paddingVertical: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', minHeight: 52, flexDirection: 'row' },
+  duplicateModalButtonReplace: { backgroundColor: '#27AE60', shadowColor: '#27AE60', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
+  duplicateModalButtonReplaceText: { fontSize: 17, fontWeight: '700', color: '#fff', letterSpacing: 0.5 },
+  duplicateModalButtonMerge: { backgroundColor: '#FFF5F5', borderWidth: 2, borderColor: '#E74C3C' },
+  duplicateModalButtonMergeText: { fontSize: 16, fontWeight: '600', color: '#E74C3C' },
+  duplicateModalButtonDontChange: { backgroundColor: '#F8F9FA', borderWidth: 1, borderColor: '#E9ECEF' },
+  duplicateModalButtonDontChangeText: { fontSize: 15, fontWeight: '500', color: '#95A5A6' },
 });
 
