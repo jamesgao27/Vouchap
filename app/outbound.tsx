@@ -51,6 +51,23 @@ const getCurrencySymbol = (currency?: string): string => {
   return symbols[currency || 'USD'] || (currency ? `${currency} ` : '$');
 };
 
+/** 从任意错误对象中取出可读文案，避免 Alert 显示 [object Object] */
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  if (typeof err === 'string') return err;
+  if (err != null && typeof err === 'object' && 'message' in err && typeof (err as { message?: unknown }).message === 'string') {
+    return (err as { message: string }).message;
+  }
+  if (err != null && typeof err === 'object' && 'error_description' in err && typeof (err as { error_description?: unknown }).error_description === 'string') {
+    return (err as { error_description: string }).error_description;
+  }
+  try {
+    return JSON.stringify(err);
+  } catch {
+    return String(err);
+  }
+}
+
 const AmountText = ({ amount, currency, style }: { amount: number; currency?: string; style?: any }) => {
   const symbol = getCurrencySymbol(currency);
   const baseSize = style?.fontSize || 16;
@@ -212,13 +229,21 @@ export default function OutboundScreen() {
   };
 
   const processCapturedImage = async (imageUri: string, autoCrop: boolean = true) => {
+    console.log('[出库单] 开始处理图片，imageUri:', imageUri);
     setShowSuccessModal(true);
     setLastOutboundId(null);
     (async () => {
       try {
+        console.log('[出库单] 步骤1: 处理图片...');
         const processedImageUri = await processImageForUpload(imageUri, { autoCrop, quality: 0.85 });
+        console.log('[出库单] 图片处理完成，processedImageUri:', processedImageUri);
+        
+        console.log('[出库单] 步骤2: 上传临时图片...');
         const tempFileName = `temp-${Date.now()}`;
         const imageUrl = await uploadOutboundImageTemp(processedImageUri, tempFileName);
+        console.log('[出库单] 临时图片上传完成，imageUrl:', imageUrl);
+        
+        console.log('[出库单] 步骤3: 创建出库单记录...');
         const today = new Date().toISOString().split('T')[0];
         const outboundId = await saveOutbound({
           spaceId: '',
@@ -228,12 +253,29 @@ export default function OutboundScreen() {
           imageUrl,
           inputType: 'image',
         });
+        console.log('[出库单] 出库单记录创建完成，outboundId:', outboundId);
+        
         setLastOutboundId(outboundId);
         load();
-        processOutboundInBackground(imageUrl, outboundId, processedImageUri).then(() => load()).catch(err => console.error('Background process failed:', err));
+        
+        console.log('[出库单] 步骤4: 启动后台识别处理...');
+        processOutboundInBackground(imageUrl, outboundId, processedImageUri)
+          .then(() => {
+            console.log('[出库单] ✅ 后台处理成功，刷新列表');
+            load();
+          })
+          .catch(err => {
+            console.error('[出库单] ❌ 后台处理失败:');
+            console.error('[出库单] 错误类型:', err?.constructor?.name);
+            console.error('[出库单] 错误消息:', err instanceof Error ? err.message : String(err));
+            console.error('[出库单] 错误堆栈:', err instanceof Error ? err.stack : 'No stack trace');
+            console.error('[出库单] 完整错误:', err);
+            load(); // 即使失败也刷新列表，显示pending状态
+          });
       } catch (error) {
-        console.error('Processing error:', error);
-        Alert.alert('Error', 'Failed to process outbound image.');
+        const msg = getErrorMessage(error);
+        console.error('[出库单] ❌ 处理图片失败:', msg, error);
+        Alert.alert('出库单处理失败', msg);
         setShowSuccessModal(false);
       }
     })();

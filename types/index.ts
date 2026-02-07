@@ -158,6 +158,8 @@ export interface Warehouse {
   name: string;
   code?: string;
   address?: string;
+  /** 合并指向：已并入的目标仓库 ID，NULL 表示未被合并 */
+  mergedIntoId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -168,6 +170,8 @@ export interface Location {
   warehouseId: string;
   name: string;
   code?: string;
+  /** 合并指向：已并入的目标仓位 ID（同仓库内），NULL 表示未被合并 */
+  mergedIntoId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -181,6 +185,8 @@ export interface Sku {
   unit: string;
   description?: string;
   isAiRecognized?: boolean;
+  /** 合并指向：已并入的目标 SKU ID，NULL 表示未被合并 */
+  mergedIntoId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -228,27 +234,48 @@ export interface Invoice {
   updatedAt?: string;
 }
 
-// 入库/出库明细（含数量，可关联 SKU）
+// 入库/出库明细（含数量，可关联 SKU；名称/单位/规格通过 sku_id 关联 skus 获取，不冗余存储）
 export interface InboundItem {
   id?: string;
   inboundId: string;
   skuId?: string | null;
-  productName: string;
+  lineNo?: number;
+  /** 展示用，来自 SKU.code */
+  productCode?: string;
+  /** 展示用，来自 SKU.name */
+  productName?: string;
+  /** 展示用，来自 SKU.description */
+  specification?: string;
   quantity: number;
-  unit: string;
+  qualifiedQuantity?: number;
+  defectiveQuantity?: number;
+  /** 展示用，来自 SKU.unit */
+  unit?: string;
   unitPrice?: number;
+  amount?: number;
+  locationId?: string | null;
   confidence?: number;
+  remarks?: string;
 }
 
 export interface OutboundItem {
   id?: string;
   outboundId: string;
   skuId?: string | null;
-  productName: string;
+  lineNo?: number;
+  /** 展示用，来自 SKU.name */
+  productName?: string;
+  /** 展示用，来自 SKU.description */
+  specification?: string;
   quantity: number;
-  unit: string;
+  /** 展示用，来自 SKU.unit */
+  unit?: string;
   unitPrice?: number;
+  amount?: number;
+  supplyPrice?: number;
+  tax?: number;
   confidence?: number;
+  remarks?: string;
 }
 
 // 入库单（采购端）
@@ -258,10 +285,21 @@ export interface Inbound {
   documentNo?: string;
   supplierId?: string | null;
   supplierName?: string;
+  warehouseId?: string | null;
+  locationId?: string | null;
+  inboundType?: string;
   totalAmount?: number;
+  totalAmountChinese?: string;
   currency?: string;
   date: string;
   status: VoucherStatus;
+  handlerId?: string | null;
+  handlerName?: string;
+  warehouseKeeperId?: string | null;
+  warehouseKeeperName?: string;
+  accountantId?: string | null;
+  accountantName?: string;
+  remarks?: string;
   imageUrl?: string;
   inputType?: InputType;
   confidence?: number;
@@ -276,11 +314,22 @@ export interface Outbound {
   id?: string;
   spaceId: string;
   documentNo?: string;
+  customerId?: string | null;
   customerName?: string;
+  warehouseId?: string | null;
+  locationId?: string | null;
   totalAmount?: number;
+  totalTax?: number;
   currency?: string;
   date: string;
   status: VoucherStatus;
+  handlerId?: string | null;
+  handlerName?: string;
+  preparerId?: string | null;
+  preparerName?: string;
+  accountantId?: string | null;
+  accountantName?: string;
+  remarks?: string;
   imageUrl?: string;
   inputType?: InputType;
   confidence?: number;
@@ -319,6 +368,43 @@ export interface GeminiReceiptResult {
   dataConsistency?: DataConsistency; // 数据一致性检查
 }
 
+/** 出入库识别结果：表头 + 明细，与样例表格最完整字段对齐 */
+export interface GeminiInboundOutboundResult {
+  documentNo?: string;
+  supplierName?: string;
+  customerName?: string;
+  warehouseName?: string;
+  locationName?: string;
+  date: string;
+  inboundType?: string;
+  totalAmount?: number;
+  totalAmountChinese?: string;
+  totalTax?: number;
+  currency?: string;
+  handlerName?: string;
+  warehouseKeeperName?: string;
+  preparerName?: string;
+  accountantName?: string;
+  remarks?: string;
+  items: Array<{
+    lineNo?: number;
+    productCode?: string;
+    productName: string;
+    specification?: string;
+    quantity: number;
+    qualifiedQuantity?: number;
+    defectiveQuantity?: number;
+    unit: string;
+    unitPrice?: number;
+    amount?: number;
+    supplyPrice?: number;
+    tax?: number;
+    skuCode?: string;
+    remarks?: string;
+  }>;
+  confidence?: number;
+}
+
 /** 统一凭证识别结果：receipt 用 supplierName，invoice 用 customerName，其余字段共用 */
 export interface GeminiVoucherResult {
   supplierName?: string;
@@ -345,23 +431,3 @@ export interface GeminiVoucherResult {
   imageQuality?: ImageQuality;
   dataConsistency?: DataConsistency;
 }
-
-/** 入库/出库识别结果：与 receipt/invoice 不同，明细为数量+单位+单价（货物流） */
-export interface GeminiInboundOutboundResult {
-  /** 入库单用：供应商名称 */
-  supplierName?: string;
-  /** 出库单用：客户名称 */
-  customerName?: string;
-  date: string;
-  totalAmount?: number;
-  currency?: string;
-  /** 明细：商品名、数量、单位、单价 */
-  items: Array<{
-    productName: string;
-    quantity: number;
-    unit: string;
-    unitPrice?: number;
-  }>;
-  confidence?: number;
-}
-

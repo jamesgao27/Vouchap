@@ -1,9 +1,41 @@
 import { supabase } from './supabase';
 import { Warehouse, Location } from '@/types';
 import { getCurrentUser } from './auth';
+import { normalizeNameForCompare } from './name-utils';
 
-/** 获取当前空间下所有仓库 */
+function mapWarehouseRow(row: any): Warehouse {
+  return {
+    id: row.id,
+    spaceId: row.space_id,
+    name: row.name,
+    code: row.code ?? undefined,
+    address: row.address ?? undefined,
+    mergedIntoId: row.merged_into_id ?? undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** 获取当前空间下所有仓库（仅展示未被合并的） */
 export async function getWarehouses(): Promise<Warehouse[]> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const { data, error } = await supabase
+    .from('warehouse')
+    .select('*')
+    .eq('space_id', spaceId)
+    .is('merged_into_id', null)
+    .order('name', { ascending: true });
+
+  if (error) throw error;
+  return (data || []).map(mapWarehouseRow);
+}
+
+/** 获取全部仓库（含已合并指向的），供选单与大模型选项用 */
+export async function getWarehousesForOptions(): Promise<Warehouse[]> {
   const user = await getCurrentUser();
   if (!user) throw new Error('Not logged in');
   const spaceId = user.currentSpaceId || user.spaceId;
@@ -16,15 +48,7 @@ export async function getWarehouses(): Promise<Warehouse[]> {
     .order('name', { ascending: true });
 
   if (error) throw error;
-  return (data || []).map((row: any) => ({
-    id: row.id,
-    spaceId: row.space_id,
-    name: row.name,
-    code: row.code ?? undefined,
-    address: row.address ?? undefined,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+  return (data || []).map(mapWarehouseRow);
 }
 
 /** 创建仓库 */
@@ -46,15 +70,7 @@ export async function createWarehouse(w: { name: string; code?: string; address?
     .single();
 
   if (error) throw error;
-  return {
-    id: data.id,
-    spaceId: data.space_id,
-    name: data.name,
-    code: data.code ?? undefined,
-    address: data.address ?? undefined,
-    createdAt: data.created_at,
-    updatedAt: data.updated_at,
-  };
+  return mapWarehouseRow(data);
 }
 
 /** 更新仓库 */
@@ -74,23 +90,82 @@ export async function deleteWarehouse(id: string): Promise<void> {
   if (error) throw error;
 }
 
-/** 获取某仓库下的所有仓位 */
-export async function getLocationsByWarehouse(warehouseId: string): Promise<Location[]> {
-  const { data, error } = await supabase
-    .from('location')
-    .select('*')
-    .eq('warehouse_id', warehouseId)
-    .order('name', { ascending: true });
-
-  if (error) throw error;
-  return (data || []).map((row: any) => ({
+function mapLocationRow(row: any): Location {
+  return {
     id: row.id,
     warehouseId: row.warehouse_id,
     name: row.name,
     code: row.code ?? undefined,
+    mergedIntoId: row.merged_into_id ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-  }));
+  };
+}
+
+/** 仓位按名称剔重展示：优先保留目标仓库下的同名仓位，被合并仓库仅展示名称不重复的（如 A 有 1、2，B 有 1、2、3，B→A 后展示 A1、A2、B3） */
+function dedupeLocationsByName(locations: Location[], targetWarehouseId: string): Location[] {
+  const target = locations.filter((l) => l.warehouseId === targetWarehouseId);
+  const sources = locations.filter((l) => l.warehouseId !== targetWarehouseId);
+  const targetNames = new Set(target.map((l) => normalizeNameForCompare(l.name)));
+  const fromSources = sources.filter((l) => !targetNames.has(normalizeNameForCompare(l.name)));
+  const combined = [...target, ...fromSources];
+  return combined.sort((a, b) => (a.name || '').localeCompare(b.name || '', 'zh-CN'));
+}
+
+/** 获取某仓库下的所有仓位（仅展示未被合并的）。若该仓库是被合并后的“目标”，会包含“解析到该仓库”的源仓库下仓位，按名称剔重：同名只保留目标仓库的，源仓库仅展示名称不重复的 */
+export async function getLocationsByWarehouse(warehouseId: string): Promise<Location[]> {
+  const { data: wh, error: whError } = await supabase
+    .from('warehouse')
+    .select('space_id')
+    .eq('id', warehouseId)
+    .single();
+  if (whError || !wh?.space_id) {
+    const { data, error } = await supabase
+      .from('location')
+      .select('*')
+      .eq('warehouse_id', warehouseId)
+      .is('merged_into_id', null)
+      .order('name', { ascending: true });
+    if (error) throw error;
+    return (data || []).map(mapLocationRow);
+  }
+  const warehouseIds = await getWarehouseIdsResolvingTo(wh.space_id, warehouseId);
+  const { data, error } = await supabase
+    .from('location')
+    .select('*')
+    .in('warehouse_id', warehouseIds)
+    .is('merged_into_id', null)
+    .order('name', { ascending: true });
+  if (error) throw error;
+  const list = (data || []).map(mapLocationRow);
+  return dedupeLocationsByName(list, warehouseId);
+}
+
+/** 获取某仓库下全部仓位（含已合并指向的），供选单与大模型选项用；会包含“解析到该仓库”的源仓库下仓位，按名称剔重展示 */
+export async function getLocationsByWarehouseForOptions(warehouseId: string): Promise<Location[]> {
+  const { data: wh } = await supabase
+    .from('warehouse')
+    .select('space_id')
+    .eq('id', warehouseId)
+    .single();
+  if (!wh?.space_id) {
+    const { data, error } = await supabase
+      .from('location')
+      .select('*')
+      .eq('warehouse_id', warehouseId)
+      .order('name', { ascending: true });
+    if (error) throw error;
+    return (data || []).map(mapLocationRow);
+  }
+  const warehouseIds = await getWarehouseIdsResolvingTo(wh.space_id, warehouseId);
+  const { data, error } = await supabase
+    .from('location')
+    .select('*')
+    .in('warehouse_id', warehouseIds)
+    .order('name', { ascending: true });
+  if (error) throw error;
+  const list = (data || []).map(mapLocationRow);
+  return dedupeLocationsByName(list, warehouseId);
 }
 
 /** 创建仓位 */
@@ -106,14 +181,7 @@ export async function createLocation(l: { warehouseId: string; name: string; cod
     .single();
 
   if (error) throw error;
-  return {
-    id: data.id,
-    warehouseId: data.warehouse_id,
-    name: data.name,
-    code: data.code ?? undefined,
-    createdAt: data.created_at,
-    updatedAt: data.updated_at,
-  };
+  return mapLocationRow(data);
 }
 
 /** 更新仓位 */
@@ -130,4 +198,264 @@ export async function updateLocation(id: string, updates: { name?: string; code?
 export async function deleteLocation(id: string): Promise<void> {
   const { error } = await supabase.from('location').delete().eq('id', id);
   if (error) throw error;
+}
+
+/** 根据名称查找或创建仓库（用于 AI 识别） */
+export async function findOrCreateWarehouseByName(name: string): Promise<Warehouse> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const trimmed = name?.trim();
+  if (!trimmed) {
+    throw new Error('Invalid warehouse name');
+  }
+  const norm = normalizeNameForCompare(trimmed);
+
+  const { data, error } = await supabase
+    .from('warehouse')
+    .select('*')
+    .eq('space_id', spaceId)
+    .is('merged_into_id', null);
+  if (error) throw error;
+
+  const unmerged = (data || []).map(mapWarehouseRow) as Warehouse[];
+
+  const existing = unmerged.find((w) => normalizeNameForCompare(w.name) === norm);
+  if (existing) return existing;
+
+  return await createWarehouse({ name: trimmed });
+}
+
+/** 根据仓库 + 名称查找或创建仓位（用于 AI 识别） */
+export async function findOrCreateLocationByName(
+  warehouseId: string,
+  name: string,
+): Promise<Location> {
+  const trimmed = name?.trim();
+  if (!trimmed) {
+    throw new Error('Invalid location name');
+  }
+  const norm = normalizeNameForCompare(trimmed);
+
+  const { data, error } = await supabase
+    .from('location')
+    .select('*')
+    .eq('warehouse_id', warehouseId)
+    .is('merged_into_id', null);
+  if (error) throw error;
+
+  const unmerged = (data || []).map(mapLocationRow) as Location[];
+
+  const existing = unmerged.find((l) => normalizeNameForCompare(l.name) === norm);
+  if (existing) return existing;
+
+  return await createLocation({ warehouseId, name: trimmed });
+}
+
+/** 从 warehouse 表构建合并指向映射 id -> merged_into_id（用于解析） */
+export async function getWarehouseMergeMap(spaceId: string): Promise<Map<string, string>> {
+  const { data: rows } = await supabase
+    .from('warehouse')
+    .select('id, merged_into_id')
+    .eq('space_id', spaceId)
+    .not('merged_into_id', 'is', null);
+
+  const map = new Map<string, string>();
+  (rows || []).forEach((r: any) => {
+    if (r.id && r.merged_into_id) map.set(r.id, r.merged_into_id);
+  });
+  return map;
+}
+
+/** 按 merged_into_id 解析仓库 ID：返回应展示的目标 ID */
+export async function resolveWarehouseId(spaceId: string, warehouseId: string): Promise<string> {
+  const map = await getWarehouseMergeMap(spaceId);
+  let current = warehouseId;
+  const seen = new Set<string>();
+  while (map.has(current) && !seen.has(current)) {
+    seen.add(current);
+    current = map.get(current)!;
+  }
+  return current;
+}
+
+/** 返回“解析到该仓库”的所有仓库 ID（含自身），用于查询时包含被合并仓库下的仓位，不改动原始数据 */
+export async function getWarehouseIdsResolvingTo(spaceId: string, targetWarehouseId: string): Promise<string[]> {
+  const map = await getWarehouseMergeMap(spaceId);
+  const resolve = (id: string): string => {
+    let current = id;
+    const seen = new Set<string>();
+    while (map.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = map.get(current)!;
+    }
+    return current;
+  };
+  const { data: rows } = await supabase
+    .from('warehouse')
+    .select('id')
+    .eq('space_id', spaceId);
+  const ids = (rows || []).map((r: any) => r.id).filter(Boolean) as string[];
+  const targetSet = new Set<string>([targetWarehouseId]);
+  ids.forEach((id) => {
+    if (resolve(id) === targetWarehouseId) targetSet.add(id);
+  });
+  return Array.from(targetSet);
+}
+
+/** 合并仓库：只设置合并指向，不删记录、不修改出入库；指向源的所有记录一并指到最终目标 */
+export async function mergeWarehouses(
+  sourceWarehouseIds: string[],
+  targetWarehouseId: string
+): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  if (sourceWarehouseIds.length === 0) throw new Error('No source warehouses to merge');
+  if (sourceWarehouseIds.includes(targetWarehouseId)) throw new Error('Cannot merge warehouse into itself');
+
+  const allIds = [...sourceWarehouseIds, targetWarehouseId];
+  const { data: allRows, error: fetchError } = await supabase
+    .from('warehouse')
+    .select('id, merged_into_id')
+    .eq('space_id', spaceId)
+    .in('id', allIds);
+
+  if (fetchError) throw fetchError;
+  if (!allRows || allRows.length !== allIds.length) {
+    throw new Error('Warehouse does not exist or does not belong to current space');
+  }
+
+  const mergeMap = new Map<string, string>();
+  const { data: withPointer } = await supabase
+    .from('warehouse')
+    .select('id, merged_into_id')
+    .eq('space_id', spaceId)
+    .not('merged_into_id', 'is', null);
+  (withPointer || []).forEach((r: any) => {
+    if (r.merged_into_id) mergeMap.set(r.id, r.merged_into_id);
+  });
+
+  const resolveToFinal = (id: string): string => {
+    let current = id;
+    const seen = new Set<string>();
+    while (mergeMap.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = mergeMap.get(current)!;
+    }
+    return current;
+  };
+
+  const finalTargetId = resolveToFinal(targetWarehouseId);
+
+  for (const sourceId of sourceWarehouseIds) {
+    await supabase
+      .from('warehouse')
+      .update({ merged_into_id: finalTargetId })
+      .eq('space_id', spaceId)
+      .eq('merged_into_id', sourceId);
+
+    const { error: setSource } = await supabase
+      .from('warehouse')
+      .update({ merged_into_id: finalTargetId })
+      .eq('id', sourceId)
+      .eq('space_id', spaceId);
+    if (setSource) throw setSource;
+  }
+}
+
+/** 从 location 表构建合并指向映射 id -> merged_into_id（同一仓库内） */
+export async function getLocationMergeMap(warehouseId: string): Promise<Map<string, string>> {
+  const { data: rows } = await supabase
+    .from('location')
+    .select('id, merged_into_id')
+    .eq('warehouse_id', warehouseId)
+    .not('merged_into_id', 'is', null);
+
+  const map = new Map<string, string>();
+  (rows || []).forEach((r: any) => {
+    if (r.id && r.merged_into_id) map.set(r.id, r.merged_into_id);
+  });
+  return map;
+}
+
+/** 按 merged_into_id 解析仓位 ID：返回应展示的目标 ID（同仓库内） */
+export async function resolveLocationId(warehouseId: string, locationId: string): Promise<string> {
+  const map = await getLocationMergeMap(warehouseId);
+  let current = locationId;
+  const seen = new Set<string>();
+  while (map.has(current) && !seen.has(current)) {
+    seen.add(current);
+    current = map.get(current)!;
+  }
+  return current;
+}
+
+/** 合并仓位（同仓库内）：只设置合并指向，不删记录、不修改出入库明细 */
+export async function mergeLocations(
+  sourceLocationIds: string[],
+  targetLocationId: string
+): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+
+  if (sourceLocationIds.length === 0) throw new Error('No source locations to merge');
+  if (sourceLocationIds.includes(targetLocationId)) throw new Error('Cannot merge location into itself');
+
+  const allIds = [...sourceLocationIds, targetLocationId];
+  const { data: allRows, error: fetchError } = await supabase
+    .from('location')
+    .select('id, warehouse_id, merged_into_id')
+    .in('id', allIds);
+
+  if (fetchError) throw fetchError;
+  if (!allRows || allRows.length !== allIds.length) {
+    throw new Error('Location does not exist');
+  }
+
+  const warehouseId = allRows[0]?.warehouse_id;
+  if (!warehouseId || !allRows.every((r: any) => r.warehouse_id === warehouseId)) {
+    throw new Error('All locations must belong to the same warehouse');
+  }
+
+  const mergeMap = new Map<string, string>();
+  const { data: withPointer } = await supabase
+    .from('location')
+    .select('id, merged_into_id')
+    .eq('warehouse_id', warehouseId)
+    .not('merged_into_id', 'is', null);
+  (withPointer || []).forEach((r: any) => {
+    if (r.merged_into_id) mergeMap.set(r.id, r.merged_into_id);
+  });
+
+  const resolveToFinal = (id: string): string => {
+    let current = id;
+    const seen = new Set<string>();
+    while (mergeMap.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = mergeMap.get(current)!;
+    }
+    return current;
+  };
+
+  const finalTargetId = resolveToFinal(targetLocationId);
+
+  for (const sourceId of sourceLocationIds) {
+    await supabase
+      .from('location')
+      .update({ merged_into_id: finalTargetId })
+      .eq('warehouse_id', warehouseId)
+      .eq('merged_into_id', sourceId);
+
+    const { error: setSource } = await supabase
+      .from('location')
+      .update({ merged_into_id: finalTargetId })
+      .eq('id', sourceId)
+      .eq('warehouse_id', warehouseId);
+    if (setSource) throw setSource;
+  }
 }

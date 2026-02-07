@@ -10,14 +10,19 @@ import {
   ActivityIndicator,
   Modal,
   Platform,
+  Image,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as ImagePicker from 'expo-image-picker';
 import { getInboundById, saveInbound, deleteInbound } from '@/lib/inbound';
+import { uploadInboundImage } from '@/lib/supabase';
 import { getSupplierOptions } from '@/lib/customer-supplier-list';
 import { Inbound, InboundItem, VoucherStatus } from '@/types';
 import { format } from 'date-fns';
+import { getChatLogsByReceiptId } from '@/lib/chat-logs';
+import { playAudio, stopPlayback } from '@/lib/audio';
 
 export default function InboundDetailsScreen() {
   const { id, new: isNew } = useLocalSearchParams<{ id: string; new?: string }>();
@@ -28,7 +33,11 @@ export default function InboundDetailsScreen() {
   const [editedInbound, setEditedInbound] = useState<Inbound | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showSupplierPicker, setShowSupplierPicker] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [supplierOptions, setSupplierOptions] = useState<{ id: string; name: string; source: 'supplier' | 'customer' }[]>([]);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
   useEffect(() => {
     loadInbound();
@@ -41,6 +50,21 @@ export default function InboundDetailsScreen() {
       setInbound(data);
       setEditedInbound(data);
       if (isNew === 'true') setEditing(true);
+
+      // 加载与该入库单相关的语音记录（用于回放按钮）
+      try {
+        const chatLogs = await getChatLogsByReceiptId(id);
+        const audioLog = chatLogs.find(
+          (log) => log.audioUrl && (log.voucherType === 'inbound' || log.voucherType == null)
+        );
+        if (audioLog?.audioUrl) {
+          setAudioUrl(audioLog.audioUrl);
+        } else {
+          setAudioUrl(null);
+        }
+      } catch (chatError) {
+        console.log('Failed to get chat logs for inbound audio:', chatError);
+      }
     } catch (error) {
       Alert.alert('Error', 'Failed to load inbound');
       console.error(error);
@@ -102,8 +126,11 @@ export default function InboundDetailsScreen() {
     }
   };
 
-  const handleDateChange = (_event: any, selectedDate?: Date) => {
-    if (Platform.OS === 'android') setShowDatePicker(false);
+  const handleDateChange = (event: any, selectedDate?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+      if (event.type === 'dismissed') return;
+    }
     if (selectedDate && editedInbound) {
       setEditedInbound({ ...editedInbound, date: selectedDate.toISOString().split('T')[0] });
     }
@@ -171,6 +198,94 @@ export default function InboundDetailsScreen() {
     setEditedInbound({ ...editedInbound, items: newItems, totalAmount });
   };
 
+  const handleImagePicker = async () => {
+    if (!id) return;
+    Alert.alert(
+      'Add Photo',
+      'Choose an option',
+      [
+        {
+          text: 'Camera',
+          onPress: async () => {
+            try {
+              const { status } = await ImagePicker.requestCameraPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Permission Needed', 'Vouchap needs access to your camera.');
+                return;
+              }
+              const result = await ImagePicker.launchCameraAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [4, 3],
+                quality: 0.8,
+              });
+              if (!result.canceled && result.assets[0]) {
+                await uploadImage(result.assets[0].uri);
+              }
+            } catch (error) {
+              console.error('Error launching camera:', error);
+              Alert.alert('Error', 'Failed to launch camera.');
+            }
+          },
+        },
+        {
+          text: 'Photo Library',
+          onPress: async () => {
+            try {
+              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Permission Needed', 'Vouchap needs access to your photo library.');
+                return;
+              }
+              const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                aspect: [4, 3],
+                quality: 0.8,
+              });
+              if (!result.canceled && result.assets[0]) {
+                await uploadImage(result.assets[0].uri);
+              }
+            } catch (error) {
+              console.error('Error picking image:', error);
+              Alert.alert('Error', 'Failed to pick image.');
+            }
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ],
+      { cancelable: true }
+    );
+  };
+
+  const uploadImage = async (imageUri: string) => {
+    if (!id) return;
+    setIsUploadingImage(true);
+    try {
+      const imageUrl = await uploadInboundImage(imageUri, id);
+      await saveInbound({ ...(editedInbound || inbound)!, id, imageUrl });
+      await loadInbound();
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      Alert.alert('Error', 'Failed to upload image.');
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
+  const handlePlayAudio = async () => {
+    if (!audioUrl) return;
+    if (isPlayingAudio) {
+      await stopPlayback();
+      setIsPlayingAudio(false);
+    } else {
+      setIsPlayingAudio(true);
+      await playAudio(audioUrl, () => {
+        setIsPlayingAudio(false);
+      });
+    }
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -192,193 +307,385 @@ export default function InboundDetailsScreen() {
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-        <View style={styles.card}>
-          <View style={styles.row}>
-            <Text style={styles.label}>Document No</Text>
-            {editing ? (
-              <TextInput
-                style={styles.input}
-                value={editedInbound?.documentNo ?? ''}
-                onChangeText={(t) => setEditedInbound(editedInbound ? { ...editedInbound, documentNo: t } : null)}
-                placeholder="Optional"
-              />
-            ) : (
-              <Text style={styles.value}>{current.documentNo || '—'}</Text>
-            )}
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Supplier</Text>
-            {editing ? (
-              <View style={styles.inputRow}>
-                <TextInput
-                  style={[styles.input, { flex: 1 }]}
-                  value={editedInbound?.supplierName ?? ''}
-                  onChangeText={handleSupplierNameChange}
-                  placeholder="Supplier name"
+        {/* 入库单摘要卡片 - 复用 receipt 结构 */}
+        <View style={styles.summaryCard}>
+          <View style={styles.imageContainer}>
+            <TouchableOpacity
+              onPress={() => {
+                if (current.imageUrl) {
+                  setShowImageModal(true);
+                } else {
+                  handleImagePicker();
+                }
+              }}
+              style={styles.imagePlaceholder}
+              disabled={isUploadingImage}
+            >
+              {current.imageUrl ? (
+                <Image source={{ uri: current.imageUrl }} style={styles.receiptImage} resizeMode="cover" />
+              ) : (
+                <View style={styles.imagePlaceholderContent}>
+                  {isUploadingImage ? (
+                    <ActivityIndicator size="small" color="#6C5CE7" />
+                  ) : (
+                    <Ionicons name="camera" size={32} color="#95A5A6" />
+                  )}
+                </View>
+              )}
+            </TouchableOpacity>
+            {audioUrl && (
+              <TouchableOpacity
+                style={[
+                  styles.audioPlayButton,
+                  isPlayingAudio && styles.audioPlayButtonActive,
+                ]}
+                onPress={handlePlayAudio}
+              >
+                <Ionicons
+                  name={isPlayingAudio ? 'pause' : 'play'}
+                  size={14}
+                  color="#fff"
                 />
-                <TouchableOpacity style={styles.dropdownBtn} onPress={openSupplierPicker}>
-                  <Ionicons name="chevron-down" size={18} color="#6C5CE7" />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <Text style={styles.value}>{current.supplierName || '—'}</Text>
-            )}
-          </View>
-          <View style={styles.row}>
-            <Text style={styles.label}>Date</Text>
-            {editing ? (
-              <TouchableOpacity style={styles.dateTouchable} onPress={() => setShowDatePicker(true)}>
-                <Text style={styles.dateText}>{editedInbound?.date ? formatDate(editedInbound.date) : 'Select date'}</Text>
-                <Ionicons name="chevron-down" size={14} color="#6C5CE7" />
               </TouchableOpacity>
-            ) : (
-              <Text style={styles.value}>{formatDate(current.date)}</Text>
             )}
           </View>
-          {(current.totalAmount != null && current.totalAmount > 0) && (
-            <View style={styles.row}>
-              <Text style={styles.label}>Total</Text>
-              <Text style={styles.value}>
-                {current.currency || ''} {Number(current.totalAmount).toFixed(2)}
-              </Text>
-            </View>
-          )}
-          <View style={styles.row}>
-            <Text style={styles.label}>Status</Text>
-            <View style={[styles.statusBadge, { backgroundColor: current.status === 'confirmed' ? '#00B894' : '#FF9500' }]}>
-              <Text style={styles.statusText}>{current.status}</Text>
+          <View style={styles.summaryContent}>
+            <View style={styles.summaryContentTop}>
+              <View style={styles.summaryContentMain}>
+                {/* 供应商（货物来源） */}
+                {editing ? (
+                  <View style={styles.storeNameInputRow}>
+                    <TextInput
+                      style={styles.storeNameInput}
+                      value={editedInbound?.supplierName ?? ''}
+                      onChangeText={handleSupplierNameChange}
+                      placeholder="供应商名称"
+                      maxLength={100}
+                    />
+                    <TouchableOpacity
+                      style={styles.storeNameDropdownIcon}
+                      onPress={openSupplierPicker}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="chevron-down" size={18} color="#6C5CE7" />
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <Text style={styles.storeName} numberOfLines={1}>
+                    {current.supplierName || '未知供应商'}
+                  </Text>
+                )}
+                {/* 金额 - 暂留空税额 */}
+                <View style={styles.amountRow}>
+                  <View style={styles.amountContainer}>
+                    {current.totalAmount != null && current.totalAmount > 0 && (
+                      <Text style={styles.totalAmount}>
+                        {(current.totalAmount < 0 ? '-' : '') + Math.abs(current.totalAmount).toFixed(2)}
+                      </Text>
+                    )}
+                  </View>
+                </View>
+                {/* 发货时间 */}
+                <View style={styles.dateContainer}>
+                  {editing ? (
+                    <TouchableOpacity
+                      style={styles.dateTouchable}
+                      onPress={() => setShowDatePicker(true)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.dateTag}>
+                        <Text style={styles.dateText}>
+                          {editedInbound?.date ? formatDate(editedInbound.date) : '选择日期'}
+                        </Text>
+                        <Ionicons name="chevron-down" size={14} color="#6C5CE7" style={styles.tagIcon} />
+                      </View>
+                    </TouchableOpacity>
+                  ) : (
+                    <Text style={styles.date}>{formatDate(current.date)}</Text>
+                  )}
+                </View>
+              </View>
+              {/* 录入时间 + 录入人员 */}
+              {current.createdAt && (
+                <View style={styles.submittedInfo}>
+                  <Text style={styles.submittedText}>
+                    {format(new Date(current.createdAt), 'MMM dd, yyyy')}
+                    {/* TODO: 添加 createdByUser 支持 */}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
         </View>
 
-        <View style={styles.itemsSection}>
-          <View style={styles.sectionTitleRow}>
-            <Text style={styles.sectionTitle}>Items</Text>
-            {editing && (
-              <TouchableOpacity style={styles.addItemBtn} onPress={handleAddItem}>
-                <Ionicons name="add-circle-outline" size={24} color="#6C5CE7" />
-                <Text style={styles.addItemText}>Add</Text>
+        {/* 仓库+仓位 - 复用 receipt 的支付账户结构 */}
+        <View style={styles.paymentCard}>
+          <View style={styles.paymentRow}>
+            <Text style={styles.cardLabel}>仓库+仓位</Text>
+            {editing ? (
+              <TouchableOpacity style={styles.accountTouchable} activeOpacity={0.7}>
+                <View style={styles.accountTag}>
+                  <Text style={styles.accountText} numberOfLines={1} ellipsizeMode="tail">
+                    暂未设置
+                  </Text>
+                  <Ionicons name="chevron-down" size={14} color="#6C5CE7" style={styles.tagIcon} />
+                </View>
               </TouchableOpacity>
+            ) : (
+              <Text style={styles.cardValue}>暂未设置</Text>
             )}
           </View>
-          {current.items.length === 0 && !editing && (
-            <Text style={styles.emptyItems}>No items</Text>
-          )}
+        </View>
+
+        {/* 商品列表 - 复用 receipt 的 items 结构 */}
+        <View style={styles.itemsSection}>
+          <View style={styles.sectionTitleContainer}>
+            <Text style={styles.sectionTitle}>Items</Text>
+          </View>
           {current.items.map((item, index) => (
-            <View key={index} style={[styles.itemCard, index < current.items.length - 1 && styles.itemCardBorder]}>
+            <View
+              key={index}
+              style={[styles.itemCard, index < current.items.length - 1 && styles.itemCardWithBorder]}
+            >
               {editing && (
-                <TouchableOpacity style={styles.deleteItemBtn} onPress={() => handleDeleteItem(index)}>
+                <TouchableOpacity
+                  style={styles.deleteItemButton}
+                  onPress={() => handleDeleteItem(index)}
+                >
                   <Ionicons name="close-circle" size={20} color="#E74C3C" />
                 </TouchableOpacity>
               )}
-              {editing ? (
-                <>
+
+              {/* 第一行：SKU品名 + 数量 */}
+              <View style={styles.itemHeader}>
+                {editing ? (
                   <TextInput
                     style={styles.itemNameInput}
-                    value={item.productName}
-                    onChangeText={(t) => handleItemChange(index, 'productName', t)}
-                    placeholder="Product name"
+                    value={item.productName ?? ''}
+                    onChangeText={(text) => handleItemChange(index, 'productName', text)}
+                    placeholder="SKU品名"
                   />
-                  <View style={styles.itemRow}>
-                    <TextInput
-                      style={styles.itemQtyInput}
-                      value={String(item.quantity)}
-                      onChangeText={(t) => handleItemChange(index, 'quantity', parseFloat(t) || 0)}
-                      keyboardType="decimal-pad"
-                      placeholder="Qty"
-                    />
-                    <TextInput
-                      style={styles.itemUnitInput}
-                      value={item.unit}
-                      onChangeText={(t) => handleItemChange(index, 'unit', t)}
-                      placeholder="Unit"
-                    />
-                    <TextInput
-                      style={styles.itemPriceInput}
-                      value={item.unitPrice != null ? String(item.unitPrice) : ''}
-                      onChangeText={(t) => handleItemChange(index, 'unitPrice', t ? parseFloat(t) : undefined)}
-                      keyboardType="decimal-pad"
-                      placeholder="Unit price"
-                    />
+                ) : (
+                  <Text style={styles.itemName} numberOfLines={1}>
+                    {item.productName ?? ''}
+                  </Text>
+                )}
+                {editing ? (
+                  <TextInput
+                    style={styles.quantityInput}
+                    value={String(item.quantity)}
+                    onChangeText={(text) => handleItemChange(index, 'quantity', parseFloat(text) || 0)}
+                    keyboardType="decimal-pad"
+                    placeholder="数量"
+                  />
+                ) : (
+                  <Text style={styles.itemQuantity}>
+                    {item.quantity}
+                  </Text>
+                )}
+              </View>
+
+              {/* 第二行：SKU编码（左） + 品质（中） + 单位（右） */}
+              <View style={styles.itemTags}>
+                {/* SKU编码 - 左侧 */}
+                <View style={styles.tagGroupLeft}>
+                  <View style={styles.tag}>
+                    <Text style={styles.tagText} numberOfLines={1} ellipsizeMode="tail">
+                      {item.skuId ? `SKU: ${item.skuId}` : 'SKU编码'}
+                    </Text>
                   </View>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.itemName}>{item.productName}</Text>
-                  <View style={styles.itemRow}>
-                    <Text style={styles.itemMeta}>{item.quantity} {item.unit}</Text>
-                    {item.unitPrice != null && (
-                      <Text style={styles.itemPrice}>{Number(item.unitPrice).toFixed(2)}</Text>
-                    )}
+                </View>
+
+                {/* 品质（次品数/合格品数） - 居中 */}
+                <View style={styles.tagGroupCenter}>
+                  <View style={styles.tag}>
+                    <Text style={styles.tagText} numberOfLines={1} ellipsizeMode="tail">
+                      品质
+                    </Text>
                   </View>
-                </>
-              )}
+                </View>
+
+                {/* 单位 - 右侧 */}
+                <View style={styles.tagGroupRight}>
+                  {editing ? (
+                    <TextInput
+                      style={styles.unitInput}
+                      value={item.unit ?? '件'}
+                      onChangeText={(text) => handleItemChange(index, 'unit', text)}
+                      placeholder="单位"
+                    />
+                  ) : (
+                    <View style={styles.unitTag}>
+                      <Text style={styles.unitTagText}>{item.unit ?? '件'}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
             </View>
           ))}
+
+          {editing && (
+            <View style={styles.addItemButtonContainer}>
+              <TouchableOpacity style={styles.addItemButton} onPress={handleAddItem}>
+                <Ionicons name="add-circle-outline" size={24} color="#6C5CE7" />
+                <Text style={styles.addItemText}>Add Item</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </ScrollView>
 
+      {/* 日期选择器 */}
       {showDatePicker && (
-        <DateTimePicker
-          value={editedInbound?.date ? parseLocalDate(editedInbound.date) : new Date()}
-          mode="date"
-          display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-          onChange={handleDateChange}
-          onTouchCancel={() => Platform.OS === 'ios' && setShowDatePicker(false)}
-        />
-      )}
-      {Platform.OS === 'ios' && showDatePicker && (
-        <TouchableOpacity style={styles.datePickerClose} onPress={() => setShowDatePicker(false)}>
-          <Text style={styles.datePickerCloseText}>Done</Text>
-        </TouchableOpacity>
+        <>
+          {Platform.OS === 'ios' ? (
+            <Modal
+              visible={showDatePicker}
+              transparent={true}
+              animationType="slide"
+              onRequestClose={() => setShowDatePicker(false)}
+            >
+              <TouchableOpacity
+                style={styles.pickerOverlay}
+                activeOpacity={1}
+                onPress={() => setShowDatePicker(false)}
+              >
+                <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
+                  <View style={styles.pickerHandle} />
+                  <View style={styles.pickerHeader}>
+                    <Text style={styles.pickerTitle}>选择日期</Text>
+                    <TouchableOpacity
+                      onPress={() => setShowDatePicker(false)}
+                      style={styles.pickerCloseButton}
+                    >
+                      <Text style={styles.pickerCloseText}>完成</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <DateTimePicker
+                    value={editedInbound?.date ? parseLocalDate(editedInbound.date) : new Date()}
+                    mode="date"
+                    display="spinner"
+                    onChange={handleDateChange}
+                    style={styles.datePickerIOS}
+                  />
+                </View>
+              </TouchableOpacity>
+            </Modal>
+          ) : (
+            <DateTimePicker
+              value={editedInbound?.date ? parseLocalDate(editedInbound.date) : new Date()}
+              mode="date"
+              display="default"
+              onChange={handleDateChange}
+            />
+          )}
+        </>
       )}
 
+      {/* 底部按钮 */}
       {editing && (
         <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.cancelButton} onPress={() => { setEditing(false); setEditedInbound(inbound); }}>
+          <TouchableOpacity
+            style={styles.cancelButton}
+            onPress={() => {
+              setEditing(false);
+              setEditedInbound(inbound);
+            }}
+          >
             <Text style={styles.cancelButtonText}>Cancel</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.confirmButton} onPress={handleSave}>
             <Ionicons name="checkmark" size={24} color="#fff" />
-            <Text style={styles.confirmButtonText}>Save</Text>
+            <Text style={styles.confirmButtonText}>Confirm</Text>
           </TouchableOpacity>
         </View>
       )}
 
+      {/* 编辑按钮 */}
       {!editing && (
-        <>
-          <TouchableOpacity
-            style={[styles.fab, styles.editFab]}
-            onPress={() => { setEditedInbound({ ...inbound }); setEditing(true); }}
-          >
-            <Ionicons name="create" size={28} color="#fff" />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.fab, styles.deleteFab]} onPress={handleDelete}>
-            <Ionicons name="trash-outline" size={28} color="#fff" />
-          </TouchableOpacity>
-        </>
+        <TouchableOpacity
+          style={[styles.fab, styles.editFab]}
+          onPress={() => {
+            setEditedInbound({ ...inbound });
+            setEditing(true);
+          }}
+        >
+          <Ionicons name="create" size={32} color="#fff" />
+        </TouchableOpacity>
       )}
 
-      <Modal visible={showSupplierPicker} transparent animationType="slide" onRequestClose={() => setShowSupplierPicker(false)}>
-        <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowSupplierPicker(false)}>
+      {/* 图片查看模态框 */}
+      <Modal
+        visible={showImageModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowImageModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <TouchableOpacity
+            style={styles.modalCloseButton}
+            onPress={() => setShowImageModal(false)}
+          >
+            <Ionicons name="close" size={32} color="#fff" />
+          </TouchableOpacity>
+          {current.imageUrl && (
+            <Image source={{ uri: current.imageUrl }} style={styles.modalImage} resizeMode="contain" />
+          )}
+        </View>
+      </Modal>
+
+      {/* 供应商选择器 */}
+      <Modal
+        visible={showSupplierPicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowSupplierPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.pickerOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSupplierPicker(false)}
+        >
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
             <View style={styles.pickerHandle} />
-            <Text style={styles.pickerTitle}>Select Supplier</Text>
-            <ScrollView style={styles.pickerScrollView}>
+            <View style={styles.pickerHeader}>
+              <Text style={styles.pickerTitle}>选择供应商</Text>
+              <TouchableOpacity
+                onPress={() => setShowSupplierPicker(false)}
+                style={styles.pickerCloseButton}
+              >
+                <Text style={styles.pickerCloseText}>取消</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
               <TouchableOpacity
                 style={styles.pickerOption}
                 onPress={() => handleSelectSupplier(null)}
               >
-                <Text style={styles.pickerOptionText}>Clear</Text>
+                <Text style={styles.pickerOptionText}>清除</Text>
               </TouchableOpacity>
               {supplierOptions.map((opt) => (
                 <TouchableOpacity
                   key={opt.id}
-                  style={[styles.pickerOption, editedInbound?.supplierId === opt.id && styles.pickerOptionSelected]}
+                  style={[
+                    styles.pickerOption,
+                    editedInbound?.supplierId === opt.id && styles.pickerOptionSelected,
+                  ]}
                   onPress={() => handleSelectSupplier(opt)}
                 >
-                  <Text style={[styles.pickerOptionText, editedInbound?.supplierId === opt.id && styles.pickerOptionTextSelected]}>{opt.name}</Text>
-                  {editedInbound?.supplierId === opt.id && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
+                  <View style={[styles.pickerColorIndicator, { backgroundColor: '#6C5CE7' }]} />
+                  <Text
+                    style={[
+                      styles.pickerOptionText,
+                      editedInbound?.supplierId === opt.id && styles.pickerOptionTextSelected,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {opt.name}
+                  </Text>
+                  {editedInbound?.supplierId === opt.id && (
+                    <Ionicons name="checkmark" size={20} color="#6C5CE7" />
+                  )}
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -389,57 +696,571 @@ export default function InboundDetailsScreen() {
   );
 }
 
+// 复用 receipt-details 的样式
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FA' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  scrollView: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 100 },
-  card: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 16, borderWidth: 1, borderColor: '#E9ECEF' },
-  row: { marginBottom: 12 },
-  label: { fontSize: 12, color: '#636E72', marginBottom: 4, fontWeight: '600' },
-  value: { fontSize: 16, color: '#2D3436' },
-  input: { fontSize: 16, color: '#2D3436', borderBottomWidth: 1, borderBottomColor: '#E9ECEF', paddingVertical: 8 },
-  inputRow: { flexDirection: 'row', alignItems: 'center' },
-  dropdownBtn: { padding: 8 },
-  dateTouchable: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8 },
-  dateText: { fontSize: 16, color: '#2D3436', marginRight: 8 },
-  statusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, alignSelf: 'flex-start' },
-  statusText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  errorText: { fontSize: 16, color: '#636E72', textAlign: 'center', marginTop: 24 },
-  itemsSection: { backgroundColor: '#fff', borderRadius: 12, padding: 16, borderWidth: 1, borderColor: '#E9ECEF' },
-  sectionTitleRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#2D3436' },
-  addItemBtn: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  addItemText: { fontSize: 14, color: '#6C5CE7', fontWeight: '600' },
-  emptyItems: { fontSize: 14, color: '#95A5A6', marginTop: 8 },
-  itemCard: { paddingVertical: 12 },
-  itemCardBorder: { borderBottomWidth: 1, borderBottomColor: '#E9ECEF' },
-  deleteItemBtn: { position: 'absolute', right: 0, top: 8, zIndex: 1 },
-  itemName: { fontSize: 16, fontWeight: '600', color: '#2D3436', marginBottom: 4 },
-  itemNameInput: { fontSize: 16, color: '#2D3436', borderBottomWidth: 1, borderBottomColor: '#E9ECEF', paddingVertical: 6, marginBottom: 8 },
-  itemRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  itemMeta: { fontSize: 14, color: '#636E72' },
-  itemPrice: { fontSize: 14, fontWeight: '600', color: '#2D3436', marginLeft: 'auto' },
-  itemQtyInput: { width: 70, fontSize: 14, borderBottomWidth: 1, borderBottomColor: '#E9ECEF', paddingVertical: 4 },
-  itemUnitInput: { width: 56, fontSize: 14, borderBottomWidth: 1, borderBottomColor: '#E9ECEF', paddingVertical: 4 },
-  itemPriceInput: { flex: 1, fontSize: 14, borderBottomWidth: 1, borderBottomColor: '#E9ECEF', paddingVertical: 4 },
-  bottomBar: { flexDirection: 'row', padding: 16, gap: 12, backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#E9ECEF' },
-  cancelButton: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: '#F0F0F0', alignItems: 'center' },
-  cancelButtonText: { fontSize: 16, fontWeight: '600', color: '#636E72' },
-  confirmButton: { flex: 1, flexDirection: 'row', paddingVertical: 14, borderRadius: 12, backgroundColor: '#6C5CE7', alignItems: 'center', justifyContent: 'center', gap: 8 },
-  confirmButtonText: { fontSize: 16, fontWeight: '600', color: '#fff' },
-  fab: { position: 'absolute', right: 20, width: 56, height: 56, borderRadius: 28, justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4, elevation: 4 },
-  editFab: { bottom: 80, backgroundColor: '#6C5CE7' },
-  deleteFab: { bottom: 16, backgroundColor: '#E74C3C' },
-  pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  pickerBottomSheet: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, maxHeight: '60%' },
-  pickerHandle: { width: 40, height: 4, backgroundColor: '#BDC3C7', borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
-  pickerTitle: { fontSize: 18, fontWeight: '600', color: '#2D3436', marginBottom: 12 },
-  pickerScrollView: { maxHeight: 320 },
-  pickerOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 14, paddingHorizontal: 16, borderRadius: 8, marginBottom: 6, backgroundColor: '#F8F9FA' },
-  pickerOptionSelected: { backgroundColor: '#E8F4FD' },
-  pickerOptionText: { flex: 1, fontSize: 16, color: '#2D3436' },
-  pickerOptionTextSelected: { color: '#6C5CE7', fontWeight: '600' },
-  datePickerClose: { padding: 16, alignItems: 'flex-end', backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#E9ECEF' },
-  datePickerCloseText: { fontSize: 16, color: '#6C5CE7', fontWeight: '600' },
+  container: {
+    flex: 1,
+    backgroundColor: '#ECEFF1',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 12,
+    paddingBottom: 100,
+  },
+  summaryCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  imageContainer: {
+    position: 'relative',
+    marginRight: 12,
+  },
+  imagePlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    backgroundColor: '#E9ECEF',
+    overflow: 'hidden',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePlaceholderContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  receiptImage: {
+    width: '100%',
+    height: '100%',
+  },
+  summaryContent: {
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  summaryContentTop: {
+    flex: 1,
+    justifyContent: 'space-between',
+  },
+  summaryContentMain: {
+    flex: 1,
+  },
+  submittedInfo: {
+    alignSelf: 'flex-end',
+    marginTop: 4,
+  },
+  submittedText: {
+    fontSize: 11,
+    color: '#95A5A6',
+    textAlign: 'right',
+  },
+  storeName: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#2D3436',
+    lineHeight: 22,
+    height: 22,
+    marginBottom: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: 'transparent',
+    paddingVertical: 0,
+  },
+  storeNameInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 22,
+    marginBottom: 2,
+  },
+  storeNameInput: {
+    flex: 1,
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#2D3436',
+    lineHeight: 22,
+    borderBottomWidth: 1,
+    borderBottomColor: '#6C5CE7',
+    height: 22,
+    paddingVertical: 0,
+    paddingRight: 4,
+    transform: [{ translateY: -1 }],
+  },
+  storeNameDropdownIcon: {
+    paddingLeft: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: 22,
+  },
+  amountRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    alignItems: 'baseline',
+    marginTop: 2,
+  },
+  amountContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    flexWrap: 'wrap',
+  },
+  totalAmount: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#6C5CE7',
+    marginRight: 8,
+    lineHeight: 28,
+  },
+  dateContainer: {
+    marginTop: 8,
+    height: 24,
+  },
+  dateTouchable: {
+    alignSelf: 'flex-start',
+  },
+  date: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#636E72',
+    lineHeight: 18,
+    marginTop: 2,
+    marginLeft: 11,
+    marginBottom: 0,
+  },
+  dateText: {
+    fontSize: 14,
+    color: '#636E72',
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  dateTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 1,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#6C5CE7',
+    backgroundColor: '#F8F9FA',
+    height: 20,
+  },
+  paymentCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingVertical: 2,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  paymentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  cardLabel: {
+    fontSize: 14,
+    color: '#636E72',
+    marginRight: 12,
+    fontWeight: '500',
+  },
+  cardValue: {
+    fontSize: 14,
+    color: '#2D3436',
+    fontWeight: '500',
+    paddingVertical: 10,
+    lineHeight: 20,
+    marginRight: 37,
+  },
+  accountTouchable: {
+    flex: 1,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    minHeight: 40,
+  },
+  accountTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#6C5CE7',
+    maxWidth: 250,
+    minWidth: 120,
+    flexShrink: 0,
+  },
+  accountText: {
+    fontSize: 14,
+    color: '#2D3436',
+    fontWeight: '500',
+    flexShrink: 1,
+    marginRight: 6,
+    maxWidth: 200,
+    lineHeight: 20,
+  },
+  itemsSection: {
+    marginBottom: 12,
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  sectionTitleContainer: {
+    paddingHorizontal: 8,
+    paddingTop: 8,
+    paddingBottom: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9ECEF',
+  },
+  sectionTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#2D3436',
+  },
+  itemCard: {
+    backgroundColor: '#fff',
+    borderRadius: 0,
+    paddingLeft: 8,
+    paddingTop: 4,
+    paddingBottom: 4,
+    paddingRight: 32,
+    marginBottom: 0,
+  },
+  itemCardWithBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9ECEF',
+  },
+  deleteItemButton: {
+    position: 'absolute',
+    top: '50%',
+    marginTop: -14,
+    right: 0,
+    zIndex: 1,
+    padding: 4,
+  },
+  itemHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 1,
+  },
+  itemName: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#2D3436',
+    marginRight: 6,
+    lineHeight: 20,
+    height: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'transparent',
+    paddingVertical: 0,
+    transform: [{ translateY: -2 }],
+  },
+  itemNameInput: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#2D3436',
+    borderBottomWidth: 1,
+    borderBottomColor: '#6C5CE7',
+    lineHeight: 20,
+    height: 20,
+    paddingVertical: 0,
+    marginRight: 6,
+    transform: [{ translateY: -4 }],
+  },
+  itemQuantity: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6C5CE7',
+    paddingVertical: 4,
+    paddingHorizontal: 7,
+    minWidth: 70,
+    textAlign: 'right',
+    lineHeight: 20,
+  },
+  quantityInput: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#6C5CE7',
+    borderWidth: 1,
+    borderColor: '#6C5CE7',
+    borderRadius: 4,
+    paddingVertical: 3,
+    paddingHorizontal: 6,
+    minWidth: 70,
+    textAlign: 'right',
+    lineHeight: 20,
+  },
+  itemTags: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    marginTop: 0,
+    position: 'relative',
+  },
+  tagGroupLeft: {
+    width: 120,
+    alignItems: 'flex-start',
+  },
+  tagGroupCenter: {
+    marginLeft: 2,
+    alignItems: 'flex-start',
+  },
+  tagGroupRight: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  tag: {
+    paddingLeft: 10,
+    paddingRight: 5,
+    paddingVertical: 4,
+    borderRadius: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    maxWidth: 140,
+    backgroundColor: '#95A5A6',
+  },
+  tagText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  tagIcon: {
+    marginLeft: 4,
+    opacity: 0.8,
+    flexShrink: 0,
+  },
+  unitTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: '#F0F0F0',
+  },
+  unitTagText: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#636E72',
+  },
+  unitInput: {
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#636E72',
+    borderWidth: 1,
+    borderColor: '#6C5CE7',
+    borderRadius: 4,
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    minWidth: 50,
+    textAlign: 'right',
+  },
+  addItemButtonContainer: {
+    paddingTop: 12,
+    paddingBottom: 4,
+    backgroundColor: '#ECEFF1',
+    alignItems: 'center',
+  },
+  addItemButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F8F9FA',
+    borderRadius: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#CED4DA',
+    alignSelf: 'stretch',
+  },
+  addItemText: {
+    marginLeft: 8,
+    fontSize: 16,
+    color: '#6C5CE7',
+    fontWeight: '600',
+  },
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    paddingTop: 8,
+    borderTopWidth: 0,
+    flexDirection: 'row',
+    gap: 12,
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#DDE2E6',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  cancelButtonText: {
+    fontSize: 16,
+    color: '#636E72',
+    fontWeight: '600',
+  },
+  confirmButton: {
+    flex: 1,
+    backgroundColor: '#6C5CE7',
+    borderRadius: 12,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  confirmButtonText: {
+    marginLeft: 8,
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  fab: {
+    position: 'absolute',
+    right: 20,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#6C5CE7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.22,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  editFab: {
+    bottom: 20,
+    backgroundColor: '#95A5A6',
+  },
+  errorText: {
+    textAlign: 'center',
+    marginTop: 50,
+    fontSize: 16,
+    color: '#E74C3C',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalCloseButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 20,
+    padding: 8,
+  },
+  modalImage: {
+    width: '100%',
+    height: '100%',
+  },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  pickerBottomSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 12,
+    paddingBottom: 32,
+    paddingHorizontal: 20,
+    maxHeight: '70%',
+  },
+  pickerHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#BDC3C7',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  pickerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2D3436',
+    flex: 1,
+  },
+  pickerCloseButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  pickerCloseText: {
+    fontSize: 16,
+    color: '#6C5CE7',
+    fontWeight: '600',
+  },
+  pickerScrollView: {
+    maxHeight: 400,
+  },
+  pickerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: '#F8F9FA',
+    minHeight: 48,
+  },
+  pickerOptionSelected: {
+    backgroundColor: '#E8F4FD',
+  },
+  pickerColorIndicator: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    marginRight: 12,
+  },
+  pickerOptionText: {
+    flex: 1,
+    fontSize: 16,
+    color: '#2D3436',
+    fontWeight: '500',
+  },
+  pickerOptionTextSelected: {
+    color: '#6C5CE7',
+    fontWeight: '600',
+  },
+  datePickerIOS: {
+    width: '100%',
+    height: 200,
+  },
 });

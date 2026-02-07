@@ -4,6 +4,8 @@ import { findCategoryByName, getCategories } from './categories';
 import { findPurposeByName, getPurposes } from './purposes';
 import { findOrCreateAccount } from './accounts';
 import { findOrCreateSupplier } from './suppliers';
+import { findOrCreateWarehouseByName, findOrCreateLocationByName } from './warehouse';
+import { findOrCreateSkuByNameAndUnit } from './skus';
 
 // 将 Gemini 识别结果转换为 Receipt 格式
 export async function convertGeminiResultToReceipt(result: GeminiReceiptResult): Promise<Receipt> {
@@ -338,24 +340,83 @@ export async function convertGeminiResultToInbound(result: GeminiInboundOutbound
     }
   }
 
-  const items: InboundItem[] = (result.items || []).map((it) => ({
-    inboundId: '',
-    productName: it.productName || 'Item',
-    quantity: Number(it.quantity) || 1,
-    unit: it.unit || '件',
-    unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
-  }));
+  // 仓库 / 仓位：若有识别结果，则尝试匹配或创建
+  let warehouseId: string | undefined;
+  let locationId: string | undefined;
+  const warehouseName = result.warehouseName?.trim();
+  if (warehouseName) {
+    try {
+      const warehouse = await findOrCreateWarehouseByName(warehouseName);
+      warehouseId = warehouse.id;
+      const locationName = result.locationName?.trim();
+      if (locationName) {
+        try {
+          const location = await findOrCreateLocationByName(warehouse.id, locationName);
+          locationId = location.id;
+        } catch (e) {
+          console.warn('Failed to find/create location from AI result:', e);
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to find/create warehouse from AI result:', e);
+    }
+  }
 
-  const totalAmount = result.totalAmount ?? items.reduce((sum, i) => sum + (i.quantity || 0) * (i.unitPrice ?? 0), 0);
+  // SKU：对每一行根据名称/单位/编码匹配或创建 SKU，回写 skuId；名称/单位/规格从 SKU 取（不冗余存储）
+  const items: InboundItem[] = await Promise.all(
+    (result.items || []).map(async (it) => {
+      const quantity = Number(it.quantity) || 1;
+      const unit = it.unit || '件';
+      const productName = it.productName || 'Item';
+      let skuId: string | undefined;
+      let sku: Awaited<ReturnType<typeof findOrCreateSkuByNameAndUnit>> | null = null;
+      try {
+        sku = await findOrCreateSkuByNameAndUnit({
+          name: productName,
+          unit,
+          code: it.skuCode,
+        });
+        skuId = sku.id;
+      } catch (e) {
+        console.warn('Failed to find/create SKU from AI result:', e);
+      }
+      return {
+        inboundId: '',
+        skuId,
+        lineNo: it.lineNo,
+        productCode: sku?.code,
+        productName: sku?.name ?? productName,
+        specification: sku?.description ?? it.specification,
+        quantity,
+        qualifiedQuantity: it.qualifiedQuantity,
+        defectiveQuantity: it.defectiveQuantity,
+        unit: sku?.unit ?? unit,
+        unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
+        amount: it.amount != null ? Number(it.amount) : undefined,
+        remarks: it.remarks,
+      } as InboundItem;
+    })
+  );
+
+  const totalAmount = result.totalAmount ?? items.reduce((sum, i) => sum + (i.amount ?? (i.quantity || 0) * (i.unitPrice ?? 0)), 0);
 
   return {
     spaceId,
+    documentNo: result.documentNo,
     supplierId,
     supplierName: result.supplierName || undefined,
+    warehouseId,
+    locationId,
+    inboundType: result.inboundType,
     totalAmount: totalAmount > 0 ? totalAmount : undefined,
+    totalAmountChinese: result.totalAmountChinese,
     currency: result.currency,
     date: result.date,
     status: 'pending' as VoucherStatus,
+    handlerName: result.handlerName,
+    warehouseKeeperName: result.warehouseKeeperName,
+    accountantName: result.accountantName,
+    remarks: result.remarks,
     items: items.length ? items : [{ inboundId: '', productName: 'Goods', quantity: 1, unit: '件' }],
     confidence: result.confidence,
   };
@@ -363,28 +424,108 @@ export async function convertGeminiResultToInbound(result: GeminiInboundOutbound
 
 /** 将 Gemini 入库/出库识别结果转换为 Outbound */
 export async function convertGeminiResultToOutbound(result: GeminiInboundOutboundResult): Promise<Outbound> {
+  console.log('[出库单转换] 开始转换识别结果，输入:', JSON.stringify(result, null, 2));
+  
   const user = await getCurrentUser();
-  if (!user) throw new Error('Not logged in');
+  if (!user) {
+    console.error('[出库单转换] ❌ 用户未登录');
+    throw new Error('Not logged in');
+  }
   const spaceId = user.currentSpaceId || user.spaceId;
-  if (!spaceId) throw new Error('No space selected');
+  if (!spaceId) {
+    console.error('[出库单转换] ❌ 未选择空间');
+    throw new Error('No space selected');
+  }
+  console.log('[出库单转换] 空间ID:', spaceId);
 
-  const items: OutboundItem[] = (result.items || []).map((it) => ({
-    outboundId: '',
-    productName: it.productName || 'Item',
-    quantity: Number(it.quantity) || 1,
-    unit: it.unit || '件',
-    unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
-  }));
+  // 仓库：从识别结果中提取仓库名称，匹配或创建仓库记录
+  let warehouseId: string | undefined;
+  if (result.warehouseName && result.warehouseName.trim()) {
+    try {
+      console.log('[出库单转换] 处理仓库:', result.warehouseName.trim());
+      const warehouse = await findOrCreateWarehouseByName(result.warehouseName.trim());
+      warehouseId = warehouse.id;
+      console.log('[出库单转换] 仓库ID:', warehouseId);
+    } catch (e) {
+      console.error('[出库单转换] ❌ 创建/查找仓库失败:', e);
+      console.error('[出库单转换] 仓库错误详情:', e instanceof Error ? e.message : String(e));
+    }
+  } else {
+    console.log('[出库单转换] 未识别到仓库名称');
+  }
 
-  const totalAmount = result.totalAmount ?? items.reduce((sum, i) => sum + (i.quantity || 0) * (i.unitPrice ?? 0), 0);
+  // 仓位：从识别结果中提取仓位名称，匹配或创建仓位记录（需要 warehouseId）
+  let locationId: string | undefined;
+  if (warehouseId && result.locationName && result.locationName.trim()) {
+    try {
+      console.log('[出库单转换] 处理仓位:', result.locationName.trim(), '仓库ID:', warehouseId);
+      const location = await findOrCreateLocationByName(warehouseId, result.locationName.trim());
+      locationId = location.id;
+      console.log('[出库单转换] 仓位ID:', locationId);
+    } catch (e) {
+      console.error('[出库单转换] ❌ 创建/查找仓位失败:', e);
+      console.error('[出库单转换] 仓位错误详情:', e instanceof Error ? e.message : String(e));
+    }
+  } else {
+    if (!warehouseId) {
+      console.log('[出库单转换] 未识别到仓位（需要先有仓库ID）');
+    } else {
+      console.log('[出库单转换] 未识别到仓位名称');
+    }
+  }
+
+  // SKU：对每一行根据名称/单位/编码匹配或创建 SKU，回写 skuId；名称/单位/规格从 SKU 取（不冗余存储）
+  const items: OutboundItem[] = await Promise.all(
+    (result.items || []).map(async (it) => {
+      const quantity = Number(it.quantity) || 1;
+      const unit = it.unit || '件';
+      const productName = it.productName || 'Item';
+      let skuId: string | undefined;
+      let sku: Awaited<ReturnType<typeof findOrCreateSkuByNameAndUnit>> | null = null;
+      try {
+        sku = await findOrCreateSkuByNameAndUnit({
+          name: productName,
+          unit,
+          code: it.skuCode,
+        });
+        skuId = sku.id;
+      } catch (e) {
+        console.warn('Failed to find/create SKU from AI result:', e);
+      }
+      return {
+        outboundId: '',
+        skuId,
+        lineNo: it.lineNo,
+        productName: sku?.name ?? productName,
+        specification: sku?.description ?? it.specification,
+        quantity,
+        unit: sku?.unit ?? unit,
+        unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
+        amount: it.amount != null ? Number(it.amount) : undefined,
+        supplyPrice: it.supplyPrice != null ? Number(it.supplyPrice) : undefined,
+        tax: it.tax != null ? Number(it.tax) : undefined,
+        remarks: it.remarks,
+      } as OutboundItem;
+    })
+  );
+
+  const totalAmount = result.totalAmount ?? items.reduce((sum, i) => sum + (i.amount ?? (i.quantity || 0) * (i.unitPrice ?? 0)), 0);
 
   return {
     spaceId,
+    documentNo: result.documentNo,
     customerName: result.customerName || undefined,
+    warehouseId,
+    locationId,
     totalAmount: totalAmount > 0 ? totalAmount : undefined,
+    totalTax: result.totalTax,
     currency: result.currency,
     date: result.date,
     status: 'pending' as VoucherStatus,
+    handlerName: result.handlerName,
+    preparerName: result.preparerName,
+    accountantName: result.accountantName,
+    remarks: result.remarks,
     items: items.length ? items : [{ outboundId: '', productName: 'Goods', quantity: 1, unit: '件' }],
     confidence: result.confidence,
   };

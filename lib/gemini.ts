@@ -1566,7 +1566,28 @@ const INBOUND_OUTBOUND_POSSIBLE_MODELS = [
   'gemini-1.5-pro',
 ];
 
-/** 入库单文字识别：采购入库，供应商、日期、总金额、币种、明细（商品名、数量、单位、单价） */
+const INBOUND_JSON_EXAMPLE = (today: string) => `{
+  "documentNo": "CK-06072",
+  "supplierName": "某某科技有限公司",
+  "warehouseName": "4#",
+  "locationName": "E位",
+  "date": "${today}",
+  "inboundType": "采购入库",
+  "totalAmount": 4030,
+  "totalAmountChinese": "肆仟零佰叁拾零元",
+  "currency": "CNY",
+  "handlerName": "严某",
+  "warehouseKeeperName": "周某",
+  "accountantName": "周某",
+  "remarks": null,
+  "items": [
+    {"lineNo": 1, "productCode": "001", "productName": "红外线探测仪", "specification": "A", "quantity": 5, "qualifiedQuantity": 5, "defectiveQuantity": 0, "unit": "个", "unitPrice": 300, "amount": 1500, "skuCode": "001", "remarks": null},
+    {"lineNo": 2, "productCode": "002", "productName": "触摸开关", "specification": "A", "quantity": 10, "qualifiedQuantity": 9, "defectiveQuantity": 1, "unit": "个", "unitPrice": 130, "amount": 1300, "skuCode": "002", "remarks": null}
+  ],
+  "confidence": 0.9
+}`;
+
+/** 入库单文字识别：按样例表格最完整字段提取 */
 export async function recognizeInboundFromText(text: string): Promise<GeminiInboundOutboundResult> {
   const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
   if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
@@ -1574,21 +1595,42 @@ export async function recognizeInboundFromText(text: string): Promise<GeminiInbo
     err.code = 'GEMINI_API_KEY_MISSING';
     throw err;
   }
-  const now = new Date();
-  const today = now.toISOString().split('T')[0];
-  const prompt = `You are a warehouse/inventory expert. Extract INBOUND (purchase / goods received) information from the text. INBOUND = goods coming in from a supplier.
+  const today = new Date().toISOString().split('T')[0];
+  const prompt = `You are a warehouse/inventory expert. Extract INBOUND (入库单) information from the text. INBOUND = goods received from a supplier. Return ONLY valid JSON, no markdown.
 
 CURRENT DATE: ${today}.
 
-REQUIRED:
-1. supplierName - string. The supplier/vendor who delivered the goods. If not mentioned, use "Supplier".
-2. date - string YYYY-MM-DD. Use ${today} if not mentioned.
-3. totalAmount - number, optional. Total value if mentioned.
-4. currency - string, e.g. USD, CNY. Default USD.
-5. items - array, REQUIRED. Each item: productName (string), quantity (number, > 0), unit (string, e.g. 件/个/箱/kg/box/pcs), unitPrice (number, optional).
+HEADER (JSON keys, optional where noted):
+- documentNo: string, optional. 单号/入库单号 (e.g. CK-06072, NJ-201907001).
+- supplierName: string. 供应商/单位名称. Default "Supplier" if missing.
+- warehouseName: string, optional. 仓库/库房编号 (e.g. 4#, 产品仓库).
+- locationName: string, optional. 仓位/存放位置/货位 (e.g. E位, w001).
+- date: string YYYY-MM-DD. Use ${today} if missing.
+- inboundType: string, optional. 入库类型 (e.g. 采购入库, 生产入库).
+- totalAmount: number, optional. 合计金额.
+- totalAmountChinese: string, optional. 合计金额大写.
+- currency: string, optional. Default CNY.
+- handlerName: string, optional. 经手人.
+- warehouseKeeperName: string, optional. 库管员/仓库验收.
+- accountantName: string, optional. 记账.
+- remarks: string, optional. 整单备注.
 
-Return ONLY valid JSON, no markdown. Example:
-{"supplierName":"ABC Supplier","date":"${today}","totalAmount":500,"currency":"USD","items":[{"productName":"Widget A","quantity":10,"unit":"箱","unitPrice":50},{"productName":"Widget B","quantity":20,"unit":"个","unitPrice":null}],"confidence":0.9}
+ITEMS (array, REQUIRED). Each item:
+- lineNo: number, optional. 序号.
+- productCode: string, optional. 货号/产品编码.
+- productName: string. 品名/名称.
+- specification: string, optional. 规格/型号规格.
+- quantity: number (> 0). 数量（或合计）.
+- qualifiedQuantity: number, optional. 合格品数量.
+- defectiveQuantity: number, optional. 次品数量.
+- unit: string. 单位 (e.g. 个/台/箱/件).
+- unitPrice: number, optional. 单价.
+- amount: number, optional. 行金额 (数量×单价).
+- skuCode: string, optional. 商品编码/条码.
+- remarks: string, optional. 行备注.
+
+Example (adapt values from the actual text):
+${INBOUND_JSON_EXAMPLE(today)}
 
 User input:
 "${text}"`;
@@ -1606,14 +1648,7 @@ User input:
       if (!parsed.supplierName) parsed.supplierName = 'Supplier';
       if (!parsed.date) parsed.date = today;
       if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
-      parsed.items = parsed.items
-        .filter((it: any) => it && (it.productName != null || it.name != null) && (typeof it.quantity === 'number' || typeof it.quantity === 'string'))
-        .map((it: any) => ({
-          productName: it.productName ?? it.name ?? 'Item',
-          quantity: Number(it.quantity) || 1,
-          unit: it.unit ?? '件',
-          unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
-        }));
+      parsed.items = normalizeInboundItems(parsed.items, today);
       if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
       if (parsed.confidence === undefined) parsed.confidence = 0.8;
       return parsed as GeminiInboundOutboundResult;
@@ -1625,7 +1660,86 @@ User input:
   throw lastError || new Error('All models failed');
 }
 
-/** 出库单文字识别：销售出库，客户、日期、总金额、币种、明细（商品名、数量、单位、单价） */
+function normalizeInboundItems(items: any[], defaultDate: string): any[] {
+  return items
+    .filter(
+      (it: any) =>
+        it &&
+        (it.productName != null || it.name != null) &&
+        (typeof it.quantity === 'number' || typeof it.quantity === 'string'),
+    )
+    .map((it: any, idx: number) => {
+      const q = Number(it.quantity) || 1;
+      const qualified = it.qualifiedQuantity != null ? Number(it.qualifiedQuantity) : undefined;
+      const defective = it.defectiveQuantity != null ? Number(it.defectiveQuantity) : undefined;
+      const unitPrice = it.unitPrice != null ? Number(it.unitPrice) : undefined;
+      const amount = it.amount != null ? Number(it.amount) : (unitPrice != null ? q * unitPrice : undefined);
+      return {
+        lineNo: it.lineNo != null ? Number(it.lineNo) : idx + 1,
+        productCode: it.productCode ?? it.code ?? undefined,
+        productName: it.productName ?? it.name ?? 'Item',
+        specification: it.specification ?? it.spec ?? undefined,
+        quantity: q,
+        qualifiedQuantity: qualified,
+        defectiveQuantity: defective,
+        unit: it.unit ?? '件',
+        unitPrice,
+        amount,
+        skuCode: it.skuCode ?? it.code ?? it.sku ?? undefined,
+        remarks: it.remarks ?? undefined,
+      };
+    });
+}
+
+const OUTBOUND_JSON_EXAMPLE = (today: string) => `{
+  "documentNo": "2023/05/25-1",
+  "customerName": "上海软件公司",
+  "warehouseName": "中关村电器",
+  "locationName": null,
+  "date": "${today}",
+  "totalAmount": 3604,
+  "totalTax": 204,
+  "currency": "CNY",
+  "handlerName": null,
+  "preparerName": "王罗",
+  "accountantName": "林来",
+  "remarks": null,
+  "items": [
+    {"lineNo": 1, "productName": "微波炉", "specification": null, "quantity": 1, "unit": "台", "unitPrice": 1000, "amount": 1000, "supplyPrice": 1000, "tax": 60, "skuCode": null, "remarks": null},
+    {"lineNo": 2, "productName": "电脑", "specification": null, "quantity": 1, "unit": "个", "unitPrice": 2000, "amount": 2000, "supplyPrice": 2000, "tax": 120, "skuCode": null, "remarks": null}
+  ],
+  "confidence": 0.9
+}`;
+
+function normalizeOutboundItems(items: any[], defaultDate: string): any[] {
+  return items
+    .filter(
+      (it: any) =>
+        it &&
+        (it.productName != null || it.name != null) &&
+        (typeof it.quantity === 'number' || typeof it.quantity === 'string'),
+    )
+    .map((it: any, idx: number) => {
+      const q = Number(it.quantity) || 1;
+      const unitPrice = it.unitPrice != null ? Number(it.unitPrice) : undefined;
+      const amount = it.amount != null ? Number(it.amount) : (unitPrice != null ? q * unitPrice : undefined);
+      return {
+        lineNo: it.lineNo != null ? Number(it.lineNo) : idx + 1,
+        productName: it.productName ?? it.name ?? 'Item',
+        specification: it.specification ?? it.spec ?? undefined,
+        quantity: q,
+        unit: it.unit ?? '件',
+        unitPrice,
+        amount,
+        supplyPrice: it.supplyPrice != null ? Number(it.supplyPrice) : undefined,
+        tax: it.tax != null ? Number(it.tax) : undefined,
+        skuCode: it.skuCode ?? it.code ?? it.sku ?? undefined,
+        remarks: it.remarks ?? undefined,
+      };
+    });
+}
+
+/** 出库单文字识别：按样例表格最完整字段提取 */
 export async function recognizeOutboundFromText(text: string): Promise<GeminiInboundOutboundResult> {
   const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
   if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
@@ -1633,21 +1747,40 @@ export async function recognizeOutboundFromText(text: string): Promise<GeminiInb
     err.code = 'GEMINI_API_KEY_MISSING';
     throw err;
   }
-  const now = new Date();
-  const today = now.toISOString().split('T')[0];
-  const prompt = `You are a warehouse/inventory expert. Extract OUTBOUND (sale / goods shipped) information from the text. OUTBOUND = goods going out to a customer.
+  const today = new Date().toISOString().split('T')[0];
+  const prompt = `You are a warehouse/inventory expert. Extract OUTBOUND (出库单) information from the text. OUTBOUND = goods shipped to a customer. Return ONLY valid JSON, no markdown.
 
 CURRENT DATE: ${today}.
 
-REQUIRED:
-1. customerName - string. The customer/client who received the goods. If not mentioned, use "Customer".
-2. date - string YYYY-MM-DD. Use ${today} if not mentioned.
-3. totalAmount - number, optional. Total value if mentioned.
-4. currency - string, e.g. USD, CNY. Default USD.
-5. items - array, REQUIRED. Each item: productName (string), quantity (number, > 0), unit (string, e.g. 件/个/箱/kg/box/pcs), unitPrice (number, optional).
+HEADER (JSON keys, optional where noted):
+- documentNo: string, optional. 单号/销售号码 (e.g. 2023/05/25-1, No 2625941).
+- customerName: string. 客户/收货方/销售方公司名称. Default "Customer" if missing.
+- warehouseName: string, optional. 发货仓库/仓库交工场.
+- locationName: string, optional. 货位/仓位.
+- date: string YYYY-MM-DD. Use ${today} if missing.
+- totalAmount: number, optional. 合计金额.
+- totalTax: number, optional. 增值税/税额合计.
+- currency: string, optional. Default CNY.
+- handlerName: string, optional. 经手人.
+- preparerName: string, optional. 制票.
+- accountantName: string, optional. 记账.
+- remarks: string, optional. 整单备注.
 
-Return ONLY valid JSON, no markdown. Example:
-{"customerName":"XYZ Customer","date":"${today}","totalAmount":300,"currency":"USD","items":[{"productName":"Product A","quantity":5,"unit":"箱","unitPrice":60},{"productName":"Product B","quantity":10,"unit":"个","unitPrice":null}],"confidence":0.9}
+ITEMS (array, REQUIRED). Each item:
+- lineNo: number, optional. 序号.
+- productName: string. 品目名/名称.
+- specification: string, optional. 规格.
+- quantity: number (> 0). 数量（含单位时取数字）.
+- unit: string. 单位 (e.g. 台/个/本/张).
+- unitPrice: number, optional. 单价.
+- amount: number, optional. 行金额.
+- supplyPrice: number, optional. 供应价.
+- tax: number, optional. 本行增值税.
+- skuCode: string, optional. 商品编码.
+- remarks: string, optional. 行备注.
+
+Example (adapt values from the actual text):
+${OUTBOUND_JSON_EXAMPLE(today)}
 
 User input:
 "${text}"`;
@@ -1665,14 +1798,7 @@ User input:
       if (!parsed.customerName) parsed.customerName = 'Customer';
       if (!parsed.date) parsed.date = today;
       if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
-      parsed.items = parsed.items
-        .filter((it: any) => it && (it.productName != null || it.name != null) && (typeof it.quantity === 'number' || typeof it.quantity === 'string'))
-        .map((it: any) => ({
-          productName: it.productName ?? it.name ?? 'Item',
-          quantity: Number(it.quantity) || 1,
-          unit: it.unit ?? '件',
-          unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
-        }));
+      parsed.items = normalizeOutboundItems(parsed.items, today);
       if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
       if (parsed.confidence === undefined) parsed.confidence = 0.8;
       return parsed as GeminiInboundOutboundResult;
@@ -1745,7 +1871,7 @@ async function downloadImageToBase64(imageUrl: string): Promise<{ base64: string
   return { base64, mimeType };
 }
 
-/** 入库单图片识别：分析入库单/采购单照片，返回供应商、日期、明细（数量+单位+单价） */
+/** 入库单图片识别：按样例表格最完整字段提取（与文字识别同一结构） */
 export async function recognizeInboundFromImage(imageUrl: string): Promise<GeminiInboundOutboundResult> {
   const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
   if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
@@ -1753,21 +1879,16 @@ export async function recognizeInboundFromImage(imageUrl: string): Promise<Gemin
     err.code = 'GEMINI_API_KEY_MISSING';
     throw err;
   }
-  const now = new Date();
-  const today = now.toISOString().split('T')[0];
-  const prompt = `You are a warehouse/inventory expert. Analyze this IMAGE of an INBOUND document (purchase / goods received). INBOUND = goods coming in from a supplier. Extract all visible information.
+  const today = new Date().toISOString().split('T')[0];
+  const prompt = `You are a warehouse/inventory expert. Analyze this IMAGE of an INBOUND document (入库单). INBOUND = goods received from a supplier. Extract ALL visible information. Return ONLY valid JSON, no markdown.
 
 CURRENT DATE: ${today}.
 
-REQUIRED:
-1. supplierName - string. The supplier/vendor who delivered the goods. If not visible, use "Supplier".
-2. date - string YYYY-MM-DD. Use ${today} if not visible.
-3. totalAmount - number, optional. Total value if visible.
-4. currency - string, e.g. USD, CNY. Default USD.
-5. items - array, REQUIRED. Each item: productName (string), quantity (number, > 0), unit (string, e.g. 件/个/箱/kg/box/pcs), unitPrice (number, optional).
+HEADER: documentNo, supplierName, warehouseName, locationName, date, inboundType, totalAmount, totalAmountChinese, currency, handlerName, warehouseKeeperName, accountantName, remarks.
+ITEMS (array, REQUIRED): lineNo, productCode, productName, specification, quantity, qualifiedQuantity, defectiveQuantity, unit, unitPrice, amount, skuCode, remarks.
 
-Return ONLY valid JSON, no markdown. Example:
-{"supplierName":"ABC Supplier","date":"${today}","totalAmount":500,"currency":"USD","items":[{"productName":"Widget A","quantity":10,"unit":"箱","unitPrice":50}],"confidence":0.9}`;
+Example structure:
+${INBOUND_JSON_EXAMPLE(today)}`;
 
   const { base64, mimeType } = await downloadImageToBase64(imageUrl);
   const imagePart = { inlineData: { data: base64, mimeType } };
@@ -1789,14 +1910,7 @@ Return ONLY valid JSON, no markdown. Example:
       if (!parsed.supplierName) parsed.supplierName = 'Supplier';
       if (!parsed.date) parsed.date = today;
       if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
-      parsed.items = parsed.items
-        .filter((it: any) => it && (it.productName != null || it.name != null) && (typeof it.quantity === 'number' || typeof it.quantity === 'string'))
-        .map((it: any) => ({
-          productName: it.productName ?? it.name ?? 'Item',
-          quantity: Number(it.quantity) || 1,
-          unit: it.unit ?? '件',
-          unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
-        }));
+      parsed.items = normalizeInboundItems(parsed.items, today);
       if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
       if (parsed.confidence === undefined) parsed.confidence = 0.8;
       return parsed as GeminiInboundOutboundResult;
@@ -1808,7 +1922,7 @@ Return ONLY valid JSON, no markdown. Example:
   throw lastError || new Error('All models failed');
 }
 
-/** 出库单图片识别：分析出库单/发货单照片，返回客户、日期、明细（数量+单位+单价） */
+/** 出库单图片识别：按样例表格最完整字段提取（与文字识别同一结构） */
 export async function recognizeOutboundFromImage(imageUrl: string): Promise<GeminiInboundOutboundResult> {
   const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
   if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
@@ -1816,21 +1930,16 @@ export async function recognizeOutboundFromImage(imageUrl: string): Promise<Gemi
     err.code = 'GEMINI_API_KEY_MISSING';
     throw err;
   }
-  const now = new Date();
-  const today = now.toISOString().split('T')[0];
-  const prompt = `You are a warehouse/inventory expert. Analyze this IMAGE of an OUTBOUND document (sale / goods shipped). OUTBOUND = goods going out to a customer. Extract all visible information.
+  const today = new Date().toISOString().split('T')[0];
+  const prompt = `You are a warehouse/inventory expert. Analyze this IMAGE of an OUTBOUND document (出库单). OUTBOUND = goods shipped to a customer. Extract ALL visible information. Return ONLY valid JSON, no markdown.
 
 CURRENT DATE: ${today}.
 
-REQUIRED:
-1. customerName - string. The customer who received the goods. If not visible, use "Customer".
-2. date - string YYYY-MM-DD. Use ${today} if not visible.
-3. totalAmount - number, optional. Total value if visible.
-4. currency - string. Default USD.
-5. items - array, REQUIRED. Each item: productName (string), quantity (number, > 0), unit (string), unitPrice (number, optional).
+HEADER: documentNo, customerName, warehouseName, locationName, date, totalAmount, totalTax, currency, handlerName, preparerName, accountantName, remarks.
+ITEMS (array, REQUIRED): lineNo, productName, specification, quantity, unit, unitPrice, amount, supplyPrice, tax, skuCode, remarks.
 
-Return ONLY valid JSON, no markdown. Example:
-{"customerName":"XYZ Customer","date":"${today}","totalAmount":300,"currency":"USD","items":[{"productName":"Product A","quantity":5,"unit":"箱","unitPrice":60}],"confidence":0.9}`;
+Example structure:
+${OUTBOUND_JSON_EXAMPLE(today)}`;
 
   const { base64, mimeType } = await downloadImageToBase64(imageUrl);
   const imagePart = { inlineData: { data: base64, mimeType } };
@@ -1852,14 +1961,7 @@ Return ONLY valid JSON, no markdown. Example:
       if (!parsed.customerName) parsed.customerName = 'Customer';
       if (!parsed.date) parsed.date = today;
       if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
-      parsed.items = parsed.items
-        .filter((it: any) => it && (it.productName != null || it.name != null) && (typeof it.quantity === 'number' || typeof it.quantity === 'string'))
-        .map((it: any) => ({
-          productName: it.productName ?? it.name ?? 'Item',
-          quantity: Number(it.quantity) || 1,
-          unit: it.unit ?? '件',
-          unitPrice: it.unitPrice != null ? Number(it.unitPrice) : undefined,
-        }));
+      parsed.items = normalizeOutboundItems(parsed.items, today);
       if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
       if (parsed.confidence === undefined) parsed.confidence = 0.8;
       return parsed as GeminiInboundOutboundResult;

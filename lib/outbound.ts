@@ -1,17 +1,29 @@
 import { supabase } from './supabase';
-import { Outbound, OutboundItem } from '@/types';
+import { Outbound, OutboundItem, Sku } from '@/types';
 import { getCurrentUser } from './auth';
+import { getSkuById } from './skus';
 
 function rowToOutbound(row: any, items: OutboundItem[] = []): Outbound {
   return {
     id: row.id,
     spaceId: row.space_id,
     documentNo: row.document_no ?? undefined,
+    customerId: row.customer_id ?? undefined,
     customerName: row.customer_name ?? undefined,
+    warehouseId: row.warehouse_id ?? undefined,
+    locationId: row.location_id ?? undefined,
     totalAmount: row.total_amount != null ? Number(row.total_amount) : undefined,
+    totalTax: row.total_tax != null ? Number(row.total_tax) : undefined,
     currency: row.currency ?? undefined,
     date: row.date,
     status: row.status ?? 'pending',
+    handlerId: row.handler_id ?? undefined,
+    handlerName: row.handler_name ?? undefined,
+    preparerId: row.preparer_id ?? undefined,
+    preparerName: row.preparer_name ?? undefined,
+    accountantId: row.accountant_id ?? undefined,
+    accountantName: row.accountant_name ?? undefined,
+    remarks: row.remarks ?? undefined,
     imageUrl: row.image_url ?? undefined,
     inputType: row.input_type ?? 'image',
     confidence: row.confidence != null ? Number(row.confidence) : undefined,
@@ -55,16 +67,38 @@ export async function getOutboundById(outboundId: string): Promise<Outbound | nu
     .order('id', { ascending: true });
   if (itemsError) return rowToOutbound(row, []);
 
-  const items: OutboundItem[] = (itemRows || []).map((r: any) => ({
+  const rawItems = (itemRows || []).map((r: any) => ({
     id: r.id,
     outboundId: r.outbound_id,
     skuId: r.sku_id ?? undefined,
-    productName: r.product_name,
+    lineNo: r.line_no != null ? Number(r.line_no) : undefined,
     quantity: Number(r.quantity),
-    unit: r.unit ?? '件',
     unitPrice: r.unit_price != null ? Number(r.unit_price) : undefined,
+    amount: r.amount != null ? Number(r.amount) : undefined,
+    supplyPrice: r.supply_price != null ? Number(r.supply_price) : undefined,
+    tax: r.tax != null ? Number(r.tax) : undefined,
     confidence: r.confidence != null ? Number(r.confidence) : undefined,
+    remarks: r.remarks ?? undefined,
   }));
+
+  const skuIds = [...new Set(rawItems.map((i) => i.skuId).filter(Boolean))] as string[];
+  const skuMap: Record<string, Sku> = {};
+  await Promise.all(
+    skuIds.map(async (id) => {
+      const sku = await getSkuById(id);
+      if (sku) skuMap[id] = sku;
+    })
+  );
+
+  const items: OutboundItem[] = rawItems.map((i) => {
+    const sku = i.skuId ? skuMap[i.skuId] : null;
+    return {
+      ...i,
+      productName: sku?.name,
+      unit: sku?.unit ?? '件',
+      specification: sku?.description,
+    };
+  });
   return rowToOutbound(row, items);
 }
 
@@ -75,70 +109,68 @@ export async function saveOutbound(outbound: Outbound): Promise<string> {
   const spaceId = user.currentSpaceId || user.spaceId;
   if (!spaceId) throw new Error('No space selected');
 
+  const headerPayload = (isUpdate: boolean) => {
+    const base: Record<string, unknown> = {
+      document_no: outbound.documentNo ?? null,
+      customer_id: outbound.customerId ?? null,
+      customer_name: outbound.customerName ?? null,
+      warehouse_id: outbound.warehouseId ?? null,
+      location_id: outbound.locationId ?? null,
+      total_amount: outbound.totalAmount ?? null,
+      total_tax: outbound.totalTax ?? null,
+      currency: outbound.currency ?? null,
+      date: outbound.date,
+      status: outbound.status,
+      handler_id: outbound.handlerId ?? null,
+      handler_name: outbound.handlerName ?? null,
+      preparer_id: outbound.preparerId ?? null,
+      preparer_name: outbound.preparerName ?? null,
+      accountant_id: outbound.accountantId ?? null,
+      accountant_name: outbound.accountantName ?? null,
+      remarks: outbound.remarks ?? null,
+      image_url: outbound.imageUrl ?? null,
+      input_type: outbound.inputType ?? 'image',
+      confidence: outbound.confidence ?? null,
+    };
+    if (isUpdate) base.updated_at = new Date().toISOString();
+    else {
+      base.space_id = spaceId;
+      base.created_by = user.id;
+    }
+    return base;
+  };
+
+  const itemPayload = (it: OutboundItem, outboundId: string) => ({
+    outbound_id: outboundId,
+    sku_id: it.skuId ?? null,
+    line_no: it.lineNo ?? null,
+    quantity: it.quantity,
+    unit_price: it.unitPrice ?? null,
+    amount: it.amount ?? null,
+    supply_price: it.supplyPrice ?? null,
+    tax: it.tax ?? null,
+    confidence: it.confidence ?? null,
+    remarks: it.remarks ?? null,
+  });
+
   if (outbound.id) {
-    await supabase
-      .from('outbound')
-      .update({
-        document_no: outbound.documentNo ?? null,
-        customer_name: outbound.customerName ?? null,
-        total_amount: outbound.totalAmount ?? null,
-        currency: outbound.currency ?? null,
-        date: outbound.date,
-        status: outbound.status,
-        image_url: outbound.imageUrl ?? null,
-        input_type: outbound.inputType ?? 'image',
-        confidence: outbound.confidence ?? null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', outbound.id);
+    await supabase.from('outbound').update(headerPayload(true)).eq('id', outbound.id);
     if (outbound.items?.length) {
       await supabase.from('outbound_items').delete().eq('outbound_id', outbound.id);
-      await supabase.from('outbound_items').insert(
-        outbound.items.map((it) => ({
-          outbound_id: outbound.id,
-          sku_id: it.skuId ?? null,
-          product_name: it.productName,
-          quantity: it.quantity,
-          unit: it.unit ?? '件',
-          unit_price: it.unitPrice ?? null,
-          confidence: it.confidence ?? null,
-        }))
-      );
+      await supabase.from('outbound_items').insert(outbound.items.map((it) => itemPayload(it, outbound.id!)));
     }
     return outbound.id;
   }
 
   const { data: inserted, error } = await supabase
     .from('outbound')
-    .insert({
-      space_id: spaceId,
-      document_no: outbound.documentNo ?? null,
-      customer_name: outbound.customerName ?? null,
-      total_amount: outbound.totalAmount ?? null,
-      currency: outbound.currency ?? null,
-      date: outbound.date,
-      status: outbound.status,
-      image_url: outbound.imageUrl ?? null,
-      input_type: outbound.inputType ?? 'image',
-      confidence: outbound.confidence ?? null,
-      created_by: user.id,
-    })
+    .insert(headerPayload(false))
     .select('id')
     .single();
   if (error) throw error;
   const id = inserted.id;
   if (outbound.items?.length) {
-    await supabase.from('outbound_items').insert(
-      outbound.items.map((it) => ({
-        outbound_id: id,
-        sku_id: it.skuId ?? null,
-        product_name: it.productName,
-        quantity: it.quantity,
-        unit: it.unit ?? '件',
-        unit_price: it.unitPrice ?? null,
-        confidence: it.confidence ?? null,
-      }))
-    );
+    await supabase.from('outbound_items').insert(outbound.items.map((it) => itemPayload(it, id)));
   }
   return id;
 }

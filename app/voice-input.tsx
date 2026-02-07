@@ -1350,9 +1350,9 @@ export default function VoiceInputScreen() {
                       <Text style={styles.receiptPreviewLabel}>Items:</Text>
                       {message.inboundPreview.items.map((item, index) => (
                         <View key={index} style={styles.receiptPreviewItemRow}>
-                          <Text style={styles.receiptPreviewItemName}>{item.productName}</Text>
+                          <Text style={styles.receiptPreviewItemName}>{item.productName ?? ''}</Text>
                           <Text style={styles.receiptPreviewItemPrice}>
-                            {item.quantity} {item.unit}{item.unitPrice != null ? ` @ ${item.unitPrice.toFixed(2)}` : ''}
+                            {item.quantity} {item.unit ?? '件'}{item.unitPrice != null ? ` @ ${item.unitPrice.toFixed(2)}` : ''}
                           </Text>
                         </View>
                       ))}
@@ -1439,9 +1439,9 @@ export default function VoiceInputScreen() {
                       <Text style={styles.receiptPreviewLabel}>Items:</Text>
                       {message.outboundPreview.items.map((item, index) => (
                         <View key={index} style={styles.receiptPreviewItemRow}>
-                          <Text style={styles.receiptPreviewItemName}>{item.productName}</Text>
+                          <Text style={styles.receiptPreviewItemName}>{item.productName ?? ''}</Text>
                           <Text style={styles.receiptPreviewItemPrice}>
-                            {item.quantity} {item.unit}{item.unitPrice != null ? ` @ ${item.unitPrice.toFixed(2)}` : ''}
+                            {item.quantity} {item.unit ?? '件'}{item.unitPrice != null ? ` @ ${item.unitPrice.toFixed(2)}` : ''}
                           </Text>
                         </View>
                       ))}
