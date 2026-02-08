@@ -1,0 +1,42 @@
+---
+description: 可合并/可替换对象的三选项弹窗（Replace / Replace all Merge / Do not replace）通用交互逻辑
+globs: app/**/*details/**/*.tsx
+alwaysApply: false
+---
+
+# Replace-Modal 三选项通用交互逻辑
+
+凡「可合并指向的对象」在编辑时出现**替换场景**的三选项弹窗（Replace only this / Replace all (Merge) / Do not replace），必须遵循以下统一交互，保证所见即所存、一次操作完成预期。
+
+**适用范围**：小票（receipt-details）、发票（invoice-details）、入库单（inbound-details）、出库单（outbound-details）等所有引用 id 且可合并的对象的替换场景。
+
+## 弹窗触发方式
+
+- **dropdown**：用户在选单中点选了一个与当前不同的选项（如更换账户、更换供应商/客户），在写入编辑态后弹出三选项。
+- **save**：用户点击 Confirm 提交时，后端返回重复名/需合并错误，弹出三选项。
+
+## Do not replace 行为（固定）
+
+### 1. 由 dropdown 触发时
+
+- **立即恢复编辑态为原值**：用当前实体（receipt/invoice）上的原始字段恢复 `editedReceipt` / `editedInvoice`，不设 pending 状态。
+- **不在此处保存**：用户若需要保存，再点一次 Confirm 即可按当前（已恢复的）表单正常提交。
+- **账户**：恢复 `accountId`、`account`；若实体上只有 `accountId` 无 `account` 对象，用已加载的 `accounts` 列表解析出完整 `account` 再写入，保证界面显示正确。
+- **供应商/客户**：恢复 `supplierName`/`storeName`、`supplierId`/`supplierCustomerId`、`supplier`/`supplierCustomer`（或 invoice 的 `customerName`、`customerId`/`customerSupplierId`、`customer`/`customerSupplier`）。
+
+### 2. 由 save 触发时
+
+- **恢复编辑态为原值**（同上）。
+- **立即用原值执行保存**：用与 Confirm 时 “keep_original” 相同的 reverted 结构调用 `updateReceipt` / `saveInvoice`，然后 `setEditing(false)` 并重新 `loadReceipt` / `loadInvoice`。
+- **一次完成**：用户点一次 “Do not replace” 即完成「恢复原值并保存」，无需再点 Confirm。
+
+## Replace / Replace all (Merge)
+
+- **dropdown**：可继续沿用「记 pending，在下次 Confirm 时再执行替换/合并」的实现。
+- **save**：可直接用当前编辑态 + 选中的目标 ID 提交保存，然后关闭编辑并刷新。
+
+## 实现要点
+
+- “Do not replace” 的 handler 内先关闭弹窗并清空 payload，再按 `triggeredBy` 分支处理。
+- 恢复编辑态时，账户类字段若实体未带完整 `account`，必须从 `accounts` 解析，避免界面显示与保存不一致（所见非所存）。
+- 凡新增或修改「可合并指向对象」的替换三选项逻辑，均按本规则实现，保持全项目一致。

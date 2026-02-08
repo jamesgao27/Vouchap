@@ -17,6 +17,9 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import { getOutboundById, saveOutbound, deleteOutbound } from '@/lib/outbound';
 import { uploadOutboundImage } from '@/lib/supabase';
+import { getCustomerOptions } from '@/lib/customer-supplier-list';
+import { mergeSupplier } from '@/lib/suppliers';
+import { mergeCustomer } from '@/lib/customers';
 import { Outbound, OutboundItem, VoucherStatus } from '@/types';
 import { format } from 'date-fns';
 import { showAiInventory } from '@/lib/feature-flags';
@@ -32,6 +35,16 @@ export default function OutboundDetailsScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false);
+  const [customerOptions, setCustomerOptions] = useState<{ id: string; name: string; source: 'customer' | 'supplier' }[]>([]);
+  const [showDuplicateNameModal, setShowDuplicateNameModal] = useState(false);
+  const [duplicateNameModalPayload, setDuplicateNameModalPayload] = useState<{
+    code: string;
+    duplicateName: string;
+    targetId?: string;
+    targetSource?: 'customer' | 'supplier';
+    triggeredBy: 'save' | 'dropdown';
+  } | null>(null);
 
   useEffect(() => {
     if (!showAiInventory) router.replace('/');
@@ -66,9 +79,156 @@ export default function OutboundDetailsScreen() {
       Alert.alert('Success', 'Outbound saved');
       setEditing(false);
       loadOutbound();
-    } catch (error) {
+    } catch (error: any) {
+      const code = error?.code as string | undefined;
+      const duplicateName = (error?.duplicateName ?? '') as string;
+      const targetId = error?.targetId as string | undefined;
+      const targetSource = error?.targetSource as 'customer' | 'supplier' | undefined;
+      if (code === 'CUSTOMER_NAME_EXISTS' || code === 'SUPPLIER_NAME_EXISTS') {
+        setDuplicateNameModalPayload({
+          code,
+          duplicateName: duplicateName || '',
+          targetId,
+          targetSource,
+          triggeredBy: 'save',
+        });
+        setShowDuplicateNameModal(true);
+        return;
+      }
       Alert.alert('Error', 'Failed to save');
       console.error(error);
+    }
+  };
+
+  const handleDuplicateNameCloseOnly = () => {
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+  };
+
+  /** 通用三选项逻辑：dropdown 立即恢复编辑态原值；save 则恢复并用原值直接 confirm。 */
+  const handleDuplicateNameDontChange = async () => {
+    const payload = duplicateNameModalPayload;
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    if (payload?.triggeredBy === 'dropdown') {
+      if (!outbound) return;
+      const origName = outbound.customerName ?? '';
+      setEditedOutbound((prev) => (prev ? { ...prev, customerName: origName, customerId: outbound.customerId } : prev));
+      return;
+    }
+    if (!outbound || !editedOutbound || !id) return;
+    const origName = outbound.customerName ?? '';
+    setEditedOutbound((prev) => (prev ? { ...prev, customerName: origName, customerId: outbound.customerId } : prev));
+    try {
+      const reverted = {
+        ...editedOutbound,
+        id,
+        status: 'confirmed' as VoucherStatus,
+        customerName: origName,
+        customerId: outbound.customerId,
+      };
+      await saveOutbound(reverted);
+      setEditing(false);
+      loadOutbound();
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to save');
+    }
+  };
+
+  const handleDuplicateNameReplace = async () => {
+    const payload = duplicateNameModalPayload;
+    if (!payload || !editedOutbound || !id) return;
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    const finalTargetId = payload.targetId;
+    const finalName = payload.duplicateName || editedOutbound.customerName;
+    if (!finalTargetId) {
+      Alert.alert('Notice', 'Target not found.');
+      return;
+    }
+    try {
+      await saveOutbound({
+        ...editedOutbound,
+        id,
+        status: 'confirmed' as VoucherStatus,
+        customerId: finalTargetId,
+        customerName: finalName,
+      });
+      setEditing(false);
+      loadOutbound();
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to replace');
+    }
+  };
+
+  const handleDuplicateNameMerge = async () => {
+    const payload = duplicateNameModalPayload;
+    if (!payload || !outbound) return;
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    const currentId = outbound.customerId;
+    const finalTargetId = payload.targetId;
+    const finalTargetSource = payload.targetSource;
+    if (!currentId || !finalTargetId) {
+      Alert.alert('Notice', 'No linked customer to merge or target not found.');
+      return;
+    }
+    if (currentId === finalTargetId) {
+      Alert.alert('Notice', 'Already linked to this customer.');
+      return;
+    }
+    if (finalTargetSource !== 'customer' && finalTargetSource !== 'supplier') {
+      Alert.alert('Notice', 'Target type unknown.');
+      return;
+    }
+    try {
+      if (finalTargetSource === 'customer') {
+        await mergeCustomer([currentId], finalTargetId);
+      } else {
+        await mergeSupplier([currentId], finalTargetId);
+      }
+      await saveOutbound({
+        ...(editedOutbound || outbound),
+        id: id!,
+        status: 'confirmed' as VoucherStatus,
+        customerId: finalTargetId,
+        customerName: payload.duplicateName || outbound.customerName,
+      });
+      setEditing(false);
+      loadOutbound();
+    } catch (e: any) {
+      Alert.alert('Merge failed', e?.message ?? String(e));
+    }
+  };
+
+  const openCustomerPicker = async () => {
+    try {
+      const options = await getCustomerOptions();
+      setCustomerOptions(options);
+      setShowCustomerPicker(true);
+    } catch (e) {
+      console.warn('Failed to load customer options', e);
+    }
+  };
+
+  const handleSelectCustomer = (option: { id: string; name: string; source: 'customer' | 'supplier' }) => {
+    if (!editedOutbound) return;
+    setShowCustomerPicker(false);
+    setEditedOutbound({
+      ...editedOutbound,
+      customerId: option.id,
+      customerName: option.name,
+    });
+    const currentId = outbound?.customerId;
+    if (option.id !== currentId) {
+      setDuplicateNameModalPayload({
+        code: option.source === 'customer' ? 'CUSTOMER_NAME_EXISTS' : 'SUPPLIER_NAME_EXISTS',
+        duplicateName: option.name,
+        targetId: option.id,
+        targetSource: option.source,
+        triggeredBy: 'dropdown',
+      });
+      setShowDuplicateNameModal(true);
     }
   };
 
@@ -291,9 +451,12 @@ export default function OutboundDetailsScreen() {
                       style={styles.storeNameInput}
                       value={editedOutbound?.customerName ?? ''}
                       onChangeText={handleCustomerNameChange}
-                      placeholder="客户名称"
+                      placeholder="Customer name"
                       maxLength={100}
                     />
+                    <TouchableOpacity onPress={openCustomerPicker} style={{ paddingLeft: 8 }}>
+                      <Ionicons name="chevron-down" size={20} color="#6C5CE7" />
+                    </TouchableOpacity>
                   </View>
                 ) : (
                   <Text style={styles.storeName} numberOfLines={1}>
@@ -557,6 +720,106 @@ export default function OutboundDetailsScreen() {
             <Image source={{ uri: current.imageUrl }} style={styles.modalImage} resizeMode="contain" />
           )}
         </View>
+      </Modal>
+
+      {/* Duplicate name: Replace only this / Replace all (Merge) / Do not replace */}
+      <Modal
+        visible={showDuplicateNameModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleDuplicateNameCloseOnly}
+      >
+        <TouchableOpacity style={styles.duplicateModalOverlay} activeOpacity={1} onPress={handleDuplicateNameCloseOnly}>
+          <View style={styles.duplicateModalContentContainer} onStartShouldSetResponder={() => true}>
+            <View style={styles.duplicateModalContent}>
+              <View style={styles.duplicateModalHeader}>
+                <Ionicons name="person-outline" size={48} color="#6C5CE7" />
+                <Text style={styles.duplicateModalTitle}>Replace customer with:</Text>
+              </View>
+              <View style={styles.duplicateModalMessageBlock}>
+                <View style={styles.duplicateModalNameContainer}>
+                  <Text style={styles.duplicateModalNameText}>{duplicateNameModalPayload?.duplicateName || '—'}</Text>
+                </View>
+              </View>
+              <View style={styles.duplicateModalButtons}>
+                <TouchableOpacity
+                  style={[styles.duplicateModalButton, styles.duplicateModalButtonReplace]}
+                  onPress={handleDuplicateNameReplace}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="swap-horizontal" size={20} color="#fff" style={{ marginRight: 8 }} />
+                  <Text style={styles.duplicateModalButtonReplaceText}>Replace only this</Text>
+                </TouchableOpacity>
+                {(() => {
+                  const hasLinkedForMerge = !!outbound?.customerId;
+                  return (
+                    <TouchableOpacity
+                      style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge, !hasLinkedForMerge && { opacity: 0.5 }]}
+                      onPress={hasLinkedForMerge ? handleDuplicateNameMerge : undefined}
+                      activeOpacity={0.8}
+                      disabled={!hasLinkedForMerge}
+                    >
+                      <Ionicons name="git-merge-outline" size={20} color="#E74C3C" style={{ marginRight: 8 }} />
+                      <Text style={styles.duplicateModalButtonMergeText}>Replace all (Merge)</Text>
+                    </TouchableOpacity>
+                  );
+                })()}
+                <TouchableOpacity
+                  style={[styles.duplicateModalButton, styles.duplicateModalButtonDontChange]}
+                  onPress={handleDuplicateNameDontChange}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="time-outline" size={18} color="#95A5A6" style={{ marginRight: 6 }} />
+                  <Text style={styles.duplicateModalButtonDontChangeText}>Do not replace</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* 客户选择器 */}
+      <Modal
+        visible={showCustomerPicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowCustomerPicker(false)}
+      >
+        <TouchableOpacity
+          style={styles.pickerOverlay}
+          activeOpacity={1}
+          onPress={() => setShowCustomerPicker(false)}
+        >
+          <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
+            <View style={styles.pickerHandle} />
+            <View style={styles.pickerHeader}>
+              <Text style={styles.pickerTitle}>Select customer</Text>
+              <TouchableOpacity onPress={() => setShowCustomerPicker(false)} style={styles.pickerCloseButton}>
+                <Text style={styles.pickerCloseText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
+              {customerOptions.map((opt) => (
+                <TouchableOpacity
+                  key={`${opt.source}-${opt.id}`}
+                  style={[styles.pickerOption, editedOutbound?.customerId === opt.id && styles.pickerOptionSelected]}
+                  onPress={() => handleSelectCustomer(opt)}
+                >
+                  <View style={[styles.pickerColorIndicator, { backgroundColor: '#6C5CE7' }]} />
+                  <Text
+                    style={[styles.pickerOptionText, editedOutbound?.customerId === opt.id && styles.pickerOptionTextSelected]}
+                    numberOfLines={1}
+                  >
+                    {opt.name}
+                  </Text>
+                  {editedOutbound?.customerId === opt.id && (
+                    <Ionicons name="checkmark" size={20} color="#6C5CE7" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
       </Modal>
     </View>
   );

@@ -234,30 +234,72 @@ export default function InvoiceDetailsScreen() {
     setDuplicateNameModalPayload(null);
   };
 
-  /** 保留原来的：dropdown 只记选择；save 则立即恢复并关闭。 */
-  const handleDuplicateNameDontChange = () => {
+  /** 保留原来的：dropdown 立即恢复编辑态原值；save 则恢复并用原值直接 confirm（通用三选项逻辑）。 */
+  const handleDuplicateNameDontChange = async () => {
     const payload = duplicateNameModalPayload;
     setShowDuplicateNameModal(false);
     setDuplicateNameModalPayload(null);
     if (payload?.triggeredBy === 'dropdown') {
-      setPendingDuplicateChoice('keep_original');
-      setPendingDuplicatePayload({
-        code: payload.code,
-        duplicateName: payload.duplicateName,
-        targetId: payload.targetId,
-        targetSource: payload.targetSource,
-      });
+      if (!invoice) return;
+      if (payload?.code === 'ACCOUNT_NAME_EXISTS') {
+        const origAccount = invoice.account ?? (invoice.accountId ? accounts.find((a) => a.id === invoice.accountId) : undefined);
+        setEditedInvoice((prev) => (prev ? { ...prev, accountId: invoice.accountId, account: origAccount } : prev));
+      } else {
+        const origName = invoice.customer?.name ?? invoice.customerSupplier?.name ?? invoice.customerName ?? '';
+        setEditedInvoice((prev) =>
+          prev
+            ? {
+                ...prev,
+                customerName: origName,
+                customerId: invoice.customerId,
+                customerSupplierId: invoice.customerSupplierId,
+                customer: invoice.customer,
+                customerSupplier: invoice.customerSupplier,
+              }
+            : prev
+        );
+      }
       return;
     }
-    if (!invoice) return;
+    if (!invoice || !editedInvoice || !id) return;
     if (payload?.code === 'ACCOUNT_NAME_EXISTS') {
-      setEditedInvoice((prev) =>
-        prev ? { ...prev, accountId: invoice.accountId, account: invoice.account } : prev
-      );
+      const origAccount = invoice.account ?? (invoice.accountId ? accounts.find((a) => a.id === invoice.accountId) : undefined);
+      setEditedInvoice((prev) => (prev ? { ...prev, accountId: invoice.accountId, account: origAccount } : prev));
+      try {
+        const reverted = {
+          ...editedInvoice,
+          id,
+          status: 'confirmed' as VoucherStatus,
+          accountId: invoice.accountId,
+          account: origAccount,
+        };
+        await saveInvoice(reverted);
+        setEditing(false);
+        loadInvoice();
+      } catch (e: any) {
+        Alert.alert('Error', e?.message ?? 'Failed to save');
+      }
       return;
     }
     const origName = invoice.customer?.name ?? invoice.customerSupplier?.name ?? invoice.customerName ?? '';
-    setEditedInvoice((prev) => prev ? { ...prev, customerName: origName } : prev);
+    setEditedInvoice((prev) => (prev ? { ...prev, customerName: origName } : prev));
+    try {
+      const reverted = {
+        ...editedInvoice,
+        id,
+        status: 'confirmed' as VoucherStatus,
+        customerName: origName,
+        customerId: invoice.customerId,
+        customerSupplierId: invoice.customerSupplierId,
+        customer: invoice.customer,
+        customerSupplier: invoice.customerSupplier,
+      };
+      await saveInvoice(reverted);
+      setEditing(false);
+      loadInvoice();
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to save');
+    }
   };
 
   const handleDuplicateNameReplace = async () => {

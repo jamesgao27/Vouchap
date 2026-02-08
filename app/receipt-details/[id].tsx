@@ -249,28 +249,72 @@ export default function ReceiptDetailsScreen() {
     setDuplicateNameModalPayload(null);
   };
 
-  /** 保留原来的：dropdown 只记选择；save 则立即恢复并关闭。 */
-  const handleDuplicateNameDontChange = () => {
+  /** 保留原来的：dropdown 立即恢复编辑态原值；save 则恢复并用原值直接 confirm。 */
+  const handleDuplicateNameDontChange = async () => {
     const payload = duplicateNameModalPayload;
     setShowDuplicateNameModal(false);
     setDuplicateNameModalPayload(null);
     if (payload?.triggeredBy === 'dropdown') {
-      setPendingDuplicateChoice('keep_original');
-      setPendingDuplicatePayload({
-        code: payload.code,
-        duplicateName: payload.duplicateName,
-        targetId: payload.targetId,
-        targetSource: payload.targetSource,
-      });
+      if (!receipt) return;
+      if (payload?.code === 'ACCOUNT_NAME_EXISTS') {
+        const origAccount = receipt.account ?? (receipt.accountId ? accounts.find((a) => a.id === receipt.accountId) : undefined);
+        setEditedReceipt((prev) => prev ? { ...prev, accountId: receipt.accountId, account: origAccount } : prev);
+      } else {
+        const origName = receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
+        setEditedReceipt((prev) =>
+          prev
+            ? {
+                ...prev,
+                supplierName: origName,
+                storeName: origName,
+                supplierId: receipt.supplierId,
+                supplierCustomerId: receipt.supplierCustomerId,
+                supplier: receipt.supplier,
+                supplierCustomer: receipt.supplierCustomer,
+              }
+            : prev
+        );
+      }
       return;
     }
-    if (!receipt) return;
+    if (!receipt || !editedReceipt || !id) return;
     if (payload?.code === 'ACCOUNT_NAME_EXISTS') {
-      setEditedReceipt((prev) => prev ? { ...prev, accountId: receipt.accountId, account: receipt.account } : prev);
+      const origAccount = receipt.account ?? (receipt.accountId ? accounts.find((a) => a.id === receipt.accountId) : undefined);
+      setEditedReceipt((prev) => prev ? { ...prev, accountId: receipt.accountId, account: origAccount } : prev);
+      try {
+        const reverted = {
+          ...editedReceipt,
+          status: 'confirmed' as ReceiptStatus,
+          accountId: receipt.accountId,
+          account: origAccount,
+        };
+        await updateReceipt(id, reverted);
+        setEditing(false);
+        loadReceipt();
+      } catch (e: any) {
+        Alert.alert('Error', e?.message ?? 'Failed to save');
+      }
       return;
     }
     const origName = receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
     setEditedReceipt((prev) => prev ? { ...prev, supplierName: origName, storeName: origName } : prev);
+    try {
+      const reverted = {
+        ...editedReceipt,
+        status: 'confirmed' as ReceiptStatus,
+        supplierName: origName,
+        storeName: origName,
+        supplierId: receipt.supplierId,
+        supplierCustomerId: receipt.supplierCustomerId,
+        supplier: receipt.supplier,
+        supplierCustomer: receipt.supplierCustomer,
+      };
+      await updateReceipt(id, reverted);
+      setEditing(false);
+      loadReceipt();
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to save');
+    }
   };
 
   const handleDuplicateNameReplace = async () => {

@@ -20,12 +20,12 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.vouchap.app",
-      buildNumber: "4",
+      buildNumber: "5",
       associatedDomains: ["applinks:vouchap.com"]
     },
     android: {
       package: "com.vouchap.app",
-      versionCode: 17,
+      versionCode: 18,
       // 使用系统照片选择器，不再声明 READ_MEDIA_IMAGES，符合 Google Play 照片权限政策
       permissions: [
         "CAMERA",

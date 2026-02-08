@@ -18,6 +18,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { getInboundById, saveInbound, deleteInbound } from '@/lib/inbound';
 import { uploadInboundImage } from '@/lib/supabase';
 import { getSupplierOptions } from '@/lib/customer-supplier-list';
+import { mergeSupplier } from '@/lib/suppliers';
+import { mergeCustomer } from '@/lib/customers';
 import { Inbound, InboundItem, VoucherStatus } from '@/types';
 import { format } from 'date-fns';
 import { getChatLogsByReceiptId } from '@/lib/chat-logs';
@@ -39,6 +41,14 @@ export default function InboundDetailsScreen() {
   const [supplierOptions, setSupplierOptions] = useState<{ id: string; name: string; source: 'supplier' | 'customer' }[]>([]);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [showDuplicateNameModal, setShowDuplicateNameModal] = useState(false);
+  const [duplicateNameModalPayload, setDuplicateNameModalPayload] = useState<{
+    code: string;
+    duplicateName: string;
+    targetId?: string;
+    targetSource?: 'supplier' | 'customer';
+    triggeredBy: 'save' | 'dropdown';
+  } | null>(null);
 
   useEffect(() => {
     if (!showAiInventory) router.replace('/');
@@ -88,9 +98,125 @@ export default function InboundDetailsScreen() {
       Alert.alert('Success', 'Inbound saved');
       setEditing(false);
       loadInbound();
-    } catch (error) {
+    } catch (error: any) {
+      const code = error?.code as string | undefined;
+      const duplicateName = (error?.duplicateName ?? '') as string;
+      const targetId = error?.targetId as string | undefined;
+      const targetSource = error?.targetSource as 'supplier' | 'customer' | undefined;
+      if (code === 'SUPPLIER_NAME_EXISTS' || code === 'CUSTOMER_NAME_EXISTS') {
+        setDuplicateNameModalPayload({
+          code,
+          duplicateName: duplicateName || '',
+          targetId,
+          targetSource,
+          triggeredBy: 'save',
+        });
+        setShowDuplicateNameModal(true);
+        return;
+      }
       Alert.alert('Error', 'Failed to save');
       console.error(error);
+    }
+  };
+
+  const handleDuplicateNameCloseOnly = () => {
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+  };
+
+  /** 通用三选项逻辑：dropdown 立即恢复编辑态原值；save 则恢复并用原值直接 confirm。 */
+  const handleDuplicateNameDontChange = async () => {
+    const payload = duplicateNameModalPayload;
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    if (payload?.triggeredBy === 'dropdown') {
+      if (!inbound) return;
+      const origName = inbound.supplierName ?? '';
+      setEditedInbound((prev) => (prev ? { ...prev, supplierName: origName, supplierId: inbound.supplierId } : prev));
+      return;
+    }
+    if (!inbound || !editedInbound || !id) return;
+    const origName = inbound.supplierName ?? '';
+    setEditedInbound((prev) => (prev ? { ...prev, supplierName: origName, supplierId: inbound.supplierId } : prev));
+    try {
+      const reverted = {
+        ...editedInbound,
+        id,
+        status: 'confirmed' as VoucherStatus,
+        supplierName: origName,
+        supplierId: inbound.supplierId,
+      };
+      await saveInbound(reverted);
+      setEditing(false);
+      loadInbound();
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to save');
+    }
+  };
+
+  const handleDuplicateNameReplace = async () => {
+    const payload = duplicateNameModalPayload;
+    if (!payload || !editedInbound || !id) return;
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    const finalTargetId = payload.targetId;
+    const finalName = payload.duplicateName || editedInbound.supplierName;
+    if (!finalTargetId) {
+      Alert.alert('Notice', 'Target not found.');
+      return;
+    }
+    try {
+      await saveInbound({
+        ...editedInbound,
+        id,
+        status: 'confirmed' as VoucherStatus,
+        supplierId: finalTargetId,
+        supplierName: finalName,
+      });
+      setEditing(false);
+      loadInbound();
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? 'Failed to replace');
+    }
+  };
+
+  const handleDuplicateNameMerge = async () => {
+    const payload = duplicateNameModalPayload;
+    if (!payload || !inbound) return;
+    setShowDuplicateNameModal(false);
+    setDuplicateNameModalPayload(null);
+    const currentId = inbound.supplierId;
+    const finalTargetId = payload.targetId;
+    const finalTargetSource = payload.targetSource;
+    if (!currentId || !finalTargetId) {
+      Alert.alert('Notice', 'No linked supplier to merge or target not found.');
+      return;
+    }
+    if (currentId === finalTargetId) {
+      Alert.alert('Notice', 'Already linked to this supplier.');
+      return;
+    }
+    if (finalTargetSource !== 'supplier' && finalTargetSource !== 'customer') {
+      Alert.alert('Notice', 'Target type unknown.');
+      return;
+    }
+    try {
+      if (finalTargetSource === 'supplier') {
+        await mergeSupplier([currentId], finalTargetId);
+      } else {
+        await mergeCustomer([currentId], finalTargetId);
+      }
+      await saveInbound({
+        ...(editedInbound || inbound),
+        id: id!,
+        status: 'confirmed' as VoucherStatus,
+        supplierId: finalTargetId,
+        supplierName: payload.duplicateName || inbound.supplierName,
+      });
+      setEditing(false);
+      loadInbound();
+    } catch (e: any) {
+      Alert.alert('Merge failed', e?.message ?? String(e));
     }
   };
 
@@ -167,6 +293,17 @@ export default function InboundDetailsScreen() {
       supplierName: option.name,
       supplierId: option.id,
     });
+    const currentId = inbound?.supplierId;
+    if (option.id !== currentId) {
+      setDuplicateNameModalPayload({
+        code: option.source === 'supplier' ? 'SUPPLIER_NAME_EXISTS' : 'CUSTOMER_NAME_EXISTS',
+        duplicateName: option.name,
+        targetId: option.id,
+        targetSource: option.source,
+        triggeredBy: 'dropdown',
+      });
+      setShowDuplicateNameModal(true);
+    }
   };
 
   const calculateItemsTotal = (items: InboundItem[]) => {
@@ -638,6 +775,62 @@ export default function InboundDetailsScreen() {
             <Image source={{ uri: current.imageUrl }} style={styles.modalImage} resizeMode="contain" />
           )}
         </View>
+      </Modal>
+
+      {/* Duplicate name: Replace only this / Replace all (Merge) / Do not replace */}
+      <Modal
+        visible={showDuplicateNameModal}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={handleDuplicateNameCloseOnly}
+      >
+        <TouchableOpacity style={styles.duplicateModalOverlay} activeOpacity={1} onPress={handleDuplicateNameCloseOnly}>
+          <View style={styles.duplicateModalContentContainer} onStartShouldSetResponder={() => true}>
+            <View style={styles.duplicateModalContent}>
+              <View style={styles.duplicateModalHeader}>
+                <Ionicons name="business-outline" size={48} color="#6C5CE7" />
+                <Text style={styles.duplicateModalTitle}>Replace supplier with:</Text>
+              </View>
+              <View style={styles.duplicateModalMessageBlock}>
+                <View style={styles.duplicateModalNameContainer}>
+                  <Text style={styles.duplicateModalNameText}>{duplicateNameModalPayload?.duplicateName || '—'}</Text>
+                </View>
+              </View>
+              <View style={styles.duplicateModalButtons}>
+                <TouchableOpacity
+                  style={[styles.duplicateModalButton, styles.duplicateModalButtonReplace]}
+                  onPress={handleDuplicateNameReplace}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="swap-horizontal" size={20} color="#fff" style={{ marginRight: 8 }} />
+                  <Text style={styles.duplicateModalButtonReplaceText}>Replace only this</Text>
+                </TouchableOpacity>
+                {(() => {
+                  const hasLinkedForMerge = !!inbound?.supplierId && (duplicateNameModalPayload?.targetSource === 'supplier' || duplicateNameModalPayload?.targetSource === 'customer');
+                  return (
+                    <TouchableOpacity
+                      style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge, !hasLinkedForMerge && { opacity: 0.5 }]}
+                      onPress={hasLinkedForMerge ? handleDuplicateNameMerge : undefined}
+                      activeOpacity={0.8}
+                      disabled={!hasLinkedForMerge}
+                    >
+                      <Ionicons name="git-merge-outline" size={20} color="#E74C3C" style={{ marginRight: 8 }} />
+                      <Text style={styles.duplicateModalButtonMergeText}>Replace all (Merge)</Text>
+                    </TouchableOpacity>
+                  );
+                })()}
+                <TouchableOpacity
+                  style={[styles.duplicateModalButton, styles.duplicateModalButtonDontChange]}
+                  onPress={handleDuplicateNameDontChange}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="time-outline" size={18} color="#95A5A6" style={{ marginRight: 6 }} />
+                  <Text style={styles.duplicateModalButtonDontChangeText}>Do not replace</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
       </Modal>
 
       {/* 供应商选择器 */}
