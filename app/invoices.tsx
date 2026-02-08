@@ -71,7 +71,7 @@ export default function InvoicesScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
-  const [groupBy, setGroupBy] = useState<GroupByType>('month');
+  const [groupBy, setGroupBy] = useState<GroupByType>('recordDate');
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set());
@@ -429,6 +429,14 @@ export default function InvoicesScreen() {
             </>
           ) : (
             <>
+              <TouchableOpacity style={styles.sortButton} onPress={() => setShowSortMenu(true)}>
+                {groupBy === 'month' && <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                {groupBy === 'recordDate' && <Ionicons name="time-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                {groupBy === 'paymentAccount' && <Ionicons name="wallet-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                {groupBy === 'createdBy' && <Ionicons name="person-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                <Text style={styles.sortText}>Group</Text>
+                <Ionicons name="chevron-down" size={16} color="#636E72" />
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.filterButton}
                 onPress={() => { setShowFilterMenu(true); setFilterSubMenu('main'); }}
@@ -441,10 +449,6 @@ export default function InvoicesScreen() {
                 </Text>
                 <Ionicons name="chevron-down" size={16} color="#636E72" />
               </TouchableOpacity>
-              <TouchableOpacity style={styles.sortButton} onPress={() => setShowSortMenu(true)}>
-                <Text style={styles.sortText}>Group</Text>
-                <Ionicons name="chevron-down" size={16} color="#636E72" />
-              </TouchableOpacity>
               <View style={styles.searchContainer}>
                 <Ionicons name="search" size={18} color="#636E72" style={styles.searchIcon} />
                 <TextInput
@@ -455,7 +459,6 @@ export default function InvoicesScreen() {
                   onChangeText={setSearchQuery}
                 />
               </View>
-              <Text style={styles.countText}>{invoices.length}</Text>
             </>
           )}
         </View>
@@ -599,11 +602,15 @@ export default function InvoicesScreen() {
                   style={[styles.pickerOption, groupBy === key && styles.pickerOptionSelected]}
                   onPress={() => { setGroupBy(key); setShowSortMenu(false); }}
                 >
-                  <Text style={[styles.pickerOptionText, groupBy === key && styles.pickerOptionTextSelected]}>
-                    {key === 'month' && 'By Transaction Month'}
-                    {key === 'recordDate' && 'By Record Date'}
-                    {key === 'paymentAccount' && 'By Account'}
-                    {key === 'createdBy' && 'By Recorder'}
+                  {key === 'month' && <Ionicons name="calendar-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
+                  {key === 'recordDate' && <Ionicons name="time-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
+                  {key === 'paymentAccount' && <Ionicons name="wallet-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
+                  {key === 'createdBy' && <Ionicons name="person-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
+                  <Text style={[styles.pickerOptionText, groupBy === key && styles.pickerOptionTextSelected, { flex: 1 }]}>
+                    {key === 'month' && 'Transaction Month'}
+                    {key === 'recordDate' && 'Record Date'}
+                    {key === 'paymentAccount' && 'Account'}
+                    {key === 'createdBy' && 'Recorder'}
                   </Text>
                   {groupBy === key && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
                 </TouchableOpacity>
@@ -723,8 +730,7 @@ const styles = StyleSheet.create({
   searchContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: '#E9ECEF' },
   searchIcon: { marginRight: 8 },
   searchInput: { flex: 1, fontSize: 14, color: '#2D3436', padding: 0 },
-  countText: { fontSize: 14, color: '#636E72', fontWeight: '500', minWidth: 30, textAlign: 'right' },
-  invoiceItem: { backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#E9ECEF', flexDirection: 'row', alignItems: 'center' },
+  invoiceItem: { backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 12, paddingLeft: 24, borderBottomWidth: 1, borderBottomColor: '#E9ECEF', flexDirection: 'row', alignItems: 'center' },
   receiptItemSelected: { backgroundColor: '#E8F4FD' },
   checkboxContainer: { marginRight: 12 },
   checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#BDC3C7', justifyContent: 'center', alignItems: 'center' },
@@ -747,13 +753,13 @@ const styles = StyleSheet.create({
   fabAction: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB', shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.18, shadowRadius: 4, elevation: 4 },
   emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 100 },
   emptyList: { flexGrow: 1 },
-  sectionHeader: { backgroundColor: '#F8F9FA', paddingVertical: 8, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#E9ECEF' },
+  sectionHeader: { backgroundColor: '#E9ECEF', paddingVertical: 8, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#DEE2E6' },
   sectionHeaderContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sectionTitle: { fontSize: 16, fontWeight: '600', color: '#2D3436' },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#2D3436' },
   sectionHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   sectionCount: { fontSize: 14, color: '#636E72' },
   sectionAmount: { fontSize: 14, fontWeight: '600', color: '#6C5CE7' },
-  listContent: { paddingHorizontal: 4, paddingTop: 4, paddingBottom: 100 },
+  listContent: { paddingHorizontal: 4, paddingTop: 0, paddingBottom: 100 },
   emptyText: { fontSize: 18, color: '#636E72', marginTop: 16, fontWeight: '600' },
   emptySubtext: { fontSize: 14, color: '#95A5A6', marginTop: 8 },
   filterBadge: { fontSize: 14, color: '#6C5CE7', fontWeight: '600' },

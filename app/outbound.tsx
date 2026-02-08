@@ -27,7 +27,7 @@ import { processOutboundInBackground } from '@/lib/outbound-processor';
 import { processImageForUpload } from '@/lib/image-processor';
 import { voucherListStyles as styles } from './voucher-list-styles';
 
-type GroupByType = 'month' | 'recordDate';
+type GroupByType = 'month' | 'recordDate' | 'createdBy';
 
 const statusColors: Record<VoucherStatus, string> = {
   pending: '#FF9500',
@@ -94,12 +94,13 @@ export default function OutboundScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
-  const [groupBy, setGroupBy] = useState<GroupByType>('month');
+  const [groupBy, setGroupBy] = useState<GroupByType>('recordDate');
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set());
   const [selectedRecordDates, setSelectedRecordDates] = useState<Set<string>>(new Set());
-  const [filterSubMenu, setFilterSubMenu] = useState<'main' | 'month' | 'recordDate'>('main');
+  const [selectedCreators, setSelectedCreators] = useState<Set<string>>(new Set());
+  const [filterSubMenu, setFilterSubMenu] = useState<'main' | 'month' | 'recordDate' | 'creator'>('main');
   const [showFabActions, setShowFabActions] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [lastOutboundId, setLastOutboundId] = useState<string | null>(null);
@@ -435,13 +436,40 @@ export default function OutboundScreen() {
       .sort((a, b) => b.monthKey.localeCompare(a.monthKey));
   }, []);
 
+  const groupByCreatedBy = useCallback((data: Outbound[]): SectionData[] => {
+    const grouped = new Map<string, Outbound[]>();
+    data.forEach(inv => {
+      const userKey = `user-${inv.createdBy || 'unknown'}`;
+      if (!grouped.has(userKey)) grouped.set(userKey, []);
+      grouped.get(userKey)!.push(inv);
+    });
+    return Array.from(grouped.entries())
+      .map(([userKey, sectionData]) => {
+        const createdBy = sectionData[0].createdBy;
+        const title = createdBy
+          ? (sectionData[0] as any).createdByUser?.name ?? (sectionData[0] as any).createdByUser?.email?.split('@')[0] ?? createdBy.slice(0, 8) + '…'
+          : 'Unknown';
+        return {
+          title,
+          monthKey: userKey,
+          data: sectionData.slice().sort((a, b) => {
+            const at = a.createdAt ? new Date(a.createdAt).getTime() : parseLocalDate(a.date).getTime();
+            const bt = b.createdAt ? new Date(b.createdAt).getTime() : parseLocalDate(b.date).getTime();
+            return bt - at;
+          }),
+        };
+      })
+      .sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+  }, []);
+
   const getGroupedList = useCallback((data: Outbound[]): SectionData[] => {
     switch (groupBy) {
       case 'recordDate': return groupByRecordDate(data);
+      case 'createdBy': return groupByCreatedBy(data);
       case 'month':
       default: return groupByMonth(data);
     }
-  }, [groupBy, groupByMonth, groupByRecordDate]);
+  }, [groupBy, groupByMonth, groupByRecordDate, groupByCreatedBy]);
 
   const filteredList = useMemo(() => {
     let filtered = list;
@@ -462,8 +490,11 @@ export default function OutboundScreen() {
         return selectedRecordDates.has(k);
       });
     }
+    if (selectedCreators.size > 0) {
+      filtered = filtered.filter(inv => selectedCreators.has(inv.createdBy || 'unknown'));
+    }
     return filtered;
-  }, [list, selectedMonths, selectedRecordDates]);
+  }, [list, selectedMonths, selectedRecordDates, selectedCreators]);
 
   const searchedList = useMemo(() => {
     if (!searchQuery.trim()) return filteredList;
@@ -477,6 +508,7 @@ export default function OutboundScreen() {
   const filterOptions = useMemo(() => {
     const months = new Set<string>();
     const recordDates = new Set<string>();
+    const creators = new Map<string, string>();
     list.forEach(inv => {
       try {
         const d = parseLocalDate(inv.date);
@@ -485,6 +517,12 @@ export default function OutboundScreen() {
       if (inv.createdAt) {
         const d = new Date(inv.createdAt);
         recordDates.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`);
+      }
+      const id = inv.createdBy || 'unknown';
+      if (!creators.has(id)) {
+        const invAny = inv as any;
+        const name = invAny.createdByUser?.name ?? invAny.createdByUser?.email?.split('@')[0] ?? (inv.createdBy ? `${inv.createdBy.slice(0, 8)}…` : 'Unknown');
+        creators.set(id, name);
       }
     });
     return {
@@ -496,6 +534,7 @@ export default function OutboundScreen() {
         const [y, m, d] = k.split('-');
         return { key: k, label: format(new Date(parseInt(y), parseInt(m) - 1, parseInt(d)), 'MMM dd, yyyy') };
       }),
+      creators: Array.from(creators.entries()).map(([id, name]) => ({ id, name })),
     };
   }, [list]);
 
@@ -539,20 +578,23 @@ export default function OutboundScreen() {
             </>
           ) : (
             <>
+              <TouchableOpacity style={styles.sortButton} onPress={() => setShowSortMenu(true)}>
+                {groupBy === 'month' && <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                {groupBy === 'recordDate' && <Ionicons name="time-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                {groupBy === 'createdBy' && <Ionicons name="person-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                <Text style={styles.sortText}>Group</Text>
+                <Ionicons name="chevron-down" size={16} color="#636E72" />
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.filterButton}
                 onPress={() => { setShowFilterMenu(true); setFilterSubMenu('main'); }}
               >
                 <Text style={styles.filterText}>
                   Filter
-                  {(selectedMonths.size + selectedRecordDates.size) > 0 && (
-                    <Text style={styles.filterBadge}> ({selectedMonths.size + selectedRecordDates.size})</Text>
+                  {(selectedMonths.size + selectedRecordDates.size + selectedCreators.size) > 0 && (
+                    <Text style={styles.filterBadge}> ({selectedMonths.size + selectedRecordDates.size + selectedCreators.size})</Text>
                   )}
                 </Text>
-                <Ionicons name="chevron-down" size={16} color="#636E72" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.sortButton} onPress={() => setShowSortMenu(true)}>
-                <Text style={styles.sortText}>Group</Text>
                 <Ionicons name="chevron-down" size={16} color="#636E72" />
               </TouchableOpacity>
               <View style={styles.searchContainer}>
@@ -565,7 +607,6 @@ export default function OutboundScreen() {
                   onChangeText={setSearchQuery}
                 />
               </View>
-              <Text style={styles.countText}>{list.length}</Text>
             </>
           )}
         </View>
@@ -742,15 +783,19 @@ export default function OutboundScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
-              {(['month', 'recordDate'] as const).map((key) => (
+              {(['month', 'recordDate', 'createdBy'] as const).map((key) => (
                 <TouchableOpacity
                   key={key}
                   style={[styles.pickerOption, groupBy === key && styles.pickerOptionSelected]}
                   onPress={() => { setGroupBy(key); setShowSortMenu(false); }}
                 >
-                  <Text style={[styles.pickerOptionText, groupBy === key && styles.pickerOptionTextSelected]}>
-                    {key === 'month' && 'By Transaction Month'}
-                    {key === 'recordDate' && 'By Record Date'}
+                  {key === 'month' && <Ionicons name="calendar-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
+                  {key === 'recordDate' && <Ionicons name="time-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
+                  {key === 'createdBy' && <Ionicons name="person-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
+                  <Text style={[styles.pickerOptionText, groupBy === key && styles.pickerOptionTextSelected, { flex: 1 }]}>
+                    {key === 'month' && 'Transaction Month'}
+                    {key === 'recordDate' && 'Record Date'}
+                    {key === 'createdBy' && 'Recorder'}
                   </Text>
                   {groupBy === key && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
                 </TouchableOpacity>
@@ -771,7 +816,9 @@ export default function OutboundScreen() {
                     <Ionicons name="chevron-back" size={20} color="#6C5CE7" />
                   </TouchableOpacity>
                   <Text style={styles.pickerTitle}>
-                    {filterSubMenu === 'month' ? 'Select Transaction Months' : 'Select Record Dates'}
+                    {filterSubMenu === 'month' && 'Select Transaction Months'}
+                    {filterSubMenu === 'recordDate' && 'Select Record Dates'}
+                    {filterSubMenu === 'creator' && 'Select Recorders'}
                   </Text>
                   <TouchableOpacity onPress={() => setFilterSubMenu('main')} style={styles.pickerCloseButton}>
                     <Text style={styles.pickerCloseText}>Done</Text>
@@ -781,8 +828,8 @@ export default function OutboundScreen() {
                 <>
                   <Text style={styles.pickerTitle}>Filter</Text>
                   <View style={styles.pickerHeaderRight}>
-                    {(selectedMonths.size > 0 || selectedRecordDates.size > 0) && (
-                      <TouchableOpacity onPress={() => { setSelectedMonths(new Set()); setSelectedRecordDates(new Set()); }} style={styles.clearFilterButton}>
+                    {(selectedMonths.size > 0 || selectedRecordDates.size > 0 || selectedCreators.size > 0) && (
+                      <TouchableOpacity onPress={() => { setSelectedMonths(new Set()); setSelectedRecordDates(new Set()); setSelectedCreators(new Set()); }} style={styles.clearFilterButton}>
                         <Text style={styles.clearFilterText}>Clear</Text>
                       </TouchableOpacity>
                     )}
@@ -816,6 +863,16 @@ export default function OutboundScreen() {
                       <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
                     </View>
                   </TouchableOpacity>
+                  <TouchableOpacity style={styles.filterMainOption} onPress={() => setFilterSubMenu('creator')}>
+                    <View style={styles.filterMainOptionLeft}>
+                      <Ionicons name="person-outline" size={20} color="#636E72" />
+                      <Text style={styles.filterMainOptionText}>Recorder</Text>
+                    </View>
+                    <View style={styles.filterMainOptionRight}>
+                      {selectedCreators.size > 0 && <Text style={styles.filterCountBadge}>{selectedCreators.size}</Text>}
+                      <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
+                    </View>
+                  </TouchableOpacity>
                 </>
               )}
               {filterSubMenu === 'month' && filterOptions.months.map((m) => {
@@ -841,6 +898,20 @@ export default function OutboundScreen() {
                         {isSelected && <Ionicons name="checkmark" size={14} color="#fff" />}
                       </View>
                       <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected]}>{d.label}</Text>
+                    </View>
+                    {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
+                  </TouchableOpacity>
+                );
+              })}
+              {filterSubMenu === 'creator' && filterOptions.creators.map((c) => {
+                const isSelected = selectedCreators.has(c.id);
+                return (
+                  <TouchableOpacity key={c.id} style={[styles.pickerOption, isSelected && styles.pickerOptionSelected]} onPress={() => setSelectedCreators(prev => { const s = new Set(prev); if (s.has(c.id)) s.delete(c.id); else s.add(c.id); return s; })}>
+                    <View style={styles.filterOptionLeft}>
+                      <View style={[styles.filterCheckbox, isSelected && styles.filterCheckboxSelected]}>
+                        {isSelected && <Ionicons name="checkmark" size={14} color="#fff" />}
+                      </View>
+                      <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected]}>{c.name}</Text>
                     </View>
                     {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
                   </TouchableOpacity>

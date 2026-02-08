@@ -109,7 +109,7 @@ export default function ReceiptsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
-  const [groupBy, setGroupBy] = useState<GroupByType>('month');
+  const [groupBy, setGroupBy] = useState<GroupByType>('recordDate');
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   // 交易时间（月维度：YYYY-MM）
@@ -916,6 +916,17 @@ export default function ReceiptsScreen() {
           ) : (
             <>
           <TouchableOpacity 
+            style={styles.sortButton}
+            onPress={() => setShowSortMenu(true)}
+          >
+            {groupBy === 'month' && <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+            {groupBy === 'recordDate' && <Ionicons name="time-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+            {groupBy === 'paymentAccount' && <Ionicons name="wallet-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+            {groupBy === 'createdBy' && <Ionicons name="person-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+            <Text style={styles.sortText}>Group</Text>
+            <Ionicons name="chevron-down" size={16} color="#636E72" />
+          </TouchableOpacity>
+          <TouchableOpacity 
             style={styles.filterButton}
             onPress={() => {
               setShowFilterMenu(true);
@@ -932,13 +943,6 @@ export default function ReceiptsScreen() {
             </Text>
             <Ionicons name="chevron-down" size={16} color="#636E72" />
           </TouchableOpacity>
-          <TouchableOpacity 
-            style={styles.sortButton}
-            onPress={() => setShowSortMenu(true)}
-          >
-            <Text style={styles.sortText}>Group</Text>
-            <Ionicons name="chevron-down" size={16} color="#636E72" />
-          </TouchableOpacity>
               <View style={styles.searchContainer}>
                 <Ionicons name="search" size={18} color="#636E72" style={styles.searchIcon} />
                 <TextInput
@@ -949,7 +953,6 @@ export default function ReceiptsScreen() {
                   onChangeText={setSearchQuery}
                 />
               </View>
-              <Text style={styles.countText}>{receipts.length}</Text>
             </>
           )}
         </View>
@@ -1271,7 +1274,7 @@ export default function ReceiptsScreen() {
                     groupBy === 'month' && styles.pickerOptionTextSelected,
                   ]}
                 >
-                  By Transaction Month
+                  Transaction Month
                 </Text>
                 {groupBy === 'month' && (
                   <Ionicons name="checkmark" size={20} color="#6C5CE7" />
@@ -1295,7 +1298,7 @@ export default function ReceiptsScreen() {
                     groupBy === 'paymentAccount' && styles.pickerOptionTextSelected,
                   ]}
                 >
-                  By Account
+                  Account
                 </Text>
                 {groupBy === 'paymentAccount' && (
                   <Ionicons name="checkmark" size={20} color="#6C5CE7" />
@@ -1319,7 +1322,7 @@ export default function ReceiptsScreen() {
                     groupBy === 'createdBy' && styles.pickerOptionTextSelected,
                   ]}
                 >
-                  By Recorder
+                  Recorder
                 </Text>
                 {groupBy === 'createdBy' && (
                   <Ionicons name="checkmark" size={20} color="#6C5CE7" />
@@ -1343,7 +1346,7 @@ export default function ReceiptsScreen() {
                     groupBy === 'recordDate' && styles.pickerOptionTextSelected,
                   ]}
                 >
-                  By Record Date
+                  Record Date
                 </Text>
                 {groupBy === 'recordDate' && (
                   <Ionicons name="checkmark" size={20} color="#6C5CE7" />
@@ -1798,17 +1801,11 @@ const styles = StyleSheet.create({
     color: '#2D3436',
     padding: 0,
   },
-  countText: {
-    fontSize: 14,
-    color: '#636E72',
-    fontWeight: '500',
-    minWidth: 30,
-    textAlign: 'right',
-  },
   receiptItem: {
     backgroundColor: '#fff',
     paddingVertical: 10,
     paddingHorizontal: 12,
+    paddingLeft: 24,
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
     flexDirection: 'row',
@@ -1945,11 +1942,11 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   sectionHeader: {
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#E9ECEF',
     paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#E9ECEF',
+    borderBottomColor: '#DEE2E6',
   },
   sectionHeaderContent: {
     flexDirection: 'row',
@@ -1958,7 +1955,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '700',
     color: '#2D3436',
   },
   sectionHeaderRight: {
@@ -1977,7 +1974,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: 4,
-    paddingTop: 4,
+    paddingTop: 0,
     paddingBottom: 100,
   },
   emptyText: {
