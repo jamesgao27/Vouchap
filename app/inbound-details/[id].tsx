@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ScrollView,
   TouchableOpacity,
   TextInput,
@@ -23,6 +22,8 @@ import { Inbound, InboundItem, VoucherStatus } from '@/types';
 import { format } from 'date-fns';
 import { getChatLogsByReceiptId } from '@/lib/chat-logs';
 import { playAudio, stopPlayback } from '@/lib/audio';
+import { showAiInventory } from '@/lib/feature-flags';
+import { voucherDetailStyles as styles } from '../voucher-detail-styles';
 
 export default function InboundDetailsScreen() {
   const { id, new: isNew } = useLocalSearchParams<{ id: string; new?: string }>();
@@ -39,6 +40,9 @@ export default function InboundDetailsScreen() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
+  useEffect(() => {
+    if (!showAiInventory) router.replace('/');
+  }, []);
   useEffect(() => {
     loadInbound();
   }, [id]);
@@ -286,6 +290,8 @@ export default function InboundDetailsScreen() {
     }
   };
 
+  if (!showAiInventory) return null;
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -352,14 +358,14 @@ export default function InboundDetailsScreen() {
           <View style={styles.summaryContent}>
             <View style={styles.summaryContentTop}>
               <View style={styles.summaryContentMain}>
-                {/* 供应商（货物来源） */}
+                {/* Supplier (goods source) */}
                 {editing ? (
                   <View style={styles.storeNameInputRow}>
                     <TextInput
                       style={styles.storeNameInput}
                       value={editedInbound?.supplierName ?? ''}
                       onChangeText={handleSupplierNameChange}
-                      placeholder="供应商名称"
+                      placeholder="Supplier name"
                       maxLength={100}
                     />
                     <TouchableOpacity
@@ -372,7 +378,7 @@ export default function InboundDetailsScreen() {
                   </View>
                 ) : (
                   <Text style={styles.storeName} numberOfLines={1}>
-                    {current.supplierName || '未知供应商'}
+                    {current.supplierName || 'Unknown supplier'}
                   </Text>
                 )}
                 {/* 金额 - 暂留空税额 */}
@@ -395,7 +401,7 @@ export default function InboundDetailsScreen() {
                     >
                       <View style={styles.dateTag}>
                         <Text style={styles.dateText}>
-                          {editedInbound?.date ? formatDate(editedInbound.date) : '选择日期'}
+                          {editedInbound?.date ? formatDate(editedInbound.date) : 'Select date'}
                         </Text>
                         <Ionicons name="chevron-down" size={14} color="#6C5CE7" style={styles.tagIcon} />
                       </View>
@@ -553,12 +559,12 @@ export default function InboundDetailsScreen() {
                 <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
                   <View style={styles.pickerHandle} />
                   <View style={styles.pickerHeader}>
-                    <Text style={styles.pickerTitle}>选择日期</Text>
+                    <Text style={styles.pickerTitle}>Select date</Text>
                     <TouchableOpacity
                       onPress={() => setShowDatePicker(false)}
                       style={styles.pickerCloseButton}
                     >
-                      <Text style={styles.pickerCloseText}>完成</Text>
+                      <Text style={styles.pickerCloseText}>Done</Text>
                     </TouchableOpacity>
                   </View>
                   <DateTimePicker
@@ -649,12 +655,12 @@ export default function InboundDetailsScreen() {
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
             <View style={styles.pickerHandle} />
             <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>选择供应商</Text>
+              <Text style={styles.pickerTitle}>Select supplier</Text>
               <TouchableOpacity
                 onPress={() => setShowSupplierPicker(false)}
                 style={styles.pickerCloseButton}
               >
-                <Text style={styles.pickerCloseText}>取消</Text>
+                <Text style={styles.pickerCloseText}>Cancel</Text>
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
@@ -662,7 +668,7 @@ export default function InboundDetailsScreen() {
                 style={styles.pickerOption}
                 onPress={() => handleSelectSupplier(null)}
               >
-                <Text style={styles.pickerOptionText}>清除</Text>
+                <Text style={styles.pickerOptionText}>Clear</Text>
               </TouchableOpacity>
               {supplierOptions.map((opt) => (
                 <TouchableOpacity
@@ -696,571 +702,3 @@ export default function InboundDetailsScreen() {
   );
 }
 
-// 复用 receipt-details 的样式
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#ECEFF1',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 12,
-    paddingBottom: 100,
-  },
-  summaryCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
-    flexDirection: 'row',
-    alignItems: 'stretch',
-  },
-  imageContainer: {
-    position: 'relative',
-    marginRight: 12,
-  },
-  imagePlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    backgroundColor: '#E9ECEF',
-    overflow: 'hidden',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  imagePlaceholderContent: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  receiptImage: {
-    width: '100%',
-    height: '100%',
-  },
-  summaryContent: {
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  summaryContentTop: {
-    flex: 1,
-    justifyContent: 'space-between',
-  },
-  summaryContentMain: {
-    flex: 1,
-  },
-  submittedInfo: {
-    alignSelf: 'flex-end',
-    marginTop: 4,
-  },
-  submittedText: {
-    fontSize: 11,
-    color: '#95A5A6',
-    textAlign: 'right',
-  },
-  storeName: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#2D3436',
-    lineHeight: 22,
-    height: 22,
-    marginBottom: 2,
-    borderBottomWidth: 1,
-    borderBottomColor: 'transparent',
-    paddingVertical: 0,
-  },
-  storeNameInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    height: 22,
-    marginBottom: 2,
-  },
-  storeNameInput: {
-    flex: 1,
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#2D3436',
-    lineHeight: 22,
-    borderBottomWidth: 1,
-    borderBottomColor: '#6C5CE7',
-    height: 22,
-    paddingVertical: 0,
-    paddingRight: 4,
-    transform: [{ translateY: -1 }],
-  },
-  storeNameDropdownIcon: {
-    paddingLeft: 4,
-    justifyContent: 'center',
-    alignItems: 'center',
-    height: 22,
-  },
-  amountRow: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    alignItems: 'baseline',
-    marginTop: 2,
-  },
-  amountContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    flexWrap: 'wrap',
-  },
-  totalAmount: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#6C5CE7',
-    marginRight: 8,
-    lineHeight: 28,
-  },
-  dateContainer: {
-    marginTop: 8,
-    height: 24,
-  },
-  dateTouchable: {
-    alignSelf: 'flex-start',
-  },
-  date: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#636E72',
-    lineHeight: 18,
-    marginTop: 2,
-    marginLeft: 11,
-    marginBottom: 0,
-  },
-  dateText: {
-    fontSize: 14,
-    color: '#636E72',
-    lineHeight: 18,
-    fontWeight: '600',
-  },
-  dateTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 1,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#6C5CE7',
-    backgroundColor: '#F8F9FA',
-    height: 20,
-  },
-  paymentCard: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    paddingVertical: 2,
-    paddingHorizontal: 12,
-    marginBottom: 8,
-  },
-  paymentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  cardLabel: {
-    fontSize: 14,
-    color: '#636E72',
-    marginRight: 12,
-    fontWeight: '500',
-  },
-  cardValue: {
-    fontSize: 14,
-    color: '#2D3436',
-    fontWeight: '500',
-    paddingVertical: 10,
-    lineHeight: 20,
-    marginRight: 37,
-  },
-  accountTouchable: {
-    flex: 1,
-    alignItems: 'flex-end',
-    justifyContent: 'center',
-    minHeight: 40,
-  },
-  accountTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#6C5CE7',
-    maxWidth: 250,
-    minWidth: 120,
-    flexShrink: 0,
-  },
-  accountText: {
-    fontSize: 14,
-    color: '#2D3436',
-    fontWeight: '500',
-    flexShrink: 1,
-    marginRight: 6,
-    maxWidth: 200,
-    lineHeight: 20,
-  },
-  itemsSection: {
-    marginBottom: 12,
-    backgroundColor: '#fff',
-    borderRadius: 10,
-    overflow: 'hidden',
-  },
-  sectionTitleContainer: {
-    paddingHorizontal: 8,
-    paddingTop: 8,
-    paddingBottom: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9ECEF',
-  },
-  sectionTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    color: '#2D3436',
-  },
-  itemCard: {
-    backgroundColor: '#fff',
-    borderRadius: 0,
-    paddingLeft: 8,
-    paddingTop: 4,
-    paddingBottom: 4,
-    paddingRight: 32,
-    marginBottom: 0,
-  },
-  itemCardWithBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9ECEF',
-  },
-  deleteItemButton: {
-    position: 'absolute',
-    top: '50%',
-    marginTop: -14,
-    right: 0,
-    zIndex: 1,
-    padding: 4,
-  },
-  itemHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 1,
-  },
-  itemName: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#2D3436',
-    marginRight: 6,
-    lineHeight: 20,
-    height: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: 'transparent',
-    paddingVertical: 0,
-    transform: [{ translateY: -2 }],
-  },
-  itemNameInput: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#2D3436',
-    borderBottomWidth: 1,
-    borderBottomColor: '#6C5CE7',
-    lineHeight: 20,
-    height: 20,
-    paddingVertical: 0,
-    marginRight: 6,
-    transform: [{ translateY: -4 }],
-  },
-  itemQuantity: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#6C5CE7',
-    paddingVertical: 4,
-    paddingHorizontal: 7,
-    minWidth: 70,
-    textAlign: 'right',
-    lineHeight: 20,
-  },
-  quantityInput: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#6C5CE7',
-    borderWidth: 1,
-    borderColor: '#6C5CE7',
-    borderRadius: 4,
-    paddingVertical: 3,
-    paddingHorizontal: 6,
-    minWidth: 70,
-    textAlign: 'right',
-    lineHeight: 20,
-  },
-  itemTags: {
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    marginTop: 0,
-    position: 'relative',
-  },
-  tagGroupLeft: {
-    width: 120,
-    alignItems: 'flex-start',
-  },
-  tagGroupCenter: {
-    marginLeft: 2,
-    alignItems: 'flex-start',
-  },
-  tagGroupRight: {
-    flex: 1,
-    alignItems: 'flex-end',
-  },
-  tag: {
-    paddingLeft: 10,
-    paddingRight: 5,
-    paddingVertical: 4,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    maxWidth: 140,
-    backgroundColor: '#95A5A6',
-  },
-  tagText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '600',
-    flexShrink: 1,
-  },
-  tagIcon: {
-    marginLeft: 4,
-    opacity: 0.8,
-    flexShrink: 0,
-  },
-  unitTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: '#F0F0F0',
-  },
-  unitTagText: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: '#636E72',
-  },
-  unitInput: {
-    fontSize: 11,
-    fontWeight: '500',
-    color: '#636E72',
-    borderWidth: 1,
-    borderColor: '#6C5CE7',
-    borderRadius: 4,
-    paddingVertical: 2,
-    paddingHorizontal: 6,
-    minWidth: 50,
-    textAlign: 'right',
-  },
-  addItemButtonContainer: {
-    paddingTop: 12,
-    paddingBottom: 4,
-    backgroundColor: '#ECEFF1',
-    alignItems: 'center',
-  },
-  addItemButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderWidth: 1,
-    borderColor: '#CED4DA',
-    alignSelf: 'stretch',
-  },
-  addItemText: {
-    marginLeft: 8,
-    fontSize: 16,
-    color: '#6C5CE7',
-    fontWeight: '600',
-  },
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'transparent',
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    paddingTop: 8,
-    borderTopWidth: 0,
-    flexDirection: 'row',
-    gap: 12,
-  },
-  cancelButton: {
-    flex: 1,
-    backgroundColor: '#DDE2E6',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.22,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  cancelButtonText: {
-    fontSize: 16,
-    color: '#636E72',
-    fontWeight: '600',
-  },
-  confirmButton: {
-    flex: 1,
-    backgroundColor: '#6C5CE7',
-    borderRadius: 12,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.22,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  confirmButtonText: {
-    marginLeft: 8,
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  fab: {
-    position: 'absolute',
-    right: 20,
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: '#6C5CE7',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.22,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  editFab: {
-    bottom: 20,
-    backgroundColor: '#95A5A6',
-  },
-  errorText: {
-    textAlign: 'center',
-    marginTop: 50,
-    fontSize: 16,
-    color: '#E74C3C',
-  },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalCloseButton: {
-    position: 'absolute',
-    top: 50,
-    right: 20,
-    zIndex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    borderRadius: 20,
-    padding: 8,
-  },
-  modalImage: {
-    width: '100%',
-    height: '100%',
-  },
-  pickerOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'flex-end',
-  },
-  pickerBottomSheet: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    paddingTop: 12,
-    paddingBottom: 32,
-    paddingHorizontal: 20,
-    maxHeight: '70%',
-  },
-  pickerHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: '#BDC3C7',
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: 16,
-  },
-  pickerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  pickerTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#2D3436',
-    flex: 1,
-  },
-  pickerCloseButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  pickerCloseText: {
-    fontSize: 16,
-    color: '#6C5CE7',
-    fontWeight: '600',
-  },
-  pickerScrollView: {
-    maxHeight: 400,
-  },
-  pickerOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    marginBottom: 8,
-    backgroundColor: '#F8F9FA',
-    minHeight: 48,
-  },
-  pickerOptionSelected: {
-    backgroundColor: '#E8F4FD',
-  },
-  pickerColorIndicator: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    marginRight: 12,
-  },
-  pickerOptionText: {
-    flex: 1,
-    fontSize: 16,
-    color: '#2D3436',
-    fontWeight: '500',
-  },
-  pickerOptionTextSelected: {
-    color: '#6C5CE7',
-    fontWeight: '600',
-  },
-  datePickerIOS: {
-    width: '100%',
-    height: 200,
-  },
-});

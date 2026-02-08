@@ -84,11 +84,10 @@ export async function getAvailableImageModel(): Promise<string | null> {
       m.supportedGenerationMethods.includes('generateContent')
     );
     
-    // 优先级排序
+    // 优先级排序（仅使用 API v1 支持的 1.5 系列，gemini-pro-vision 已弃用）
     const preferredModels = [
       'gemini-1.5-flash',
       'gemini-1.5-pro',
-      'gemini-pro-vision',
     ];
     
     for (const preferred of preferredModels) {

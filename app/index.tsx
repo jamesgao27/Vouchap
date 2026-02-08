@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Modal, ActivityIndicator, Alert, ScrollView, TextInput, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Modal, ActivityIndicator, Alert, ScrollView, TextInput, useWindowDimensions } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,8 +14,8 @@ import { saveReceipt } from '@/lib/database';
 import { processReceiptInBackground } from '@/lib/receipt-processor';
 import { processImageForUpload } from '@/lib/image-processor';
 
-/** 首页是否显示「AI 进销存」入口，发布时可设为 false 隐藏 */
-const SHOW_AI_INVENTORY_ENTRY = true;
+/** 首页是否显示「AI 进销存」入口：由 app.config.js extra.showAiInventory 控制，production 构建时 EXPO_PUBLIC_SHOW_AI_INVENTORY=false 则隐藏 */
+const SHOW_AI_INVENTORY_ENTRY = Constants.expoConfig?.extra?.showAiInventory !== false;
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -35,6 +35,13 @@ export default function HomeScreen() {
   
   // Check if running in Expo Go
   const isExpoGo = Constants.appOwnership === 'expo';
+
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const sloganFontSize = Math.min(32, Math.max(24, Math.round(screenWidth * 0.082)));
+  const isCompact = screenHeight < 750 || screenWidth < 360;
+  const mainCircleSize = isCompact ? 160 : 200;
+  const chatCircleSize = isCompact ? 120 : 150;
+  const sloganMarginBottom = isCompact ? 16 : 30;
 
   useEffect(() => {
     checkAuth();
@@ -557,7 +564,12 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
-      
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
       {/* 顶部栏：家庭名称和管理入口 */}
       <View style={styles.topBar}>
         <View style={styles.topBarLeft}>
@@ -595,9 +607,21 @@ export default function HomeScreen() {
       </View>
       
       <View style={styles.content}>
-        <Text style={styles.title}>📸</Text>
-        <Text style={styles.title}>Voucher Snapping,</Text>
-        <Text style={styles.subtitle}>Balance Clarity.</Text>
+        <Text style={[styles.title, { fontSize: sloganFontSize }]}>📸</Text>
+        <Text
+          style={[styles.title, { fontSize: sloganFontSize, marginBottom: sloganMarginBottom }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
+          Voucher Snapping,
+        </Text>
+        <Text
+          style={[styles.subtitle, { fontSize: sloganFontSize, marginBottom: sloganMarginBottom }]}
+          numberOfLines={1}
+          adjustsFontSizeToFit
+        >
+          Balance Clarity.
+        </Text>
         
         <TouchableOpacity 
           style={styles.iconContainer}
@@ -605,8 +629,8 @@ export default function HomeScreen() {
           activeOpacity={0.8}
           disabled={isProcessing}
         >
-          <View style={styles.circle}>
-            <Ionicons name="camera" size={80} color="#6C5CE7" />
+          <View style={[styles.circle, { width: mainCircleSize, height: mainCircleSize, borderRadius: mainCircleSize / 2 }]}>
+            <Ionicons name="camera" size={mainCircleSize * 0.4} color="#6C5CE7" />
           </View>
         </TouchableOpacity>
 
@@ -615,8 +639,8 @@ export default function HomeScreen() {
           onPress={() => router.push('/voice-input')}
           activeOpacity={0.8}
         >
-          <View style={styles.chatCircle}>
-            <Ionicons name="chatbubble-outline" size={60} color="#6C5CE7" />
+          <View style={[styles.chatCircle, { width: chatCircleSize, height: chatCircleSize, borderRadius: chatCircleSize / 2 }]}>
+            <Ionicons name="chatbubble-outline" size={chatCircleSize * 0.4} color="#6C5CE7" />
           </View>
         </TouchableOpacity>
       </View>
@@ -638,6 +662,7 @@ export default function HomeScreen() {
           <Text style={styles.secondaryButtonText}>AI 进销存</Text>
         </TouchableOpacity>
       )}
+      </ScrollView>
 
       {/* Space Switch Modal */}
       <Modal
@@ -854,6 +879,12 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8F9FA',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: 20,
     paddingTop: 60,
     paddingBottom: 40,
@@ -917,17 +948,14 @@ const styles = StyleSheet.create({
     paddingTop: 20,
   },
   title: {
-    fontSize: 32,
     fontWeight: 'bold',
     color: '#2D3436',
     marginBottom: 8,
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 32,
     fontWeight: 'bold',
     color: '#2D3436',
-    marginBottom: 30,
     textAlign: 'center',
   },
   iconContainer: {

@@ -1025,7 +1025,7 @@ export default function ReceiptDetailsScreen() {
                     >
                       <View style={styles.dateTag}>
                         <Text style={styles.dateText}>
-                          {editedReceipt?.date ? formatDate(editedReceipt.date) : '选择日期'}
+                          {editedReceipt?.date ? formatDate(editedReceipt.date) : 'Select date'}
                         </Text>
                         <Ionicons
                           name="chevron-down"
@@ -1399,14 +1399,22 @@ export default function ReceiptDetailsScreen() {
                   <Ionicons name="swap-horizontal" size={20} color="#fff" style={{ marginRight: 8 }} />
                   <Text style={styles.duplicateModalButtonReplaceText}>Replace only this</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge]}
-                  onPress={handleDuplicateNameMerge}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="git-merge-outline" size={20} color="#E74C3C" style={{ marginRight: 8 }} />
-                  <Text style={styles.duplicateModalButtonMergeText}>Replace all (Merge)</Text>
-                </TouchableOpacity>
+                {(() => {
+                  const hasLinkedForMerge = duplicateNameModalPayload?.code === 'ACCOUNT_NAME_EXISTS'
+                    ? !!receipt?.accountId
+                    : !!(receipt?.supplierId ?? receipt?.supplierCustomerId);
+                  return (
+                    <TouchableOpacity
+                      style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge, !hasLinkedForMerge && { opacity: 0.5 }]}
+                      onPress={hasLinkedForMerge ? handleDuplicateNameMerge : undefined}
+                      activeOpacity={0.8}
+                      disabled={!hasLinkedForMerge}
+                    >
+                      <Ionicons name="git-merge-outline" size={20} color="#E74C3C" style={{ marginRight: 8 }} />
+                      <Text style={styles.duplicateModalButtonMergeText}>Replace all (Merge)</Text>
+                    </TouchableOpacity>
+                  );
+                })()}
                 <TouchableOpacity
                   style={[styles.duplicateModalButton, styles.duplicateModalButtonDontChange]}
                   onPress={handleDuplicateNameDontChange}
@@ -1741,12 +1749,12 @@ export default function ReceiptDetailsScreen() {
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
             <View style={styles.pickerHandle} />
             <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>选择其他供应商</Text>
+              <Text style={styles.pickerTitle}>Select supplier</Text>
               <TouchableOpacity
                 onPress={() => setShowSupplierPicker(false)}
                 style={styles.pickerCloseButton}
               >
-                <Text style={styles.pickerCloseText}>取消</Text>
+                <Text style={styles.pickerCloseText}>Cancel</Text>
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
@@ -1765,7 +1773,7 @@ export default function ReceiptDetailsScreen() {
                       {opt.name}
                     </Text>
                     {opt.source === 'customer' && (
-                      <Text style={styles.pickerOptionSubtext}>客户</Text>
+                      <Text style={styles.pickerOptionSubtext}>Customer</Text>
                     )}
                     {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
                   </TouchableOpacity>
@@ -1880,12 +1888,12 @@ export default function ReceiptDetailsScreen() {
                 <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
                   <View style={styles.pickerHandle} />
                   <View style={styles.pickerHeader}>
-                    <Text style={styles.pickerTitle}>选择日期</Text>
+                    <Text style={styles.pickerTitle}>Select date</Text>
                     <TouchableOpacity
                       onPress={() => setShowDatePicker(false)}
                       style={styles.pickerCloseButton}
                     >
-                      <Text style={styles.pickerCloseText}>完成</Text>
+                      <Text style={styles.pickerCloseText}>Done</Text>
                     </TouchableOpacity>
                   </View>
                   <DateTimePicker

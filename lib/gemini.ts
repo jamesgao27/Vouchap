@@ -23,14 +23,12 @@ const genAI = (apiKey && apiKey !== '')
   : null;
 
 // 尝试多个可能的模型名称（按优先级排序，优先使用最快的模型）
-// gemini-1.5-flash 是最快的模型，适合实时处理
+// 仅保留 API v1 generateContent 支持的模型；gemini-pro / gemini-pro-vision 已弃用会返回 404
 const POSSIBLE_MODELS = [
   'gemini-1.5-flash',        // 最快，优先使用
   'gemini-1.5-flash-latest', // 最新版本的 flash
   'gemini-1.5-pro-latest',   // Pro 最新版本
   'gemini-1.5-pro',          // Pro 稳定版本
-  'gemini-pro-vision',       // 旧版本
-  'gemini-pro',              // 最旧版本
 ];
 
 // 动态获取可用模型的缓存

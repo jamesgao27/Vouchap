@@ -1,8 +1,7 @@
-import { useState, useCallback, useMemo, useRef } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   SectionList,
   TouchableOpacity,
   RefreshControl,
@@ -17,6 +16,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
+import { showAiInventory } from '@/lib/feature-flags';
 import { getAllInbound, deleteInbound, saveInbound } from '@/lib/inbound';
 import { Inbound } from '@/types';
 import { format } from 'date-fns';
@@ -25,6 +25,7 @@ import { SwipeableRow } from './SwipeableRow';
 import { uploadInboundImageTemp } from '@/lib/supabase';
 import { processInboundInBackground } from '@/lib/inbound-processor';
 import { processImageForUpload } from '@/lib/image-processor';
+import { voucherListStyles as styles } from './voucher-list-styles';
 
 type GroupByType = 'month' | 'recordDate';
 
@@ -88,6 +89,10 @@ export default function InboundScreen() {
   const fabAnimation = useRef(new Animated.Value(0)).current;
   const router = useRouter();
   const isExpoGo = Constants.appOwnership === 'expo';
+
+  useEffect(() => {
+    if (!showAiInventory) router.replace('/');
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -463,6 +468,8 @@ export default function InboundScreen() {
     });
   };
 
+  if (!showAiInventory) return null;
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -535,7 +542,7 @@ export default function InboundScreen() {
           return (
             <SwipeableRow onDelete={() => item.id && handleDeleteSingle(item.id)} disabled={isSelectionMode}>
               <TouchableOpacity
-                style={[styles.rowItem, isSelected && styles.rowItemSelected]}
+                style={[styles.receiptItem, isSelected && styles.receiptItemSelected]}
                 onPress={() => {
                   if (isSelectionMode) {
                     if (item.id) handleToggleSelect(item.id);
@@ -553,14 +560,22 @@ export default function InboundScreen() {
                     </View>
                   </View>
                 )}
-                <View style={styles.rowContent}>
+                <View style={styles.receiptContent}>
                   <View style={styles.firstRow}>
                     <Text style={styles.storeName} numberOfLines={1}>
                       {item.supplierName || item.documentNo || 'Inbound'}
                     </Text>
-                    <View style={[styles.statusBadge, { backgroundColor: statusColors[item.status] }]}>
-                      <Text style={styles.statusText}>{statusLabels[item.status]}</Text>
-                    </View>
+                    {item.status === 'confirmed' ? (
+                      <View style={styles.confirmedStatusContainer}>
+                        <View style={styles.confirmedBadge}>
+                          <Ionicons name={item.inputType === 'audio' ? 'mic' : item.inputType === 'text' ? 'menu' : 'camera'} size={12} color="#fff" />
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={[styles.statusBadge, { backgroundColor: statusColors[item.status] }]}>
+                        <Text style={styles.statusText}>{statusLabels[item.status]}</Text>
+                      </View>
+                    )}
                   </View>
                   <View style={styles.secondRow}>
                     {item.totalAmount != null && (
@@ -709,34 +724,55 @@ export default function InboundScreen() {
             <View style={styles.pickerHandle} />
             <View style={styles.pickerHeader}>
               {filterSubMenu !== 'main' ? (
-                <TouchableOpacity onPress={() => setFilterSubMenu('main')} style={styles.pickerBackButton}>
-                <Ionicons name="chevron-back" size={20} color="#6C5CE7" />
-              </TouchableOpacity>
-              ) : null}
-              <Text style={styles.pickerTitle}>
-                {filterSubMenu === 'main' ? 'Filter' : filterSubMenu === 'month' ? 'Transaction Months' : 'Record Dates'}
-              </Text>
-              {(filterSubMenu === 'main' && (selectedMonths.size > 0 || selectedRecordDates.size > 0)) && (
-                <TouchableOpacity onPress={() => { setSelectedMonths(new Set()); setSelectedRecordDates(new Set()); }} style={styles.clearFilterButton}>
-                  <Text style={styles.clearFilterText}>Clear</Text>
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity onPress={() => setFilterSubMenu('main')} style={styles.pickerBackButton}>
+                    <Ionicons name="chevron-back" size={20} color="#6C5CE7" />
+                  </TouchableOpacity>
+                  <Text style={styles.pickerTitle}>
+                    {filterSubMenu === 'month' ? 'Select Transaction Months' : 'Select Record Dates'}
+                  </Text>
+                  <TouchableOpacity onPress={() => setFilterSubMenu('main')} style={styles.pickerCloseButton}>
+                    <Text style={styles.pickerCloseText}>Done</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.pickerTitle}>Filter</Text>
+                  <View style={styles.pickerHeaderRight}>
+                    {(selectedMonths.size > 0 || selectedRecordDates.size > 0) && (
+                      <TouchableOpacity onPress={() => { setSelectedMonths(new Set()); setSelectedRecordDates(new Set()); }} style={styles.clearFilterButton}>
+                        <Text style={styles.clearFilterText}>Clear</Text>
+                      </TouchableOpacity>
+                    )}
+                    <TouchableOpacity onPress={() => { setShowFilterMenu(false); setFilterSubMenu('main'); }} style={styles.pickerCloseButton}>
+                      <Text style={styles.pickerCloseText}>Done</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
               )}
-              <TouchableOpacity onPress={() => { setShowFilterMenu(false); setFilterSubMenu('main'); }} style={styles.pickerCloseButton}>
-                <Text style={styles.pickerCloseText}>Done</Text>
-              </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
               {filterSubMenu === 'main' && (
                 <>
                   <TouchableOpacity style={styles.filterMainOption} onPress={() => setFilterSubMenu('month')}>
-                    <Text style={styles.filterMainOptionText}>Transaction Month</Text>
-                    {selectedMonths.size > 0 && <Text style={styles.filterCountBadge}>{selectedMonths.size}</Text>}
-                    <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
+                    <View style={styles.filterMainOptionLeft}>
+                      <Ionicons name="calendar-outline" size={20} color="#636E72" />
+                      <Text style={styles.filterMainOptionText}>Transaction Month</Text>
+                    </View>
+                    <View style={styles.filterMainOptionRight}>
+                      {selectedMonths.size > 0 && <Text style={styles.filterCountBadge}>{selectedMonths.size}</Text>}
+                      <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
+                    </View>
                   </TouchableOpacity>
                   <TouchableOpacity style={styles.filterMainOption} onPress={() => setFilterSubMenu('recordDate')}>
-                    <Text style={styles.filterMainOptionText}>Record Date</Text>
-                    {selectedRecordDates.size > 0 && <Text style={styles.filterCountBadge}>{selectedRecordDates.size}</Text>}
-                    <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
+                    <View style={styles.filterMainOptionLeft}>
+                      <Ionicons name="time-outline" size={20} color="#636E72" />
+                      <Text style={styles.filterMainOptionText}>Record Date</Text>
+                    </View>
+                    <View style={styles.filterMainOptionRight}>
+                      {selectedRecordDates.size > 0 && <Text style={styles.filterCountBadge}>{selectedRecordDates.size}</Text>}
+                      <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
+                    </View>
                   </TouchableOpacity>
                 </>
               )}
@@ -744,7 +780,12 @@ export default function InboundScreen() {
                 const isSelected = selectedMonths.has(m.key);
                 return (
                   <TouchableOpacity key={m.key} style={[styles.pickerOption, isSelected && styles.pickerOptionSelected]} onPress={() => setSelectedMonths(prev => { const s = new Set(prev); if (s.has(m.key)) s.delete(m.key); else s.add(m.key); return s; })}>
-                    <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected]}>{m.label}</Text>
+                    <View style={styles.filterOptionLeft}>
+                      <View style={[styles.filterCheckbox, isSelected && styles.filterCheckboxSelected]}>
+                        {isSelected && <Ionicons name="checkmark" size={14} color="#fff" />}
+                      </View>
+                      <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected]}>{m.label}</Text>
+                    </View>
                     {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
                   </TouchableOpacity>
                 );
@@ -753,7 +794,12 @@ export default function InboundScreen() {
                 const isSelected = selectedRecordDates.has(d.key);
                 return (
                   <TouchableOpacity key={d.key} style={[styles.pickerOption, isSelected && styles.pickerOptionSelected]} onPress={() => setSelectedRecordDates(prev => { const s = new Set(prev); if (s.has(d.key)) s.delete(d.key); else s.add(d.key); return s; })}>
-                    <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected]}>{d.label}</Text>
+                    <View style={styles.filterOptionLeft}>
+                      <View style={[styles.filterCheckbox, isSelected && styles.filterCheckboxSelected]}>
+                        {isSelected && <Ionicons name="checkmark" size={14} color="#fff" />}
+                      </View>
+                      <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected]}>{d.label}</Text>
+                    </View>
                     {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
                   </TouchableOpacity>
                 );
@@ -766,79 +812,3 @@ export default function InboundScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#ECEFF1' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#ECEFF1' },
-  header: { backgroundColor: '#fff', paddingTop: 10, paddingBottom: 10, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#E9ECEF' },
-  headerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  cancelButton: { paddingHorizontal: 12, paddingVertical: 8 },
-  cancelButtonText: { fontSize: 14, color: '#6C5CE7', fontWeight: '500' },
-  selectedCountContainer: { flex: 1, alignItems: 'center' },
-  selectedCountText: { fontSize: 14, color: '#636E72', fontWeight: '500' },
-  deleteButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8, gap: 6 },
-  deleteButtonText: { fontSize: 14, color: '#E74C3C', fontWeight: '600' },
-  filterButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 },
-  filterText: { fontSize: 14, color: '#636E72', marginRight: 4, fontWeight: '500' },
-  sortButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 },
-  sortText: { fontSize: 14, color: '#636E72', marginRight: 4, fontWeight: '500' },
-  searchContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: '#E9ECEF' },
-  searchIcon: { marginRight: 8 },
-  searchInput: { flex: 1, fontSize: 14, color: '#2D3436', padding: 0 },
-  countText: { fontSize: 14, color: '#636E72', fontWeight: '500', minWidth: 30, textAlign: 'right' },
-  rowItem: { backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#E9ECEF', flexDirection: 'row', alignItems: 'center' },
-  rowItemSelected: { backgroundColor: '#E8F4FD' },
-  checkboxContainer: { marginRight: 12 },
-  checkbox: { width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: '#BDC3C7', justifyContent: 'center', alignItems: 'center' },
-  checkboxSelected: { backgroundColor: '#6C5CE7', borderColor: '#6C5CE7' },
-  rowContent: { flex: 1 },
-  firstRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  storeName: { flex: 1, fontSize: 16, fontWeight: '600', color: '#2D3436', marginRight: 12 },
-  statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
-  statusText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  secondRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  amount: { fontSize: 16, fontWeight: '600', color: '#6C5CE7' },
-  date: { fontSize: 14, color: '#636E72' },
-  createdDate: { fontSize: 14, color: '#636E72', marginLeft: 'auto' },
-  fabContainer: { position: 'absolute', right: 20, bottom: 20, alignItems: 'flex-end' },
-  fabActionsContainer: { alignItems: 'flex-end' },
-  fabMain: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#6C5CE7', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 6, elevation: 6 },
-  fabAction: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB', shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.18, shadowRadius: 4, elevation: 4 },
-  emptyContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 100 },
-  emptyList: { flexGrow: 1 },
-  sectionHeader: { backgroundColor: '#F8F9FA', paddingVertical: 8, paddingHorizontal: 16, borderBottomWidth: 1, borderBottomColor: '#E9ECEF' },
-  sectionHeaderContent: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sectionTitle: { fontSize: 16, fontWeight: '600', color: '#2D3436' },
-  sectionHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  sectionCount: { fontSize: 14, color: '#636E72' },
-  sectionAmount: { fontSize: 14, fontWeight: '600', color: '#6C5CE7' },
-  listContent: { paddingHorizontal: 4, paddingTop: 4, paddingBottom: 100 },
-  emptyText: { fontSize: 18, color: '#636E72', marginTop: 16, fontWeight: '600' },
-  emptySubtext: { fontSize: 14, color: '#95A5A6', marginTop: 8 },
-  filterBadge: { fontSize: 14, color: '#6C5CE7', fontWeight: '600' },
-  pickerOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
-  pickerBottomSheet: { backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingTop: 12, paddingBottom: 32, paddingHorizontal: 20, maxHeight: '70%' },
-  pickerHandle: { width: 40, height: 4, backgroundColor: '#BDC3C7', borderRadius: 2, alignSelf: 'center', marginBottom: 16 },
-  pickerHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  pickerTitle: { fontSize: 18, fontWeight: '600', color: '#2D3436', flex: 1 },
-  pickerCloseButton: { paddingHorizontal: 12, paddingVertical: 6 },
-  pickerCloseText: { fontSize: 16, color: '#6C5CE7', fontWeight: '600' },
-  pickerScrollView: { maxHeight: 400 },
-  pickerOption: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: 16, borderRadius: 8, marginBottom: 8, backgroundColor: '#F8F9FA', minHeight: 48, gap: 12 },
-  pickerOptionSelected: { backgroundColor: '#E8F4FD' },
-  pickerOptionText: { flex: 1, fontSize: 16, color: '#2D3436', fontWeight: '500' },
-  pickerOptionTextSelected: { color: '#6C5CE7', fontWeight: '600' },
-  pickerBackButton: { paddingHorizontal: 12, paddingVertical: 6 },
-  clearFilterButton: { paddingHorizontal: 12, paddingVertical: 6 },
-  clearFilterText: { fontSize: 14, color: '#E74C3C', fontWeight: '500' },
-  filterMainOption: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16, paddingHorizontal: 16, borderRadius: 8, marginBottom: 8, backgroundColor: '#F8F9FA', minHeight: 56 },
-  filterMainOptionText: { fontSize: 16, color: '#2D3436', fontWeight: '500', flex: 1 },
-  filterCountBadge: { fontSize: 14, color: '#6C5CE7', fontWeight: '600', backgroundColor: '#E8F4FD', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10, minWidth: 24, textAlign: 'center' },
-  successModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center', padding: 20 },
-  successModalContent: { backgroundColor: '#fff', borderRadius: 20, padding: 32, alignItems: 'center', width: '100%', maxWidth: 400 },
-  successIconContainer: { marginBottom: 24 },
-  successTitle: { fontSize: 28, fontWeight: 'bold', color: '#2D3436', marginBottom: 8 },
-  successSubtitle: { fontSize: 16, color: '#636E72', marginBottom: 32 },
-  successButtons: { width: '100%', gap: 12 },
-  successButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', backgroundColor: '#fff', borderRadius: 12, padding: 16, borderWidth: 2, borderColor: '#6C5CE7', gap: 12 },
-  successButtonText: { fontSize: 16, fontWeight: '600', color: '#6C5CE7' },
-});

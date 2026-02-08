@@ -1,6 +1,8 @@
 import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
+import { Platform } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // 安全获取环境变量，避免启动时崩溃
 const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl || process.env.EXPO_PUBLIC_SUPABASE_URL || '';
@@ -24,6 +26,7 @@ export const supabase = createClient(
   supabaseAnonKey || 'placeholder-key',
   {
     auth: {
+      storage: Platform.OS === 'web' ? undefined : AsyncStorage,
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,

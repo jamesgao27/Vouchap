@@ -1048,10 +1048,22 @@ export default function InvoiceDetailsScreen() {
                   <Ionicons name="swap-horizontal" size={20} color="#fff" style={{ marginRight: 8 }} />
                   <Text style={styles.duplicateModalButtonReplaceText}>Replace only this</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge]} onPress={handleDuplicateNameMerge} activeOpacity={0.8}>
-                  <Ionicons name="git-merge-outline" size={20} color="#E74C3C" style={{ marginRight: 8 }} />
-                  <Text style={styles.duplicateModalButtonMergeText}>Replace all (Merge)</Text>
-                </TouchableOpacity>
+                {(() => {
+                  const hasLinkedForMerge = duplicateNameModalPayload?.code === 'ACCOUNT_NAME_EXISTS'
+                    ? !!invoice?.accountId
+                    : !!(invoice?.customerId ?? invoice?.customerSupplierId);
+                  return (
+                    <TouchableOpacity
+                      style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge, !hasLinkedForMerge && { opacity: 0.5 }]}
+                      onPress={hasLinkedForMerge ? handleDuplicateNameMerge : undefined}
+                      activeOpacity={0.8}
+                      disabled={!hasLinkedForMerge}
+                    >
+                      <Ionicons name="git-merge-outline" size={20} color="#E74C3C" style={{ marginRight: 8 }} />
+                      <Text style={styles.duplicateModalButtonMergeText}>Replace all (Merge)</Text>
+                    </TouchableOpacity>
+                  );
+                })()}
                 <TouchableOpacity style={[styles.duplicateModalButton, styles.duplicateModalButtonDontChange]} onPress={handleDuplicateNameDontChange} activeOpacity={0.8}>
                   <Ionicons name="time-outline" size={18} color="#95A5A6" style={{ marginRight: 6 }} />
                   <Text style={styles.duplicateModalButtonDontChangeText}>Do not replace</Text>

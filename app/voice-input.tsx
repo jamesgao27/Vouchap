@@ -23,6 +23,7 @@ import { saveInvoice, getInvoiceById } from '@/lib/invoices';
 import { saveInbound, getInboundById } from '@/lib/inbound';
 import { saveOutbound, getOutboundById } from '@/lib/outbound';
 import { saveChatLog, getChatLogsPaginated, VoucherLogType } from '@/lib/chat-logs';
+import { showAiInventory } from '@/lib/feature-flags';
 import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound } from '@/types';
 import { convertGeminiResultToReceipt, convertGeminiResultToInvoice, convertGeminiResultToInbound, convertGeminiResultToOutbound } from '@/lib/receipt-helpers';
 import { format } from 'date-fns';
@@ -72,6 +73,7 @@ export default function VoiceInputScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ type?: string }>();
   const voucherType: VoucherLogType = (params.type === 'invoice' || params.type === 'inbound' || params.type === 'outbound') ? params.type : 'receipt';
+  const isAiInventoryType = voucherType === 'inbound' || voucherType === 'outbound';
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmedReceipts, setConfirmedReceipts] = useState<Set<string>>(new Set());
@@ -122,6 +124,10 @@ export default function VoiceInputScreen() {
       setToastMessage(null);
     });
   };
+
+  useEffect(() => {
+    if (isAiInventoryType && !showAiInventory) router.replace('/');
+  }, [isAiInventoryType]);
 
   useEffect(() => {
     // 首次加载：拉取最近的历史聊天记录（例如最近 20 条）
@@ -967,6 +973,8 @@ export default function VoiceInputScreen() {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  if (isAiInventoryType && !showAiInventory) return null;
+
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
@@ -1140,7 +1148,7 @@ export default function VoiceInputScreen() {
                       }
 
                       try {
-                        // 再次确认小票是否存在，避免已被删除的情况
+                        // 再次确认小票是否存在，避免已被删除的情况；与 invoice/inbound/outbound 一致，用完整对象更新，避免 supplier 被置空
                         const receipt = await getReceiptById(message.receiptPreview.id);
                         if (!receipt) {
                           setMessages((prev) =>
@@ -1152,8 +1160,8 @@ export default function VoiceInputScreen() {
                           return;
                         }
 
-                        // 更新小票状态为已确认
-                        await updateReceipt(message.receiptPreview.id, { status: 'confirmed' });
+                        // 更新小票状态为已确认（传完整 receipt 与 invoice/inbound/outbound 确认逻辑一致）
+                        await updateReceipt(message.receiptPreview.id, { ...receipt, status: 'confirmed' });
 
                         // 更新本地状态
                         setConfirmedReceipts((prev) => new Set(prev).add(message.receiptPreview!.id!));

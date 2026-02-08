@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { showAiInventory } from '@/lib/feature-flags';
 
 /**
  * AI Inventory - Entry Hub
@@ -10,6 +12,12 @@ import { Ionicons } from '@expo/vector-icons';
  */
 export default function AIInventoryScreen() {
   const router = useRouter();
+
+  useEffect(() => {
+    if (!showAiInventory) router.replace('/');
+  }, []);
+
+  if (!showAiInventory) return null;
 
   const sections = [
     {
