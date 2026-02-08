@@ -176,7 +176,7 @@ export default function InvoiceDetailsScreen() {
           }
           await saveInvoice(reverted);
         }
-        Alert.alert('Success', 'Invoice confirmed and saved');
+        Alert.alert('Success', 'Income confirmed and saved');
         setEditing(false);
         loadInvoice();
       } catch (e: any) {
@@ -192,7 +192,7 @@ export default function InvoiceDetailsScreen() {
         id,
         status: 'confirmed' as VoucherStatus,
       });
-      Alert.alert('Success', 'Invoice confirmed and saved');
+      Alert.alert('Success', 'Income confirmed and saved');
       setEditing(false);
       loadInvoice();
     } catch (error: any) {
@@ -403,7 +403,7 @@ export default function InvoiceDetailsScreen() {
         const currentAccountId = invoice.accountId;
         const finalTargetId = payload.targetId;
         if (!currentAccountId || !finalTargetId) {
-          Alert.alert('Notice', 'This invoice has no linked account or target not found.');
+          Alert.alert('Notice', 'This income has no linked account or target not found.');
           return;
         }
         if (currentAccountId === finalTargetId) {
@@ -418,7 +418,7 @@ export default function InvoiceDetailsScreen() {
       const currentSource = invoice.customerId ? ('customer' as const) : invoice.customerSupplierId ? ('supplier' as const) : null;
       const currentId = invoice.customerId ?? invoice.customerSupplierId ?? null;
       if (!currentId || !currentSource) {
-        Alert.alert('Notice', 'This invoice has no linked customer to merge.');
+        Alert.alert('Notice', 'This income has no linked customer to merge.');
         return;
       }
       let finalTargetId = payload.targetId;
@@ -465,7 +465,7 @@ export default function InvoiceDetailsScreen() {
       });
       loadInvoice();
     } catch (error) {
-      Alert.alert('Error', 'Failed to confirm invoice');
+      Alert.alert('Error', 'Failed to confirm income');
       console.error(error);
     }
   };
@@ -576,7 +576,8 @@ export default function InvoiceDetailsScreen() {
         customerSupplier: { id: option.id, name: option.name } as any,
       });
     }
-    if (currentSource !== option.source || currentId !== option.id) {
+    // 从空改为选择时不弹三选项；仅当已有客户且换成另一个时弹窗
+    if ((currentSource !== option.source || currentId !== option.id) && currentId) {
       setDuplicateNameModalPayload({
         code: option.source === 'customer' ? 'CUSTOMER_NAME_EXISTS' : 'SUPPLIER_NAME_EXISTS',
         duplicateName: option.name,
@@ -746,7 +747,7 @@ export default function InvoiceDetailsScreen() {
   if (!invoice) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorText}>Invoice not found</Text>
+        <Text style={styles.errorText}>Income not found</Text>
       </View>
     );
   }
@@ -755,7 +756,7 @@ export default function InvoiceDetailsScreen() {
   if (!currentInvoice) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorText}>Invoice not found</Text>
+        <Text style={styles.errorText}>Income not found</Text>
       </View>
     );
   }
@@ -1238,7 +1239,8 @@ export default function InvoiceDetailsScreen() {
                         setPriceInputTexts({});
                       }
                       setShowAccountPicker(false);
-                      if (account.id !== currentAccountId) {
+                      // 从空改为选择时不弹三选项；仅当已有账户且换成另一个时弹窗
+                      if (account.id !== currentAccountId && invoice?.accountId) {
                         setDuplicateNameModalPayload({
                           code: 'ACCOUNT_NAME_EXISTS',
                           duplicateName: account.name,

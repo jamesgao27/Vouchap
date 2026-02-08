@@ -139,13 +139,13 @@ export default function VoiceInputScreen() {
         if (!logs || logs.length === 0) {
           let welcomeText: string;
           if (voucherType === 'invoice') {
-            welcomeText = 'Hi! Describe your invoice (sale / money received). I\'ll extract customer, amount, and items.\n\nExample: "Client ABC paid $500 on March 15 for consulting. Items: Service $500"';
+            welcomeText = 'Hi! Describe your income (sale / money received). I\'ll extract customer, amount, and items.\n\nExample: "Client ABC paid $500 on March 15 for consulting. Items: Service $500"';
           } else if (voucherType === 'inbound') {
             welcomeText = 'Hi! Describe your inbound (goods received from supplier). I\'ll extract supplier, date, and items with quantity and unit.\n\nExample: "ABC Supplier delivered on March 15: Widget A 10 boxes @ $50, Widget B 20 pcs"';
           } else if (voucherType === 'outbound') {
             welcomeText = 'Hi! Describe your outbound (goods shipped to customer). I\'ll extract customer, date, and items with quantity and unit.\n\nExample: "Shipped to XYZ Customer on March 15: Product A 5 boxes @ $60, Product B 10 pcs"';
           } else {
-            welcomeText = 'Hi! I can help you create receipts from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"';
+            welcomeText = 'Hi! I can help you create expenses from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"';
           }
           setMessages([{ id: 'welcome', text: welcomeText, isUser: false, timestamp: new Date() }]);
           setHasMoreHistory(false);
@@ -224,10 +224,10 @@ export default function VoiceInputScreen() {
 
         if (restoredMessages.length === 0) {
           let welcomeText: string;
-          if (voucherType === 'invoice') welcomeText = 'Hi! Describe your invoice (sale / money received). I\'ll extract customer, amount, and items.';
+          if (voucherType === 'invoice') welcomeText = 'Hi! Describe your income (sale / money received). I\'ll extract customer, amount, and items.';
           else if (voucherType === 'inbound') welcomeText = 'Hi! Describe your inbound (goods received). I\'ll extract supplier, date, and items with quantity and unit.';
           else if (voucherType === 'outbound') welcomeText = 'Hi! Describe your outbound (goods shipped). I\'ll extract customer, date, and items with quantity and unit.';
-          else welcomeText = 'Hi! I can help you create receipts from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"';
+          else welcomeText = 'Hi! I can help you create expenses from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"';
           setMessages([{ id: 'welcome', text: welcomeText, isUser: false, timestamp: new Date() }]);
           setHasMoreHistory(false);
         } else {
@@ -458,13 +458,13 @@ export default function VoiceInputScreen() {
         const invoice = await getInvoiceById(invoiceId);
         if (!invoice) {
           setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, invoiceDeleted: true } : m)));
-          Alert.alert('Invoice Deleted', 'This invoice has been deleted.');
+          Alert.alert('Income Deleted', 'This income has been deleted.');
           return;
         }
         router.push(`/invoice-details/${invoiceId}`);
       } catch (error) {
         setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, invoiceDeleted: true } : m)));
-        Alert.alert('Invoice Deleted', 'This invoice has been deleted.');
+        Alert.alert('Income Deleted', 'This income has been deleted.');
       }
       return;
     }
@@ -506,13 +506,13 @@ export default function VoiceInputScreen() {
       const receipt = await getReceiptById(receiptId);
       if (!receipt) {
         setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, receiptDeleted: true } : m)));
-        Alert.alert('Receipt Deleted', 'This receipt has been deleted.');
+        Alert.alert('Expense Deleted', 'This expense has been deleted.');
         return;
       }
       router.push(`/receipt-details/${receiptId}`);
     } catch (error) {
       setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, receiptDeleted: true } : m)));
-      Alert.alert('Receipt Deleted', 'This receipt has been deleted.');
+      Alert.alert('Expense Deleted', 'This expense has been deleted.');
     }
   };
 
@@ -1055,7 +1055,7 @@ export default function VoiceInputScreen() {
               <View style={styles.receiptPreviewCard}>
                 <View style={styles.receiptPreviewHeader}>
                   <Ionicons name="receipt" size={20} color="#6C5CE7" />
-                  <Text style={styles.receiptPreviewTitle}>Receipt Preview</Text>
+                  <Text style={styles.receiptPreviewTitle}>Expenses Preview</Text>
                 </View>
                 <View style={styles.receiptPreviewContent}>
                   <View style={styles.receiptPreviewRow}>
@@ -1135,7 +1135,7 @@ export default function VoiceInputScreen() {
 
                       // 已删除的记录，不再允许确认，直接提示
                       if (message.receiptDeleted) {
-                        Alert.alert('Receipt Deleted', 'This receipt has been deleted.');
+                        Alert.alert('Expense Deleted', 'This expense has been deleted.');
                         return;
                       }
 
@@ -1156,7 +1156,7 @@ export default function VoiceInputScreen() {
                               msg.id === message.id ? { ...msg, receiptDeleted: true } : msg,
                             ),
                           );
-                          Alert.alert('Receipt Deleted', 'This receipt has been deleted.');
+                          Alert.alert('Expense Deleted', 'This expense has been deleted.');
                           return;
                         }
 
@@ -1228,7 +1228,7 @@ export default function VoiceInputScreen() {
               <View style={styles.receiptPreviewCard}>
                 <View style={styles.receiptPreviewHeader}>
                   <Ionicons name="document-text" size={20} color="#6C5CE7" />
-                  <Text style={styles.receiptPreviewTitle}>Invoice Preview</Text>
+                  <Text style={styles.receiptPreviewTitle}>Income Preview</Text>
                 </View>
                 <View style={styles.receiptPreviewContent}>
                   <View style={styles.receiptPreviewRow}>
@@ -1294,7 +1294,7 @@ export default function VoiceInputScreen() {
                       try {
                         const fullInvoice = await getInvoiceById(message.invoicePreview.id);
                         if (!fullInvoice) {
-                          Alert.alert('Error', 'Invoice not found.');
+                          Alert.alert('Error', 'Income not found.');
                           return;
                         }
                         await saveInvoice({ ...fullInvoice, status: 'confirmed' });

@@ -23,7 +23,7 @@ export default function RootLayout() {
         <Stack.Screen 
           name="receipts" 
           options={{ 
-            title: 'All Receipts',
+            title: 'Expenses',
             headerBackTitle: 'Home'
           }} 
         />
@@ -37,7 +37,7 @@ export default function RootLayout() {
         <Stack.Screen 
           name="invoices" 
           options={{ 
-            title: 'Invoices',
+            title: 'Income',
             headerBackTitle: 'Back'
           }} 
         />
@@ -88,13 +88,13 @@ export default function RootLayout() {
         <Stack.Screen 
           name="receipt-details/[id]" 
           options={{ 
-            title: 'Receipt Details'
+            title: 'Expenses Details'
           }} 
         />
         <Stack.Screen 
           name="invoice-details/[id]" 
           options={{ 
-            title: 'Invoice Details'
+            title: 'Income Details'
           }} 
         />
         <Stack.Screen 
@@ -189,7 +189,7 @@ export default function RootLayout() {
         <Stack.Screen 
           name="manual-entry" 
           options={{ 
-            title: 'Add Receipt',
+            title: 'Add Expense',
             presentation: 'modal'
           }} 
         />

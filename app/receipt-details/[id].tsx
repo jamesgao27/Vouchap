@@ -632,7 +632,8 @@ export default function ReceiptDetailsScreen() {
         supplierCustomer: { id: option.id, name: option.name } as any,
       });
     }
-    if (currentSource !== option.source || currentId !== option.id) {
+    // 从空改为选择时不弹三选项；仅当已有供应商/客户且换成另一个时弹窗
+    if ((currentSource !== option.source || currentId !== option.id) && (receipt?.supplierId ?? receipt?.supplierCustomerId)) {
       setDuplicateNameModalPayload({
         code: option.source === 'supplier' ? 'SUPPLIER_NAME_EXISTS' : 'CUSTOMER_NAME_EXISTS',
         duplicateName: option.name,
@@ -883,7 +884,7 @@ export default function ReceiptDetailsScreen() {
   if (!receipt) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorText}>Receipt not found</Text>
+        <Text style={styles.errorText}>Expense not found</Text>
       </View>
     );
   }
@@ -893,7 +894,7 @@ export default function ReceiptDetailsScreen() {
   if (!currentReceipt) {
     return (
       <View style={styles.container}>
-        <Text style={styles.errorText}>Receipt not found</Text>
+        <Text style={styles.errorText}>Expense not found</Text>
       </View>
     );
   }
@@ -1741,7 +1742,8 @@ export default function ReceiptDetailsScreen() {
         setPriceInputTexts(priceTexts);
                       }
                       setShowAccountPicker(false);
-                      if (account.id !== currentAccountId) {
+                      // 从空改为选择时不弹三选项；仅当已有账户且换成另一个时弹窗
+                      if (account.id !== currentAccountId && receipt?.accountId) {
                         setDuplicateNameModalPayload({
                           code: 'ACCOUNT_NAME_EXISTS',
                           duplicateName: account.name,

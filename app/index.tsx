@@ -41,7 +41,9 @@ export default function HomeScreen() {
   const isCompact = screenHeight < 750 || screenWidth < 360;
   const mainCircleSize = isCompact ? 160 : 200;
   const chatCircleSize = isCompact ? 120 : 150;
-  const sloganMarginBottom = isCompact ? 16 : 30;
+  const sloganMarginBottom = isCompact ? 4 : 8;
+  const sloganLineHeight = sloganFontSize * 1.15;
+  const sloganBlockMarginBottom = isCompact ? 8 : 12;
 
   useEffect(() => {
     checkAuth();
@@ -541,7 +543,7 @@ export default function HomeScreen() {
 
       } catch (error) {
         console.error('Processing error:', error);
-        Alert.alert('Error', 'Failed to process receipt.');
+        Alert.alert('Error', 'Failed to process expense.');
         setShowSuccessModal(false);
       }
     })();
@@ -607,16 +609,16 @@ export default function HomeScreen() {
       </View>
       
       <View style={styles.content}>
-        <Text style={[styles.title, { fontSize: sloganFontSize }]}>📸</Text>
+        <Text style={[styles.title, { fontSize: sloganFontSize, lineHeight: sloganLineHeight, marginBottom: sloganMarginBottom }]}>📸</Text>
         <Text
-          style={[styles.title, { fontSize: sloganFontSize, marginBottom: sloganMarginBottom }]}
+          style={[styles.title, { fontSize: sloganFontSize, lineHeight: sloganLineHeight, marginBottom: sloganMarginBottom }]}
           numberOfLines={1}
           adjustsFontSizeToFit
         >
           Voucher Snapping,
         </Text>
         <Text
-          style={[styles.subtitle, { fontSize: sloganFontSize, marginBottom: sloganMarginBottom }]}
+          style={[styles.subtitle, { fontSize: sloganFontSize, lineHeight: sloganLineHeight, marginBottom: sloganBlockMarginBottom }]}
           numberOfLines={1}
           adjustsFontSizeToFit
         >
@@ -624,7 +626,7 @@ export default function HomeScreen() {
         </Text>
         
         <TouchableOpacity 
-          style={styles.iconContainer}
+          style={[styles.iconContainer, { marginTop: sloganBlockMarginBottom }]}
           onPress={handleCameraPress}
           activeOpacity={0.8}
           disabled={isProcessing}
@@ -650,7 +652,7 @@ export default function HomeScreen() {
         onPress={() => router.push('/receipts')}
       >
         <Ionicons name="list-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
-        <Text style={styles.secondaryButtonText}>Receipts List</Text>
+        <Text style={styles.secondaryButtonText}>Expenses</Text>
       </TouchableOpacity>
 
       {SHOW_AI_INVENTORY_ENTRY && (
@@ -753,7 +755,7 @@ export default function HomeScreen() {
               <Ionicons name="checkmark-circle" size={64} color="#00B894" />
             </View>
             <Text style={styles.successTitle}>Submitted!</Text>
-            <Text style={styles.successSubtitle}>Receipt is being processed</Text>
+            <Text style={styles.successSubtitle}>Expense is being processed</Text>
             <View style={styles.successButtons}>
               <TouchableOpacity
                 style={styles.successButton}
@@ -959,7 +961,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   iconContainer: {
-    marginTop: 20,
+    marginTop: 12,
   },
   circle: {
     width: 200,

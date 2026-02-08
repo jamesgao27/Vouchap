@@ -88,7 +88,7 @@ export default function InvoicesScreen() {
       const data = await getAllInvoices();
       setInvoices(data);
     } catch (error) {
-      Alert.alert('Error', 'Failed to load invoices');
+      Alert.alert('Error', 'Failed to load income');
       console.error(error);
     } finally {
       setLoading(false);
@@ -118,7 +118,7 @@ export default function InvoicesScreen() {
       loadInvoices();
       router.push(`/invoice-details/${id}?new=true`);
     } catch (e) {
-      Alert.alert('Error', 'Failed to create invoice');
+      Alert.alert('Error', 'Failed to create income');
       console.error(e);
     }
   };
@@ -154,8 +154,8 @@ export default function InvoicesScreen() {
 
   const handleDeleteSingle = async (invoiceId: string) => {
     Alert.alert(
-      'Delete Invoice',
-      'Are you sure you want to delete this invoice?',
+      'Delete Income',
+      'Are you sure you want to delete this income?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -167,7 +167,7 @@ export default function InvoicesScreen() {
               setInvoices(prev => prev.filter(r => r.id !== invoiceId));
               setSelectedIds(prev => { const s = new Set(prev); s.delete(invoiceId); return s; });
             } catch (error) {
-              Alert.alert('Error', 'Failed to delete invoice');
+              Alert.alert('Error', 'Failed to delete income');
               loadInvoices();
             }
           },
@@ -179,8 +179,8 @@ export default function InvoicesScreen() {
   const handleBatchDelete = () => {
     if (selectedIds.size === 0) return;
     Alert.alert(
-      'Delete Invoices',
-      `Delete ${selectedIds.size} invoice(s)?`,
+      'Delete Income',
+      `Delete ${selectedIds.size} income entry/entries?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -193,7 +193,7 @@ export default function InvoicesScreen() {
               setInvoices(prev => prev.filter(r => r.id && !idsToDelete.includes(r.id)));
               setSelectedIds(new Set());
             } catch (error) {
-              Alert.alert('Error', 'Failed to delete some invoices');
+              Alert.alert('Error', 'Failed to delete some income');
               loadInvoices();
             }
           },
@@ -539,7 +539,7 @@ export default function InvoicesScreen() {
               <View style={styles.sectionHeaderContent}>
                 <Text style={styles.sectionTitle}>{section.title}</Text>
                 <View style={styles.sectionHeaderRight}>
-                  <Text style={styles.sectionCount}>{confirmed.length} invoices</Text>
+                  <Text style={styles.sectionCount}>{confirmed.length} income</Text>
                   <AmountText amount={totalAmount} currency={dominantCurrency} style={styles.sectionAmount} />
                   <Ionicons name={isCollapsed ? 'chevron-forward' : 'chevron-down'} size={20} color="#636E72" />
                 </View>
@@ -551,8 +551,8 @@ export default function InvoicesScreen() {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Ionicons name="document-text-outline" size={64} color="#BDC3C7" />
-            <Text style={styles.emptyText}>No invoices yet</Text>
-            <Text style={styles.emptySubtext}>Tap + to add an invoice</Text>
+            <Text style={styles.emptyText}>No income yet</Text>
+            <Text style={styles.emptySubtext}>Tap + to add income</Text>
           </View>
         }
         contentContainerStyle={sections.length === 0 ? styles.emptyList : styles.listContent}

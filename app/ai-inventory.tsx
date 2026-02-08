@@ -23,14 +23,14 @@ export default function AIInventoryScreen() {
     {
       title: 'Purchase',
       items: [
-        { label: 'Receipts', route: '/receipts', icon: 'receipt-outline' as const },
+        { label: 'Expenses', route: '/receipts', icon: 'receipt-outline' as const },
         { label: 'Inbound Lists', route: '/inbound', icon: 'arrow-down-circle-outline' as const },
       ],
     },
     {
       title: 'Sales',
       items: [
-        { label: 'Invoices', route: '/invoices', icon: 'document-text-outline' as const },
+        { label: 'Income', route: '/invoices', icon: 'document-text-outline' as const },
         { label: 'Outbound Lists', route: '/outbound', icon: 'arrow-up-circle-outline' as const },
       ],
     },

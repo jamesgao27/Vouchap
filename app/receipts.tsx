@@ -136,7 +136,7 @@ export default function ReceiptsScreen() {
       const data = await getAllReceipts();
       setReceipts(data);
     } catch (error) {
-      Alert.alert('Error', 'Failed to load receipts');
+      Alert.alert('Error', 'Failed to load expenses');
       console.error(error);
     } finally {
       setLoading(false);
@@ -269,7 +269,7 @@ export default function ReceiptsScreen() {
           .catch(err => console.error('Background processing failed:', err));
       } catch (error) {
         console.error('Processing error:', error);
-        Alert.alert('Error', 'Failed to process receipt.');
+        Alert.alert('Error', 'Failed to process expense.');
         setShowSuccessModal(false);
       }
     })();
@@ -469,8 +469,8 @@ export default function ReceiptsScreen() {
 
   const handleDeleteSingle = async (receiptId: string) => {
     Alert.alert(
-      'Delete Receipt',
-      'Are you sure you want to delete this receipt?',
+      'Delete Expense',
+      'Are you sure you want to delete this expense?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -487,7 +487,7 @@ export default function ReceiptsScreen() {
                 return newSet;
               });
               } catch (error) {
-              Alert.alert('Error', 'Failed to delete receipt');
+              Alert.alert('Error', 'Failed to delete expense');
               // 如果失败，重新加载以确保数据一致
               loadReceipts();
               }
@@ -501,8 +501,8 @@ export default function ReceiptsScreen() {
     if (selectedIds.size === 0) return;
     
     Alert.alert(
-      'Delete Receipts',
-      `Are you sure you want to delete ${selectedIds.size} receipt(s)?`,
+      'Delete Expenses',
+      `Are you sure you want to delete ${selectedIds.size} expense(s)?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -517,7 +517,7 @@ export default function ReceiptsScreen() {
               setReceipts(prev => prev.filter(r => r.id && !idsToDelete.includes(r.id)));
               setSelectedIds(new Set());
             } catch (error) {
-              Alert.alert('Error', 'Failed to delete some receipts');
+              Alert.alert('Error', 'Failed to delete some expenses');
               // 如果失败，重新加载以确保数据一致
               loadReceipts();
             }

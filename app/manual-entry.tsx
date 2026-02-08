@@ -85,7 +85,7 @@ export default function ManualEntryScreen() {
       router.back();
     } catch (error) {
       console.error('Error saving receipt:', error);
-      Alert.alert('Error', 'Failed to save receipt. Please try again.');
+      Alert.alert('Error', 'Failed to save expense. Please try again.');
     } finally {
       setIsSaving(false);
     }
@@ -107,7 +107,7 @@ export default function ManualEntryScreen() {
         >
           <Ionicons name="arrow-back" size={24} color="#2D3436" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Add Receipt</Text>
+        <Text style={styles.headerTitle}>Add Expense</Text>
         <View style={styles.placeholder} />
       </View>
 
