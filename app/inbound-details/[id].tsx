@@ -294,7 +294,8 @@ export default function InboundDetailsScreen() {
       supplierId: option.id,
     });
     const currentId = inbound?.supplierId;
-    if (option.id !== currentId) {
+    // 从空改为选择时不弹三选项；仅当已有供应商且换成另一个时弹窗
+    if (option.id !== currentId && currentId) {
       setDuplicateNameModalPayload({
         code: option.source === 'supplier' ? 'SUPPLIER_NAME_EXISTS' : 'CUSTOMER_NAME_EXISTS',
         duplicateName: option.name,

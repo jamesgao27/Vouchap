@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,11 +10,12 @@ import {
   TextInput,
   KeyboardAvoidingView,
   Platform,
-  ScrollView,
+  FlatList,
   Keyboard,
   Animated,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio, recognizeInboundFromText, recognizeInboundFromAudio, recognizeOutboundFromText, recognizeOutboundFromAudio } from '@/lib/gemini';
@@ -84,8 +85,9 @@ export default function VoiceInputScreen() {
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [oldestLoadedAt, setOldestLoadedAt] = useState<string | null>(null);
-  const scrollViewRef = useRef<ScrollView>(null);
+  const listRef = useRef<FlatList<Message>>(null);
   const inputRef = useRef<TextInput>(null);
+  const messagesRef = useRef<Message[]>([]);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   
   // 语音模式相关状态（默认语音模式）
@@ -126,15 +128,75 @@ export default function VoiceInputScreen() {
   };
 
   useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
     if (isAiInventoryType && !showAiInventory) router.replace('/');
   }, [isAiInventoryType]);
 
+  useFocusEffect(
+    useCallback(() => {
+      let isActive = true;
+      const current = messagesRef.current;
+      const hasPreviews = current.some(
+        (m) => m.receiptPreview?.id || m.invoicePreview?.id || m.inboundPreview?.id || m.outboundPreview?.id,
+      );
+      if (!hasPreviews || current.length === 0) return;
+      (async () => {
+        const enriched = await Promise.all(
+          current.map(async (msg) => {
+            if (msg.invoicePreview?.id) {
+              try {
+                const invoice = await getInvoiceById(msg.invoicePreview.id);
+                if (!invoice) return { ...msg, invoiceDeleted: true };
+                return { ...msg, invoicePreview: invoice, invoiceDeleted: false };
+              } catch {
+                return { ...msg, invoiceDeleted: true };
+              }
+            }
+            if (msg.inboundPreview?.id) {
+              try {
+                const inbound = await getInboundById(msg.inboundPreview.id);
+                if (!inbound) return { ...msg, inboundDeleted: true };
+                return { ...msg, inboundPreview: inbound, inboundDeleted: false };
+              } catch {
+                return { ...msg, inboundDeleted: true };
+              }
+            }
+            if (msg.outboundPreview?.id) {
+              try {
+                const outbound = await getOutboundById(msg.outboundPreview.id);
+                if (!outbound) return { ...msg, outboundDeleted: true };
+                return { ...msg, outboundPreview: outbound, outboundDeleted: false };
+              } catch {
+                return { ...msg, outboundDeleted: true };
+              }
+            }
+            if (!msg.receiptPreview?.id) return msg;
+            try {
+              const receipt = await getReceiptById(msg.receiptPreview.id);
+              if (!receipt) return { ...msg, receiptDeleted: true };
+              return { ...msg, receiptPreview: receipt, receiptDeleted: false };
+            } catch {
+              return { ...msg, receiptDeleted: true };
+            }
+          }),
+        );
+        if (isActive) setMessages(enriched);
+      })();
+      return () => {
+        isActive = false;
+      };
+    }, []),
+  );
+
   useEffect(() => {
-    // 首次加载：拉取最近的历史聊天记录（例如最近 20 条）
+    // 首次加载：拉取最近 5 条历史（从下往上显示，避免卡顿）
     const loadInitialHistory = async () => {
       try {
         setIsLoadingHistory(true);
-        const logs = await getChatLogsPaginated(20, undefined, voucherType);
+        const logs = await getChatLogsPaginated(5, undefined, voucherType);
 
         if (!logs || logs.length === 0) {
           let welcomeText: string;
@@ -157,10 +219,10 @@ export default function VoiceInputScreen() {
           (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
         );
 
+        // 首次加载：先 push 提交内容再 push 卡片，reverse 后为 [最新…最早]，inverted 下卡片在下、提交在上
         const restoredMessages: Message[] = [];
 
         for (const log of sorted) {
-          // 用户输入（包含语音录入的 audioUrl）
           if (log.prompt) {
             restoredMessages.push({
               id: `${log.id}-prompt`,
@@ -170,7 +232,6 @@ export default function VoiceInputScreen() {
               audioUrl: log.audioUrl,
             });
           }
-
           const logType = log.voucherType ?? 'receipt';
           if (log.responseData?.invoicePreview && logType === 'invoice') {
             const preview = log.responseData.invoicePreview as Invoice;
@@ -237,7 +298,7 @@ export default function VoiceInputScreen() {
                 try {
                   const invoice = await getInvoiceById(msg.invoicePreview.id);
                   if (!invoice) return { ...msg, invoiceDeleted: true };
-                  return { ...msg, invoicePreview: { ...msg.invoicePreview, status: invoice.status }, invoiceDeleted: false };
+                  return { ...msg, invoicePreview: invoice, invoiceDeleted: false };
                 } catch {
                   return { ...msg, invoiceDeleted: true };
                 }
@@ -246,7 +307,7 @@ export default function VoiceInputScreen() {
                 try {
                   const inbound = await getInboundById(msg.inboundPreview.id);
                   if (!inbound) return { ...msg, inboundDeleted: true };
-                  return { ...msg, inboundPreview: { ...msg.inboundPreview, status: inbound.status }, inboundDeleted: false };
+                  return { ...msg, inboundPreview: inbound, inboundDeleted: false };
                 } catch {
                   return { ...msg, inboundDeleted: true };
                 }
@@ -255,7 +316,7 @@ export default function VoiceInputScreen() {
                 try {
                   const outbound = await getOutboundById(msg.outboundPreview.id);
                   if (!outbound) return { ...msg, outboundDeleted: true };
-                  return { ...msg, outboundPreview: { ...msg.outboundPreview, status: outbound.status }, outboundDeleted: false };
+                  return { ...msg, outboundPreview: outbound, outboundDeleted: false };
                 } catch {
                   return { ...msg, outboundDeleted: true };
                 }
@@ -264,21 +325,18 @@ export default function VoiceInputScreen() {
               try {
                 const receipt = await getReceiptById(msg.receiptPreview.id);
                 if (!receipt) return { ...msg, receiptDeleted: true };
-                return {
-                  ...msg,
-                  receiptPreview: { ...msg.receiptPreview, status: receipt.status as ReceiptStatus },
-                  receiptDeleted: false,
-                };
+                return { ...msg, receiptPreview: receipt, receiptDeleted: false };
               } catch {
                 return { ...msg, receiptDeleted: true };
               }
             }),
           );
 
-          setMessages(enriched);
+          // 存为 [最新…最早]，配合 inverted FlatList：最新在底部，往上滑加载更早
+          setMessages(enriched.reverse());
           const oldest = sorted[sorted.length - 1];
           setOldestLoadedAt(oldest.createdAt);
-          setHasMoreHistory(sorted.length >= 20);
+          setHasMoreHistory(sorted.length >= 5);
         }
       } catch (error) {
         console.error('Error loading initial chat history:', error);
@@ -315,141 +373,139 @@ export default function VoiceInputScreen() {
     };
   }, [voucherType]);
 
-  // 向上滚动时加载更多历史记录
-  const handleScroll = async (event: any) => {
+  // 往上滑（看更早消息）时提前加载历史，由 FlatList onEndReached 触发
+  const loadMoreHistory = useCallback(async () => {
     if (!hasMoreHistory || isLoadingHistory || !oldestLoadedAt) return;
+    try {
+      setIsLoadingHistory(true);
+      const moreLogs = await getChatLogsPaginated(20, oldestLoadedAt, voucherType);
 
-    const { contentOffset } = event.nativeEvent;
-    if (contentOffset.y <= 0) {
-      try {
-        setIsLoadingHistory(true);
-        const moreLogs = await getChatLogsPaginated(20, oldestLoadedAt, voucherType);
-
-        if (!moreLogs || moreLogs.length === 0) {
-          setHasMoreHistory(false);
-          return;
-        }
-
-        const sorted = [...moreLogs].sort(
-          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-        );
-
-        const moreMessagesRaw: Message[] = [];
-        for (const log of sorted) {
-          if (log.prompt) {
-            moreMessagesRaw.push({
-              id: `${log.id}-prompt`,
-              text: log.prompt,
-              isUser: true,
-              timestamp: new Date(log.createdAt),
-            });
-          }
-          const logType = log.voucherType ?? 'receipt';
-          if (log.responseData?.invoicePreview && logType === 'invoice') {
-            const preview = log.responseData.invoicePreview as Invoice;
-            moreMessagesRaw.push({
-              id: `${log.id}-preview`,
-              text: '',
-              isUser: false,
-              timestamp: new Date(log.createdAt),
-              invoicePreview: preview,
-              voucherType: 'invoice',
-            });
-          } else if (log.responseData?.inboundPreview && logType === 'inbound') {
-            const preview = log.responseData.inboundPreview as Inbound;
-            moreMessagesRaw.push({
-              id: `${log.id}-preview`,
-              text: '',
-              isUser: false,
-              timestamp: new Date(log.createdAt),
-              inboundPreview: preview,
-              voucherType: 'inbound',
-            });
-          } else if (log.responseData?.outboundPreview && logType === 'outbound') {
-            const preview = log.responseData.outboundPreview as Outbound;
-            moreMessagesRaw.push({
-              id: `${log.id}-preview`,
-              text: '',
-              isUser: false,
-              timestamp: new Date(log.createdAt),
-              outboundPreview: preview,
-              voucherType: 'outbound',
-            });
-          } else if (log.responseData?.receiptPreview) {
-            const preview = log.responseData.receiptPreview as Receipt;
-            moreMessagesRaw.push({
-              id: `${log.id}-preview`,
-              text: '',
-              isUser: false,
-              timestamp: new Date(log.createdAt),
-              receiptPreview: preview,
-              voucherType: 'receipt',
-            });
-          } else if (log.response) {
-            moreMessagesRaw.push({
-              id: `${log.id}-response`,
-              text: log.response,
-              isUser: false,
-              timestamp: new Date(log.createdAt),
-            });
-          }
-        }
-
-        const moreMessages = await Promise.all(
-          moreMessagesRaw.map(async (msg) => {
-            if (msg.invoicePreview?.id) {
-              try {
-                const invoice = await getInvoiceById(msg.invoicePreview.id);
-                if (!invoice) return { ...msg, invoiceDeleted: true };
-                return { ...msg, invoicePreview: { ...msg.invoicePreview, status: invoice.status }, invoiceDeleted: false };
-              } catch {
-                return { ...msg, invoiceDeleted: true };
-              }
-            }
-            if (msg.inboundPreview?.id) {
-              try {
-                const inbound = await getInboundById(msg.inboundPreview.id);
-                if (!inbound) return { ...msg, inboundDeleted: true };
-                return { ...msg, inboundPreview: { ...msg.inboundPreview, status: inbound.status }, inboundDeleted: false };
-              } catch {
-                return { ...msg, inboundDeleted: true };
-              }
-            }
-            if (msg.outboundPreview?.id) {
-              try {
-                const outbound = await getOutboundById(msg.outboundPreview.id);
-                if (!outbound) return { ...msg, outboundDeleted: true };
-                return { ...msg, outboundPreview: { ...msg.outboundPreview, status: outbound.status }, outboundDeleted: false };
-              } catch {
-                return { ...msg, outboundDeleted: true };
-              }
-            }
-            if (!msg.receiptPreview?.id) return msg;
-            try {
-              const receipt = await getReceiptById(msg.receiptPreview.id);
-              if (!receipt) return { ...msg, receiptDeleted: true };
-              return {
-                ...msg,
-                receiptPreview: { ...msg.receiptPreview, status: receipt.status as ReceiptStatus },
-                receiptDeleted: false,
-              };
-            } catch {
-              return { ...msg, receiptDeleted: true };
-            }
-          }),
-        );
-
-        setMessages((prev) => [...moreMessages, ...prev]);
-        const oldest = sorted[sorted.length - 1];
-        setOldestLoadedAt(oldest.createdAt);
-        setHasMoreHistory(sorted.length >= 20);
-      } catch (error) {
-        console.error('Error loading more chat history:', error);
-      } finally {
-        setIsLoadingHistory(false);
+      if (!moreLogs || moreLogs.length === 0) {
+        setHasMoreHistory(false);
+        return;
       }
+
+      const sorted = [...moreLogs].sort(
+        (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
+
+      // 每条记录顺序：先卡片（靠下），再提交内容（靠上），inverted 下显示为卡片在下、提交在上
+      const moreMessagesRaw: Message[] = [];
+      for (const log of sorted) {
+        const logType = log.voucherType ?? 'receipt';
+        if (log.responseData?.invoicePreview && logType === 'invoice') {
+          const preview = log.responseData.invoicePreview as Invoice;
+          moreMessagesRaw.push({
+            id: `${log.id}-preview`,
+            text: '',
+            isUser: false,
+            timestamp: new Date(log.createdAt),
+            invoicePreview: preview,
+            voucherType: 'invoice',
+          });
+        } else if (log.responseData?.inboundPreview && logType === 'inbound') {
+          const preview = log.responseData.inboundPreview as Inbound;
+          moreMessagesRaw.push({
+            id: `${log.id}-preview`,
+            text: '',
+            isUser: false,
+            timestamp: new Date(log.createdAt),
+            inboundPreview: preview,
+            voucherType: 'inbound',
+          });
+        } else if (log.responseData?.outboundPreview && logType === 'outbound') {
+          const preview = log.responseData.outboundPreview as Outbound;
+          moreMessagesRaw.push({
+            id: `${log.id}-preview`,
+            text: '',
+            isUser: false,
+            timestamp: new Date(log.createdAt),
+            outboundPreview: preview,
+            voucherType: 'outbound',
+          });
+        } else if (log.responseData?.receiptPreview) {
+          const preview = log.responseData.receiptPreview as Receipt;
+          moreMessagesRaw.push({
+            id: `${log.id}-preview`,
+            text: '',
+            isUser: false,
+            timestamp: new Date(log.createdAt),
+            receiptPreview: preview,
+            voucherType: 'receipt',
+          });
+        } else if (log.response) {
+          moreMessagesRaw.push({
+            id: `${log.id}-response`,
+            text: log.response,
+            isUser: false,
+            timestamp: new Date(log.createdAt),
+          });
+        }
+        if (log.prompt) {
+          moreMessagesRaw.push({
+            id: `${log.id}-prompt`,
+            text: log.prompt,
+            isUser: true,
+            timestamp: new Date(log.createdAt),
+          });
+        }
+      }
+
+      const moreMessages = await Promise.all(
+        moreMessagesRaw.map(async (msg) => {
+          if (msg.invoicePreview?.id) {
+            try {
+              const invoice = await getInvoiceById(msg.invoicePreview.id);
+              if (!invoice) return { ...msg, invoiceDeleted: true };
+              return { ...msg, invoicePreview: invoice, invoiceDeleted: false };
+            } catch {
+              return { ...msg, invoiceDeleted: true };
+            }
+          }
+          if (msg.inboundPreview?.id) {
+            try {
+              const inbound = await getInboundById(msg.inboundPreview.id);
+              if (!inbound) return { ...msg, inboundDeleted: true };
+              return { ...msg, inboundPreview: inbound, inboundDeleted: false };
+            } catch {
+              return { ...msg, inboundDeleted: true };
+            }
+          }
+          if (msg.outboundPreview?.id) {
+            try {
+              const outbound = await getOutboundById(msg.outboundPreview.id);
+              if (!outbound) return { ...msg, outboundDeleted: true };
+              return { ...msg, outboundPreview: outbound, outboundDeleted: false };
+            } catch {
+              return { ...msg, outboundDeleted: true };
+            }
+          }
+          if (!msg.receiptPreview?.id) return msg;
+          try {
+            const receipt = await getReceiptById(msg.receiptPreview.id);
+            if (!receipt) return { ...msg, receiptDeleted: true };
+            return { ...msg, receiptPreview: receipt, receiptDeleted: false };
+          } catch {
+            return { ...msg, receiptDeleted: true };
+          }
+        }),
+      );
+
+      // 按 id 去重，避免分页重叠导致重复 key
+      setMessages((prev) => {
+        const existingIds = new Set(prev.map((m) => m.id));
+        const newOnes = moreMessages.filter((m) => !existingIds.has(m.id));
+        return newOnes.length ? [...prev, ...newOnes] : prev;
+      });
+      const oldest = sorted[sorted.length - 1];
+      setOldestLoadedAt(oldest.createdAt);
+      setHasMoreHistory(sorted.length >= 20);
+    } catch (error) {
+      console.error('Error loading more chat history:', error);
+    } finally {
+      setIsLoadingHistory(false);
     }
-  };
+  }, [hasMoreHistory, isLoadingHistory, oldestLoadedAt, voucherType]);
 
   const handlePreviewDetails = async (message: Message) => {
     const invoiceId = message.invoicePreview?.id;
@@ -527,13 +583,13 @@ export default function VoiceInputScreen() {
       isUser: true,
       timestamp: new Date(),
     };
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => [userMessage, ...prev]);
     setInputText('');
     setIsProcessing(true);
 
     // 滚动到底部
     setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
+      listRef.current?.scrollToOffset({ offset: 0, animated: true });
     }, 100);
 
     try {
@@ -555,7 +611,7 @@ export default function VoiceInputScreen() {
           } as Invoice,
           voucherType: 'invoice',
         };
-        setMessages(prev => [...prev, previewMessage]);
+        setMessages(prev => [previewMessage, ...prev]);
         await saveChatLog({
           receiptId: undefined,
           voucherType: 'invoice',
@@ -580,7 +636,7 @@ export default function VoiceInputScreen() {
           inboundPreview: { ...inboundToSave, id: inboundId, status: 'pending' },
           voucherType: 'inbound',
         };
-        setMessages(prev => [...prev, previewMessage]);
+        setMessages(prev => [previewMessage, ...prev]);
         await saveChatLog({
           receiptId: undefined,
           voucherType: 'inbound',
@@ -605,7 +661,7 @@ export default function VoiceInputScreen() {
           outboundPreview: { ...outboundToSave, id: outboundId, status: 'pending' },
           voucherType: 'outbound',
         };
-        setMessages(prev => [...prev, previewMessage]);
+        setMessages(prev => [previewMessage, ...prev]);
         await saveChatLog({
           receiptId: undefined,
           voucherType: 'outbound',
@@ -634,7 +690,7 @@ export default function VoiceInputScreen() {
             account: result.paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: result.paymentAccountName, isAiRecognized: true } : undefined,
           },
         };
-        setMessages(prev => [...prev, previewMessage]);
+        setMessages(prev => [previewMessage, ...prev]);
         await saveChatLog({
           receiptId,
           voucherType: 'receipt',
@@ -650,7 +706,7 @@ export default function VoiceInputScreen() {
 
       // 滚动到底部
       setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
+        listRef.current?.scrollToOffset({ offset: 0, animated: true });
       }, 100);
     } catch (error) {
       console.error('Error processing text:', error);
@@ -662,11 +718,11 @@ export default function VoiceInputScreen() {
         isUser: false,
         timestamp: new Date(),
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => [errorMessage, ...prev]);
 
       // 滚动到底部
       setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
+        listRef.current?.scrollToOffset({ offset: 0, animated: true });
       }, 100);
     } finally {
       setIsProcessing(false);
@@ -777,11 +833,11 @@ export default function VoiceInputScreen() {
         timestamp: new Date(),
         audioUrl: localUri, // 暂用本地 URI，上传后更新
       };
-      setMessages(prev => [...prev, userMessage]);
+      setMessages(prev => [userMessage, ...prev]);
       
       // 滚动到底部
       setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
+        listRef.current?.scrollToOffset({ offset: 0, animated: true });
       }, 100);
 
       // 上传录音文件
@@ -813,7 +869,7 @@ export default function VoiceInputScreen() {
           } as Invoice,
           voucherType: 'invoice',
         };
-        setMessages(prev => [...prev, previewMessage]);
+        setMessages(prev => [previewMessage, ...prev]);
         await saveChatLog({
           receiptId: undefined,
           voucherType: 'invoice',
@@ -839,7 +895,7 @@ export default function VoiceInputScreen() {
           inboundPreview: { ...inboundToSave, id: inboundId, status: 'pending' },
           voucherType: 'inbound',
         };
-        setMessages(prev => [...prev, previewMessage]);
+        setMessages(prev => [previewMessage, ...prev]);
         await saveChatLog({
           receiptId: undefined,
           voucherType: 'inbound',
@@ -865,7 +921,7 @@ export default function VoiceInputScreen() {
           outboundPreview: { ...outboundToSave, id: outboundId, status: 'pending' },
           voucherType: 'outbound',
         };
-        setMessages(prev => [...prev, previewMessage]);
+        setMessages(prev => [previewMessage, ...prev]);
         await saveChatLog({
           receiptId: undefined,
           voucherType: 'outbound',
@@ -895,7 +951,7 @@ export default function VoiceInputScreen() {
             account: result.paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: result.paymentAccountName, isAiRecognized: true } : undefined,
           },
         };
-        setMessages(prev => [...prev, previewMessage]);
+        setMessages(prev => [previewMessage, ...prev]);
         await saveChatLog({
           receiptId,
           voucherType: 'receipt',
@@ -912,7 +968,7 @@ export default function VoiceInputScreen() {
 
       // 滚动到底部
       setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
+        listRef.current?.scrollToOffset({ offset: 0, animated: true });
       }, 100);
     } catch (error) {
       console.error('Error processing voice:', error);
@@ -923,10 +979,10 @@ export default function VoiceInputScreen() {
         isUser: false,
         timestamp: new Date(),
       };
-      setMessages(prev => [...prev, errorMessage]);
+      setMessages(prev => [errorMessage, ...prev]);
       
       setTimeout(() => {
-        scrollViewRef.current?.scrollToEnd({ animated: true });
+        listRef.current?.scrollToOffset({ offset: 0, animated: true });
       }, 100);
     } finally {
       setIsProcessing(false);
@@ -987,22 +1043,29 @@ export default function VoiceInputScreen() {
         <Ionicons name="arrow-back" size={24} color="#2D3436" />
       </TouchableOpacity>
 
-      <ScrollView
-        ref={scrollViewRef}
+      <FlatList
+        ref={listRef}
+        data={messages}
+        inverted
+        keyExtractor={(item) => item.id}
         style={styles.messagesContainer}
         contentContainerStyle={styles.messagesContent}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="interactive"
-        onScroll={handleScroll}
-        scrollEventThrottle={16}
-        onContentSizeChange={() => {
-          setTimeout(() => {
-            scrollViewRef.current?.scrollToEnd({ animated: true });
-          }, 100);
-        }}
-      >
-        {messages.map((message) => (
-          <View key={message.id}>
+        onEndReached={loadMoreHistory}
+        onEndReachedThreshold={1.2}
+        ListHeaderComponent={
+          isProcessing ? (
+            <View style={[styles.messageContainer, styles.botMessage]}>
+              <ActivityIndicator size="small" color="#6C5CE7" />
+              <Text style={[styles.messageText, styles.botMessageText]}>
+                Processing...
+              </Text>
+            </View>
+          ) : null
+        }
+        renderItem={({ item: message }) => (
+          <View>
             {/* 用户消息上方显示时间戳 */}
             {message.isUser && (message.text || message.audioUrl) && (
               <View style={styles.timestampDivider}>
@@ -1499,16 +1562,9 @@ export default function VoiceInputScreen() {
             )}
             
           </View>
-        ))}
-        {isProcessing && (
-          <View style={[styles.messageContainer, styles.botMessage]}>
-            <ActivityIndicator size="small" color="#6C5CE7" />
-            <Text style={[styles.messageText, styles.botMessageText]}>
-              Processing...
-            </Text>
-          </View>
         )}
-      </ScrollView>
+      >
+      </FlatList>
 
       {/* Toast 提示 - 显示在输入区域上方 */}
       {toastMessage && (
@@ -1517,7 +1573,7 @@ export default function VoiceInputScreen() {
         </Animated.View>
       )}
 
-      <View style={[styles.inputContainer, { paddingBottom: Platform.OS === 'ios' ? (keyboardHeight || 20) : (keyboardHeight || 16) }]}>
+      <View style={[styles.inputContainer, { paddingBottom: Platform.OS === 'ios' ? (keyboardHeight ? keyboardHeight + 20 : 20) : (keyboardHeight ? keyboardHeight + 16 : 16) }]}>
         {/* 语音/键盘切换按钮 */}
         <TouchableOpacity
           style={styles.modeToggleButton}
@@ -1599,7 +1655,7 @@ export default function VoiceInputScreen() {
             <TextInput
               ref={inputRef}
               style={styles.input}
-              placeholder="Describe your purchase..."
+              placeholder="Describe your expenses..."
               placeholderTextColor="#95A5A6"
               value={inputText}
               onChangeText={setInputText}
@@ -1611,7 +1667,7 @@ export default function VoiceInputScreen() {
               blurOnSubmit={false}
               onFocus={() => {
                 setTimeout(() => {
-                  scrollViewRef.current?.scrollToEnd({ animated: true });
+                  listRef.current?.scrollToOffset({ offset: 0, animated: true });
                 }, 100);
               }}
             />
@@ -1690,6 +1746,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   messagesContent: {
+    flexGrow: 1,
     padding: 12,
     paddingBottom: 16,
   },

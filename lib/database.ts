@@ -328,25 +328,19 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
     }
 
     // 更新小票主记录（名称以 ID 为准；更换 ID 由详情页在用户选“更换”后再次调用并传入新 supplierId/supplierCustomerId）
-    // 仅当调用方显式传入 supplierId/supplierCustomerId 时才更新；仅传 status 等字段时保留现有 supplier
+    // 仅当有 truthy 的 supplierId/supplierCustomerId 或显式传 null 清空时才更新；否则保留现有 supplier（避免聊天窗确认时置空）
     const updateData: any = {};
-    if ('supplierCustomerId' in receipt) {
-      if (supplierCustomerId) {
-        updateData.supplier_customer_id = supplierCustomerId;
-        updateData.supplier_id = null;
-      } else {
-        updateData.supplier_customer_id = null;
-        updateData.supplier_id = null;
-      }
-    } else if ('supplierId' in receipt) {
-      if (supplierId) {
-        updateData.supplier_id = supplierId;
-        updateData.supplier_customer_id = null;
-      } else {
-        updateData.supplier_id = null;
-        updateData.supplier_customer_id = null;
-      }
+    if (supplierCustomerId) {
+      updateData.supplier_customer_id = supplierCustomerId;
+      updateData.supplier_id = null;
+    } else if (supplierId) {
+      updateData.supplier_id = supplierId;
+      updateData.supplier_customer_id = null;
+    } else if (receipt.supplierId === null && receipt.supplierCustomerId === null) {
+      updateData.supplier_id = null;
+      updateData.supplier_customer_id = null;
     }
+    // 否则不写入 supplier 字段，保留库内原值
     if (receipt.totalAmount !== undefined) updateData.total_amount = receipt.totalAmount;
     if (receipt.currency !== undefined) updateData.currency = receipt.currency;
     if (receipt.tax !== undefined) updateData.tax = receipt.tax;

@@ -220,7 +220,8 @@ export default function OutboundDetailsScreen() {
       customerName: option.name,
     });
     const currentId = outbound?.customerId;
-    if (option.id !== currentId) {
+    // 从空改为选择时不弹三选项；仅当已有客户且换成另一个时弹窗
+    if (option.id !== currentId && currentId) {
       setDuplicateNameModalPayload({
         code: option.source === 'customer' ? 'CUSTOMER_NAME_EXISTS' : 'SUPPLIER_NAME_EXISTS',
         duplicateName: option.name,
