@@ -468,7 +468,7 @@ export default function OutboundDetailsScreen() {
                 <View style={styles.amountRow}>
                   <View style={styles.amountContainer}>
                     {current.totalAmount != null && current.totalAmount > 0 && (
-                      <Text style={styles.totalAmount}>
+                      <Text style={[styles.totalAmount, { color: '#D35400' }]}>
                         {(current.totalAmount < 0 ? '-' : '') + Math.abs(current.totalAmount).toFixed(2)}
                       </Text>
                     )}
@@ -561,14 +561,14 @@ export default function OutboundDetailsScreen() {
                 )}
                 {editing ? (
                   <TextInput
-                    style={styles.quantityInput}
+                    style={[styles.quantityInput, { color: '#D35400', borderColor: '#D35400' }]}
                     value={String(item.quantity)}
                     onChangeText={(text) => handleItemChange(index, 'quantity', parseFloat(text) || 0)}
                     keyboardType="decimal-pad"
                     placeholder="数量"
                   />
                 ) : (
-                  <Text style={styles.itemQuantity}>
+                  <Text style={[styles.itemQuantity, { color: '#D35400' }]}>
                     {item.quantity}
                   </Text>
                 )}

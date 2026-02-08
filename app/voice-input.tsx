@@ -38,18 +38,26 @@ import {
   requestAudioPermission,
 } from '@/lib/audio';
 
-// 格式化货币显示
-const formatCurrency = (amount: number, currency?: string): string => {
-  const currencyCode = currency || 'USD';
-  const currencySymbols: { [key: string]: string } = {
-    USD: '$',
-    CNY: '¥',
-    EUR: '€',
-    GBP: '£',
-    JPY: '¥',
+// 与列表页 receipts/invoices 统一的货币符号
+const getCurrencySymbol = (currency?: string): string => {
+  const symbols: Record<string, string> = {
+    USD: '$', CAD: 'C$', CNY: '¥', JPY: '¥', EUR: '€', GBP: '£', AUD: 'A$',
+    HKD: 'HK$', TWD: 'NT$', KRW: '₩', SGD: 'S$', MXN: 'MX$', INR: '₹',
+    THB: '฿', VND: '₫', PHP: '₱', MYR: 'RM', IDR: 'Rp',
   };
-  const symbol = currencySymbols[currencyCode] || currencyCode;
-  return `${symbol}${amount.toFixed(2)}`;
+  return symbols[currency || 'USD'] || (currency ? `${currency} ` : '$');
+};
+
+// 金额展示：符号弱化、数字突出（与列表页一致）
+const AmountText = ({ amount, currency, style }: { amount: number; currency?: string; style?: any }) => {
+  const symbol = getCurrencySymbol(currency);
+  const baseSize = style?.fontSize || 16;
+  return (
+    <Text style={style}>
+      <Text style={{ color: '#2D3436', fontSize: baseSize - 2 }}>{symbol}</Text>
+      <Text style={{ fontWeight: '600' }}>{amount.toFixed(2)}</Text>
+    </Text>
+  );
 };
 
 interface Message {
@@ -1142,9 +1150,11 @@ export default function VoiceInputScreen() {
                   </View>
                   <View style={styles.receiptPreviewRow}>
                     <Text style={styles.receiptPreviewLabel}>Amount:</Text>
-                    <Text style={[styles.receiptPreviewValue, styles.receiptPreviewAmount]}>
-                      {formatCurrency(message.receiptPreview.totalAmount, message.receiptPreview.currency)}
-                    </Text>
+                    <AmountText
+                      amount={message.receiptPreview.totalAmount}
+                      currency={message.receiptPreview.currency}
+                      style={[styles.receiptPreviewValue, styles.receiptPreviewAmount]}
+                    />
                   </View>
                   {message.receiptPreview.account && (
                     <View style={styles.receiptPreviewRow}>
@@ -1313,9 +1323,11 @@ export default function VoiceInputScreen() {
                   </View>
                   <View style={styles.receiptPreviewRow}>
                     <Text style={styles.receiptPreviewLabel}>Amount:</Text>
-                    <Text style={[styles.receiptPreviewValue, styles.receiptPreviewAmount]}>
-                      {formatCurrency(message.invoicePreview.totalAmount, message.invoicePreview.currency)}
-                    </Text>
+                    <AmountText
+                      amount={message.invoicePreview.totalAmount}
+                      currency={message.invoicePreview.currency}
+                      style={[styles.receiptPreviewValue, styles.receiptPreviewAmount, { color: '#D35400' }]}
+                    />
                   </View>
                   {message.invoicePreview.account && (
                     <View style={styles.receiptPreviewRow}>
@@ -1329,7 +1341,7 @@ export default function VoiceInputScreen() {
                       {message.invoicePreview.items.map((item, index) => (
                         <View key={index} style={styles.receiptPreviewItemRow}>
                           <Text style={styles.receiptPreviewItemName}>{item.name}</Text>
-                          <Text style={styles.receiptPreviewItemPrice}>{item.price.toFixed(2)}</Text>
+                          <Text style={[styles.receiptPreviewItemPrice, { color: '#D35400' }]}>{item.price.toFixed(2)}</Text>
                         </View>
                       ))}
                     </View>
@@ -1411,9 +1423,11 @@ export default function VoiceInputScreen() {
                   {(message.inboundPreview.totalAmount != null && message.inboundPreview.totalAmount > 0) && (
                     <View style={styles.receiptPreviewRow}>
                       <Text style={styles.receiptPreviewLabel}>Amount:</Text>
-                      <Text style={[styles.receiptPreviewValue, styles.receiptPreviewAmount]}>
-                        {formatCurrency(message.inboundPreview.totalAmount, message.inboundPreview.currency)}
-                      </Text>
+                      <AmountText
+                        amount={message.inboundPreview.totalAmount ?? 0}
+                        currency={message.inboundPreview.currency}
+                        style={[styles.receiptPreviewValue, styles.receiptPreviewAmount]}
+                      />
                     </View>
                   )}
                   {message.inboundPreview.items && message.inboundPreview.items.length > 0 && (
@@ -1500,9 +1514,11 @@ export default function VoiceInputScreen() {
                   {(message.outboundPreview.totalAmount != null && message.outboundPreview.totalAmount > 0) && (
                     <View style={styles.receiptPreviewRow}>
                       <Text style={styles.receiptPreviewLabel}>Amount:</Text>
-                      <Text style={[styles.receiptPreviewValue, styles.receiptPreviewAmount]}>
-                        {formatCurrency(message.outboundPreview.totalAmount, message.outboundPreview.currency)}
-                      </Text>
+                      <AmountText
+                        amount={message.outboundPreview.totalAmount ?? 0}
+                        currency={message.outboundPreview.currency}
+                        style={[styles.receiptPreviewValue, styles.receiptPreviewAmount, { color: '#D35400' }]}
+                      />
                     </View>
                   )}
                   {message.outboundPreview.items && message.outboundPreview.items.length > 0 && (
@@ -1511,7 +1527,7 @@ export default function VoiceInputScreen() {
                       {message.outboundPreview.items.map((item, index) => (
                         <View key={index} style={styles.receiptPreviewItemRow}>
                           <Text style={styles.receiptPreviewItemName}>{item.productName ?? ''}</Text>
-                          <Text style={styles.receiptPreviewItemPrice}>
+                          <Text style={[styles.receiptPreviewItemPrice, { color: '#D35400' }]}>
                             {item.quantity} {item.unit ?? '件'}{item.unitPrice != null ? ` @ ${item.unitPrice.toFixed(2)}` : ''}
                           </Text>
                         </View>

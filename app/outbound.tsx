@@ -662,7 +662,7 @@ export default function OutboundScreen() {
                   </View>
                   <View style={styles.secondRow}>
                     {item.totalAmount != null && (
-                      <AmountText amount={Number(item.totalAmount)} currency={item.currency} style={styles.amount} />
+                      <AmountText amount={Number(item.totalAmount)} currency={item.currency} style={[styles.amount, { color: '#D35400' }]} />
                     )}
                     <Text style={styles.date}>{formatDate(item.date)}</Text>
                     <Text style={styles.createdDate}>
@@ -692,7 +692,7 @@ export default function OutboundScreen() {
                 <View style={styles.sectionHeaderRight}>
                   <Text style={styles.sectionCount}>{confirmed.length} outbounds</Text>
                   {totalAmount > 0 && (
-                    <AmountText amount={totalAmount} currency={dominantCurrency} style={styles.sectionAmount} />
+                    <AmountText amount={totalAmount} currency={dominantCurrency} style={[styles.sectionAmount, { color: '#D35400' }]} />
                   )}
                   <Ionicons name={isCollapsed ? 'chevron-forward' : 'chevron-down'} size={20} color="#636E72" />
                 </View>
