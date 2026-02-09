@@ -13,12 +13,14 @@ import {
   FlatList,
   Keyboard,
   Animated,
+  InteractionManager,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio, recognizeInboundFromText, recognizeInboundFromAudio, recognizeOutboundFromText, recognizeOutboundFromAudio } from '@/lib/gemini';
+import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition-retry';
 import { saveReceipt, updateReceipt, getReceiptById } from '@/lib/database';
 import { saveInvoice, getInvoiceById } from '@/lib/invoices';
 import { saveInbound, getInboundById } from '@/lib/inbound';
@@ -37,6 +39,16 @@ import {
   stopPlayback,
   requestAudioPermission,
 } from '@/lib/audio';
+
+// 语音识别置信度阈值：与照片 needs_retake 一致，低于此值视为无可识别内容，提示重新提交
+const VOICE_CONFIDENCE_THRESHOLD = 0.4;
+
+/** 语音/文字识别结果置信度过低（噪音/乱码/无可识别内容）时视为不可用，不保存记录 */
+function isRecognitionResultUnrecognizable(result: { confidence?: number }): boolean {
+  const c = result.confidence;
+  if (c === undefined) return false;
+  return c < VOICE_CONFIDENCE_THRESHOLD;
+}
 
 // 与列表页 receipts/invoices 统一的货币符号
 const getCurrencySymbol = (currency?: string): string => {
@@ -111,6 +123,9 @@ export default function VoiceInputScreen() {
   const isLongPressMode = useRef(false); // 是否是长按模式（按住录音）
   const pressStartTime = useRef(0); // 按下的时间戳
   
+  // 组件挂载状态，后台重试完成后仅在校验通过后更新 UI
+  const mountedRef = useRef(true);
+
   // Toast 提示
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const toastOpacity = useRef(new Animated.Value(0)).current;
@@ -138,6 +153,11 @@ export default function VoiceInputScreen() {
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => { mountedRef.current = false; };
+  }, []);
 
   useEffect(() => {
     if (isAiInventoryType && !showAiInventory) router.replace('/');
@@ -353,7 +373,10 @@ export default function VoiceInputScreen() {
       }
     };
 
-    loadInitialHistory();
+    // 先完成转场再加载历史，不阻塞前端
+    const task = InteractionManager.runAfterInteractions(() => {
+      loadInitialHistory();
+    });
 
     // 自动聚焦输入框
     setTimeout(() => {
@@ -376,6 +399,7 @@ export default function VoiceInputScreen() {
     );
 
     return () => {
+      task.cancel();
       keyboardWillShow.remove();
       keyboardWillHide.remove();
     };
@@ -600,10 +624,18 @@ export default function VoiceInputScreen() {
       listRef.current?.scrollToOffset({ offset: 0, animated: true });
     }, 100);
 
-    try {
+    // 识别：先试一次，可重试错误则后台静默重试直至成功；内容质量差则直接提示重新提交
+    const recognizeFn = () => {
+      if (voucherType === 'invoice') return recognizeVoucherFromText(text, 'invoice');
+      if (voucherType === 'inbound') return recognizeInboundFromText(text);
+      if (voucherType === 'outbound') return recognizeOutboundFromText(text);
+      return recognizeReceiptFromText(text);
+    };
+
+    const addTextSuccess = async (result: Awaited<ReturnType<typeof recognizeFn>>) => {
+      const scrollToBottom = () => setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
       if (voucherType === 'invoice') {
-        const result = await recognizeVoucherFromText(text, 'invoice');
-        const invoice = await convertGeminiResultToInvoice(result);
+        const invoice = await convertGeminiResultToInvoice(result as Awaited<ReturnType<typeof recognizeVoucherFromText>>);
         const invoiceToSave = { ...invoice, status: 'pending' as const, inputType: 'text' as const };
         const invoiceId = await saveInvoice(invoiceToSave);
         const previewMessage: Message = {
@@ -615,75 +647,28 @@ export default function VoiceInputScreen() {
             ...invoiceToSave,
             id: invoiceId,
             status: 'pending',
-            account: result.paymentAccountName ? { id: invoice.accountId || '', spaceId: invoice.spaceId, name: result.paymentAccountName, isAiRecognized: true } : undefined,
+            account: (result as Awaited<ReturnType<typeof recognizeVoucherFromText>>).paymentAccountName ? { id: invoice.accountId || '', spaceId: invoice.spaceId, name: (result as Awaited<ReturnType<typeof recognizeVoucherFromText>>).paymentAccountName!, isAiRecognized: true } : undefined,
           } as Invoice,
           voucherType: 'invoice',
         };
         setMessages(prev => [previewMessage, ...prev]);
-        await saveChatLog({
-          receiptId: undefined,
-          voucherType: 'invoice',
-          type: 'text',
-          modelName: 'gemini',
-          prompt: text,
-          response: '',
-          requestData: { rawText: text },
-          responseData: { invoicePreview: previewMessage.invoicePreview },
-          success: true,
-        });
+        await saveChatLog({ receiptId: undefined, voucherType: 'invoice', type: 'text', modelName: 'gemini', prompt: text, response: '', requestData: { rawText: text }, responseData: { invoicePreview: previewMessage.invoicePreview }, success: true });
       } else if (voucherType === 'inbound') {
-        const result = await recognizeInboundFromText(text);
-        const inbound = await convertGeminiResultToInbound(result);
+        const inbound = await convertGeminiResultToInbound(result as Awaited<ReturnType<typeof recognizeInboundFromText>>);
         const inboundToSave = { ...inbound, status: 'pending' as const, inputType: 'text' as const };
         const inboundId = await saveInbound(inboundToSave);
-        const previewMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: '',
-          isUser: false,
-          timestamp: new Date(),
-          inboundPreview: { ...inboundToSave, id: inboundId, status: 'pending' },
-          voucherType: 'inbound',
-        };
+        const previewMessage: Message = { id: (Date.now() + 1).toString(), text: '', isUser: false, timestamp: new Date(), inboundPreview: { ...inboundToSave, id: inboundId, status: 'pending' }, voucherType: 'inbound' };
         setMessages(prev => [previewMessage, ...prev]);
-        await saveChatLog({
-          receiptId: undefined,
-          voucherType: 'inbound',
-          type: 'text',
-          modelName: 'gemini',
-          prompt: text,
-          response: '',
-          requestData: { rawText: text },
-          responseData: { inboundPreview: previewMessage.inboundPreview },
-          success: true,
-        });
+        await saveChatLog({ receiptId: undefined, voucherType: 'inbound', type: 'text', modelName: 'gemini', prompt: text, response: '', requestData: { rawText: text }, responseData: { inboundPreview: previewMessage.inboundPreview }, success: true });
       } else if (voucherType === 'outbound') {
-        const result = await recognizeOutboundFromText(text);
-        const outbound = await convertGeminiResultToOutbound(result);
+        const outbound = await convertGeminiResultToOutbound(result as Awaited<ReturnType<typeof recognizeOutboundFromText>>);
         const outboundToSave = { ...outbound, status: 'pending' as const, inputType: 'text' as const };
         const outboundId = await saveOutbound(outboundToSave);
-        const previewMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: '',
-          isUser: false,
-          timestamp: new Date(),
-          outboundPreview: { ...outboundToSave, id: outboundId, status: 'pending' },
-          voucherType: 'outbound',
-        };
+        const previewMessage: Message = { id: (Date.now() + 1).toString(), text: '', isUser: false, timestamp: new Date(), outboundPreview: { ...outboundToSave, id: outboundId, status: 'pending' }, voucherType: 'outbound' };
         setMessages(prev => [previewMessage, ...prev]);
-        await saveChatLog({
-          receiptId: undefined,
-          voucherType: 'outbound',
-          type: 'text',
-          modelName: 'gemini',
-          prompt: text,
-          response: '',
-          requestData: { rawText: text },
-          responseData: { outboundPreview: previewMessage.outboundPreview },
-          success: true,
-        });
+        await saveChatLog({ receiptId: undefined, voucherType: 'outbound', type: 'text', modelName: 'gemini', prompt: text, response: '', requestData: { rawText: text }, responseData: { outboundPreview: previewMessage.outboundPreview }, success: true });
       } else {
-        const result = await recognizeReceiptFromText(text);
-        const receipt = await convertGeminiResultToReceipt(result);
+        const receipt = await convertGeminiResultToReceipt(result as Awaited<ReturnType<typeof recognizeReceiptFromText>>);
         const receiptToSave = { ...receipt, status: 'pending' as ReceiptStatus, inputType: 'text' as const };
         const receiptId = await saveReceipt(receiptToSave);
         const previewMessage: Message = {
@@ -695,43 +680,62 @@ export default function VoiceInputScreen() {
             ...receiptToSave,
             id: receiptId,
             status: 'pending' as ReceiptStatus,
-            account: result.paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: result.paymentAccountName, isAiRecognized: true } : undefined,
+            account: (result as Awaited<ReturnType<typeof recognizeReceiptFromText>>).paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: (result as Awaited<ReturnType<typeof recognizeReceiptFromText>>).paymentAccountName!, isAiRecognized: true } : undefined,
           },
         };
         setMessages(prev => [previewMessage, ...prev]);
-        await saveChatLog({
-          receiptId,
-          voucherType: 'receipt',
-          type: 'text',
-          modelName: 'gemini',
-          prompt: text,
-          response: previewMessage.text,
-          requestData: { rawText: text },
-          responseData: { receiptPreview: previewMessage.receiptPreview },
-          success: true,
-        });
+        await saveChatLog({ receiptId, voucherType: 'receipt', type: 'text', modelName: 'gemini', prompt: text, response: previewMessage.text, requestData: { rawText: text }, responseData: { receiptPreview: previewMessage.receiptPreview }, success: true });
       }
+      scrollToBottom();
+    };
 
-      // 滚动到底部
-      setTimeout(() => {
-        listRef.current?.scrollToOffset({ offset: 0, animated: true });
-      }, 100);
+    try {
+      const first = await runWithRecognitionRetry(recognizeFn as () => Promise<Awaited<ReturnType<typeof recognizeFn>>>, { maxAttempts: 1 });
+      if (first.success) {
+        if (isRecognitionResultUnrecognizable(first.result)) {
+          const errorMessage: Message = { id: (Date.now() + 1).toString(), text: '❌ Content unclear or not recognized. Please resubmit.', isUser: false, timestamp: new Date() };
+          setMessages(prev => [errorMessage, ...prev]);
+          setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+          return;
+        }
+        await addTextSuccess(first.result);
+        return;
+      }
+      if (first.isContentQuality) {
+        const errorMessage: Message = { id: (Date.now() + 1).toString(), text: `❌ ${getUserFacingMessage(first)}`, isUser: false, timestamp: new Date() };
+        setMessages(prev => [errorMessage, ...prev]);
+        setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+        return;
+      }
+      // 可重试错误：先解除 loading，后台静默重试直至成功
+      setIsProcessing(false);
+      runWithRecognitionRetry(recognizeFn as () => Promise<Awaited<ReturnType<typeof recognizeFn>>>, { maxAttempts: 4, delayMs: 2000 }).then(async (r) => {
+        if (!mountedRef.current) return;
+        if (r.success) {
+          if (isRecognitionResultUnrecognizable(r.result)) {
+            const errorMessage: Message = { id: (Date.now() + 1).toString(), text: '❌ Content unclear or not recognized. Please resubmit.', isUser: false, timestamp: new Date() };
+            setMessages(prev => [errorMessage, ...prev]);
+            setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+            return;
+          }
+          await addTextSuccess(r.result);
+        } else {
+          const errorMessage: Message = { id: (Date.now() + 1).toString(), text: `❌ ${getUserFacingMessage(r)}`, isUser: false, timestamp: new Date() };
+          setMessages(prev => [errorMessage, ...prev]);
+          setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+        }
+      });
+      return;
     } catch (error) {
       console.error('Error processing text:', error);
-      
-      // 添加错误消息
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: `❌ Error: ${error instanceof Error ? error.message : 'Failed to recognize receipt from text'}`,
+        text: `❌ ${error instanceof Error ? error.message : 'Failed to recognize from text'}`,
         isUser: false,
         timestamp: new Date(),
       };
       setMessages(prev => [errorMessage, ...prev]);
-
-      // 滚动到底部
-      setTimeout(() => {
-        listRef.current?.scrollToOffset({ offset: 0, animated: true });
-      }, 100);
+      setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
     } finally {
       setIsProcessing(false);
     }
@@ -859,139 +863,119 @@ export default function VoiceInputScreen() {
         msg.id === userMessageId ? { ...msg, audioUrl } : msg
       ));
 
-      if (voucherType === 'invoice') {
-        const result = await recognizeVoucherFromAudio(localUri, 'invoice');
-        const invoice = await convertGeminiResultToInvoice(result);
-        const invoiceToSave = { ...invoice, status: 'pending' as const, inputType: 'audio' as const };
-        const invoiceId = await saveInvoice(invoiceToSave);
-        const previewMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: '',
-          isUser: false,
-          timestamp: new Date(),
-          invoicePreview: {
-            ...invoiceToSave,
-            id: invoiceId,
-            status: 'pending',
-            account: result.paymentAccountName ? { id: invoice.accountId || '', spaceId: invoice.spaceId, name: result.paymentAccountName, isAiRecognized: true } : undefined,
-          } as Invoice,
-          voucherType: 'invoice',
-        };
-        setMessages(prev => [previewMessage, ...prev]);
-        await saveChatLog({
-          receiptId: undefined,
-          voucherType: 'invoice',
-          type: 'audio',
-          modelName: 'gemini',
-          prompt: `Voice input (${recordingDuration}s)`,
-          response: '',
-          requestData: { audioUrl },
-          responseData: { invoicePreview: previewMessage.invoicePreview },
-          success: true,
-          audioUrl,
-        });
-      } else if (voucherType === 'inbound') {
-        const result = await recognizeInboundFromAudio(localUri);
-        const inbound = await convertGeminiResultToInbound(result);
-        const inboundToSave = { ...inbound, status: 'pending' as const, inputType: 'audio' as const };
-        const inboundId = await saveInbound(inboundToSave);
-        const previewMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: '',
-          isUser: false,
-          timestamp: new Date(),
-          inboundPreview: { ...inboundToSave, id: inboundId, status: 'pending' },
-          voucherType: 'inbound',
-        };
-        setMessages(prev => [previewMessage, ...prev]);
-        await saveChatLog({
-          receiptId: undefined,
-          voucherType: 'inbound',
-          type: 'audio',
-          modelName: 'gemini',
-          prompt: `Voice input (${recordingDuration}s)`,
-          response: '',
-          requestData: { audioUrl },
-          responseData: { inboundPreview: previewMessage.inboundPreview },
-          success: true,
-          audioUrl,
-        });
-      } else if (voucherType === 'outbound') {
-        const result = await recognizeOutboundFromAudio(localUri);
-        const outbound = await convertGeminiResultToOutbound(result);
-        const outboundToSave = { ...outbound, status: 'pending' as const, inputType: 'audio' as const };
-        const outboundId = await saveOutbound(outboundToSave);
-        const previewMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: '',
-          isUser: false,
-          timestamp: new Date(),
-          outboundPreview: { ...outboundToSave, id: outboundId, status: 'pending' },
-          voucherType: 'outbound',
-        };
-        setMessages(prev => [previewMessage, ...prev]);
-        await saveChatLog({
-          receiptId: undefined,
-          voucherType: 'outbound',
-          type: 'audio',
-          modelName: 'gemini',
-          prompt: `Voice input (${recordingDuration}s)`,
-          response: '',
-          requestData: { audioUrl },
-          responseData: { outboundPreview: previewMessage.outboundPreview },
-          success: true,
-          audioUrl,
-        });
-      } else {
-        const result = await recognizeReceiptFromAudio(localUri);
-        const receipt = await convertGeminiResultToReceipt(result);
-        const receiptToSave = { ...receipt, status: 'pending' as ReceiptStatus, inputType: 'audio' as const };
-        const receiptId = await saveReceipt(receiptToSave);
-        const previewMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: '',
-          isUser: false,
-          timestamp: new Date(),
-          receiptPreview: {
-            ...receiptToSave,
-            id: receiptId,
-            status: 'pending' as ReceiptStatus,
-            account: result.paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: result.paymentAccountName, isAiRecognized: true } : undefined,
-          },
-        };
-        setMessages(prev => [previewMessage, ...prev]);
-        await saveChatLog({
-          receiptId,
-          voucherType: 'receipt',
-          type: 'audio',
-          modelName: 'gemini',
-          prompt: `Voice input (${recordingDuration}s)`,
-          response: previewMessage.text,
-          requestData: { audioUrl },
-          responseData: { receiptPreview: previewMessage.receiptPreview },
-          success: true,
-          audioUrl,
-        });
-      }
+      // 识别：先试一次，可重试错误则后台静默重试直至成功；内容质量差则直接提示重新提交
+      const recognizeFn = () => {
+        if (voucherType === 'invoice') return recognizeVoucherFromAudio(localUri, 'invoice');
+        if (voucherType === 'inbound') return recognizeInboundFromAudio(localUri);
+        if (voucherType === 'outbound') return recognizeOutboundFromAudio(localUri);
+        return recognizeReceiptFromAudio(localUri);
+      };
 
-      // 滚动到底部
-      setTimeout(() => {
-        listRef.current?.scrollToOffset({ offset: 0, animated: true });
-      }, 100);
+      const addVoiceSuccess = async (result: Awaited<ReturnType<typeof recognizeFn>>) => {
+        const scrollToBottom = () => setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+        if (voucherType === 'invoice') {
+          const invoice = await convertGeminiResultToInvoice(result as Awaited<ReturnType<typeof recognizeVoucherFromAudio>>);
+          const invoiceToSave = { ...invoice, status: 'pending' as const, inputType: 'audio' as const };
+          const invoiceId = await saveInvoice(invoiceToSave);
+          const previewMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            text: '',
+            isUser: false,
+            timestamp: new Date(),
+            invoicePreview: {
+              ...invoiceToSave,
+              id: invoiceId,
+              status: 'pending',
+              account: (result as Awaited<ReturnType<typeof recognizeVoucherFromAudio>>).paymentAccountName ? { id: invoice.accountId || '', spaceId: invoice.spaceId, name: (result as Awaited<ReturnType<typeof recognizeVoucherFromAudio>>).paymentAccountName!, isAiRecognized: true } : undefined,
+            } as Invoice,
+            voucherType: 'invoice',
+          };
+          setMessages(prev => [previewMessage, ...prev]);
+          await saveChatLog({ receiptId: undefined, voucherType: 'invoice', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: '', requestData: { audioUrl }, responseData: { invoicePreview: previewMessage.invoicePreview }, success: true, audioUrl });
+        } else if (voucherType === 'inbound') {
+          const inbound = await convertGeminiResultToInbound(result as Awaited<ReturnType<typeof recognizeInboundFromAudio>>);
+          const inboundToSave = { ...inbound, status: 'pending' as const, inputType: 'audio' as const };
+          const inboundId = await saveInbound(inboundToSave);
+          const previewMessage: Message = { id: (Date.now() + 1).toString(), text: '', isUser: false, timestamp: new Date(), inboundPreview: { ...inboundToSave, id: inboundId, status: 'pending' }, voucherType: 'inbound' };
+          setMessages(prev => [previewMessage, ...prev]);
+          await saveChatLog({ receiptId: undefined, voucherType: 'inbound', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: '', requestData: { audioUrl }, responseData: { inboundPreview: previewMessage.inboundPreview }, success: true, audioUrl });
+        } else if (voucherType === 'outbound') {
+          const outbound = await convertGeminiResultToOutbound(result as Awaited<ReturnType<typeof recognizeOutboundFromAudio>>);
+          const outboundToSave = { ...outbound, status: 'pending' as const, inputType: 'audio' as const };
+          const outboundId = await saveOutbound(outboundToSave);
+          const previewMessage: Message = { id: (Date.now() + 1).toString(), text: '', isUser: false, timestamp: new Date(), outboundPreview: { ...outboundToSave, id: outboundId, status: 'pending' }, voucherType: 'outbound' };
+          setMessages(prev => [previewMessage, ...prev]);
+          await saveChatLog({ receiptId: undefined, voucherType: 'outbound', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: '', requestData: { audioUrl }, responseData: { outboundPreview: previewMessage.outboundPreview }, success: true, audioUrl });
+        } else {
+          const receipt = await convertGeminiResultToReceipt(result as Awaited<ReturnType<typeof recognizeReceiptFromAudio>>);
+          const receiptToSave = { ...receipt, status: 'pending' as ReceiptStatus, inputType: 'audio' as const };
+          const receiptId = await saveReceipt(receiptToSave);
+          const previewMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            text: '',
+            isUser: false,
+            timestamp: new Date(),
+            receiptPreview: {
+              ...receiptToSave,
+              id: receiptId,
+              status: 'pending' as ReceiptStatus,
+              account: (result as Awaited<ReturnType<typeof recognizeReceiptFromAudio>>).paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: (result as Awaited<ReturnType<typeof recognizeReceiptFromAudio>>).paymentAccountName!, isAiRecognized: true } : undefined,
+            },
+          };
+          setMessages(prev => [previewMessage, ...prev]);
+          await saveChatLog({ receiptId, voucherType: 'receipt', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: previewMessage.text, requestData: { audioUrl }, responseData: { receiptPreview: previewMessage.receiptPreview }, success: true, audioUrl });
+        }
+        scrollToBottom();
+      };
+
+      const first = await runWithRecognitionRetry(recognizeFn as () => Promise<Awaited<ReturnType<typeof recognizeFn>>>, { maxAttempts: 1 });
+      if (first.success) {
+        if (isRecognitionResultUnrecognizable(first.result)) {
+          const errorMessage: Message = { id: (Date.now() + 1).toString(), text: '❌ Content unclear or not recognized. Please resubmit.', isUser: false, timestamp: new Date() };
+          setMessages(prev => [errorMessage, ...prev]);
+          setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+          return;
+        }
+        await addVoiceSuccess(first.result);
+        return;
+      }
+      if (first.isContentQuality) {
+        const errorMessage: Message = { id: (Date.now() + 1).toString(), text: `❌ ${getUserFacingMessage(first)}`, isUser: false, timestamp: new Date() };
+        setMessages(prev => [errorMessage, ...prev]);
+        setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+        return;
+      }
+      // 可重试错误：先解除 loading，后台静默重试直至成功
+      setIsProcessing(false);
+      setRecordingDuration(0);
+      recordingDurationRef.current = 0;
+      runWithRecognitionRetry(recognizeFn as () => Promise<Awaited<ReturnType<typeof recognizeFn>>>, { maxAttempts: 4, delayMs: 2000 }).then(async (r) => {
+        if (!mountedRef.current) return;
+        if (r.success) {
+          if (isRecognitionResultUnrecognizable(r.result)) {
+            const errorMessage: Message = { id: (Date.now() + 1).toString(), text: '❌ Content unclear or not recognized. Please resubmit.', isUser: false, timestamp: new Date() };
+            setMessages(prev => [errorMessage, ...prev]);
+            setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+            return;
+          }
+          await addVoiceSuccess(r.result);
+        } else {
+          const errorMessage: Message = { id: (Date.now() + 1).toString(), text: `❌ ${getUserFacingMessage(r)}`, isUser: false, timestamp: new Date() };
+          setMessages(prev => [errorMessage, ...prev]);
+          setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+        }
+      });
+      return;
     } catch (error) {
       console.error('Error processing voice:', error);
-      
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
-        text: `❌ Error: ${error instanceof Error ? error.message : 'Failed to recognize receipt from voice'}`,
+        text: `❌ ${error instanceof Error ? error.message : 'Failed to recognize receipt from voice'}`,
         isUser: false,
         timestamp: new Date(),
       };
       setMessages(prev => [errorMessage, ...prev]);
-      
-      setTimeout(() => {
-        listRef.current?.scrollToOffset({ offset: 0, animated: true });
-      }, 100);
+      setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
     } finally {
       setIsProcessing(false);
       setRecordingDuration(0);

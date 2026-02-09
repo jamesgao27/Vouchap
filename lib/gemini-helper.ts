@@ -68,26 +68,30 @@ export async function listAvailableModels() {
   }
 }
 
-// 获取支持图像输入的第一个可用模型
+// 获取支持图像/音频输入的第一个可用模型（Gemini 1.5 已弃用，优先 2.0/2.5）
 export async function getAvailableImageModel(): Promise<string | null> {
-  // 兜底模型：如果动态获取失败，至少尝试使用这个公认的模型
-  const FALLBACK_MODEL = 'gemini-1.5-flash';
+  const FALLBACK_MODEL = 'gemini-2.0-flash';
 
   try {
     if (!apiKey) return null;
 
     const models = await listAvailableModels();
     
-    // 查找支持 generateContent 的模型
     const supportedModels = models.filter((m: any) => 
       m.supportedGenerationMethods && 
       m.supportedGenerationMethods.includes('generateContent')
     );
     
-    // 优先级排序（仅使用 API v1 支持的 1.5 系列，gemini-pro-vision 已弃用）
+    // 与后台可用模型一致，按配额优先（高 RPM 优先）
     const preferredModels = [
-      'gemini-1.5-flash',
-      'gemini-1.5-pro',
+      'gemini-2.5-flash-lite',
+      'gemini-2.0-flash-lite',
+      'gemini-2.0-flash',
+      'gemini-2.5-flash',
+      'gemini-3-flash-preview',
+      'gemini-2.5-pro',
+      'gemini-3-pro-preview',
+      'gemini-2.0-flash-exp',
     ];
     
     for (const preferred of preferredModels) {
@@ -106,7 +110,6 @@ export async function getAvailableImageModel(): Promise<string | null> {
     return FALLBACK_MODEL;
   } catch (error: any) {
     console.warn('无法动态获取模型列表，使用默认模型:', error.message);
-    // 如果是因为网络原因获取列表失败，返回默认模型尝试直接通信
     return FALLBACK_MODEL;
   }
 }

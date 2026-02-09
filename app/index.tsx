@@ -13,6 +13,7 @@ import { uploadReceiptImageTemp } from '@/lib/supabase';
 import { saveReceipt } from '@/lib/database';
 import { processReceiptInBackground } from '@/lib/receipt-processor';
 import { processImageForUpload } from '@/lib/image-processor';
+import { getLocalDateString } from '@/lib/date-utils';
 
 /** 首页是否显示「AI 进销存」入口：由 app.config.js extra.showAiInventory 控制，production 构建时 EXPO_PUBLIC_SHOW_AI_INVENTORY=false 则隐藏 */
 const SHOW_AI_INVENTORY_ENTRY = Constants.expoConfig?.extra?.showAiInventory !== false;
@@ -521,7 +522,7 @@ export default function HomeScreen() {
         console.log('Image uploaded:', imageUrl);
 
         // 3. Create receipt record
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDateString();
         const receiptId = await saveReceipt({
           spaceId: '', // Will be auto-filled
           supplierName: 'Processing...',

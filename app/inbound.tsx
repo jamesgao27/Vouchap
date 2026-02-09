@@ -11,6 +11,7 @@ import {
   Modal,
   ScrollView,
   Animated,
+  InteractionManager,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +27,7 @@ import { uploadInboundImageTemp } from '@/lib/supabase';
 import { processInboundInBackground } from '@/lib/inbound-processor';
 import { processImageForUpload } from '@/lib/image-processor';
 import { voucherListStyles as styles } from './voucher-list-styles';
+import { getLocalDateString } from '@/lib/date-utils';
 
 type GroupByType = 'month' | 'recordDate' | 'createdBy';
 
@@ -108,7 +110,12 @@ export default function InboundScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      const task = InteractionManager.runAfterInteractions(() => load());
+      return () => task.cancel();
+    }, [load])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -118,7 +125,7 @@ export default function InboundScreen() {
 
   const handleAddInbound = async () => {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
       const id = await saveInbound({
         spaceId: '',
         date: today,
@@ -225,7 +232,7 @@ export default function InboundScreen() {
         const processedImageUri = await processImageForUpload(imageUri, { autoCrop, quality: 0.85 });
         const tempFileName = `temp-${Date.now()}`;
         const imageUrl = await uploadInboundImageTemp(processedImageUri, tempFileName);
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDateString();
         const inboundId = await saveInbound({
           spaceId: '',
           date: today,
@@ -509,14 +516,6 @@ export default function InboundScreen() {
 
   if (!showAiInventory) return null;
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6C5CE7" />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -660,11 +659,18 @@ export default function InboundScreen() {
         }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="arrow-down-circle-outline" size={64} color="#BDC3C7" />
-            <Text style={styles.emptyText}>No inbound yet</Text>
-            <Text style={styles.emptySubtext}>Tap + to add an inbound</Text>
-          </View>
+          loading && list.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <ActivityIndicator size="large" color="#6C5CE7" />
+              <Text style={styles.emptyText}>Loading...</Text>
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="arrow-down-circle-outline" size={64} color="#BDC3C7" />
+              <Text style={styles.emptyText}>No inbound yet</Text>
+              <Text style={styles.emptySubtext}>Tap + to add an inbound</Text>
+            </View>
+          )
         }
         contentContainerStyle={sections.length === 0 ? styles.emptyList : styles.listContent}
         stickySectionHeadersEnabled={false}

@@ -12,6 +12,7 @@ import {
   Modal,
   ScrollView,
   Animated,
+  InteractionManager,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +21,7 @@ import { Invoice } from '@/types';
 import { format } from 'date-fns';
 import { VoucherStatus } from '@/types';
 import { SwipeableRow } from './SwipeableRow';
+import { getLocalDateString } from '@/lib/date-utils';
 
 type GroupByType = 'month' | 'recordDate' | 'paymentAccount' | 'createdBy';
 
@@ -96,7 +98,12 @@ export default function InvoicesScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { loadInvoices(); }, [loadInvoices]));
+  useFocusEffect(
+    useCallback(() => {
+      const task = InteractionManager.runAfterInteractions(() => loadInvoices());
+      return () => task.cancel();
+    }, [loadInvoices])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -106,7 +113,7 @@ export default function InvoicesScreen() {
 
   const handleAddInvoice = async () => {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
       const id = await saveInvoice({
         spaceId: '',
         customerName: '',
@@ -402,14 +409,6 @@ export default function InvoicesScreen() {
     });
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6C5CE7" />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -552,11 +551,18 @@ export default function InvoicesScreen() {
         }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="document-text-outline" size={64} color="#BDC3C7" />
-            <Text style={styles.emptyText}>No income yet</Text>
-            <Text style={styles.emptySubtext}>Tap + to add income</Text>
-          </View>
+          loading && invoices.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <ActivityIndicator size="large" color="#6C5CE7" />
+              <Text style={styles.emptyText}>Loading...</Text>
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="document-text-outline" size={64} color="#BDC3C7" />
+              <Text style={styles.emptyText}>No income yet</Text>
+              <Text style={styles.emptySubtext}>Tap + to add income</Text>
+            </View>
+          )
         }
         contentContainerStyle={sections.length === 0 ? styles.emptyList : styles.listContent}
         stickySectionHeadersEnabled={false}

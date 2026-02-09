@@ -10,6 +10,7 @@ import {
   Modal,
   Platform,
   Image,
+  InteractionManager,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +25,7 @@ import { Outbound, OutboundItem, VoucherStatus } from '@/types';
 import { format } from 'date-fns';
 import { showAiInventory } from '@/lib/feature-flags';
 import { voucherDetailStyles as styles } from '../voucher-detail-styles';
+import { getLocalDateString } from '@/lib/date-utils';
 
 export default function OutboundDetailsScreen() {
   const { id, new: isNew } = useLocalSearchParams<{ id: string; new?: string }>();
@@ -50,7 +52,8 @@ export default function OutboundDetailsScreen() {
     if (!showAiInventory) router.replace('/');
   }, []);
   useEffect(() => {
-    loadOutbound();
+    const task = InteractionManager.runAfterInteractions(() => loadOutbound());
+    return () => task.cancel();
   }, [id]);
 
   const loadOutbound = async () => {
@@ -275,7 +278,7 @@ export default function OutboundDetailsScreen() {
       if (event.type === 'dismissed') return;
     }
     if (selectedDate && editedOutbound) {
-      setEditedOutbound({ ...editedOutbound, date: selectedDate.toISOString().split('T')[0] });
+      setEditedOutbound({ ...editedOutbound, date: getLocalDateString(selectedDate) });
     }
   };
 
@@ -394,10 +397,19 @@ export default function OutboundDetailsScreen() {
 
   if (!showAiInventory) return null;
 
-  if (loading) {
+  if (loading && !outbound) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6C5CE7" />
+      <View style={styles.container}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+          <View style={styles.summaryCard}>
+            <View style={styles.imagePlaceholder}>
+              <ActivityIndicator size="large" color="#6C5CE7" />
+            </View>
+            <View style={styles.summaryContent}>
+              <Text style={[styles.storeName, { color: '#BDC3C7' }]}>Loading...</Text>
+            </View>
+          </View>
+        </ScrollView>
       </View>
     );
   }

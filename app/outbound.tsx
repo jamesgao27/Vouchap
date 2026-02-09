@@ -11,6 +11,7 @@ import {
   Modal,
   ScrollView,
   Animated,
+  InteractionManager,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -26,6 +27,7 @@ import { uploadOutboundImageTemp } from '@/lib/supabase';
 import { processOutboundInBackground } from '@/lib/outbound-processor';
 import { processImageForUpload } from '@/lib/image-processor';
 import { voucherListStyles as styles } from './voucher-list-styles';
+import { getLocalDateString } from '@/lib/date-utils';
 
 type GroupByType = 'month' | 'recordDate' | 'createdBy';
 
@@ -125,7 +127,12 @@ export default function OutboundScreen() {
     }
   }, []);
 
-  useFocusEffect(useCallback(() => { load(); }, [load]));
+  useFocusEffect(
+    useCallback(() => {
+      const task = InteractionManager.runAfterInteractions(() => load());
+      return () => task.cancel();
+    }, [load])
+  );
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -135,7 +142,7 @@ export default function OutboundScreen() {
 
   const handleAddOutbound = async () => {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = getLocalDateString();
       const id = await saveOutbound({
         spaceId: '',
         date: today,
@@ -250,7 +257,7 @@ export default function OutboundScreen() {
         console.log('[出库单] 临时图片上传完成，imageUrl:', imageUrl);
         
         console.log('[出库单] 步骤3: 创建出库单记录...');
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDateString();
         const outboundId = await saveOutbound({
           spaceId: '',
           date: today,
@@ -551,14 +558,6 @@ export default function OutboundScreen() {
 
   if (!showAiInventory) return null;
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6C5CE7" />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -702,11 +701,18 @@ export default function OutboundScreen() {
         }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="arrow-up-circle-outline" size={64} color="#BDC3C7" />
-            <Text style={styles.emptyText}>No outbound yet</Text>
-            <Text style={styles.emptySubtext}>Tap + to add an outbound</Text>
-          </View>
+          loading && list.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <ActivityIndicator size="large" color="#6C5CE7" />
+              <Text style={styles.emptyText}>Loading...</Text>
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="arrow-up-circle-outline" size={64} color="#BDC3C7" />
+              <Text style={styles.emptyText}>No outbound yet</Text>
+              <Text style={styles.emptySubtext}>Tap + to add an outbound</Text>
+            </View>
+          )
         }
         contentContainerStyle={sections.length === 0 ? styles.emptyList : styles.listContent}
         stickySectionHeadersEnabled={false}

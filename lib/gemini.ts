@@ -2,12 +2,16 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getCategories } from './categories';
 import { getPurposes } from './purposes';
 import { getAccountsForOptions } from './accounts';
+import { getSupplierOptions, getCustomerOptions } from './customer-supplier-list';
+import { getWarehousesForOptions, getLocationsByWarehouseForOptions } from './warehouse';
+import { getSkusForOptions } from './skus';
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as FileSystemNew from 'expo-file-system';
 import { GeminiReceiptResult, GeminiVoucherResult, GeminiInboundOutboundResult, VoucherLogType } from '@/types';
 import { getAvailableImageModel } from './gemini-helper';
 import { getMostFrequentCurrency, getCurrenciesByUsage } from './database';
+import { normalizeShortDate, getLocalDateString } from './date-utils';
 
 // 引用 gemini-helper 中处理好的安全判断逻辑（如果 gemini-helper 导出了 apiKey）
 // 或者直接在此处复制安全获取逻辑：
@@ -22,17 +26,28 @@ const genAI = (apiKey && apiKey !== '')
   ? new GoogleGenerativeAI(apiKey)
   : null;
 
-// 尝试多个可能的模型名称（按优先级排序，优先使用最快的模型）
-// 仅保留 API v1 generateContent 支持的模型；gemini-pro / gemini-pro-vision 已弃用会返回 404
+// 按你后台可用模型与配额排序：高 RPM 优先（语音/图片/文字通用），失败时自动切换下一模型
 const POSSIBLE_MODELS = [
-  'gemini-1.5-flash',        // 最快，优先使用
-  'gemini-1.5-flash-latest', // 最新版本的 flash
-  'gemini-1.5-pro-latest',   // Pro 最新版本
-  'gemini-1.5-pro',          // Pro 稳定版本
+  'gemini-2.5-flash-lite',   // 10K RPM, 10M TPM
+  'gemini-2.0-flash-lite',   // 20K RPM, 10M TPM
+  'gemini-2.0-flash',        // 10K RPM, 10M TPM
+  'gemini-2.5-flash',        // 2K RPM, 3M TPM（当前常用）
+  'gemini-3-flash-preview',  // 2K RPM, 3M TPM（Gemini 3 Flash）
+  'gemini-2.5-pro',         // 1K RPM, 5M TPM
+  'gemini-3-pro-preview',    // 1K RPM, 5M TPM（Gemini 3 Pro）
+  'gemini-2.0-flash-exp',    // 10 RPM 兜底
 ];
 
 // 动态获取可用模型的缓存
 let availableModelCache: string | null = null;
+
+/** 若错误为 404/模型不可用，清除缓存以便下次重新拉取可用模型列表 */
+function clearModelCacheIfUnavailable(err: unknown) {
+  const msg = err != null ? String(err) : '';
+  if (/404|not found|not supported for generateContent/i.test(msg)) {
+    availableModelCache = null;
+  }
+}
 
 // 识别小票内容（使用图片 URL）
 export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptResult> {
@@ -134,16 +149,27 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
     console.warn('Failed to fetch currency usage:', error);
   }
 
+  let supplierNamesImg: string[] = [];
+  try {
+    const suppliers = await getSupplierOptions();
+    supplierNamesImg = suppliers.map((s) => s.name);
+  } catch (e) {
+    console.warn('Failed to fetch suppliers:', e);
+  }
+
   const categoryList = categoryNames.join(', ');
   const purposeList = purposeNames.join(', ');
   const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
+  const supplierListImg = supplierNamesImg.length > 0 ? supplierNamesImg.join(', ') : '';
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
   const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, MXN';
 
   const prompt = `You are a financial expert specializing in North American receipts. Analyze the receipt image and extract ALL available information with maximum accuracy.
 
+Existing Suppliers (pick from list if match else return new name, will create): [${supplierListImg || 'None'}]. Same rule for categoryName, purpose, paymentAccountName: match from injected lists or return new value (will create).
+
 1. Supplier name (supplierName): Extract the complete merchant/store name from the receipt header (usually the most prominent text at the top). 
-   - Look for: Company name, business name, brand name, or store chain name
+   - Pick from Existing Suppliers above if it matches; else return the extracted name (will create new supplier).
    - DO NOT use generic terms like "Receipt", "Invoice", "Bill", "Processing", "Pending", or status words
    - If truly unidentifiable, use "Unknown Supplier" only as last resort
 
@@ -202,9 +228,9 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
      * Full date: MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD, or written format (e.g., "March 15, 2024")
      * 6-digit date: MM/DD/YY or DD/MM/YY (e.g., "03/15/24" or "15/03/24")
    - Look for: Transaction date, purchase date, sale date, or date near receipt header
-   - **CRITICAL for 6-digit dates (MM/DD/YY or DD/MM/YY):**
-     * North American receipts typically use MM/DD/YY format (month/day/year)
-     * However, some receipts may use DD/MM/YY format
+   - **CRITICAL for 6-digit slash dates (e.g. 26/02/06, 03/15/24):**
+     * When ambiguous (YY/MM/DD, DD/MM/YY, MM/DD/YY all valid), **choose the interpretation whose date is closest to today** — receipts are usually recent.
+     * North American receipts may use MM/DD/YY or DD/MM/YY
      * **Resolution strategy:**
        1. If format is ambiguous (e.g., "03/15/24" could be March 15 or May 3):
           - **Prioritize the date that is CLOSER to the current date in the past**
@@ -417,7 +443,7 @@ Please return strictly in JSON format without any extra text. JSON format as fol
           phone: parsedResult.supplierInfo.phone && parsedResult.supplierInfo.phone !== 'null' ? parsedResult.supplierInfo.phone : undefined,
           address: parsedResult.supplierInfo.address && parsedResult.supplierInfo.address !== 'null' ? parsedResult.supplierInfo.address : undefined,
         } : undefined,
-        date: parsedResult.date || new Date().toISOString().split('T')[0],
+        date: normalizeShortDate(parsedResult.date || getLocalDateString()),
         totalAmount: totalAmount,
         currency: parsedResult.currency || 'CNY',
         paymentAccountName: paymentAccountName,
@@ -444,6 +470,7 @@ Please return strictly in JSON format without any extra text. JSON format as fol
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       console.error(`❌ Model ${modelName} failed:`, lastError.message);
+      clearModelCacheIfUnavailable(error);
 
       // 如果是模型不存在的错误，尝试下一个模型
       const errorMsg = lastError.message.toLowerCase();
@@ -762,151 +789,41 @@ export async function recognizeReceiptFromText(text: string): Promise<GeminiRece
     console.warn('Failed to fetch currency usage:', error);
   }
 
+  let supplierNames: string[] = [];
+  try {
+    const suppliers = await getSupplierOptions();
+    supplierNames = suppliers.map((s) => s.name);
+  } catch (e) {
+    console.warn('Failed to fetch suppliers:', e);
+  }
+
   const categoryList = categoryNames.join(', ');
   const purposeList = purposeNames.join(', ');
   const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
+  const supplierList = supplierNames.length > 0 ? supplierNames.join(', ') : '';
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
   const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, CNY';
 
   const now = new Date();
-  const today = now.toISOString().split('T')[0];
+  const today = getLocalDateString(now);
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1; // 1-12
   const currentDay = now.getDate();
+  // 上周五：仅用本地年/月/日计算，避免 UTC 导致差一天
+  const dow = now.getDay();
+  const daysBack = dow === 5 ? 7 : dow < 5 ? dow + 2 : 1;
+  const lastFridayStr = getLocalDateString(new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysBack));
 
-  const prompt = `You are a financial expert. Please carefully analyze the receipt information from this text input and extract ALL available information. Pay special attention to details about the purchase time, payment account, store name, and all items.
+  const prompt = `Extract receipt/purchase from text. Return ONLY valid JSON, no markdown.
 
-CURRENT DATE CONTEXT:
-- Today's date: ${today}
-- Current year: ${currentYear}
-- Current month: ${currentMonth}
-- Current day: ${currentDay}
+Rules: Gibberish/no real content → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, purpose, paymentAccountName: pick from injected lists if match, else return new value (will create). Dates YYYY-MM-DD; categoryName and purpose from lists. Relative: today=${today}, yesterday=day before ${today}, 上周五/last Friday=${lastFridayStr}. Ambiguous dates → closest to ${today}; year missing → ${currentYear} or ${currentYear - 1}. Items: at least one; name, categoryName, purpose, price; infer single item from total if needed.
 
-REQUIRED FIELDS (extract completely, do not omit any mentioned information):
+Data: today=${today}, 上周五=${lastFridayStr}. Suppliers [${supplierList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Purposes [${purposeList}], default "${purposeNames[0]}".
 
-1. Supplier name (supplierName) - string, REQUIRED
-   - Extract the complete store/business name from the text
-   - Look for patterns like: "at [Supplier Name]", "from [Supplier Name]", "paid [Supplier Name]", "[Supplier Name] receipt", or explicit supplier mentions
-   - If the supplier name is mentioned, extract it completely, including any brand names, locations, or suffixes
-   - If no supplier name is explicitly mentioned:
-     * First, try to infer from context (e.g., "Starbucks" from "coffee at Starbucks")
-     * If inference fails and there are items mentioned, use the FIRST item's name as the supplier name
-     * Only use "Unknown Supplier" as a last resort if no items are mentioned either
+Output: supplierName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[], dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1)
 
-2. Date (date) - string, format: YYYY-MM-DD, REQUIRED - CRITICAL: Purchase dates are typically RECENT dates
-   - Extract the purchase date from the text with high priority
-   - IMPORTANT: Receipts are usually from RECENT purchases (within the past few days to weeks), NOT from years ago
-   - Recognize various date formats:
-     * Explicit dates: "March 15, 2024", "2024-03-15", "03/15/2024", "15/03/2024"
-     * Relative dates: "today" -> ${today}, "yesterday" -> previous day from ${today}, "last week" -> approximately 7 days before ${today}
-     * Month mentions: "March 15th", "15th March", "March 15" - if year not mentioned, use ${currentYear} if month/day is recent, otherwise use ${currentYear - 1} if it's a past month
-     * Year mentions: "2024-03-15", "03/15/24", "03/15/2024"
-   - YEAR INFERENCE RULES (CRITICAL):
-     * If year is explicitly mentioned, use that year
-     * If year is NOT mentioned:
-       - If the month/day combination is in the future relative to today (${today}), assume it's from LAST YEAR (${currentYear - 1})
-       - If the month/day combination is in the past relative to today (${today}), assume it's from THIS YEAR (${currentYear})
-       - For example: If today is ${today} and text says "March 15" (which is in the past), use "${currentYear}-03-15"
-       - For example: If today is ${today} and text says "December 25" (which may be in the future), use "${currentYear - 1}-12-25" if December 25 hasn't occurred yet this year
-     * For relative dates like "last week", "3 days ago", calculate from ${today}
-   - If no date is mentioned at all, use "${today}" as fallback (assume it's today's purchase)
-   - Pay attention to temporal words like "on", "at", "during", "bought on", "purchased on", "yesterday", "today", "last week", "a few days ago"
-   - REMEMBER: Most receipts are from recent purchases, so prefer dates closer to ${today} when ambiguous
-
-3. Total amount (totalAmount) - number, REQUIRED, must be positive
-   - Extract the total amount paid
-   - Look for patterns: "total", "paid", "amount", "$X", "X dollars", currency symbols
-   - Extract the final total, not subtotals
-   - Must be a positive number
-
-4. Currency (currency) - string
-   - IMPORTANT: User's most frequently used currencies (in order of frequency): [${currencyList}]
-   - If currency is not explicitly stated, use "${defaultCurrency}" as the default (user's most common currency)
-   - Extract currency from text: USD, CNY, EUR, GBP, JPY, etc.
-   - Look for currency symbols: $ (USD), ¥ (CNY/JPY), € (EUR), £ (GBP)
-
-5. Tax amount (tax) - number, default to 0 if not mentioned
-   - Extract tax amount if explicitly mentioned
-   - Look for: "tax", "VAT", "GST", "sales tax", "tax amount"
-   - Default to 0 if not mentioned
-
-6. Payment account (paymentAccountName) - string, HIGHLY IMPORTANT - extract ALL available payment details
-   - IMPORTANT: If the payment info matches any of these existing accounts, use the EXACT same name: [${paymentAccountList || 'No existing accounts'}]
-   - Match by card suffix (last 4 digits) or payment type when possible
-   - If no match found, create a new descriptive name with:
-     * Card type: "Credit Card", "Debit Card", "Visa", "Mastercard", "Amex", "Discover"
-     * Card number suffix: last 4 digits (e.g., "****1234", "*1234", "ending in 1234", "last 4: 1234")
-     * Full account identifier: "Credit Card ****1234", "Visa *5678", "Debit Card ending 9012"
-   - Other payment methods: "Cash", "PayPal", "Venmo", "Apple Pay", "Google Pay", "Bank Transfer", "Check"
-   - Example: If existing accounts include "Visa *1234" and text mentions "paid with Visa ending in 1234", use "Visa *1234"
-   - If no payment information is mentioned, omit this field (do not include)
-
-7. Items (items) - array, REQUIRED, must contain at least one item
-   - Extract ALL items mentioned in the text
-   - Each item must have:
-     * name: string, complete item name or description
-     * categoryName: string, MUST be one from this list: [${categoryList}]
-     * purpose: string, MUST be EXACTLY one from this list: [${purposeList}]. Use the FIRST option "${purposeNames[0]}" as the default. The value MUST match one of the listed options EXACTLY.
-     * price: number, unit price of the item (can be negative for refunds)
-   - Look for item patterns:
-     * Lists: "Items: Coffee $5.50, Sandwich $20.00"
-     * Descriptions: "bought coffee for $5.50", "a sandwich costing $20"
-     * Multiple mentions: extract each unique item
-   - If item prices are not explicitly mentioned, try to infer from context or distribute total amount
-   - If only a total is mentioned without item details, create a single item:
-     * name: "General Purchase" or infer from store/context (e.g., "Coffee Purchase" for Starbucks)
-     * categoryName: select the most appropriate category from [${categoryList}] based on store name or context
-     * price: total amount minus tax (if tax mentioned)
-
-8. Data consistency (dataConsistency) - object, required:
-   - itemsSum: number, sum of all item prices (calculate: sum of all items.price)
-   - itemsSumMatchesTotal: boolean, true if itemsSum + tax equals totalAmount (within 0.01 tolerance)
-   - missingItems: boolean, true if there might be items not captured in the list (e.g., if text says "and more" or only mentions total)
-   - consistencyComment: string, brief comment on data consistency
-
-9. Confidence (confidence) - number, 0.0-1.0, overall recognition confidence score
-   - Consider: completeness of extracted information, clarity of input text, whether all items are captured
-
-CRITICAL EXTRACTION RULES:
-- Extract information COMPLETELY - do not omit any mentioned details
-- For dates: Parse all date formats carefully and extract the actual purchase date
-- For supplier names: Extract the complete business name, don't abbreviate unnecessarily
-- For payment accounts: Include ALL identifying information (card type, last 4 digits, payment method)
-- For items: Extract ALL mentioned items, don't skip any
-- If the text is ambiguous, make reasonable inferences but note in confidence score
-- Prices can be negative for refunds or returns
-- All dates must be in YYYY-MM-DD format
-- Category names must exactly match one from the list: [${categoryList}]
-
-User input text:
-"${text}"
-
-CRITICAL: Return ONLY valid JSON, no markdown, no code blocks, no explanations, no extra text. The JSON must be parseable and complete.
-
-Example JSON format:
-{
-  "supplierName": "Supplier Name",
-  "date": "${today}",
-  "totalAmount": 123.45,
-  "currency": "USD",
-  "paymentAccountName": "Credit Card ****1234",
-  "tax": 5.67,
-  "items": [
-    {
-      "name": "Item Name",
-      "categoryName": "Food",
-      "purpose": "Home",
-      "price": 12.99
-    }
-  ],
-  "dataConsistency": {
-    "itemsSum": 123.45,
-    "itemsSumMatchesTotal": true,
-    "missingItems": false,
-    "consistencyComment": "Items sum matches total"
-  },
-  "confidence": 0.92
-}`;
+User text:
+"${text}"`;
 
   try {
     // 首先尝试从 API 获取可用模型
@@ -1058,6 +975,9 @@ Example JSON format:
           parsedResult.currency = defaultCurrency;
         }
 
+        // 短日期归一化：取与今天最接近的合法解释（锚点今天）
+        parsedResult.date = normalizeShortDate(parsedResult.date);
+
         console.log('Final parsed result:', {
           supplierName: parsedResult.supplierName,
           date: parsedResult.date,
@@ -1070,6 +990,7 @@ Example JSON format:
         return parsedResult as GeminiReceiptResult;
       } catch (error) {
         console.warn(`Model ${modelName} failed:`, error);
+        clearModelCacheIfUnavailable(error);
         lastError = error instanceof Error ? error : new Error(String(error));
         continue;
       }
@@ -1144,75 +1065,34 @@ export async function recognizeReceiptFromAudio(audioUri: string): Promise<Gemin
     console.warn('Failed to fetch currency usage:', error);
   }
 
+  let supplierNamesAudio: string[] = [];
+  try {
+    const suppliers = await getSupplierOptions();
+    supplierNamesAudio = suppliers.map((s) => s.name);
+  } catch (e) {
+    console.warn('Failed to fetch suppliers:', e);
+  }
+
   const categoryList = categoryNames.join(', ');
   const purposeList = purposeNames.join(', ');
   const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
+  const supplierListAudio = supplierNamesAudio.length > 0 ? supplierNamesAudio.join(', ') : '';
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
   const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, CNY';
-  
-  // 获取当前日期作为参考
+
   const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
+  const todayStr = getLocalDateString(today);
   const yesterday = new Date(today);
   yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().split('T')[0];
+  const yesterdayStr = getLocalDateString(yesterday);
 
-  const prompt = `You are a financial expert. Please analyze the receipt information from this audio recording and extract:
+  const prompt = `Extract receipt/purchase from this audio. Return ONLY valid JSON, no markdown.
 
-IMPORTANT - Today's date is ${todayStr}. Use this as reference for relative dates:
-- "today" = ${todayStr}
-- "yesterday" = ${yesterdayStr}
-- "last week" = 7 days before today
-- Other relative dates should be calculated based on today's date
+Rules: Unclear/noise-only audio → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, purpose, paymentAccountName: pick from injected lists if match, else return new value (will create). Only extract what you actually hear.
 
-1. Supplier name (supplierName)
-2. Date (date, format: YYYY-MM-DD, calculate based on today ${todayStr} if relative date mentioned, use today if not mentioned)
-3. Total amount (totalAmount, numeric type)
-4. Currency (currency): User's most frequently used currencies: [${currencyList}]. Use "${defaultCurrency}" as default if not mentioned
-5. Payment account (paymentAccountName, if available):
-   - IMPORTANT: If the payment info matches any of these existing accounts, use the EXACT same name: [${paymentAccountList || 'No existing accounts'}]
-   - Match by card suffix (last 4 digits) or payment type when possible
-   - If no match found, create a new descriptive name with card type and last 4 digits (e.g., "Visa *1234", "Cash")
-6. Tax amount (tax, numeric type, 0 if not available)
-7. Detailed item list (items), each item contains:
-   - Name (name)
-   - Category (categoryName): Automatically select one from [${categoryList}] based on item content
-   - Purpose (purpose): You MUST select EXACTLY one from this list: [${purposeList}]. Use the FIRST option "${purposeNames[0]}" as the default unless there is clear evidence indicating a different purpose. IMPORTANT: The value MUST match one of the listed options EXACTLY (case-sensitive). Do NOT use any value not in this list.
-   - Unit price (price, numeric type, can be negative for refunds)
-8. Data consistency check (dataConsistency):
-   - itemsSum: Sum of all item prices (calculate: sum of all items.price)
-   - itemsSumMatchesTotal: Boolean indicating if itemsSum + tax (if any) equals totalAmount (within 0.01 tolerance)
-   - missingItems: Boolean indicating if there might be items not captured in the list
-   - consistencyComment: Brief comment on data consistency
-9. Overall confidence (confidence): Overall recognition confidence score (0.0-1.0). Consider:
-    - Whether all items are captured
-    - Whether item prices sum matches the total amount
-    - Lower confidence if items sum doesn't match total or if items seem incomplete
+Data: today=${todayStr}, yesterday=${yesterdayStr}. Suppliers [${supplierListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Purposes [${purposeList}], default "${purposeNames[0]}".
 
-Please return strictly in JSON format without any extra text. JSON format as follows:
-{
-  "supplierName": "Supplier Name",
-  "date": "2024-03-13",
-  "totalAmount": 123.45,
-  "currency": "USD",
-  "paymentAccountName": "Credit Card ****1234",
-  "tax": 5.67,
-  "items": [
-    {
-      "name": "Item Name",
-      "categoryName": "Food",
-      "purpose": "Home",
-      "price": 12.99
-    }
-  ],
-  "dataConsistency": {
-    "itemsSum": 123.45,
-    "itemsSumMatchesTotal": true,
-    "missingItems": false,
-    "consistencyComment": "Items sum matches total"
-  },
-  "confidence": 0.92
-}`;
+Output: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymentAccountName (optional), tax (default 0), items[], dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
 
   try {
     // 读取音频文件
@@ -1314,6 +1194,7 @@ Please return strictly in JSON format without any extra text. JSON format as fol
         return parsedResult as GeminiReceiptResult;
       } catch (error) {
         console.warn(`Model ${modelName} failed:`, error);
+        clearModelCacheIfUnavailable(error);
         lastError = error instanceof Error ? error : new Error(String(error));
         continue;
       }
@@ -1380,42 +1261,30 @@ async function recognizeInvoiceFromText(text: string): Promise<GeminiVoucherResu
   try {
     userCurrencies = await getCurrenciesByUsage();
   } catch {}
+  let customerNames: string[] = [];
+  try {
+    const customers = await getCustomerOptions();
+    customerNames = customers.map((c) => c.name);
+  } catch (e) {
+    console.warn('Failed to fetch customers:', e);
+  }
   const categoryList = categoryNames.join(', ');
   const purposeList = purposeNames.join(', ');
   const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
+  const customerList = customerNames.length > 0 ? customerNames.join(', ') : '';
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
   const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, CNY';
   const now = new Date();
-  const today = now.toISOString().split('T')[0];
+  const today = getLocalDateString(now);
   const currentYear = now.getFullYear();
 
-  const prompt = `You are a financial expert. Extract INVOICE (sales / money received) information from the text. The user is describing a sale or payment they received — extract the CUSTOMER/CLIENT/PAYER name (who paid them), not the supplier.
+  const prompt = `Extract INVOICE (sales / money received) from text. Return ONLY valid JSON, no markdown.
 
-CURRENT DATE: ${today}, year ${currentYear}.
+Rules: Gibberish/no real content → confidence 0.1, customerName "Unknown", totalAmount 0, items []. For customerName, categoryName, purpose, paymentAccountName: pick from injected lists if match, else return new value (will create). Dates YYYY-MM-DD; use ${today} if not mentioned.
 
-REQUIRED FIELDS:
-1. Customer name (customerName) - string, REQUIRED. Extract the complete customer/client/payer name (who paid the user). Look for: "from [Customer]", "paid by [Customer]", "invoice to [Customer]", "[Customer] paid". If not mentioned, use "Customer" or infer from context.
-2. Date (date) - string YYYY-MM-DD, REQUIRED. Use ${today} if not mentioned.
-3. Total amount (totalAmount) - number, REQUIRED (amount received).
-4. Currency (currency) - string. User currencies: [${currencyList}]. Default "${defaultCurrency}".
-5. Tax (tax) - number, default 0.
-6. Payment/Receiving account (paymentAccountName) - string. If matches existing: [${paymentAccountList || 'None'}], use exact name. Otherwise describe e.g. "Bank", "Cash", "PayPal".
-7. Items (items) - array, REQUIRED. Each: name, categoryName (one of [${categoryList}]), purpose (one of [${purposeList}], default "${purposeNames[0]}"), price.
-8. dataConsistency: itemsSum, itemsSumMatchesTotal (boolean), missingItems (boolean), consistencyComment (string).
-9. confidence: 0.0-1.0.
+Data: today=${today}. Customers [${customerList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Purposes [${purposeList}], default "${purposeNames[0]}".
 
-Return ONLY valid JSON, no markdown. Example:
-{
-  "customerName": "Client Name",
-  "date": "${today}",
-  "totalAmount": 123.45,
-  "currency": "USD",
-  "paymentAccountName": "Bank",
-  "tax": 0,
-  "items": [{"name": "Item", "categoryName": "Shopping", "purpose": "Home", "price": 123.45}],
-  "dataConsistency": {"itemsSum": 123.45, "itemsSumMatchesTotal": true, "missingItems": false, "consistencyComment": "OK"},
-  "confidence": 0.9
-}
+Output: customerName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[], dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
 
 User input:
 "${text}"`;
@@ -1438,6 +1307,7 @@ User input:
 
       if (!parsed.customerName) parsed.customerName = 'Customer';
       if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
       if (parsed.totalAmount === undefined) parsed.totalAmount = 0;
       if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
       parsed.items = parsed.items.map((item: any) => ({
@@ -1452,6 +1322,7 @@ User input:
 
       return parsed as GeminiVoucherResult;
     } catch (error) {
+      clearModelCacheIfUnavailable(error);
       lastError = error instanceof Error ? error : new Error(String(error));
       continue;
     }
@@ -1505,14 +1376,26 @@ async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVouche
   try {
     userCurrencies = await getCurrenciesByUsage();
   } catch {}
+  let customerNamesAudio: string[] = [];
+  try {
+    const customers = await getCustomerOptions();
+    customerNamesAudio = customers.map((c) => c.name);
+  } catch (e) {
+    console.warn('Failed to fetch customers:', e);
+  }
   const categoryList = categoryNames.join(', ');
   const purposeList = purposeNames.join(', ');
   const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
+  const customerListAudio = customerNamesAudio.length > 0 ? customerNamesAudio.join(', ') : '';
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
   const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, CNY';
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString();
 
-  const prompt = `You are a financial expert. From this AUDIO, extract INVOICE (sales / money received) information. Extract the CUSTOMER/CLIENT/PAYER name (who paid the user), not the supplier. Today is ${today}. User currencies: [${currencyList}], default ${defaultCurrency}. Existing accounts: [${paymentAccountList || 'None'}]. Categories: [${categoryList}]. Purposes: [${purposeList}], default "${purposeNames[0]}". Return ONLY valid JSON with: customerName, date (YYYY-MM-DD), totalAmount, currency, tax, paymentAccountName, items (each: name, categoryName, purpose, price), dataConsistency (itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment), confidence. Example: {"customerName":"Client","date":"${today}","totalAmount":100,"currency":"USD","tax":0,"paymentAccountName":"Bank","items":[{"name":"Item","categoryName":"Shopping","purpose":"Home","price":100}],"dataConsistency":{"itemsSum":100,"itemsSumMatchesTotal":true,"missingItems":false,"consistencyComment":"OK"},"confidence":0.9}`;
+  const prompt = `Extract INVOICE (sales / money received) from this audio. Return ONLY valid JSON, no markdown.
+
+Rules: Unclear/noise-only audio → confidence 0.1, customerName "Unknown", totalAmount 0, items []. For customerName, categoryName, purpose, paymentAccountName: pick from injected lists if match, else return new value (will create). Only extract what you actually hear.
+
+Data: today=${today}. Customers [${customerListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Purposes: [${purposeList}], default "${purposeNames[0]}". Return ONLY valid JSON: customerName, date (YYYY-MM-DD), totalAmount, currency, tax, paymentAccountName, items (name, categoryName, purpose, price), dataConsistency (itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment), confidence(0-1).`;
 
   const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
   let availableModel: string | null = null;
@@ -1535,6 +1418,7 @@ async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVouche
       const parsed: any = JSON.parse(jsonMatch[0]);
       if (!parsed.customerName) parsed.customerName = 'Customer';
       if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
       if (parsed.totalAmount === undefined) parsed.totalAmount = 0;
       if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
       parsed.items = parsed.items.map((item: any) => ({
@@ -1548,6 +1432,7 @@ async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVouche
       if (!parsed.dataConsistency) parsed.dataConsistency = {};
       return parsed as GeminiVoucherResult;
     } catch (error) {
+      clearModelCacheIfUnavailable(error);
       lastError = error instanceof Error ? error : new Error(String(error));
       continue;
     }
@@ -1558,10 +1443,14 @@ async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVouche
 // ---------- 入库/出库识别（另一套 prompt：货物流，明细为 数量+单位+单价） ----------
 
 const INBOUND_OUTBOUND_POSSIBLE_MODELS = [
-  'gemini-1.5-flash',
-  'gemini-1.5-flash-latest',
-  'gemini-1.5-pro-latest',
-  'gemini-1.5-pro',
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-2.5-flash',
+  'gemini-3-flash-preview',
+  'gemini-2.5-pro',
+  'gemini-3-pro-preview',
+  'gemini-2.0-flash-exp',
 ];
 
 const INBOUND_JSON_EXAMPLE = (today: string) => `{
@@ -1593,42 +1482,37 @@ export async function recognizeInboundFromText(text: string): Promise<GeminiInbo
     err.code = 'GEMINI_API_KEY_MISSING';
     throw err;
   }
-  const today = new Date().toISOString().split('T')[0];
-  const prompt = `You are a warehouse/inventory expert. Extract INBOUND (入库单) information from the text. INBOUND = goods received from a supplier. Return ONLY valid JSON, no markdown.
+  const today = getLocalDateString();
+  let supplierListIn = '';
+  let warehouseListIn = '';
+  let locationListIn = '';
+  let skuListIn = '';
+  try {
+    const [suppliers, warehouses, skus] = await Promise.all([
+      getSupplierOptions(),
+      getWarehousesForOptions(),
+      getSkusForOptions(),
+    ]);
+    supplierListIn = suppliers.map((s) => s.name).join(', ');
+    warehouseListIn = warehouses.map((w) => w.name).join(', ');
+    const locNames: string[] = [];
+    for (const w of warehouses) {
+      const locs = await getLocationsByWarehouseForOptions(w.id);
+      locNames.push(...locs.map((l) => l.name));
+    }
+    locationListIn = [...new Set(locNames)].join(', ');
+    skuListIn = skus.map((s) => (s.code ? `${s.code}(${s.name})` : s.name)).join(', ');
+  } catch (e) {
+    console.warn('Failed to fetch inbound options:', e);
+  }
+  const prompt = `Extract INBOUND (入库单) from text. INBOUND = goods received from supplier. Return ONLY valid JSON, no markdown.
 
-CURRENT DATE: ${today}.
+Rules: For supplierName, warehouseName, locationName, skuCode/productCode: pick from injected lists if match, else return new value (will create). date YYYY-MM-DD, use ${today} if missing; ambiguous slash dates → closest to today.
 
-HEADER (JSON keys, optional where noted):
-- documentNo: string, optional. 单号/入库单号 (e.g. CK-06072, NJ-201907001).
-- supplierName: string. 供应商/单位名称. Default "Supplier" if missing.
-- warehouseName: string, optional. 仓库/库房编号 (e.g. 4#, 产品仓库).
-- locationName: string, optional. 仓位/存放位置/货位 (e.g. E位, w001).
-- date: string YYYY-MM-DD. Use ${today} if missing.
-- inboundType: string, optional. 入库类型 (e.g. 采购入库, 生产入库).
-- totalAmount: number, optional. 合计金额.
-- totalAmountChinese: string, optional. 合计金额大写.
-- currency: string, optional. Default CNY.
-- handlerName: string, optional. 经手人.
-- warehouseKeeperName: string, optional. 库管员/仓库验收.
-- accountantName: string, optional. 记账.
-- remarks: string, optional. 整单备注.
+Data: today=${today}. Suppliers [${supplierListIn || 'None'}]. Warehouses [${warehouseListIn || 'None'}]. Locations [${locationListIn || 'None'}]. SKUs (code or name) [${skuListIn || 'None'}].
 
-ITEMS (array, REQUIRED). Each item:
-- lineNo: number, optional. 序号.
-- productCode: string, optional. 货号/产品编码.
-- productName: string. 品名/名称.
-- specification: string, optional. 规格/型号规格.
-- quantity: number (> 0). 数量（或合计）.
-- qualifiedQuantity: number, optional. 合格品数量.
-- defectiveQuantity: number, optional. 次品数量.
-- unit: string. 单位 (e.g. 个/台/箱/件).
-- unitPrice: number, optional. 单价.
-- amount: number, optional. 行金额 (数量×单价).
-- skuCode: string, optional. 商品编码/条码.
-- remarks: string, optional. 行备注.
-
-Example (adapt values from the actual text):
-${INBOUND_JSON_EXAMPLE(today)}
+HEADER: documentNo, supplierName, warehouseName, locationName, date, inboundType, totalAmount, totalAmountChinese, currency, handlerName, warehouseKeeperName, accountantName, remarks.
+ITEMS (array, REQUIRED): lineNo, productCode, productName, specification, quantity, qualifiedQuantity, defectiveQuantity, unit, unitPrice, amount, skuCode, remarks. Output confidence(0-1).
 
 User input:
 "${text}"`;
@@ -1645,6 +1529,7 @@ User input:
       const parsed: any = JSON.parse(jsonMatch[0]);
       if (!parsed.supplierName) parsed.supplierName = 'Supplier';
       if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
       if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
       parsed.items = normalizeInboundItems(parsed.items, today);
       if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
@@ -1745,40 +1630,37 @@ export async function recognizeOutboundFromText(text: string): Promise<GeminiInb
     err.code = 'GEMINI_API_KEY_MISSING';
     throw err;
   }
-  const today = new Date().toISOString().split('T')[0];
-  const prompt = `You are a warehouse/inventory expert. Extract OUTBOUND (出库单) information from the text. OUTBOUND = goods shipped to a customer. Return ONLY valid JSON, no markdown.
+  const today = getLocalDateString();
+  let customerListOut = '';
+  let warehouseListOut = '';
+  let locationListOut = '';
+  let skuListOut = '';
+  try {
+    const [customers, warehouses, skus] = await Promise.all([
+      getCustomerOptions(),
+      getWarehousesForOptions(),
+      getSkusForOptions(),
+    ]);
+    customerListOut = customers.map((c) => c.name).join(', ');
+    warehouseListOut = warehouses.map((w) => w.name).join(', ');
+    const locNames: string[] = [];
+    for (const w of warehouses) {
+      const locs = await getLocationsByWarehouseForOptions(w.id);
+      locNames.push(...locs.map((l) => l.name));
+    }
+    locationListOut = [...new Set(locNames)].join(', ');
+    skuListOut = skus.map((s) => (s.code ? `${s.code}(${s.name})` : s.name)).join(', ');
+  } catch (e) {
+    console.warn('Failed to fetch outbound options:', e);
+  }
+  const prompt = `Extract OUTBOUND (出库单) from text. OUTBOUND = goods shipped to customer. Return ONLY valid JSON, no markdown.
 
-CURRENT DATE: ${today}.
+Rules: For customerName, warehouseName, locationName, skuCode: pick from injected lists if match, else return new value (will create). date YYYY-MM-DD, use ${today} if missing; ambiguous slash dates → closest to today.
 
-HEADER (JSON keys, optional where noted):
-- documentNo: string, optional. 单号/销售号码 (e.g. 2023/05/25-1, No 2625941).
-- customerName: string. 客户/收货方/销售方公司名称. Default "Customer" if missing.
-- warehouseName: string, optional. 发货仓库/仓库交工场.
-- locationName: string, optional. 货位/仓位.
-- date: string YYYY-MM-DD. Use ${today} if missing.
-- totalAmount: number, optional. 合计金额.
-- totalTax: number, optional. 增值税/税额合计.
-- currency: string, optional. Default CNY.
-- handlerName: string, optional. 经手人.
-- preparerName: string, optional. 制票.
-- accountantName: string, optional. 记账.
-- remarks: string, optional. 整单备注.
+Data: today=${today}. Customers [${customerListOut || 'None'}]. Warehouses [${warehouseListOut || 'None'}]. Locations [${locationListOut || 'None'}]. SKUs (code or name) [${skuListOut || 'None'}].
 
-ITEMS (array, REQUIRED). Each item:
-- lineNo: number, optional. 序号.
-- productName: string. 品目名/名称.
-- specification: string, optional. 规格.
-- quantity: number (> 0). 数量（含单位时取数字）.
-- unit: string. 单位 (e.g. 台/个/本/张).
-- unitPrice: number, optional. 单价.
-- amount: number, optional. 行金额.
-- supplyPrice: number, optional. 供应价.
-- tax: number, optional. 本行增值税.
-- skuCode: string, optional. 商品编码.
-- remarks: string, optional. 行备注.
-
-Example (adapt values from the actual text):
-${OUTBOUND_JSON_EXAMPLE(today)}
+HEADER: documentNo, customerName, warehouseName, locationName, date, totalAmount, totalTax, currency, handlerName, preparerName, accountantName, remarks.
+ITEMS (array, REQUIRED): lineNo, productName, specification, quantity, unit, unitPrice, amount, supplyPrice, tax, skuCode, remarks. Output confidence(0-1).
 
 User input:
 "${text}"`;
@@ -1795,6 +1677,7 @@ User input:
       const parsed: any = JSON.parse(jsonMatch[0]);
       if (!parsed.customerName) parsed.customerName = 'Customer';
       if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
       if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
       parsed.items = normalizeOutboundItems(parsed.items, today);
       if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
@@ -1877,10 +1760,10 @@ export async function recognizeInboundFromImage(imageUrl: string): Promise<Gemin
     err.code = 'GEMINI_API_KEY_MISSING';
     throw err;
   }
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString();
   const prompt = `You are a warehouse/inventory expert. Analyze this IMAGE of an INBOUND document (入库单). INBOUND = goods received from a supplier. Extract ALL visible information. Return ONLY valid JSON, no markdown.
 
-CURRENT DATE: ${today}.
+CURRENT DATE: ${today}. For ambiguous short slash dates, choose the date closest to today.
 
 HEADER: documentNo, supplierName, warehouseName, locationName, date, inboundType, totalAmount, totalAmountChinese, currency, handlerName, warehouseKeeperName, accountantName, remarks.
 ITEMS (array, REQUIRED): lineNo, productCode, productName, specification, quantity, qualifiedQuantity, defectiveQuantity, unit, unitPrice, amount, skuCode, remarks.
@@ -1907,6 +1790,7 @@ ${INBOUND_JSON_EXAMPLE(today)}`;
       const parsed: any = JSON.parse(jsonMatch[0]);
       if (!parsed.supplierName) parsed.supplierName = 'Supplier';
       if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
       if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
       parsed.items = normalizeInboundItems(parsed.items, today);
       if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
@@ -1928,10 +1812,10 @@ export async function recognizeOutboundFromImage(imageUrl: string): Promise<Gemi
     err.code = 'GEMINI_API_KEY_MISSING';
     throw err;
   }
-  const today = new Date().toISOString().split('T')[0];
+  const today = getLocalDateString();
   const prompt = `You are a warehouse/inventory expert. Analyze this IMAGE of an OUTBOUND document (出库单). OUTBOUND = goods shipped to a customer. Extract ALL visible information. Return ONLY valid JSON, no markdown.
 
-CURRENT DATE: ${today}.
+CURRENT DATE: ${today}. For ambiguous short slash dates, choose the date closest to today.
 
 HEADER: documentNo, customerName, warehouseName, locationName, date, totalAmount, totalTax, currency, handlerName, preparerName, accountantName, remarks.
 ITEMS (array, REQUIRED): lineNo, productName, specification, quantity, unit, unitPrice, amount, supplyPrice, tax, skuCode, remarks.
@@ -1958,6 +1842,7 @@ ${OUTBOUND_JSON_EXAMPLE(today)}`;
       const parsed: any = JSON.parse(jsonMatch[0]);
       if (!parsed.customerName) parsed.customerName = 'Customer';
       if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
       if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
       parsed.items = normalizeOutboundItems(parsed.items, today);
       if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];

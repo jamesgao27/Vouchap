@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Modal,
   Platform,
+  InteractionManager,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +29,7 @@ import { mergeCustomer } from '@/lib/customers';
 import { mergeSupplier } from '@/lib/suppliers';
 import { Invoice, InvoiceItem, Category, Purpose, VoucherStatus, Account } from '@/types';
 import { format } from 'date-fns';
+import { getLocalDateString } from '@/lib/date-utils';
 
 export default function InvoiceDetailsScreen() {
   const { id, new: isNew } = useLocalSearchParams<{ id: string; new?: string }>();
@@ -67,10 +69,13 @@ export default function InvoiceDetailsScreen() {
   } | null>(null);
 
   useEffect(() => {
-    loadInvoice();
-    loadCategories();
-    loadPurposes();
-    loadAccounts();
+    const task = InteractionManager.runAfterInteractions(() => {
+      loadInvoice();
+      loadCategories();
+      loadPurposes();
+      loadAccounts();
+    });
+    return () => task.cancel();
   }, [id]);
 
   useFocusEffect(
@@ -516,7 +521,7 @@ export default function InvoiceDetailsScreen() {
       if (event.type === 'dismissed') return;
     }
     if (selectedDate && editedInvoice) {
-      setEditedInvoice({ ...editedInvoice, date: selectedDate.toISOString().split('T')[0] });
+      setEditedInvoice({ ...editedInvoice, date: getLocalDateString(selectedDate) });
     }
   };
 
@@ -736,10 +741,19 @@ export default function InvoiceDetailsScreen() {
     }
   };
 
-  if (loading) {
+  if (loading && !invoice) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6C5CE7" />
+      <View style={styles.container}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+          <View style={styles.summaryCard}>
+            <View style={styles.imagePlaceholder}>
+              <ActivityIndicator size="large" color="#6C5CE7" />
+            </View>
+            <View style={styles.summaryContent}>
+              <Text style={[styles.storeName, { color: '#BDC3C7' }]}>Loading...</Text>
+            </View>
+          </View>
+        </ScrollView>
       </View>
     );
   }

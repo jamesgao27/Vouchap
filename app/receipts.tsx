@@ -12,6 +12,7 @@ import {
   Animated,
   Modal,
   ScrollView,
+  InteractionManager,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +29,7 @@ import { uploadReceiptImageTemp } from '@/lib/supabase';
 import { processReceiptInBackground } from '@/lib/receipt-processor';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getExchangeRates, sumAmountsInCurrency } from '@/lib/exchange-rates';
+import { getLocalDateString } from '@/lib/date-utils';
 
 // 分组类型：
 // - month: 按交易时间（票面日期）的月份分组
@@ -241,7 +243,7 @@ export default function ReceiptsScreen() {
         const imageUrl = await uploadReceiptImageTemp(processedImageUri, tempFileName);
         console.log('Image uploaded:', imageUrl);
 
-        const today = new Date().toISOString().split('T')[0];
+        const today = getLocalDateString();
         const receiptId = await saveReceipt({
           spaceId: '',
           supplierName: 'Processing...',
@@ -440,13 +442,15 @@ export default function ReceiptsScreen() {
     };
   }, [loadReceipts]);
 
-  // 页面聚焦时重新加载数据
+  // 页面聚焦时延后加载，先完成转场再拉数据，不阻塞前端
   useFocusEffect(
     useCallback(() => {
-      loadReceipts();
-      // 异步加载汇率（不阻塞 UI）
-      getExchangeRates().then(rates => setExchangeRates(rates));
-    }, [])
+      const task = InteractionManager.runAfterInteractions(() => {
+        loadReceipts();
+        getExchangeRates().then(rates => setExchangeRates(rates));
+      });
+      return () => task.cancel();
+    }, [loadReceipts])
   );
 
   const onRefresh = () => {
@@ -882,14 +886,7 @@ export default function ReceiptsScreen() {
     });
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6C5CE7" />
-      </View>
-    );
-  }
-
+  // 先占位：始终渲染列表壳（header + SectionList），数据在后台加载
   return (
     <View style={styles.container}>
       <View style={styles.header}>
@@ -1108,11 +1105,18 @@ export default function ReceiptsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Ionicons name="receipt-outline" size={64} color="#BDC3C7" />
-            <Text style={styles.emptyText}>No receipts yet</Text>
-            <Text style={styles.emptySubtext}>Tap the button to add a receipt</Text>
-          </View>
+          loading && receipts.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <ActivityIndicator size="large" color="#6C5CE7" />
+              <Text style={styles.emptyText}>Loading...</Text>
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="receipt-outline" size={64} color="#BDC3C7" />
+              <Text style={styles.emptyText}>No receipts yet</Text>
+              <Text style={styles.emptySubtext}>Tap the button to add a receipt</Text>
+            </View>
+          )
         }
         contentContainerStyle={sections.length === 0 ? styles.emptyList : styles.listContent}
         stickySectionHeadersEnabled={false}

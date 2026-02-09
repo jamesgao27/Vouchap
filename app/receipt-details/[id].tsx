@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Modal,
   Platform,
+  InteractionManager,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -27,6 +28,7 @@ import { normalizeNameForCompare } from '@/lib/name-utils';
 import { mergeSupplier } from '@/lib/suppliers';
 import { mergeCustomer } from '@/lib/customers';
 import { getChatLogsByReceiptId } from '@/lib/chat-logs';
+import { getLocalDateString } from '@/lib/date-utils';
 import { playAudio, stopPlayback } from '@/lib/audio';
 import { Receipt, ReceiptItem, Category, Purpose, ReceiptStatus, Account } from '@/types';
 import { format } from 'date-fns';
@@ -71,10 +73,13 @@ export default function ReceiptDetailsScreen() {
   } | null>(null);
 
   useEffect(() => {
-    loadReceipt();
-    loadCategories();
-    loadPurposes();
-    loadAccounts();
+    const task = InteractionManager.runAfterInteractions(() => {
+      loadReceipt();
+      loadCategories();
+      loadPurposes();
+      loadAccounts();
+    });
+    return () => task.cancel();
   }, [id]);
 
   // 当页面获得焦点时（从其他页面返回），只重新加载分类、用途和支付账户（因为这些可能在管理页面被修改）
@@ -556,7 +561,7 @@ export default function ReceiptDetailsScreen() {
       }
     }
     if (selectedDate && editedReceipt) {
-      const dateString = selectedDate.toISOString().split('T')[0];
+      const dateString = getLocalDateString(selectedDate);
       setEditedReceipt({
         ...editedReceipt,
         date: dateString,
@@ -873,10 +878,20 @@ export default function ReceiptDetailsScreen() {
   };
 
 
-  if (loading) {
+  // 先占位：显示布局骨架，数据在后台加载
+  if (loading && !receipt) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#6C5CE7" />
+      <View style={styles.container}>
+        <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+          <View style={styles.summaryCard}>
+            <View style={styles.imagePlaceholder}>
+              <ActivityIndicator size="large" color="#6C5CE7" />
+            </View>
+            <View style={{ flex: 1, justifyContent: 'center', paddingLeft: 12 }}>
+              <Text style={[styles.storeName, { color: '#BDC3C7' }]}>Loading...</Text>
+            </View>
+          </View>
+        </ScrollView>
       </View>
     );
   }

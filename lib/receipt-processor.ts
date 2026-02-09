@@ -5,6 +5,7 @@ import { updateReceipt, getReceiptById } from './database';
 import { uploadReceiptImage, supabase } from './supabase';
 import { checkDuplicateReceipt } from './receipt-duplicate-checker';
 import { findOrCreateSupplier, updateSupplier } from './suppliers';
+import { runWithRecognitionRetry } from './recognition-retry';
 
 // 从公共URL中提取文件路径
 function extractFilePathFromUrl(url: string): string | null {
@@ -63,9 +64,15 @@ export async function processReceiptInBackground(
     console.log('开始后台处理小票识别...', receiptId);
     console.log('使用处理后的图片进行识别，URL:', imageUrl);
     console.log('处理后的图片本地 URI:', processedImageUri);
-    
-    // 1. 使用处理后的图片 URL 识别小票（imageUrl 已经是处理后的图片）
-    const recognizedData = await recognizeReceipt(imageUrl);
+
+    // 1. 使用处理后的图片 URL 识别小票（失败时后台静默重试直至成功或判定为内容质量差）
+    const ret = await runWithRecognitionRetry(() => recognizeReceipt(imageUrl), { maxAttempts: 5, delayMs: 2000 });
+    if (!ret.success) {
+      console.warn('小票识别失败（重试后仍失败或内容质量差）:', ret.error.message);
+      await updateReceipt(receiptId, { status: 'needs_retake' });
+      return;
+    }
+    const recognizedData = ret.result;
     console.log('识别完成，开始转换数据...');
 
     // 2. 转换为 Receipt 格式（匹配分类和支付账户）
