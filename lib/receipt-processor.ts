@@ -91,11 +91,11 @@ export async function processReceiptInBackground(
     }
 
     // 5. 更新小票数据（使用已存在的 receiptId）
-    // 状态已根据置信度在 convertGeminiResultToReceipt 中自动设置
+    // 状态与置信度均在 convertGeminiResultToReceipt 中根据 0.85 规则设置，使用 receipt 的调整后置信度
     await updateReceipt(receiptId, {
       ...receipt,
       imageUrl: finalImageUrl,
-      confidence: recognizedData.confidence,
+      confidence: receipt.confidence,
     });
     
     // 6. 异步识别供应商详细信息（不阻塞主流程）

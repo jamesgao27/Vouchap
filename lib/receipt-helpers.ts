@@ -191,8 +191,8 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
     adjustedConfidence = Math.max(0.3, adjustedConfidence - 0.1);
   }
   
-  // 如果明细金额匹配且图片质量好，可以提高置信度
-  if (itemsSumMatches && !hasMissingItems && clarity >= 0.8 && completeness >= 0.9) {
+  // 如果明细金额匹配且图片质量好，可以提高置信度（完整度 >= 0.8 即给予加分，便于图片识别达到 0.85）
+  if (itemsSumMatches && !hasMissingItems && clarity >= 0.8 && completeness >= 0.8) {
     adjustedConfidence = Math.min(0.95, adjustedConfidence + 0.05);
   }
   
@@ -200,9 +200,13 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
   // 置信度 >= 0.85: confirmed (已确认)
   // 置信度 < 0.4: needs_retake (需重拍)
   // 其他: pending (待确认)
+  // 图片识别：若模型返回的原始置信度 >= 0.85 且图片质量可接受，也直接设为已确认，确保 0.85 生效
+  const rawConfidence = result.confidence ?? 0;
+  const imageQualityOk = (imageQuality?.clarity ?? 1) >= 0.7 && (imageQuality?.completeness ?? 1) >= 0.8;
+  const highConfidenceImage = imageQuality != null && rawConfidence >= 0.85 && imageQualityOk;
+
   let status: ReceiptStatus = 'pending';
-  
-  if (adjustedConfidence >= 0.85) {
+  if (adjustedConfidence >= 0.85 || highConfidenceImage) {
     status = 'confirmed';
   } else if (adjustedConfidence < 0.4) {
     status = 'needs_retake';
@@ -213,6 +217,7 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
   console.log('Confidence calculation:', {
     originalConfidence: result.confidence,
     adjustedConfidence,
+    highConfidenceImage,
     itemsSum,
     totalAmount,
     tax: result.tax || 0,
