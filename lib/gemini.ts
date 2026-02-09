@@ -49,6 +49,10 @@ function clearModelCacheIfUnavailable(err: unknown) {
   }
 }
 
+/** 小票识别统一 JSON 输出规范：所有录入方式（图片/文字/语音）必须使用同一套字段，便于下游一致解析 */
+const RECEIPT_JSON_ITEMS_RULE = 'Each item MUST have: "name" (string), "categoryName" (string), "purposeName" (string), "price" (number). Do NOT use "description" or "amount".';
+const RECEIPT_JSON_ITEMS_EXAMPLE = { name: 'Item Name', categoryName: 'Food', purposeName: 'Home', price: 12.99 };
+
 // 识别小票内容（使用图片 URL）
 export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptResult> {
   // 重新获取 API Key（确保使用最新的值）
@@ -281,11 +285,11 @@ Existing Suppliers (pick from list if match else return new name, will create): 
    - Common labels: "Tax", "GST", "HST", "PST", "QST", "Sales Tax", "State Tax", "Provincial Tax"
    - If multiple taxes (e.g., GST + PST), sum them for total tax
    - If tax is included in item prices, use 0
-7. Detailed item list (items), each item contains:
-   - Name (name)
-   - Category (categoryName): Automatically select one from [${categoryList}] based on item content
-   - Purpose (purpose): You MUST select EXACTLY one from this list: [${purposeList}]. Use the FIRST option "${purposeNames[0]}" as the default unless there is clear evidence indicating a different purpose. IMPORTANT: The value MUST match one of the listed options EXACTLY (case-sensitive). Do NOT use any value not in this list.
-   - Unit price (price, numeric type, can be negative for refunds)
+7. Detailed item list (items). ${RECEIPT_JSON_ITEMS_RULE}
+   - name (string): item/product name
+   - categoryName: pick from [${categoryList}]
+   - purposeName: pick from [${purposeList}], default "${purposeNames[0]}"
+   - price (number): unit price or line amount
 8. Image quality assessment (imageQuality):
    - clarity: Image clarity score (0.0-1.0, where 1.0 is perfectly clear)
    - completeness: Image completeness score (0.0-1.0, where 1.0 means all receipt content is visible)
@@ -316,12 +320,7 @@ Please return strictly in JSON format without any extra text. JSON format as fol
   "paymentAccountName": "Credit Card ****1234",
   "tax": 5.67,
   "items": [
-    {
-      "name": "Item Name",
-      "categoryName": "Food",
-      "purpose": "Home",
-      "price": 12.99
-    }
+    ${JSON.stringify(RECEIPT_JSON_ITEMS_EXAMPLE)}
   ],
   "imageQuality": {
     "clarity": 0.95,
@@ -429,8 +428,8 @@ Please return strictly in JSON format without any extra text. JSON format as fol
         consistencyComment: parsedResult.dataConsistency.consistencyComment,
       } : undefined;
 
-      // 计算实际的明细金额总和（用于验证）
-      const calculatedItemsSum = parsedResult.items.reduce((sum, item) => sum + (Number(item.price) || 0), 0);
+      // 计算实际的明细金额总和（用于验证，统一用 price，兼容 amount）
+      const calculatedItemsSum = parsedResult.items.reduce((sum, item) => sum + (Number((item as any).price ?? (item as any).amount) || 0), 0);
       const totalAmount = Number(parsedResult.totalAmount) || 0;
       const tax = parsedResult.tax !== undefined ? Number(parsedResult.tax) : 0;
       const expectedTotal = calculatedItemsSum + tax;
@@ -448,11 +447,11 @@ Please return strictly in JSON format without any extra text. JSON format as fol
         currency: parsedResult.currency || 'CNY',
         paymentAccountName: paymentAccountName,
         tax: tax,
-        items: parsedResult.items.map(item => ({
-          name: item.name || 'Unknown Item',
-          categoryName: item.categoryName || defaultCategory, // Use first category as default
-          price: Number(item.price) || 0,
-          purposeName: item.purposeName || 'Home',
+        items: parsedResult.items.map((item: any) => ({
+          name: item.name ?? item.description ?? 'Unknown Item',
+          categoryName: item.categoryName ?? item.category ?? defaultCategory,
+          price: Number(item.price ?? item.amount ?? 0),
+          purposeName: item.purposeName ?? item.purpose ?? 'Home',
           isAsset: item.isAsset !== undefined ? Boolean(item.isAsset) : false,
           confidence: item.confidence !== undefined ? Number(item.confidence) : 0.8,
         })),
@@ -816,11 +815,12 @@ export async function recognizeReceiptFromText(text: string): Promise<GeminiRece
 
   const prompt = `Extract receipt/purchase from text. Return ONLY valid JSON, no markdown.
 
-Rules: Gibberish/no real content → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, purpose, paymentAccountName: pick from injected lists if match, else return new value (will create). Dates YYYY-MM-DD; categoryName and purpose from lists. Relative: today=${today}, yesterday=day before ${today}, 上周五/last Friday=${lastFridayStr}. Ambiguous dates → closest to ${today}; year missing → ${currentYear} or ${currentYear - 1}. Items: at least one; name, categoryName, purpose, price; infer single item from total if needed.
+Rules: Gibberish/no real content → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, purposeName, paymentAccountName: pick from injected lists if match, else return new value (will create). Dates YYYY-MM-DD; categoryName and purposeName from lists. Relative: today=${today}, yesterday=day before ${today}, 上周五/last Friday=${lastFridayStr}. Ambiguous dates → closest to ${today}; year missing → ${currentYear} or ${currentYear - 1}.
+Items: at least one. ${RECEIPT_JSON_ITEMS_RULE} Example item: ${JSON.stringify(RECEIPT_JSON_ITEMS_EXAMPLE)}. Infer single item from total if needed.
 
 Data: today=${today}, 上周五=${lastFridayStr}. Suppliers [${supplierList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Purposes [${purposeList}], default "${purposeNames[0]}".
 
-Output: supplierName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[], dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1)
+Output JSON keys: supplierName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items (array of { name, categoryName, purposeName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
 
 User text:
 "${text}"`;
@@ -906,15 +906,14 @@ User text:
           }];
         }
 
-        // 验证每个item的必要字段，并确保有 purpose
+        // 统一 item 字段：与图片/语音同一套 schema（name, categoryName, purposeName, price）
         parsedResult.items = parsedResult.items.map((item: any) => {
-          // 如果缺少 purpose，默认使用 "Home"
-          if (!item.purpose) {
-            item.purpose = 'Home';
-          }
-          return item;
+          const name = item.name ?? item.description;
+          const price = item.price !== undefined && item.price !== null ? Number(item.price) : Number(item.amount);
+          const purposeName = item.purposeName ?? item.purpose ?? 'Home';
+          return { ...item, name, price, purposeName, categoryName: item.categoryName ?? item.category };
         }).filter((item: any) => {
-          if (!item.name || item.price === undefined || !item.categoryName) {
+          if (item.name == null || item.name === '' || (item.price === undefined || isNaN(item.price)) || !item.categoryName) {
             console.warn('Invalid item found, skipping:', item);
             return false;
           }
@@ -1088,11 +1087,12 @@ export async function recognizeReceiptFromAudio(audioUri: string): Promise<Gemin
 
   const prompt = `Extract receipt/purchase from this audio. Return ONLY valid JSON, no markdown.
 
-Rules: Unclear/noise-only audio → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, purpose, paymentAccountName: pick from injected lists if match, else return new value (will create). Only extract what you actually hear.
+Rules: Unclear/noise-only audio → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, purposeName, paymentAccountName: pick from injected lists if match, else return new value (will create). Only extract what you actually hear.
+Items: at least one. ${RECEIPT_JSON_ITEMS_RULE} Example item: ${JSON.stringify(RECEIPT_JSON_ITEMS_EXAMPLE)}.
 
 Data: today=${todayStr}, yesterday=${yesterdayStr}. Suppliers [${supplierListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Purposes [${purposeList}], default "${purposeNames[0]}".
 
-Output: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymentAccountName (optional), tax (default 0), items[], dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
+Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymentAccountName (optional), tax (default 0), items (array of { name, categoryName, purposeName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
 
   try {
     // 读取音频文件
@@ -1155,18 +1155,14 @@ Output: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymentAccountNa
           throw new Error('Missing required fields in response');
         }
 
-        // 确保每个 item 都有 purpose 字段
+        // 统一 item 字段：与图片/文字同一套 schema（name, categoryName, purposeName, price）
         if (parsedResult.items && Array.isArray(parsedResult.items)) {
           parsedResult.items = parsedResult.items.map((item: any) => {
-            if (!item.purpose) {
-              item.purpose = 'Home';
-            }
-            // 兼容新字段 purposeName，方便后续匹配 purposes 表
-            if (!item.purposeName) {
-              item.purposeName = item.purpose;
-            }
-            return item;
-          });
+            const name = item.name ?? item.description;
+            const price = item.price !== undefined && item.price !== null ? Number(item.price) : Number(item.amount ?? 0);
+            const purposeName = item.purposeName ?? item.purpose ?? 'Home';
+            return { ...item, name, price, purposeName, categoryName: item.categoryName ?? item.category };
+          }).filter((item: any) => item.name != null && item.name !== '' && !isNaN(item.price) && item.categoryName);
         }
 
         // 计算itemsSum如果未提供

@@ -108,11 +108,12 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
         }
       }
 
-      // 匹配用途
+      // 匹配用途（兼容 API 返回 purpose 或 purposeName）
       let purposeId: string | null = null;
-      if (item.purposeName) {
-        const purpose = purposes.find(p => p.name.toLowerCase() === item.purposeName!.toLowerCase())
-          || await findPurposeByName(item.purposeName);
+      const purposeName = item.purposeName ?? (item as { purpose?: string }).purpose;
+      if (purposeName) {
+        const purpose = purposes.find(p => p.name.toLowerCase() === purposeName.toLowerCase())
+          || await findPurposeByName(purposeName);
         if (purpose) {
           purposeId = purpose.id;
         }
@@ -124,16 +125,20 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
         const defaultPurpose = purposes.find(p => p.isDefault) || purposes[0];
         if (defaultPurpose) {
           purposeId = defaultPurpose.id;
-          console.warn(`用途 "${item.purposeName}" 未找到，使用默认用途: ${defaultPurpose.name}`);
+          console.warn(`用途 "${purposeName}" 未找到，使用默认用途: ${defaultPurpose.name}`);
         }
       }
 
+      // 兼容 API 返回 description 而非 name（如语音识别返回 "description": "租车"）
+      const itemName = item.name ?? (item as { description?: string }).description ?? 'Unknown Item';
+      // 兼容 API 返回 amount 而非 price（如语音识别返回 "amount": 1200）
+      const itemPrice = Number((item as { price?: number; amount?: number }).price ?? (item as { amount?: number }).amount ?? 0);
       return {
-        name: item.name,
+        name: itemName,
         categoryId: category.id,
         category: category,
         purposeId,
-        price: item.price,
+        price: itemPrice,
         isAsset: item.isAsset || false, // 默认值为 false
         confidence: item.confidence,
       };
@@ -291,13 +296,17 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
         purposeId = (purposes.find((p) => p.isDefault) || purposes[0]).id;
       }
 
+      // 兼容 API 返回 description 而非 name
+      const itemName = item.name ?? (item as { description?: string }).description ?? 'Unknown Item';
+      // 兼容 API 返回 amount 而非 price
+      const itemPrice = Number((item as { price?: number; amount?: number }).price ?? (item as { amount?: number }).amount ?? 0);
       return {
-        name: item.name,
+        name: itemName,
         categoryId: category.id,
         category,
         purposeId,
         purpose: purposes.find((p) => p.id === purposeId) || undefined,
-        price: item.price,
+        price: itemPrice,
         isAsset: item.isAsset ?? false,
         confidence: item.confidence,
       };
