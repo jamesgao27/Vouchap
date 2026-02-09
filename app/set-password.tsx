@@ -38,8 +38,8 @@ export default function SetPasswordScreen() {
         const retryAuth = await isAuthenticated();
         if (!retryAuth) {
           Alert.alert(
-            'Session Expired',
-            'Your password reset session has expired. Please request a new password reset link.',
+            'Link expired',
+            'This link has expired or has already been used. Please request a new link.',
             [
               {
                 text: 'Request New Link',

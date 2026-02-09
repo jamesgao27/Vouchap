@@ -207,9 +207,9 @@ export default function EmailConfirmScreen() {
         });
 
         if (error) {
-          console.error('Email confirmation error:', error);
+          console.log('Auth link expired or already used');
           setStatus('error');
-          setMessage(error.message || 'Failed to confirm email. Please try again.');
+          setMessage('This link has expired or has already been used. Please request a new link.');
           setTimeout(() => {
             router.replace('/login');
           }, 3000);
@@ -269,9 +269,9 @@ export default function EmailConfirmScreen() {
             }
           }
           
-          // 如果还是没有找到参数，显示错误
+          // 如果还是没有找到参数，显示明确提示
           setStatus('error');
-          setMessage('Invalid confirmation link. Please check your email and try again.');
+          setMessage('This link has expired or has already been used. Please request a new link.');
           setTimeout(() => {
             router.replace('/login');
           }, 3000);
@@ -281,14 +281,14 @@ export default function EmailConfirmScreen() {
 
       // 如果所有方法都失败
       setStatus('error');
-      setMessage('Invalid confirmation link. Please check your email and try again.');
+      setMessage('This link has expired or has already been used. Please request a new link.');
       setTimeout(() => {
         router.replace('/login');
       }, 3000);
     } catch (error) {
-      console.error('Email confirmation exception:', error);
+      console.log('Auth link expired or already used');
       setStatus('error');
-      setMessage('An error occurred. Please try again.');
+      setMessage('This link has expired or has already been used. Please request a new link.');
       setTimeout(() => {
         router.replace('/login');
       }, 3000);
