@@ -20,12 +20,12 @@ export default {
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.vouchap.app",
-      buildNumber: "8",
+      buildNumber: "9",
       associatedDomains: ["applinks:vouchap.com"]
     },
     android: {
       package: "com.vouchap.app",
-      versionCode: 21,
+      versionCode: 22,
       // 使用系统照片选择器，不再声明 READ_MEDIA_IMAGES，符合 Google Play 照片权限政策
       permissions: [
         "CAMERA",
@@ -60,15 +60,15 @@ export default {
       [
         "expo-image-picker",
         {
-          "photosPermission": "Vouchap needs access to your photo library.",
-          "cameraPermission": "Vouchap needs access to your camera."
+          "photosPermission": "Vouchap requires Camera and Photo Library access to scan and upload your receipts for digital tracking.",
+          "cameraPermission": "Vouchap requires Camera and Photo Library access to scan and upload your receipts for digital tracking."
         }
       ],
-      ["expo-camera", { "cameraPermission": "Vouchap needs access to your camera." }],
+      ["expo-camera", { "cameraPermission": "Vouchap requires Camera and Photo Library access to scan and upload your receipts for digital tracking." }],
       [
         "react-native-document-scanner-plugin",
         {
-          "cameraPermission": "We need camera access to snap receipts."
+          "cameraPermission": "Vouchap requires Camera and Photo Library access to scan and upload your receipts for digital tracking."
         }
       ]
     ],
