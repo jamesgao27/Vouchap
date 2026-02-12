@@ -379,6 +379,27 @@ export async function mergeAccount(
   }
 }
 
+/** 取消合并：将子账户的 merged_into_id 置为 null，使其重新成为根账户 */
+export async function unmergeAccount(accountId: string): Promise<void> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) throw new Error('Not logged in');
+    const spaceId = user.currentSpaceId || user.spaceId;
+    if (!spaceId) throw new Error('No space selected');
+
+    const { error } = await supabase
+      .from('accounts')
+      .update({ merged_into_id: null })
+      .eq('id', accountId)
+      .eq('space_id', spaceId);
+
+    if (error) throw error;
+  } catch (error) {
+    console.error('Error unmerging account:', error);
+    throw error;
+  }
+}
+
 /** 从 accounts 表构建合并指向映射 id -> merged_into_id */
 export async function getAccountMergeMap(spaceId: string): Promise<Map<string, string>> {
   const { data: rows } = await supabase
@@ -392,6 +413,72 @@ export async function getAccountMergeMap(spaceId: string): Promise<Map<string, s
     if (r.id && r.merged_into_id) map.set(r.id, r.merged_into_id);
   });
   return map;
+}
+
+/** 合并历史用：无指向的根账户列表 + 每个根下“指向其”的子账户列表 */
+export type AccountsMergeHistoryData = {
+  roots: Account[];
+  childrenByRootId: Map<string, Account[]>;
+};
+
+export async function getAccountsForMergeHistory(): Promise<AccountsMergeHistoryData> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const { data: allRows, error } = await supabase
+    .from('accounts')
+    .select('*')
+    .eq('space_id', spaceId)
+    .order('name', { ascending: true });
+
+  if (error) throw error;
+  const rows = allRows || [];
+
+  const roots = rows.filter((r: any) => r.merged_into_id == null).map(mapAccountRow);
+  const childrenByRootId = new Map<string, Account[]>();
+  for (const root of roots) {
+    const children = rows.filter((r: any) => r.merged_into_id === root.id).map(mapAccountRow);
+    if (children.length) childrenByRootId.set(root.id, children);
+  }
+  return { roots, childrenByRootId };
+}
+
+/** 各账户直接关联的 expenses(receipts)、income(invoices) 数量（按 account_id 统计） */
+export type AccountUsageCounts = {
+  receiptCountByAccountId: Record<string, number>;
+  invoiceCountByAccountId: Record<string, number>;
+};
+
+export async function getAccountUsageCounts(): Promise<AccountUsageCounts> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const receiptCountByAccountId: Record<string, number> = {};
+  const invoiceCountByAccountId: Record<string, number> = {};
+
+  const { data: receiptRows } = await supabase
+    .from('receipts')
+    .select('account_id')
+    .eq('space_id', spaceId)
+    .not('account_id', 'is', null);
+  (receiptRows || []).forEach((r: any) => {
+    if (r.account_id) receiptCountByAccountId[r.account_id] = (receiptCountByAccountId[r.account_id] || 0) + 1;
+  });
+
+  const { data: invoiceRows } = await supabase
+    .from('invoices')
+    .select('account_id')
+    .eq('space_id', spaceId)
+    .not('account_id', 'is', null);
+  (invoiceRows || []).forEach((r: any) => {
+    if (r.account_id) invoiceCountByAccountId[r.account_id] = (invoiceCountByAccountId[r.account_id] || 0) + 1;
+  });
+
+  return { receiptCountByAccountId, invoiceCountByAccountId };
 }
 
 /** 按 merged_into_id 解析账户 ID：返回应展示的目标 ID */

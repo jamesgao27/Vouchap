@@ -2597,17 +2597,19 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     flex: 1,
-    // 略深于页面背景色，保证与背景区别但不喧宾夺主
-    backgroundColor: '#DDE2E6',
+    backgroundColor: '#fff',
     borderRadius: 12,
     padding: 16,
     alignItems: 'center',
-    // 与确认按钮保持一致的阴影层级，以形成一组操作
+    // iOS：四周均匀阴影（略加深以区分白底）
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.22,
-    shadowRadius: 6,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.11,
+    shadowRadius: 10,
+    // Android：elevation 会产生偏下阴影，改为 0 并用细边框保持轮廓
+    ...(Platform.OS === 'android'
+      ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.14)' }
+      : { elevation: 3 }),
   },
   cancelButtonText: {
     fontSize: 16,
@@ -2622,12 +2624,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    // 与取消按钮相同的阴影层级，强调为同一层次的操作按钮
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.22,
-    shadowRadius: 6,
-    elevation: 6,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    ...(Platform.OS === 'android'
+      ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)' }
+      : { elevation: 4 }),
   },
   confirmButtonText: {
     marginLeft: 8,
