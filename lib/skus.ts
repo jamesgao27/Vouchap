@@ -79,7 +79,25 @@ export async function createSku(sku: {
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    // 如果是因为名称重复导致的数据库约束错误（23505），尝试查找已存在的 SKU 并返回
+    // 这种情况可能发生在并发场景：两个请求同时调用 findOrCreateSkuByNameAndUnit，都找不到已存在的，然后都尝试创建
+    if (error.code === '23505' && (error.message?.includes('name') || error.message?.includes('sku') || error.message?.includes('SKU'))) {
+      console.log('SKU名称已存在（数据库约束），尝试查找已存在的SKU:', sku.name.trim());
+      const { data: existingSku } = await supabase
+        .from('skus')
+        .select('*')
+        .eq('space_id', spaceId)
+        .eq('name', sku.name.trim())
+        .eq('unit', sku.unit?.trim() || '件')
+        .single();
+      if (existingSku) {
+        console.log('找到已存在的SKU，返回:', existingSku.id);
+        return mapSkuRow(existingSku);
+      }
+    }
+    throw error;
+  }
   return {
     id: data.id,
     spaceId: data.space_id,

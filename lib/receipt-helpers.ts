@@ -47,8 +47,13 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
   // 处理支付账户
   let accountId: string | undefined;
   if (result.paymentAccountName) {
-    const account = await findOrCreateAccount(result.paymentAccountName, true);
-    accountId = account.id;
+    try {
+      const account = await findOrCreateAccount(result.paymentAccountName, true);
+      accountId = account.id;
+    } catch (error) {
+      console.warn('Failed to create or find account:', error);
+      // 如果账户创建失败，继续处理其他信息，不阻塞整个流程
+    }
   }
 
   // 处理商品项，匹配分类
@@ -265,8 +270,13 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
 
   let accountId: string | undefined;
   if (result.paymentAccountName) {
-    const account = await findOrCreateAccount(result.paymentAccountName, true);
-    accountId = account.id;
+    try {
+      const account = await findOrCreateAccount(result.paymentAccountName, true);
+      accountId = account.id;
+    } catch (error) {
+      console.warn('Failed to create or find account:', error);
+      // 如果账户创建失败，继续处理其他信息，不阻塞整个流程
+    }
   }
 
   if (!result.items || !Array.isArray(result.items)) {

@@ -135,11 +135,13 @@ export default function ReceiptsScreen() {
 
   const loadReceipts = useCallback(async () => {
     try {
+      console.log('🔄 [loadReceipts] 开始加载小票数据...');
       const data = await getAllReceipts();
+      console.log(`✅ [loadReceipts] 加载完成，共 ${data.length} 条小票`);
       setReceipts(data);
     } catch (error) {
+      console.error('❌ [loadReceipts] 加载失败:', error);
       Alert.alert('Error', 'Failed to load expenses');
-      console.error(error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -147,7 +149,9 @@ export default function ReceiptsScreen() {
   }, []);
 
   const scanDocument = async () => {
+    console.log('📷 [scanDocument] 开始调用文档扫描...');
     if (isExpoGo) {
+      console.log('⚠️ [scanDocument] Expo Go 环境，使用相册选择器');
       Alert.alert(
         'Development Build Required',
         'Real-time edge detection and cropping requires a native development build. In Expo Go, please use the gallery picker option.',
@@ -160,26 +164,34 @@ export default function ReceiptsScreen() {
     }
 
     try {
+      console.log('📷 [scanDocument] 动态导入 DocumentScanner 模块...');
       // 动态导入 DocumentScanner（只在非 Expo Go 环境中导入）
       const module = await import('react-native-document-scanner-plugin');
       const DocumentScanner = module?.default;
+      console.log('✅ [scanDocument] DocumentScanner 模块导入成功');
 
       // 额外防御：模块导入但没有正确挂载时，直接提示使用开发构建
       if (!DocumentScanner || typeof DocumentScanner.scanDocument !== 'function') {
         throw new Error('DocumentScanner module not loaded correctly');
       }
 
+      console.log('📷 [scanDocument] 调用原生相机界面（日志可能会暂停，直到相机关闭）...');
       const { scannedImages } = await DocumentScanner.scanDocument({
         maxNumDocuments: 1,
         croppedImageQuality: 90,
         letUserAdjustCrop: false,  // 自动裁剪，无需手动调整
       } as any);
+      console.log('✅ [scanDocument] 相机界面关闭，返回结果');
 
       if (scannedImages && scannedImages.length > 0) {
+        console.log(`✅ [scanDocument] 扫描成功，获得 ${scannedImages.length} 张图片`);
         // 自动裁剪后直接处理，实现 Snap 即拍即传
         processCapturedImage(scannedImages[0], false);
+      } else {
+        console.log('⚠️ [scanDocument] 扫描完成但没有获得图片');
       }
     } catch (error) {
+      console.error('❌ [scanDocument] 扫描失败:', error);
       console.error('Document scan error:', error);
       // 如果是模块未找到或原生模块未正确注册的错误，统一提示需要开发构建
       if (
@@ -203,19 +215,24 @@ export default function ReceiptsScreen() {
   };
 
   const pickImage = async () => {
+    console.log('🖼️ [pickImage] 开始调用相册选择器...');
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
         quality: 0.9,
       });
+      console.log('✅ [pickImage] 相册选择器返回结果');
 
       if (!result.canceled && result.assets[0]) {
+        console.log('✅ [pickImage] 选择了图片，开始处理...');
         // 从相册选择的图片通常未裁剪，这里保留自动裁剪逻辑
         processCapturedImage(result.assets[0].uri, true);
+      } else {
+        console.log('⚠️ [pickImage] 用户取消了选择');
       }
     } catch (error) {
-      console.error('Image picker error:', error);
+      console.error('❌ [pickImage] 相册选择失败:', error);
       Alert.alert('Error', 'Failed to pick image.');
     }
   };
@@ -224,25 +241,30 @@ export default function ReceiptsScreen() {
   // - 扫描得到的图片（已在原生层裁剪）应传入 false，避免二次裁剪截断内容
   // - 从相册选择的原始图片可以传入 true，启用自动裁剪去除背景
   const processCapturedImage = async (imageUri: string, autoCrop: boolean = true) => {
+    console.log(`🖼️ [processCapturedImage] 开始处理图片，URI: ${imageUri}, autoCrop: ${autoCrop}`);
     // 立即显示选单，后台处理上传
     setShowSuccessModal(true);
     setLastReceiptId(null); // 初始为 null，上传完成后更新
+    console.log('✅ [processCapturedImage] 成功模态框已显示');
     
     // 后台异步处理（不阻塞 UI）
     (async () => {
       try {
-        console.log('Processing captured image:', imageUri);
+        console.log('🔄 [processCapturedImage] 开始处理图片...');
 
+        console.log('🔄 [processCapturedImage] 调用 processImageForUpload...');
         const processedImageUri = await processImageForUpload(imageUri, {
           autoCrop,
           quality: 0.85,
         });
-        console.log('Image processed:', processedImageUri);
+        console.log('✅ [processCapturedImage] 图片处理完成:', processedImageUri);
 
+        console.log('🔄 [processCapturedImage] 开始上传图片...');
         const tempFileName = `temp-${Date.now()}`;
         const imageUrl = await uploadReceiptImageTemp(processedImageUri, tempFileName);
-        console.log('Image uploaded:', imageUrl);
+        console.log('✅ [processCapturedImage] 图片上传完成:', imageUrl);
 
+        console.log('🔄 [processCapturedImage] 创建小票记录...');
         const today = getLocalDateString();
         const receiptId = await saveReceipt({
           spaceId: '',
@@ -253,24 +275,30 @@ export default function ReceiptsScreen() {
           items: [],
           imageUrl: imageUrl,
         });
-        console.log('Receipt record created:', receiptId);
+        console.log('✅ [processCapturedImage] 小票记录创建完成:', receiptId);
 
         // 更新 receiptId，使 View Detail 可用
         setLastReceiptId(receiptId);
+        console.log('✅ [processCapturedImage] receiptId 已更新');
         
         // Refresh receipts list
+        console.log('🔄 [processCapturedImage] 刷新小票列表...');
         loadReceipts();
 
         // Background processing with Gemini (async, don't block UI)
+        console.log('🔄 [processCapturedImage] 开始后台识别处理...');
         processReceiptInBackground(imageUrl, receiptId, processedImageUri)
           .then(() => {
-            console.log('Background processing started');
+            console.log('✅ [processCapturedImage] 后台识别处理完成');
             // Refresh again after processing
+            console.log('🔄 [processCapturedImage] 识别完成后再次刷新列表...');
             loadReceipts();
           })
-          .catch(err => console.error('Background processing failed:', err));
+          .catch(err => {
+            console.error('❌ [processCapturedImage] 后台识别处理失败:', err);
+          });
       } catch (error) {
-        console.error('Processing error:', error);
+        console.error('❌ [processCapturedImage] 处理图片失败:', error);
         Alert.alert('Error', 'Failed to process expense.');
         setShowSuccessModal(false);
       }
@@ -419,10 +447,12 @@ export default function ReceiptsScreen() {
           });
 
       } catch (error) {
-        console.error('Error setting up subscriptions:', error);
+        console.error('❌ [setupSubscriptions] 设置订阅失败:', error);
       }
+      console.log('✅ [setupSubscriptions] 订阅设置完成');
     };
 
+    console.log('🔄 [useEffect] 开始设置订阅...');
     setupSubscriptions();
 
     // 清理函数：组件卸载时取消所有订阅

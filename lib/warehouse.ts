@@ -69,7 +69,24 @@ export async function createWarehouse(w: { name: string; code?: string; address?
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    // 如果是因为名称重复导致的数据库约束错误（23505），尝试查找已存在的仓库并返回
+    // 这种情况可能发生在并发场景：两个请求同时调用 findOrCreateWarehouseByName，都找不到已存在的，然后都尝试创建
+    if (error.code === '23505' && (error.message?.includes('name') || error.message?.includes('仓库'))) {
+      console.log('仓库名称已存在（数据库约束），尝试查找已存在的仓库:', w.name.trim());
+      const { data: existingWarehouse } = await supabase
+        .from('warehouse')
+        .select('*')
+        .eq('space_id', spaceId)
+        .eq('name', w.name.trim())
+        .single();
+      if (existingWarehouse) {
+        console.log('找到已存在的仓库，返回:', existingWarehouse.id);
+        return mapWarehouseRow(existingWarehouse);
+      }
+    }
+    throw error;
+  }
   return mapWarehouseRow(data);
 }
 
@@ -180,7 +197,24 @@ export async function createLocation(l: { warehouseId: string; name: string; cod
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    // 如果是因为名称重复导致的数据库约束错误（23505），尝试查找已存在的仓位并返回
+    // 这种情况可能发生在并发场景：两个请求同时调用 findOrCreateLocationByName，都找不到已存在的，然后都尝试创建
+    if (error.code === '23505' && (error.message?.includes('name') || error.message?.includes('仓位'))) {
+      console.log('仓位名称已存在（数据库约束），尝试查找已存在的仓位:', l.name.trim());
+      const { data: existingLocation } = await supabase
+        .from('location')
+        .select('*')
+        .eq('warehouse_id', l.warehouseId)
+        .eq('name', l.name.trim())
+        .single();
+      if (existingLocation) {
+        console.log('找到已存在的仓位，返回:', existingLocation.id);
+        return mapLocationRow(existingLocation);
+      }
+    }
+    throw error;
+  }
   return mapLocationRow(data);
 }
 

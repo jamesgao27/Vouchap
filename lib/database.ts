@@ -251,7 +251,8 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
 }
 
 // 更新小票（不创建新供应商/客户：有关联则更新实体名称，无关联则仅更新小票上的商家名称文本）
-export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>): Promise<void> {
+// autoResolveDuplicate: 如果为 true，遇到重复名称时自动使用已存在的ID，不抛出异常（用于后台处理场景）
+export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>, autoResolveDuplicate: boolean = false): Promise<void> {
   try {
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
@@ -259,7 +260,7 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
-    const supplierCustomerId = receipt.supplierCustomerId ?? undefined;
+    let supplierCustomerId = receipt.supplierCustomerId ?? undefined;
     let supplierId = receipt.supplierId;
     const supplierName = receipt.supplierName ?? receipt.storeName ?? '';
     const trimmedSupplierName = supplierName.trim();
@@ -286,13 +287,30 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
           ? await resolveSupplierId(spaceId, foundByName.id)
           : await resolveCustomerId(spaceId, foundByName.id);
         if (targetId !== currentResolvedId) {
-          const code = foundByName.source === 'customer' ? ('CUSTOMER_NAME_EXISTS' as const) : ('SUPPLIER_NAME_EXISTS' as const);
-          throw Object.assign(new Error(foundByName.source === 'customer' ? '客户名称已存在' : '供应商名称已存在'), {
-            code,
-            duplicateName: trimmedSupplierName,
-            targetId,
-            targetSource: foundByName.source,
-          });
+          // 如果 autoResolveDuplicate 为 true（后台处理场景），自动使用已存在的ID
+          // 如果 autoResolveDuplicate 为 false（UI 交互场景），抛出异常触发三选项弹窗
+          if (autoResolveDuplicate) {
+            // 后台处理场景：自动使用已存在的供应商/客户ID
+            if (foundByName.source === 'supplier') {
+              supplierId = targetId;
+              supplierCustomerId = undefined; // 清除 customerId，确保只关联 supplier
+            } else {
+              // foundByName.source === 'customer'
+              supplierCustomerId = targetId;
+              supplierId = undefined; // 清除 supplierId，确保只关联 customer
+            }
+            // 继续执行，不抛出异常
+            console.log(`供应商/客户名称已存在，自动使用已存在的ID: ${foundByName.source} ${targetId}`);
+          } else {
+            // UI 交互场景：已有关联，需要用户选择如何处理，抛出异常触发三选项弹窗
+            const code = foundByName.source === 'customer' ? ('CUSTOMER_NAME_EXISTS' as const) : ('SUPPLIER_NAME_EXISTS' as const);
+            throw Object.assign(new Error(foundByName.source === 'customer' ? '客户名称已存在' : '供应商名称已存在'), {
+              code,
+              duplicateName: trimmedSupplierName,
+              targetId,
+              targetSource: foundByName.source,
+            });
+          }
         }
       }
 
@@ -303,9 +321,15 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
           await updateCustomer(targetId, { name: trimmedSupplierName });
         } catch (e) {
           if (e instanceof Error && e.message === '客户名称已存在') {
-            throw Object.assign(new Error(e.message), { code: 'CUSTOMER_NAME_EXISTS' as const, duplicateName: trimmedSupplierName });
+            // 如果 autoResolveDuplicate = true，静默处理，不抛出异常
+            if (autoResolveDuplicate) {
+              console.log('客户名称已存在，跳过名称更新（已自动使用已存在的ID）');
+            } else {
+              throw Object.assign(new Error(e.message), { code: 'CUSTOMER_NAME_EXISTS' as const, duplicateName: trimmedSupplierName });
+            }
+          } else {
+            console.warn('Failed to update customer name:', e);
           }
-          console.warn('Failed to update customer name:', e);
         }
       } else if (supplierId) {
         try {
@@ -313,9 +337,15 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
           await updateSupplier(targetId, { name: trimmedSupplierName });
         } catch (e) {
           if (e instanceof Error && e.message === '供应商名称已存在') {
-            throw Object.assign(new Error(e.message), { code: 'SUPPLIER_NAME_EXISTS' as const, duplicateName: trimmedSupplierName });
+            // 如果 autoResolveDuplicate = true，静默处理，不抛出异常
+            if (autoResolveDuplicate) {
+              console.log('供应商名称已存在，跳过名称更新（已自动使用已存在的ID）');
+            } else {
+              throw Object.assign(new Error(e.message), { code: 'SUPPLIER_NAME_EXISTS' as const, duplicateName: trimmedSupplierName });
+            }
+          } else {
+            console.warn('Failed to update supplier name:', e);
           }
-          console.warn('Failed to update supplier name:', e);
         }
       }
     }
@@ -400,8 +430,16 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
       }
     }
   } catch (error: any) {
+    // 如果 autoResolveDuplicate = true，不应该再抛出这些业务分支异常
+    // 如果 autoResolveDuplicate = false（UI 交互场景），抛出异常触发三选项弹窗
     if (error?.code === 'SUPPLIER_NAME_EXISTS' || error?.code === 'CUSTOMER_NAME_EXISTS') {
-      throw error;
+      if (autoResolveDuplicate) {
+        // 后台处理场景：不应该到达这里，但如果到达了，静默处理
+        console.warn('Unexpected duplicate name error in auto-resolve mode, ignoring:', error);
+        return; // 静默返回，不抛出异常
+      } else {
+        throw error; // UI 交互场景：抛出异常触发三选项弹窗
+      }
     }
     console.error('Error updating receipt:', error);
     throw error;
@@ -411,12 +449,14 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
 // 获取所有小票（当前家庭的）
 export async function getAllReceipts(): Promise<Receipt[]> {
   try {
+    console.log('📊 [getAllReceipts] 开始查询小票数据...');
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
 
     // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
+    console.log(`📊 [getAllReceipts] 查询空间ID: ${spaceId}`);
 
     const { data, error } = await supabase
       .from('receipts')
@@ -440,6 +480,8 @@ export async function getAllReceipts(): Promise<Receipt[]> {
       .eq('space_id', spaceId)
       .order('created_at', { ascending: false })
       .order('created_at', { foreignTable: 'receipt_items', ascending: true });
+
+    console.log('📊 [getAllReceipts] 数据库查询完成，等待响应...');
 
     if (error) throw error;
 
@@ -518,7 +560,8 @@ export async function getAllReceipts(): Promise<Receipt[]> {
       })(),
     ]);
 
-    return rows.map((row: any) => {
+    console.log(`📊 [getAllReceipts] 开始映射 ${rows.length} 条小票数据...`);
+    const mappedReceipts = rows.map((row: any) => {
       const resolvedSupplierId = row.supplier_id ? resolveSupplier(row.supplier_id) : null;
       const resolvedCustomerId = row.supplier_customer_id ? resolveCustomer(row.supplier_customer_id) : null;
       const resolvedAccountId = row.account_id ? resolveAccount(row.account_id) : null;
@@ -615,8 +658,10 @@ export async function getAllReceipts(): Promise<Receipt[]> {
       })),
     };
     });
+    console.log(`✅ [getAllReceipts] 数据映射完成，返回 ${mappedReceipts.length} 条小票`);
+    return mappedReceipts;
   } catch (error) {
-    console.error('Error fetching receipts:', error);
+    console.error('❌ [getAllReceipts] 查询失败:', error);
     throw error;
   }
 }

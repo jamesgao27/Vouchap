@@ -16,7 +16,7 @@ import {
   InteractionManager,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { useFocusEffect } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio, recognizeInboundFromText, recognizeInboundFromAudio, recognizeOutboundFromText, recognizeOutboundFromAudio } from '@/lib/gemini';
@@ -92,9 +92,25 @@ interface Message {
 
 export default function VoiceInputScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const params = useLocalSearchParams<{ type?: string }>();
   const voucherType: VoucherLogType = (params.type === 'invoice' || params.type === 'inbound' || params.type === 'outbound') ? params.type : 'receipt';
   const isAiInventoryType = voucherType === 'inbound' || voucherType === 'outbound';
+
+  // 根据类型动态设置标题
+  useEffect(() => {
+    let title = 'Chat to Log';
+    if (voucherType === 'invoice') {
+      title = 'Chat to Log Income';
+    } else if (voucherType === 'inbound') {
+      title = 'Chat to Log Inbound';
+    } else if (voucherType === 'outbound') {
+      title = 'Chat to Log Outbound';
+    } else {
+      title = 'Chat to Log Expenses';
+    }
+    navigation.setOptions({ title });
+  }, [voucherType, navigation]);
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmedReceipts, setConfirmedReceipts] = useState<Set<string>>(new Set());

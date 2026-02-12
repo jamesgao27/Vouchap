@@ -11,9 +11,13 @@ import { Space, UserSpace } from '@/types';
 import { getPendingInvitationsForUser } from '@/lib/space-invitations';
 import { uploadReceiptImageTemp } from '@/lib/supabase';
 import { saveReceipt } from '@/lib/database';
+import { saveInvoice } from '@/lib/invoices';
 import { processReceiptInBackground } from '@/lib/receipt-processor';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getLocalDateString } from '@/lib/date-utils';
+import { recognizeReceipt } from '@/lib/gemini';
+import { convertGeminiResultToInvoice } from '@/lib/receipt-helpers';
+import { runWithRecognitionRetry } from '@/lib/recognition-retry';
 
 /** 首页是否显示「AI 进销存」入口：由 app.config.js extra.showAiInventory 控制，production 构建时 EXPO_PUBLIC_SHOW_AI_INVENTORY=false 则隐藏 */
 const SHOW_AI_INVENTORY_ENTRY = Constants.expoConfig?.extra?.showAiInventory !== false;
@@ -33,6 +37,8 @@ export default function HomeScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
+  const [lastInvoiceId, setLastInvoiceId] = useState<string | null>(null);
+  const [voucherType, setVoucherType] = useState<'receipt' | 'invoice'>('receipt');
   
   // Check if running in Expo Go
   const isExpoGo = Constants.appOwnership === 'expo';
@@ -433,7 +439,7 @@ export default function HomeScreen() {
     }
   };
 
-  const scanDocument = async () => {
+  const scanDocument = async (type: 'receipt' | 'invoice' = 'receipt') => {
     // If we are in Expo Go, we can't use the native scanner
     if (isExpoGo) {
       Alert.alert(
@@ -441,7 +447,7 @@ export default function HomeScreen() {
         'Real-time edge detection and cropping requires a native development build. In Expo Go, please use the gallery picker option.',
         [
           { text: 'Cancel', style: 'cancel' },
-          { text: 'Pick from Gallery', onPress: pickImage }
+          { text: 'Pick from Gallery', onPress: () => pickImage(type) }
         ]
       );
       return;
@@ -449,7 +455,14 @@ export default function HomeScreen() {
 
     try {
       // 动态导入 DocumentScanner（只在非 Expo Go 环境中导入）
-      const DocumentScanner = (await import('react-native-document-scanner-plugin')).default;
+      const module = await import('react-native-document-scanner-plugin');
+      const DocumentScanner = module?.default;
+      
+      // 额外防御：模块导入但没有正确挂载时，直接提示使用开发构建
+      if (!DocumentScanner || typeof DocumentScanner.scanDocument !== 'function') {
+        throw new Error('DocumentScanner module not loaded correctly');
+      }
+
       const { scannedImages } = await DocumentScanner.scanDocument({
         maxNumDocuments: 1,
         croppedImageQuality: 90,
@@ -458,7 +471,7 @@ export default function HomeScreen() {
 
       if (scannedImages && scannedImages.length > 0) {
         // 自动裁剪后直接处理，实现 Snap 即拍即传
-        processCapturedImage(scannedImages[0], false);
+        processCapturedImage(scannedImages[0], false, type);
       }
     } catch (error) {
       console.error('Document scan error:', error);
@@ -469,7 +482,7 @@ export default function HomeScreen() {
           'Document scanner requires a native development build. Please use a development build or use the gallery picker option.',
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Pick from Gallery', onPress: pickImage }
+            { text: 'Pick from Gallery', onPress: () => pickImage(type) }
           ]
         );
       } else {
@@ -478,7 +491,7 @@ export default function HomeScreen() {
     }
   };
 
-  const pickImage = async () => {
+  const pickImage = async (type: 'receipt' | 'invoice' = 'receipt') => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -488,7 +501,7 @@ export default function HomeScreen() {
 
       if (!result.canceled && result.assets[0]) {
         // 从相册选择的图片通常没有裁剪，这里保留自动裁剪逻辑
-        processCapturedImage(result.assets[0].uri, true);
+        processCapturedImage(result.assets[0].uri, true, type);
       }
     } catch (error) {
       console.error('Image picker error:', error);
@@ -499,15 +512,17 @@ export default function HomeScreen() {
   // autoCrop 参数：
   // - 对于扫描得到的图片（已经在原生层做过裁剪），应传入 false，避免二次裁剪截断内容
   // - 对于从相册选择的原始图片，可以传入 true，启用自动裁剪去除背景
-  const processCapturedImage = async (imageUri: string, autoCrop: boolean = true) => {
+  const processCapturedImage = async (imageUri: string, autoCrop: boolean = true, type: 'receipt' | 'invoice' = 'receipt') => {
     // 立即显示选单，后台处理上传
     setShowSuccessModal(true);
-    setLastReceiptId(null); // 初始为 null，上传完成后更新
+    setVoucherType(type);
+    setLastReceiptId(null);
+    setLastInvoiceId(null);
     
     // 后台异步处理（不阻塞 UI）
     (async () => {
       try {
-        console.log('Processing captured image:', imageUri);
+        console.log(`Processing captured image (${type}):`, imageUri);
 
         // 1. Process image (compress, optional auto-crop, etc)
         const processedImageUri = await processImageForUpload(imageUri, {
@@ -521,38 +536,84 @@ export default function HomeScreen() {
         const imageUrl = await uploadReceiptImageTemp(processedImageUri, tempFileName);
         console.log('Image uploaded:', imageUrl);
 
-        // 3. Create receipt record
-        const today = getLocalDateString();
-        const receiptId = await saveReceipt({
-          spaceId: '', // Will be auto-filled
-          supplierName: 'Processing...',
-          totalAmount: 0,
-          date: today,
-          status: 'processing',
-          items: [],
-          imageUrl: imageUrl,
-        });
-        console.log('Receipt record created:', receiptId);
+        if (type === 'invoice') {
+          // 处理发票（收入）
+          const today = getLocalDateString();
+          const invoiceId = await saveInvoice({
+            spaceId: '',
+            customerName: 'Processing...',
+            totalAmount: 0,
+            date: today,
+            status: 'pending',
+            items: [],
+            imageUrl: imageUrl,
+            inputType: 'image',
+          }, true); // autoResolveDuplicate = true
+          console.log('Invoice record created:', invoiceId);
+          setLastInvoiceId(invoiceId);
 
-        // 更新 receiptId，使 View Detail 可用
-        setLastReceiptId(receiptId);
+          // 后台识别处理
+          (async () => {
+            try {
+              const ret = await runWithRecognitionRetry(() => recognizeReceipt(imageUrl), { maxAttempts: 5, delayMs: 2000 });
+              if (ret.success) {
+                const invoice = await convertGeminiResultToInvoice(ret.result);
+                await saveInvoice({
+                  ...invoice,
+                  id: invoiceId,
+                  imageUrl: imageUrl,
+                  confidence: ret.result.confidence,
+                }, true);
+                console.log('Invoice processing completed');
+              } else {
+                console.warn('Invoice recognition failed:', ret.error.message);
+              }
+            } catch (error) {
+              console.error('Invoice processing error:', error);
+            }
+          })();
+        } else {
+          // 处理小票（支出）
+          const today = getLocalDateString();
+          const receiptId = await saveReceipt({
+            spaceId: '',
+            supplierName: 'Processing...',
+            totalAmount: 0,
+            date: today,
+            status: 'processing',
+            items: [],
+            imageUrl: imageUrl,
+          });
+          console.log('Receipt record created:', receiptId);
+          setLastReceiptId(receiptId);
 
-        // 4. Background processing with Gemini (async, don't block UI)
-        processReceiptInBackground(imageUrl, receiptId, processedImageUri)
-          .then(() => console.log('Background processing started'))
-          .catch(err => console.error('Background processing failed:', err));
+          // 4. Background processing with Gemini (async, don't block UI)
+          processReceiptInBackground(imageUrl, receiptId, processedImageUri)
+            .then(() => console.log('Background processing started'))
+            .catch(err => console.error('Background processing failed:', err));
+        }
 
       } catch (error) {
         console.error('Processing error:', error);
-        Alert.alert('Error', 'Failed to process expense.');
+        Alert.alert('Error', `Failed to process ${type === 'invoice' ? 'income' : 'expense'}.`);
         setShowSuccessModal(false);
       }
     })();
   };
 
-  const handleCameraPress = () => {
-    // 直接进入拍摄界面（扫描界面内部已支持选择已有图片）
-    scanDocument();
+  const handleCameraPress = (type: 'receipt' | 'invoice' = 'receipt') => {
+    // 保存类型，用于UI显示
+    setVoucherType(type);
+    // 直接传递类型给扫描函数
+    scanDocument(type);
+  };
+
+  const handleChatPress = (type: 'receipt' | 'invoice' = 'receipt') => {
+    if (type === 'invoice') {
+      router.push('/voice-input?type=invoice');
+    } else {
+      router.push('/voice-input');
+    }
   };
 
   // 认证检查中，不渲染任何内容（避免闪烁）
@@ -626,35 +687,72 @@ export default function HomeScreen() {
           Balance Clarity.
         </Text>
         
-        <TouchableOpacity 
-          style={[styles.iconContainer, { marginTop: sloganBlockMarginBottom }]}
-          onPress={handleCameraPress}
-          activeOpacity={0.8}
-          disabled={isProcessing}
-        >
+        {/* 拍照按钮 - 左右分两部分（左：Income，右：Expenses） */}
+        <View style={[styles.iconContainer, { marginTop: sloganBlockMarginBottom }]}>
           <View style={[styles.circle, { width: mainCircleSize, height: mainCircleSize, borderRadius: mainCircleSize / 2 }]}>
-            <Ionicons name="camera" size={mainCircleSize * 0.4} color="#6C5CE7" />
+            {/* Icon居中显示 */}
+            <View style={styles.iconCenter}>
+              <Ionicons name="camera" size={mainCircleSize * 0.4} color="#6C5CE7" />
+            </View>
+            {/* 左侧热区 - income */}
+            <TouchableOpacity 
+              style={[styles.halfButton, styles.leftHalf]}
+              onPress={() => handleCameraPress('invoice')}
+              activeOpacity={0.8}
+              disabled={isProcessing}
+            />
+            {/* 右侧热区 - expenses */}
+            <TouchableOpacity 
+              style={[styles.halfButton, styles.rightHalf]}
+              onPress={() => handleCameraPress('receipt')}
+              activeOpacity={0.8}
+              disabled={isProcessing}
+            />
           </View>
-        </TouchableOpacity>
+        </View>
 
-        <TouchableOpacity 
-          style={styles.chatIconContainer}
-          onPress={() => router.push('/voice-input')}
-          activeOpacity={0.8}
-        >
+        {/* 聊天按钮 - 左右分两部分（左：Income，右：Expenses） */}
+        <View style={styles.chatIconContainer}>
           <View style={[styles.chatCircle, { width: chatCircleSize, height: chatCircleSize, borderRadius: chatCircleSize / 2 }]}>
-            <Ionicons name="chatbubble-outline" size={chatCircleSize * 0.4} color="#6C5CE7" />
+            {/* Icon居中显示 */}
+            <View style={styles.iconCenter}>
+              <Ionicons name="chatbubble-outline" size={chatCircleSize * 0.4} color="#6C5CE7" />
+            </View>
+            {/* 左侧热区 - income */}
+            <TouchableOpacity 
+              style={[styles.halfButton, styles.leftHalf]}
+              onPress={() => handleChatPress('invoice')}
+              activeOpacity={0.8}
+            />
+            {/* 右侧热区 - expenses */}
+            <TouchableOpacity 
+              style={[styles.halfButton, styles.rightHalf]}
+              onPress={() => handleChatPress('receipt')}
+              activeOpacity={0.8}
+            />
           </View>
-        </TouchableOpacity>
+        </View>
       </View>
 
-      <TouchableOpacity 
-        style={styles.secondaryButton}
-        onPress={() => router.push('/receipts')}
-      >
-        <Ionicons name="list-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
-        <Text style={styles.secondaryButtonText}>Expenses</Text>
-      </TouchableOpacity>
+      <View style={styles.buttonsRow}>
+        {/* 左：Income */}
+        <TouchableOpacity 
+          style={[styles.secondaryButton, styles.halfWidthButton]}
+          onPress={() => router.push('/invoices')}
+        >
+          <Ionicons name="document-text-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
+          <Text style={styles.secondaryButtonText}>Income</Text>
+        </TouchableOpacity>
+
+        {/* 右：Expenses */}
+        <TouchableOpacity 
+          style={[styles.secondaryButton, styles.halfWidthButton]}
+          onPress={() => router.push('/receipts')}
+        >
+          <Ionicons name="list-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
+          <Text style={styles.secondaryButtonText}>Expenses</Text>
+        </TouchableOpacity>
+      </View>
 
       {SHOW_AI_INVENTORY_ENTRY && (
         <TouchableOpacity 
@@ -755,43 +853,51 @@ export default function HomeScreen() {
             <View style={styles.successIconContainer}>
               <Ionicons name="checkmark-circle" size={64} color="#00B894" />
             </View>
-            <Text style={styles.successTitle}>Submitted!</Text>
-            <Text style={styles.successSubtitle}>Expense is being processed</Text>
+            <Text style={styles.successTitle}>
+              {voucherType === 'invoice' ? 'Income Submitted!' : 'Expense Submitted!'}
+            </Text>
+            <Text style={styles.successSubtitle}>
+              {voucherType === 'invoice' 
+                ? 'Invoice is being processed' 
+                : 'Receipt is being processed'}
+            </Text>
             <View style={styles.successButtons}>
               <TouchableOpacity
                 style={styles.successButton}
                 onPress={() => {
                   setShowSuccessModal(false);
-                  scanDocument();
+                  handleCameraPress(voucherType);
                 }}
               >
                 <Ionicons name="camera-outline" size={24} color="#6C5CE7" />
                 <Text style={styles.successButtonText}>Snap Another</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.successButton, !lastReceiptId && { opacity: 0.5 }]}
-                disabled={!lastReceiptId}
+                style={[styles.successButton, !(voucherType === 'receipt' ? lastReceiptId : lastInvoiceId) && { opacity: 0.5 }]}
+                disabled={!(voucherType === 'receipt' ? lastReceiptId : lastInvoiceId)}
                 onPress={() => {
                   setShowSuccessModal(false);
-                  if (lastReceiptId) {
+                  if (voucherType === 'receipt' && lastReceiptId) {
                     router.push(`/receipt-details/${lastReceiptId}`);
+                  } else if (voucherType === 'invoice' && lastInvoiceId) {
+                    router.push(`/invoice-details/${lastInvoiceId}`);
                   }
                 }}
               >
-                {lastReceiptId ? (
+                {(voucherType === 'receipt' ? lastReceiptId : lastInvoiceId) ? (
                   <Ionicons name="eye-outline" size={24} color="#6C5CE7" />
                 ) : (
                   <ActivityIndicator size="small" color="#6C5CE7" />
                 )}
                 <Text style={styles.successButtonText}>
-                  {lastReceiptId ? 'View Detail' : 'Uploading...'}
+                  {(voucherType === 'receipt' ? lastReceiptId : lastInvoiceId) ? 'View Detail' : 'Uploading...'}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.successButton}
                 onPress={() => {
                   setShowSuccessModal(false);
-                  router.push('/receipts');
+                  router.push(voucherType === 'receipt' ? '/receipts' : '/invoices');
                 }}
               >
                 <Ionicons name="list-outline" size={24} color="#6C5CE7" />
@@ -971,6 +1077,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#E9ECEF',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
+    flexDirection: 'row',
+    position: 'relative',
   },
   chatIconContainer: {
     marginTop: 24,
@@ -982,6 +1091,28 @@ const styles = StyleSheet.create({
     backgroundColor: '#E9ECEF',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
+    flexDirection: 'row',
+    position: 'relative',
+  },
+  iconCenter: {
+    position: 'absolute',
+    zIndex: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: '100%',
+    height: '100%',
+    pointerEvents: 'none',
+  },
+  halfButton: {
+    flex: 1,
+    height: '100%',
+  },
+  leftHalf: {
+    backgroundColor: '#FFF2EB', // 低饱和度的橙色背景，用于income（#D35400的同色系）
+  },
+  rightHalf: {
+    backgroundColor: '#F2EFF7', // 低饱和度的紫色背景，用于expenses（#6C5CE7的同色系）
   },
   button: {
     backgroundColor: '#6C5CE7',
@@ -1006,6 +1137,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
   },
+  buttonsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
   secondaryButton: {
     backgroundColor: 'transparent',
     borderRadius: 16,
@@ -1016,6 +1152,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 2,
     borderColor: '#6C5CE7',
+  },
+  halfWidthButton: {
+    flex: 1,
+    paddingHorizontal: 16,
   },
   secondaryButtonText: {
     color: '#6C5CE7',

@@ -84,7 +84,24 @@ export async function createAccount(name: string, isAiRecognized: boolean = fals
       .select()
       .single();
 
-    if     (error) throw error;
+    if (error) {
+      // 如果是因为名称重复导致的数据库约束错误（23505），尝试查找已存在的账户并返回
+      // 这种情况可能发生在并发场景：两个请求同时调用 findOrCreateAccount，都找不到已存在的，然后都尝试创建
+      if (error.code === '23505' && (error.message?.includes('name') || error.message?.includes('账户'))) {
+        console.log('账户名称已存在（数据库约束），尝试查找已存在的账户:', name.trim());
+        const { data: existingAccount } = await supabase
+          .from('accounts')
+          .select('*')
+          .eq('space_id', spaceId)
+          .eq('name', name.trim())
+          .single();
+        if (existingAccount) {
+          console.log('找到已存在的账户，返回:', existingAccount.id);
+          return mapAccountRow(existingAccount);
+        }
+      }
+      throw error;
+    }
 
     return mapAccountRow(data);
   } catch (error) {

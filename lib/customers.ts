@@ -100,7 +100,24 @@ export async function createCustomer(
       .select('*')
       .single();
 
-    if (error) throw error;
+    if (error) {
+      // 如果是因为名称重复导致的数据库约束错误（23505），尝试查找已存在的客户并返回
+      // 这种情况可能发生在并发场景：两个请求同时调用 findOrCreateCustomer，都找不到已存在的，然后都尝试创建
+      if (error.code === '23505' && (error.message?.includes('name') || error.message?.includes('客户'))) {
+        console.log('客户名称已存在（数据库约束），尝试查找已存在的客户:', name.trim());
+        const { data: existingCustomer } = await supabase
+          .from('customers')
+          .select('*')
+          .eq('space_id', spaceId)
+          .eq('name', name.trim())
+          .single();
+        if (existingCustomer) {
+          console.log('找到已存在的客户，返回:', existingCustomer.id);
+          return mapCustomerRow(existingCustomer);
+        }
+      }
+      throw error;
+    }
 
     return mapCustomerRow(data);
   } catch (error) {

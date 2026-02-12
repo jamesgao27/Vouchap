@@ -6,6 +6,7 @@ import { uploadReceiptImage, supabase } from './supabase';
 import { checkDuplicateReceipt } from './receipt-duplicate-checker';
 import { findOrCreateSupplier, updateSupplier } from './suppliers';
 import { runWithRecognitionRetry } from './recognition-retry';
+import { getCurrentUser } from './auth';
 
 // 从公共URL中提取文件路径
 function extractFilePathFromUrl(url: string): string | null {
@@ -69,15 +70,34 @@ export async function processReceiptInBackground(
     const ret = await runWithRecognitionRetry(() => recognizeReceipt(imageUrl), { maxAttempts: 5, delayMs: 2000 });
     if (!ret.success) {
       console.warn('小票识别失败（重试后仍失败或内容质量差）:', ret.error.message);
-      await updateReceipt(receiptId, { status: 'needs_retake' });
+      await updateReceipt(receiptId, { status: 'needs_retake' }, true); // autoResolveDuplicate = true，后台处理场景
       return;
     }
     const recognizedData = ret.result;
     console.log('识别完成，开始转换数据...');
 
     // 2. 转换为 Receipt 格式（匹配分类和支付账户）
-    const receipt = await convertGeminiResultToReceipt(recognizedData);
-    console.log('数据转换完成，开始更新小票...');
+    let receipt;
+    try {
+      receipt = await convertGeminiResultToReceipt(recognizedData);
+      console.log('数据转换完成，开始更新小票...');
+    } catch (error: any) {
+      // 如果转换过程中出现任何错误（包括名称重复等），记录错误但不阻塞流程
+      // 使用基本识别数据创建一个小票记录
+      console.error('转换小票数据失败:', error);
+      console.log('使用基本识别数据创建小票记录...');
+      const user = await getCurrentUser();
+      const spaceId = user?.currentSpaceId || user?.spaceId || '';
+      receipt = {
+        spaceId,
+        supplierName: recognizedData.supplierName || '',
+        totalAmount: recognizedData.totalAmount || 0,
+        date: recognizedData.date || new Date().toISOString().split('T')[0],
+        items: [],
+        status: 'pending' as const,
+        confidence: recognizedData.confidence || 0,
+      };
+    }
 
     // 3. 使用真实ID重新上传处理后的图片（替换临时文件）
     // 注意：processedImageUri 是预处理后的图片本地 URI，不是原始图片
@@ -92,11 +112,12 @@ export async function processReceiptInBackground(
 
     // 5. 更新小票数据（使用已存在的 receiptId）
     // 状态与置信度均在 convertGeminiResultToReceipt 中根据 0.85 规则设置，使用 receipt 的调整后置信度
+    // 注意：传入 autoResolveDuplicate: true，让 updateReceipt 自动处理"供应商名称已存在"的情况（后台处理场景）
     await updateReceipt(receiptId, {
       ...receipt,
       imageUrl: finalImageUrl,
       confidence: receipt.confidence,
-    });
+    }, true); // autoResolveDuplicate = true，自动处理重复名称
     
     // 6. 异步识别供应商详细信息（不阻塞主流程）
     // 如果基本识别中已经有一些供应商信息，先使用它们；然后异步补充更完整的信息
@@ -123,12 +144,21 @@ export async function processReceiptInBackground(
           // 如果有任何供应商信息，更新供应商记录
           if (receipt.supplierId && (mergedSupplierInfo.taxNumber || mergedSupplierInfo.phone || mergedSupplierInfo.address)) {
             console.log('[Supplier Info] 更新供应商详细信息:', mergedSupplierInfo);
-            await updateSupplier(receipt.supplierId, {
-              taxNumber: mergedSupplierInfo.taxNumber,
-              phone: mergedSupplierInfo.phone,
-              address: mergedSupplierInfo.address,
-            });
-            console.log('[Supplier Info] ✅ 供应商详细信息已更新');
+            try {
+              await updateSupplier(receipt.supplierId, {
+                taxNumber: mergedSupplierInfo.taxNumber,
+                phone: mergedSupplierInfo.phone,
+                address: mergedSupplierInfo.address,
+              });
+              console.log('[Supplier Info] ✅ 供应商详细信息已更新');
+            } catch (error: any) {
+              // 如果更新时遇到名称重复，静默处理（后台处理场景，不应该因为名称重复而失败）
+              if (error?.code === 'SUPPLIER_NAME_EXISTS' || error?.message === '供应商名称已存在') {
+                console.log('[Supplier Info] 供应商名称已存在，跳过更新（使用已存在的供应商）');
+              } else {
+                throw error; // 其他错误继续抛出
+              }
+            }
           } else if (receipt.supplierName && (mergedSupplierInfo.taxNumber || mergedSupplierInfo.phone || mergedSupplierInfo.address)) {
             // 如果没有 supplierId，尝试查找或创建供应商
             try {
@@ -140,7 +170,7 @@ export async function processReceiptInBackground(
                 mergedSupplierInfo.address
               );
               // 更新小票的 supplierId
-              await updateReceipt(receiptId, { supplierId: supplier.id });
+              await updateReceipt(receiptId, { supplierId: supplier.id }, true); // autoResolveDuplicate = true，后台处理场景
               console.log('[Supplier Info] ✅ 供应商已创建/更新，小票已关联');
             } catch (error) {
               console.warn('[Supplier Info] 更新供应商失败:', error);
@@ -164,7 +194,7 @@ export async function processReceiptInBackground(
         // 如果发现重复，更新状态为 duplicate
         await updateReceipt(receiptId, {
           status: 'duplicate',
-        });
+        }, true); // autoResolveDuplicate = true，后台处理场景
         console.log(`小票数据已更新，发现重复小票，状态：duplicate，重复的小票ID：${duplicateReceipt.id}`);
       } else {
         console.log(`小票数据已更新，后台处理完成，状态：${receipt.status}，置信度：${recognizedData.confidence}`);
@@ -176,7 +206,7 @@ export async function processReceiptInBackground(
     try {
       await updateReceipt(receiptId, {
         status: 'pending',
-      });
+      }, true); // autoResolveDuplicate = true，后台处理场景
     } catch (updateError) {
       console.error('更新小票状态失败:', updateError);
     }

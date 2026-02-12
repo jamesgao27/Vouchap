@@ -248,7 +248,8 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
 }
 
 /** 保存发票（新建或更新，含明细）— 占位实现，后续对接 AI 与完整 CRUD */
-export async function saveInvoice(invoice: Invoice): Promise<string> {
+// autoResolveDuplicate: 如果为 true，遇到重复名称时自动使用已存在的ID，不抛出异常（用于后台处理场景）
+export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolean = false): Promise<string> {
   const user = await getCurrentUser();
   if (!user) throw new Error('Not logged in');
   const spaceId = user.currentSpaceId || user.spaceId;
@@ -293,13 +294,28 @@ export async function saveInvoice(invoice: Invoice): Promise<string> {
           ? await resolveSupplierId(spaceId, foundByName.id)
           : await resolveCustomerId(spaceId, foundByName.id);
         if (targetId !== currentResolvedId) {
-          const code = foundByName.source === 'customer' ? ('CUSTOMER_NAME_EXISTS' as const) : ('SUPPLIER_NAME_EXISTS' as const);
-          throw Object.assign(new Error(foundByName.source === 'customer' ? '客户名称已存在' : '供应商名称已存在'), {
-            code,
-            duplicateName: trimmedCustomerName,
-            targetId,
-            targetSource: foundByName.source,
-          });
+          // 如果 autoResolveDuplicate = true（后台处理场景），自动使用已存在的ID
+          // 如果 autoResolveDuplicate = false（UI 交互场景），抛出异常触发三选项弹窗
+          if (autoResolveDuplicate) {
+            // 后台处理场景：自动使用已存在的客户/供应商ID
+            if (foundByName.source === 'supplier') {
+              customerSupplierId = targetId as any;
+              customerId = undefined;
+            } else {
+              customerId = targetId;
+              customerSupplierId = undefined;
+            }
+            console.log(`客户/供应商名称已存在，自动使用已存在的ID: ${foundByName.source} ${targetId}`);
+          } else {
+            // UI 交互场景：已有关联，需要用户选择如何处理，抛出异常触发三选项弹窗
+            const code = foundByName.source === 'customer' ? ('CUSTOMER_NAME_EXISTS' as const) : ('SUPPLIER_NAME_EXISTS' as const);
+            throw Object.assign(new Error(foundByName.source === 'customer' ? '客户名称已存在' : '供应商名称已存在'), {
+              code,
+              duplicateName: trimmedCustomerName,
+              targetId,
+              targetSource: foundByName.source,
+            });
+          }
         }
       }
 
@@ -309,9 +325,15 @@ export async function saveInvoice(invoice: Invoice): Promise<string> {
           await updateSupplier(targetId, { name: trimmedCustomerName });
         } catch (e) {
           if (e instanceof Error && e.message === '供应商名称已存在') {
-            throw Object.assign(new Error(e.message), { code: 'SUPPLIER_NAME_EXISTS' as const, duplicateName: trimmedCustomerName });
+            // 如果 autoResolveDuplicate = true，静默处理，不抛出异常
+            if (autoResolveDuplicate) {
+              console.log('供应商名称已存在，跳过名称更新（已自动使用已存在的ID）');
+            } else {
+              throw Object.assign(new Error(e.message), { code: 'SUPPLIER_NAME_EXISTS' as const, duplicateName: trimmedCustomerName });
+            }
+          } else {
+            console.warn('Failed to update supplier name for invoice:', e);
           }
-          console.warn('Failed to update supplier name for invoice:', e);
         }
       } else if (customerId) {
         try {
@@ -319,9 +341,15 @@ export async function saveInvoice(invoice: Invoice): Promise<string> {
           await updateCustomer(targetId, { name: trimmedCustomerName });
         } catch (e) {
           if (e instanceof Error && e.message === '客户名称已存在') {
-            throw Object.assign(new Error(e.message), { code: 'CUSTOMER_NAME_EXISTS' as const, duplicateName: trimmedCustomerName });
+            // 如果 autoResolveDuplicate = true，静默处理，不抛出异常
+            if (autoResolveDuplicate) {
+              console.log('客户名称已存在，跳过名称更新（已自动使用已存在的ID）');
+            } else {
+              throw Object.assign(new Error(e.message), { code: 'CUSTOMER_NAME_EXISTS' as const, duplicateName: trimmedCustomerName });
+            }
+          } else {
+            console.warn('Failed to update customer name for invoice:', e);
           }
-          console.warn('Failed to update customer name for invoice:', e);
         }
       }
     }
@@ -337,11 +365,20 @@ export async function saveInvoice(invoice: Invoice): Promise<string> {
           (o) => o.id !== currentResolvedId && normalizeAccountName(o.name) === normalizedAccountName
         );
         if (found) {
-          throw Object.assign(new Error('账户名称已存在'), {
-            code: 'ACCOUNT_NAME_EXISTS' as const,
-            duplicateName: accountName,
-            targetId: found.id,
-          });
+          // 如果 autoResolveDuplicate = true（后台处理场景），自动使用已存在的账户ID
+          // 如果 autoResolveDuplicate = false（UI 交互场景），抛出异常触发三选项弹窗
+          if (autoResolveDuplicate) {
+            // 后台处理场景：自动使用已存在的账户ID
+            invoice.accountId = found.id;
+            console.log(`账户名称已存在，自动使用已存在的ID: ${found.id}`);
+          } else {
+            // UI 交互场景：需要用户选择如何处理，抛出异常触发三选项弹窗
+            throw Object.assign(new Error('账户名称已存在'), {
+              code: 'ACCOUNT_NAME_EXISTS' as const,
+              duplicateName: accountName,
+              targetId: found.id,
+            });
+          }
         }
       }
     }

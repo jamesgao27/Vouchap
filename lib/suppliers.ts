@@ -100,7 +100,24 @@ export async function createSupplier(
       .select('*')
       .single();
 
-    if     (error) throw error;
+    if (error) {
+      // 如果是因为名称重复导致的数据库约束错误（23505），尝试查找已存在的供应商并返回
+      // 这种情况可能发生在并发场景：两个请求同时调用 findOrCreateSupplier，都找不到已存在的，然后都尝试创建
+      if (error.code === '23505' && error.message?.includes('name') || error.message?.includes('供应商')) {
+        console.log('供应商名称已存在（数据库约束），尝试查找已存在的供应商:', name.trim());
+        const { data: existingSupplier } = await supabase
+          .from('suppliers')
+          .select('*')
+          .eq('space_id', spaceId)
+          .eq('name', name.trim())
+          .single();
+        if (existingSupplier) {
+          console.log('找到已存在的供应商，返回:', existingSupplier.id);
+          return mapSupplierRow(existingSupplier);
+        }
+      }
+      throw error;
+    }
 
     return mapSupplierRow(data);
   } catch (error) {
@@ -283,11 +300,20 @@ export async function findOrCreateSupplier(
           (address && !mergedSupplier.address);
         
         if (shouldUpdate) {
-          await updateSupplier(mergedSupplier.id, {
-            taxNumber: taxNumber || mergedSupplier.tax_number,
-            phone: phone || mergedSupplier.phone,
-            address: address || mergedSupplier.address,
-          });
+          try {
+            await updateSupplier(mergedSupplier.id, {
+              taxNumber: taxNumber || mergedSupplier.tax_number,
+              phone: phone || mergedSupplier.phone,
+              address: address || mergedSupplier.address,
+            });
+          } catch (error: any) {
+            // 如果更新时遇到名称重复，静默处理（后台处理场景，不应该因为名称重复而失败）
+            if (error?.code === 'SUPPLIER_NAME_EXISTS' || error?.message === '供应商名称已存在') {
+              console.log('供应商名称已存在，跳过更新（使用已存在的供应商）');
+            } else {
+              throw error; // 其他错误继续抛出
+            }
+          }
           // 重新获取更新后的商家信息
           const { data: updatedSupplier } = await supabase
             .from('suppliers')
@@ -336,11 +362,20 @@ export async function findOrCreateSupplier(
         (address && !exactMatch.address);
       
       if (shouldUpdate) {
-        await updateSupplier(exactMatch.id, {
-          taxNumber: taxNumber || exactMatch.tax_number,
-          phone: phone || exactMatch.phone,
-          address: address || exactMatch.address,
-        });
+        try {
+          await updateSupplier(exactMatch.id, {
+            taxNumber: taxNumber || exactMatch.tax_number,
+            phone: phone || exactMatch.phone,
+            address: address || exactMatch.address,
+          });
+        } catch (error: any) {
+          // 如果更新时遇到名称重复，静默处理（后台处理场景，不应该因为名称重复而失败）
+          if (error?.code === 'SUPPLIER_NAME_EXISTS' || error?.message === '供应商名称已存在') {
+            console.log('供应商名称已存在，跳过更新（使用已存在的供应商）');
+          } else {
+            throw error; // 其他错误继续抛出
+          }
+        }
         // 重新获取更新后的商家信息
         const { data: updatedSupplier } = await supabase
           .from('suppliers')
@@ -384,17 +419,35 @@ export async function findOrCreateSupplier(
         console.log(`Found supplier by tax number: "${trimmedName}" -> "${taxNumberMatch.name}"`);
         // 更新商家名称（如果新名称更完整）
         if (trimmedName.length > taxNumberMatch.name.length) {
-          await updateSupplier(taxNumberMatch.id, { name: trimmedName });
+          try {
+            await updateSupplier(taxNumberMatch.id, { name: trimmedName });
+          } catch (error: any) {
+            // 如果更新时遇到名称重复，静默处理（后台处理场景，不应该因为名称重复而失败）
+            if (error?.code === 'SUPPLIER_NAME_EXISTS' || error?.message === '供应商名称已存在') {
+              console.log('供应商名称已存在，跳过名称更新（使用已存在的供应商）');
+            } else {
+              throw error; // 其他错误继续抛出
+            }
+          }
         }
         // 更新其他信息（如果新信息更完整）
         const shouldUpdate =
           (phone && !taxNumberMatch.phone) ||
           (address && !taxNumberMatch.address);
         if (shouldUpdate) {
-          await updateSupplier(taxNumberMatch.id, {
-            phone: phone || taxNumberMatch.phone,
-            address: address || taxNumberMatch.address,
-          });
+          try {
+            await updateSupplier(taxNumberMatch.id, {
+              phone: phone || taxNumberMatch.phone,
+              address: address || taxNumberMatch.address,
+            });
+          } catch (error: any) {
+            // 如果更新时遇到名称重复，静默处理（后台处理场景，不应该因为名称重复而失败）
+            if (error?.code === 'SUPPLIER_NAME_EXISTS' || error?.message === '供应商名称已存在') {
+              console.log('供应商名称已存在，跳过更新（使用已存在的供应商）');
+            } else {
+              throw error; // 其他错误继续抛出
+            }
+          }
         }
         // 重新获取更新后的商家信息
         const { data: updatedSupplier } = await supabase
