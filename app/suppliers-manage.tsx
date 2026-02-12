@@ -9,6 +9,8 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
+  Platform,
+  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -18,10 +20,16 @@ import {
   updateSupplier,
   deleteSupplier,
   mergeSupplier,
+  unmergeSupplier,
+  getSuppliersForMergeHistory,
+  getSupplierUsageCounts,
+  type SuppliersMergeHistoryData,
+  type SupplierUsageCounts,
 } from '@/lib/suppliers';
 import { updateCustomer, mergeCustomer } from '@/lib/customers';
 import { getSupplierListForManage, type SupplierListItem } from '@/lib/customer-supplier-list';
 import { GradientText } from '@/lib/GradientText';
+import type { Supplier } from '@/types';
 
 export default function SuppliersManageScreen() {
   const router = useRouter();
@@ -43,8 +51,28 @@ export default function SuppliersManageScreen() {
   const [newIsCustomer, setNewIsCustomer] = useState(false);
   const [mergeMode, setMergeMode] = useState(false);
   const [selectedSupplierIds, setSelectedSupplierIds] = useState<Set<string>>(new Set());
+  const [mergeHistoryData, setMergeHistoryData] = useState<SuppliersMergeHistoryData | null>(null);
+  const [usageCounts, setUsageCounts] = useState<SupplierUsageCounts | null>(null);
+  const [expandedRootIds, setExpandedRootIds] = useState<Set<string>>(new Set());
   const editNameInputRef = useRef<TextInput>(null);
   const [showDuplicateNameModal, setShowDuplicateNameModal] = useState(false);
+  const [showQuickCleanModal, setShowQuickCleanModal] = useState(false);
+  const [showMergeTargetModal, setShowMergeTargetModal] = useState(false);
+  const [mergeTargetModalAccounts, setMergeTargetModalAccounts] = useState<Supplier[] | null>(null);
+  const [mergeTargetSelectedId, setMergeTargetSelectedId] = useState<string | null>(null);
+  const [showDeleteSelectedModal, setShowDeleteSelectedModal] = useState(false);
+  const [deleteSelectedModalAccounts, setDeleteSelectedModalAccounts] = useState<Supplier[] | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+
+  const showToast = (message: string, duration: number = 1500) => {
+    setToastMessage(message);
+    Animated.sequence([
+      Animated.timing(toastOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.delay(duration),
+      Animated.timing(toastOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start(() => setToastMessage(null));
+  };
   const [duplicateNameModalPayload, setDuplicateNameModalPayload] = useState<{
     code: string;
     duplicateName: string;
@@ -287,16 +315,92 @@ export default function SuppliersManageScreen() {
     setSelectedSupplierIds(newSelected);
   };
 
-  const handleStartMerge = () => {
+  const handleStartMerge = async () => {
     setMergeMode(true);
     setSelectedSupplierIds(new Set());
     setEditingId(null);
     setShowAddForm(false);
+    setExpandedRootIds(new Set());
+    try {
+      const [historyData, counts] = await Promise.all([
+        getSuppliersForMergeHistory(),
+        getSupplierUsageCounts(),
+      ]);
+      setMergeHistoryData(historyData);
+      setUsageCounts(counts);
+    } catch (e: any) {
+      console.error('Error loading merge data:', e);
+      Alert.alert('Error', e?.message ?? 'Failed to load merge data');
+    }
   };
 
   const handleCancelMerge = () => {
     setMergeMode(false);
     setSelectedSupplierIds(new Set());
+    setMergeHistoryData(null);
+    setUsageCounts(null);
+    setExpandedRootIds(new Set());
+  };
+
+  const directReceipts = (id: string) => usageCounts?.receiptCountBySupplierId[id] ?? 0;
+  const totalCount = (root: Supplier, children: Supplier[]) =>
+    directReceipts(root.id) + children.reduce((s, c) => s + directReceipts(c.id), 0);
+  const directCount = (id: string) => directReceipts(id);
+
+  const cleanableRoots = (() => {
+    if (!mergeHistoryData || !usageCounts) return [];
+    return mergeHistoryData.roots.filter((root) => {
+      const children = mergeHistoryData.childrenByRootId.get(root.id) ?? [];
+      const hasUsage = directReceipts(root.id) > 0;
+      const hasChildUsage = children.some((c) => directReceipts(c.id) > 0);
+      const hasChildren = children.length > 0;
+      return !hasUsage && !hasChildUsage && !hasChildren;
+    });
+  })();
+
+  const handleCleanEmpty = () => {
+    if (cleanableRoots.length === 0) {
+      Alert.alert('Notice', 'No empty suppliers to clean.');
+      return;
+    }
+    setShowQuickCleanModal(true);
+  };
+
+  const doQuickCleanConfirm = async () => {
+    if (cleanableRoots.length === 0) return;
+    setShowQuickCleanModal(false);
+    try {
+      for (const root of cleanableRoots) {
+        await deleteSupplier(root.id);
+      }
+      await loadList();
+      const [historyData, counts] = await Promise.all([
+        getSuppliersForMergeHistory(),
+        getSupplierUsageCounts(),
+      ]);
+      setMergeHistoryData(historyData);
+      setUsageCounts(counts);
+      showToast(`Cleaned ${cleanableRoots.length} empty supplier(s).`);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? String(e));
+    }
+  };
+
+  const setMergeTargetSelection = (supplierId: string) => setMergeTargetSelectedId(supplierId);
+  const confirmMergeTarget = () => {
+    if (!mergeTargetSelectedId) return;
+    const sourceIds = Array.from(selectedSupplierIds).filter((id) => id !== mergeTargetSelectedId);
+    setShowMergeTargetModal(false);
+    setMergeTargetModalAccounts(null);
+    setMergeTargetSelectedId(null);
+    performMerge(sourceIds, mergeTargetSelectedId);
+  };
+  const chooseMergeTarget = (target: Supplier) => {
+    setShowMergeTargetModal(false);
+    setMergeTargetModalAccounts(null);
+    setMergeTargetSelectedId(null);
+    const sourceIds = Array.from(selectedSupplierIds).filter((id) => id !== target.id);
+    performMerge(sourceIds, target.id);
   };
 
   const handleConfirmMerge = () => {
@@ -304,37 +408,95 @@ export default function SuppliersManageScreen() {
       Alert.alert('Error', 'Please select at least 2 suppliers to merge');
       return;
     }
-
-    const selectedSuppliers = list.filter((it): it is SupplierListItem & { source: 'supplier' } => it.source === 'supplier' && selectedSupplierIds.has(it.id));
-    const supplierNames = selectedSuppliers.map(sup => sup.name).join('\n');
-
-    Alert.alert(
-      'Select Target Supplier',
-      `Select which supplier to keep (others will be merged into it):\n\n${supplierNames}`,
-      [
-        ...selectedSuppliers.map(supplier => ({
-          text: supplier.name,
-          onPress: () => {
-            const sourceIds = Array.from(selectedSupplierIds).filter(id => id !== supplier.id);
-            performMerge(sourceIds, supplier.id);
-          },
-        })),
-        { text: 'Cancel', style: 'cancel' as const, onPress: handleCancelMerge },
-      ]
-    );
+    const allInMerge = mergeHistoryData
+      ? [...mergeHistoryData.roots, ...Array.from(mergeHistoryData.childrenByRootId.values()).flat()]
+      : [];
+    const selected = allInMerge.filter((s) => selectedSupplierIds.has(s.id));
+    setMergeTargetModalAccounts(selected);
+    setMergeTargetSelectedId(null);
+    setShowMergeTargetModal(true);
   };
 
   const performMerge = async (sourceSupplierIds: string[], targetSupplierId: string) => {
     try {
       await mergeSupplier(sourceSupplierIds, targetSupplierId);
       await loadList();
-      setMergeMode(false);
+      const [historyData, counts] = await Promise.all([
+        getSuppliersForMergeHistory(),
+        getSupplierUsageCounts(),
+      ]);
+      setMergeHistoryData(historyData);
+      setUsageCounts(counts);
       setSelectedSupplierIds(new Set());
-      Alert.alert('Success', 'Suppliers merged successfully');
+      setExpandedRootIds(new Set());
+      showToast('Suppliers merged successfully');
     } catch (error: any) {
       console.error('Error merging suppliers:', error);
       Alert.alert('Error', error.message || 'Failed to merge suppliers');
     }
+  };
+
+  const handleUnmerge = async (childId: string) => {
+    try {
+      await unmergeSupplier(childId);
+      await loadList();
+      const [historyData, counts] = await Promise.all([
+        getSuppliersForMergeHistory(),
+        getSupplierUsageCounts(),
+      ]);
+      setMergeHistoryData(historyData);
+      setUsageCounts(counts);
+      setSelectedSupplierIds((prev) => {
+        const next = new Set(prev);
+        next.delete(childId);
+        return next;
+      });
+      showToast('Unmerged');
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? String(e));
+    }
+  };
+
+  const handleDeleteSelected = () => {
+    if (selectedSupplierIds.size === 0) return;
+    const allInMerge = mergeHistoryData
+      ? [...mergeHistoryData.roots, ...Array.from(mergeHistoryData.childrenByRootId.values()).flat()]
+      : [];
+    const selected = allInMerge.filter((s) => selectedSupplierIds.has(s.id));
+    setDeleteSelectedModalAccounts(selected);
+    setShowDeleteSelectedModal(true);
+  };
+
+  const doDeleteSelectedConfirm = async () => {
+    const selected = deleteSelectedModalAccounts;
+    setShowDeleteSelectedModal(false);
+    setDeleteSelectedModalAccounts(null);
+    if (!selected || selected.length === 0) return;
+    try {
+      for (const s of selected) {
+        await deleteSupplier(s.id);
+      }
+      await loadList();
+      const [historyData, counts] = await Promise.all([
+        getSuppliersForMergeHistory(),
+        getSupplierUsageCounts(),
+      ]);
+      setMergeHistoryData(historyData);
+      setUsageCounts(counts);
+      setSelectedSupplierIds(new Set());
+      showToast(`Deleted ${selected.length} supplier(s).`);
+    } catch (e: any) {
+      Alert.alert('Error', e?.message ?? String(e));
+    }
+  };
+
+  const toggleExpand = (rootId: string) => {
+    setExpandedRootIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(rootId)) next.delete(rootId);
+      else next.add(rootId);
+      return next;
+    });
   };
 
   if (loading) {
@@ -351,6 +513,14 @@ export default function SuppliersManageScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
+
+      {toastMessage && (
+        <Animated.View style={[styles.toastWrapper, { opacity: toastOpacity }]} pointerEvents="none">
+          <View style={styles.toast}>
+            <Text style={styles.toastText}>{toastMessage}</Text>
+          </View>
+        </Animated.View>
+      )}
 
       <Modal visible={showDuplicateNameModal} transparent animationType="fade" onRequestClose={handleDuplicateNameCloseOnly}>
         <TouchableOpacity style={styles.duplicateModalOverlay} activeOpacity={1} onPress={handleDuplicateNameCloseOnly}>
@@ -385,19 +555,153 @@ export default function SuppliersManageScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Quick Clean */}
+      <Modal visible={showQuickCleanModal} transparent animationType="fade" onRequestClose={() => setShowQuickCleanModal(false)}>
+        <TouchableOpacity style={styles.actionModalOverlay} activeOpacity={1} onPress={() => setShowQuickCleanModal(false)}>
+          <View style={styles.actionModalContentContainer} onStartShouldSetResponder={() => true}>
+            <View style={styles.actionModalContent}>
+              <View style={styles.actionModalHeader}>
+                <View style={styles.actionModalHeaderIconWrap}>
+                  <Ionicons name="trash-outline" size={40} color="#E67E22" />
+                </View>
+                <Text style={styles.actionModalTitle}>Quick Clean</Text>
+                <Text style={styles.actionModalSubtitle}>
+                  Delete {cleanableRoots.length} empty supplier(s) (no receipts, not merged):
+                </Text>
+              </View>
+              <ScrollView style={styles.actionModalList} nestedScrollEnabled>
+                {cleanableRoots.map((r) => (
+                  <View key={r.id} style={styles.actionModalRow}>
+                    <Text style={styles.actionModalRowText} numberOfLines={1}>{r.name}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+              <View style={styles.actionModalButtons}>
+                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonSecondary]} onPress={() => setShowQuickCleanModal(false)} activeOpacity={0.8}>
+                  <Text style={styles.actionModalButtonSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonWarning]} onPress={doQuickCleanConfirm} activeOpacity={0.8}>
+                  <Text style={styles.actionModalButtonWarningText}>Clean</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Merge: choose which supplier to keep */}
+      <Modal visible={showMergeTargetModal} transparent animationType="fade" onRequestClose={() => { setShowMergeTargetModal(false); setMergeTargetModalAccounts(null); setMergeTargetSelectedId(null); }}>
+        <TouchableOpacity style={styles.actionModalOverlay} activeOpacity={1} onPress={() => { setShowMergeTargetModal(false); setMergeTargetModalAccounts(null); setMergeTargetSelectedId(null); }}>
+          <View style={styles.actionModalContentContainer} onStartShouldSetResponder={() => true}>
+            <View style={styles.actionModalContent}>
+              <View style={styles.actionModalHeader}>
+                <View style={styles.actionModalHeaderIconWrap}>
+                  <Ionicons name="git-merge-outline" size={40} color="#6C5CE7" />
+                </View>
+                <Text style={styles.actionModalTitle}>Choose which supplier to keep,</Text>
+                <Text style={styles.actionModalSubtitle}>Others will be merged into it.</Text>
+              </View>
+              <ScrollView style={styles.actionModalList} nestedScrollEnabled>
+                {(mergeTargetModalAccounts ?? []).map((s) => (
+                  <TouchableOpacity
+                    key={s.id}
+                    style={[styles.actionModalRowTappable, mergeTargetSelectedId === s.id && styles.actionModalRowSelected]}
+                    onPress={() => setMergeTargetSelection(s.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.actionModalRowText} numberOfLines={1}>{s.name}</Text>
+                    {mergeTargetSelectedId === s.id ? (
+                      <Ionicons name="checkmark-circle" size={22} color="#6C5CE7" />
+                    ) : (
+                      <Ionicons name="ellipse-outline" size={22} color="#BDC3C7" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <View style={styles.actionModalButtons}>
+                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonSecondary]} onPress={() => { setShowMergeTargetModal(false); setMergeTargetModalAccounts(null); setMergeTargetSelectedId(null); }} activeOpacity={0.8}>
+                  <Text style={styles.actionModalButtonSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonPrimary]} onPress={confirmMergeTarget} disabled={!mergeTargetSelectedId} activeOpacity={0.8}>
+                  <Text style={styles.actionModalButtonPrimaryText}>Merge</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Delete selected */}
+      <Modal visible={showDeleteSelectedModal} transparent animationType="fade" onRequestClose={() => { setShowDeleteSelectedModal(false); setDeleteSelectedModalAccounts(null); }}>
+        <TouchableOpacity style={styles.actionModalOverlay} activeOpacity={1} onPress={() => { setShowDeleteSelectedModal(false); setDeleteSelectedModalAccounts(null); }}>
+          <View style={styles.actionModalContentContainer} onStartShouldSetResponder={() => true}>
+            <View style={styles.actionModalContent}>
+              <View style={styles.actionModalHeader}>
+                <View style={styles.actionModalHeaderIconWrap}>
+                  <Ionicons name="trash-outline" size={40} color="#E74C3C" />
+                </View>
+                <Text style={styles.actionModalSubtitle}>
+                  Delete {deleteSelectedModalAccounts?.length ?? 0} selected supplier(s)?
+                </Text>
+              </View>
+              <ScrollView style={styles.actionModalList} nestedScrollEnabled>
+                {(deleteSelectedModalAccounts ?? []).map((s) => (
+                  <View key={s.id} style={styles.actionModalRow}>
+                    <Text style={styles.actionModalRowText} numberOfLines={1}>{s.name}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+              <View style={styles.actionModalButtons}>
+                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonSecondary]} onPress={() => { setShowDeleteSelectedModal(false); setDeleteSelectedModalAccounts(null); }} activeOpacity={0.8}>
+                  <Text style={styles.actionModalButtonSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonDanger]} onPress={doDeleteSelectedConfirm} activeOpacity={0.8}>
+                  <Text style={styles.actionModalButtonDangerText}>Delete</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
       
       {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerTitleContainer}>
-          <GradientText
-            text="Suppliers for receipts and inbound, AI-recognized and collected."
-            style={styles.headerTitle}
-            containerStyle={styles.gradientTextContainer}
-          />
+      {mergeMode ? (
+        <View style={styles.headerMerge}>
+          <View style={styles.headerMergeTextBlock}>
+            <GradientText
+              text="Select two or more, then choose which to keep, others will be merged into it."
+              style={styles.mergeHeaderTextInHeader}
+              containerStyle={styles.mergeHeaderGradientContainer}
+            />
+          </View>
+          <View style={styles.headerTableRow}>
+            <View style={styles.checkboxContainer} />
+            <View style={styles.headerTableRowNameCell}>
+              <Text style={styles.tableHeaderNameLeft}>Supplier</Text>
+              <Text style={styles.headerSelectedCount}>
+                （{selectedSupplierIds.size}/{mergeHistoryData ? mergeHistoryData.roots.length : 0}）
+              </Text>
+            </View>
+            <View style={styles.countsCell}>
+              <Text style={styles.tableHeaderCount}>Records</Text>
+            </View>
+            <View style={styles.expandPlaceholderSmall} />
+          </View>
         </View>
-      </View>
+      ) : (
+        <View style={styles.header}>
+          <View style={styles.headerTitleContainer}>
+            <GradientText
+              text="Suppliers for receipts and inbound, AI-recognized and collected."
+              style={styles.headerTitle}
+              containerStyle={styles.gradientTextContainer}
+            />
+          </View>
+        </View>
+      )}
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+      <ScrollView style={styles.scrollView} contentContainerStyle={[styles.scrollContent, mergeMode ? styles.scrollContentWithBottomBar : null]}>
         {/* Suppliers List */}
         <View style={styles.suppliersList}>
           {/* Add New Supplier Button */}
@@ -411,33 +715,6 @@ export default function SuppliersManageScreen() {
                 <Text style={styles.addSupplierText}>Add Supplier</Text>
               </View>
             </TouchableOpacity>
-          )}
-
-          {/* Merge Mode Header */}
-          {mergeMode && (
-            <View style={styles.mergeHeaderCard}>
-              <Text style={styles.mergeHeaderText}>
-                Select suppliers to merge ({selectedSupplierIds.size} selected)
-              </Text>
-              <View style={styles.mergeHeaderButtons}>
-                <TouchableOpacity
-                  style={styles.mergeCancelButton}
-                  onPress={handleCancelMerge}
-                >
-                  <Text style={styles.mergeCancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.mergeConfirmButton,
-                    selectedSupplierIds.size < 2 && styles.mergeConfirmButtonDisabled,
-                  ]}
-                  onPress={handleConfirmMerge}
-                  disabled={selectedSupplierIds.size < 2}
-                >
-                  <Text style={styles.mergeConfirmButtonText}>Merge</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
           )}
 
           {/* Add Supplier Form */}
@@ -511,124 +788,169 @@ export default function SuppliersManageScreen() {
             </View>
           )}
 
-          {list.map((item) => (
-            <View key={`${item.source}-${item.id}`} style={styles.supplierCard}>
-              {editingId === item.id && editingSource === item.source ? (
-                // Edit Mode
-                <View style={styles.editRow}>
-                  <TextInput
-                    ref={editNameInputRef}
-                    style={styles.editInputInline}
-                    value={editName}
-                    onChangeText={setEditName}
-                    placeholder="Supplier name *"
-                    placeholderTextColor="#95A5A6"
-                  />
-                  <TextInput
-                    style={styles.editInputInline}
-                    value={editTaxNumber}
-                    onChangeText={setEditTaxNumber}
-                    placeholder="Tax number (optional)"
-                    placeholderTextColor="#95A5A6"
-                  />
-                  <TextInput
-                    style={styles.editInputInline}
-                    value={editPhone}
-                    onChangeText={setEditPhone}
-                    placeholder="Phone (optional)"
-                    placeholderTextColor="#95A5A6"
-                    keyboardType="phone-pad"
-                  />
-                  <TextInput
-                    style={[styles.editInputInline, styles.multilineInput]}
-                    value={editAddress}
-                    onChangeText={setEditAddress}
-                    placeholder="Address (optional)"
-                    placeholderTextColor="#95A5A6"
-                    multiline
-                    numberOfLines={2}
-                  />
-                  {editingSource === 'supplier' && (
-                    <TouchableOpacity style={styles.toggleButton} onPress={() => setEditIsCustomer(!editIsCustomer)}>
-                      <Ionicons name={editIsCustomer ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={editIsCustomer ? '#6C5CE7' : '#95A5A6'} />
-                      <Text style={[styles.toggleButtonText, editIsCustomer && styles.toggleButtonTextActive]}>Also a customer</Text>
-                    </TouchableOpacity>
-                  )}
-                  {editingSource === 'customer' && (
-                    <TouchableOpacity style={styles.toggleButton} onPress={() => setEditIsSupplier(!editIsSupplier)}>
-                      <Ionicons name={editIsSupplier ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={editIsSupplier ? '#6C5CE7' : '#95A5A6'} />
-                      <Text style={[styles.toggleButtonText, editIsSupplier && styles.toggleButtonTextActive]}>Also a supplier</Text>
-                    </TouchableOpacity>
-                  )}
-                  <View style={styles.editButtonsInline}>
+          {mergeMode && mergeHistoryData ? (
+            mergeHistoryData.roots.map((root) => {
+              const children = mergeHistoryData.childrenByRootId.get(root.id) ?? [];
+              const expanded = expandedRootIds.has(root.id);
+              const hasChildren = children.length > 0;
+              return (
+                <View key={root.id} style={styles.supplierCard}>
+                  <View style={[styles.mergeRowRoot, selectedSupplierIds.has(root.id) && styles.supplierRowSelected]}>
                     <TouchableOpacity
-                      style={styles.cancelButtonInline}
-                      onPress={cancelEdit}
+                      style={styles.mergeRowSelectionArea}
+                      onPress={() => toggleSupplierSelection(root.id)}
+                      activeOpacity={0.7}
                     >
-                      <Text style={styles.cancelButtonTextInline}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.confirmButtonInline}
-                      onPress={() => handleUpdate(item.id, item.source)}
-                    >
-                      <Text style={styles.confirmButtonTextInline}>Confirm</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              ) : (
-                // Display Mode
-                <TouchableOpacity
-                  style={[
-                    styles.supplierRow,
-                    mergeMode && item.source === 'supplier' && selectedSupplierIds.has(item.id) && styles.supplierRowSelected,
-                  ]}
-                  onPress={() => {
-                    if (mergeMode && item.source === 'supplier') toggleSupplierSelection(item.id);
-                  }}
-                  disabled={mergeMode && item.source !== 'supplier'}
-                >
-                  {mergeMode && item.source === 'supplier' && (
-                    <View style={styles.checkboxContainer}>
-                      {selectedSupplierIds.has(item.id) ? (
-                        <Ionicons name="checkbox" size={24} color="#6C5CE7" />
-                      ) : (
-                        <Ionicons name="checkbox-outline" size={24} color="#BDC3C7" />
-                      )}
-                    </View>
-                  )}
-                  <View style={styles.supplierIndicator}>
-                    <Ionicons name="storefront-outline" size={16} color="#6C5CE7" />
-                  </View>
-                  <View style={styles.supplierInfo}>
-                    <View style={styles.supplierNameRow}>
-                      <Text style={styles.supplierName} numberOfLines={1}>{item.name}</Text>
-                      {item.source === 'supplier' && item.isCustomer && (
-                        <View style={styles.linkedBadge}>
-                          <Ionicons name="person-outline" size={12} color="#6C5CE7" />
-                          <Text style={styles.linkedBadgeText}>Customer</Text>
-                        </View>
-                      )}
-                      {item.source === 'customer' && (
-                        <View style={styles.linkedBadge}>
-                          <Ionicons name="person-outline" size={12} color="#6C5CE7" />
-                          <Text style={styles.linkedBadgeText}>From customer list</Text>
-                        </View>
-                      )}
-                    </View>
-                    {(item.taxNumber || item.phone || item.address) && (
-                      <View style={styles.supplierDetails}>
-                        {item.taxNumber && <Text style={styles.supplierDetailText} numberOfLines={1}>Tax: {item.taxNumber}</Text>}
-                        {item.phone && <Text style={styles.supplierDetailText} numberOfLines={1}>Phone: {item.phone}</Text>}
-                        {item.address && <Text style={styles.supplierDetailText} numberOfLines={1}>Address: {item.address}</Text>}
+                      <View style={styles.checkboxContainer}>
+                        {selectedSupplierIds.has(root.id) ? (
+                          <Ionicons name="checkbox" size={24} color="#6C5CE7" />
+                        ) : (
+                          <Ionicons name="checkbox-outline" size={24} color="#BDC3C7" />
+                        )}
                       </View>
+                      <Text style={styles.supplierName} numberOfLines={1}>{root.name}</Text>
+                      <View style={styles.countsCell}>
+                        <Text style={styles.countText}>
+                          {expanded ? directCount(root.id) : totalCount(root, children)}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                    {hasChildren ? (
+                      <TouchableOpacity
+                        style={styles.expandButtonSmall}
+                        onPress={() => toggleExpand(root.id)}
+                        hitSlop={{ left: 0, right: 48, top: 24, bottom: 24 }}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name={expanded ? 'chevron-down' : 'chevron-forward'} size={14} color="#6C5CE7" />
+                      </TouchableOpacity>
+                    ) : (
+                      <View style={styles.expandPlaceholderSmall} />
                     )}
                   </View>
-                  {'isAiRecognized' in item && item.isAiRecognized && (
-                    <View style={styles.aiBadge}>
-                      <Text style={styles.aiBadgeText}>AI</Text>
+                  {expanded && children.map((child) => (
+                    <View key={child.id} style={[styles.childRow, selectedSupplierIds.has(child.id) && styles.supplierRowSelected]}>
+                      <TouchableOpacity
+                        style={styles.mergeRowSelectionArea}
+                        onPress={() => toggleSupplierSelection(child.id)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.checkboxContainer}>
+                          {selectedSupplierIds.has(child.id) ? (
+                            <Ionicons name="checkbox" size={24} color="#6C5CE7" />
+                          ) : (
+                            <Ionicons name="checkbox-outline" size={24} color="#BDC3C7" />
+                          )}
+                        </View>
+                        <Text style={styles.childName} numberOfLines={1}>{child.name}</Text>
+                        <View style={styles.countsCell}>
+                          <Text style={styles.countText}>{directCount(child.id)}</Text>
+                        </View>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.childRowUnmergeButton}
+                        onPress={() => handleUnmerge(child.id)}
+                        hitSlop={{ left: 8, right: 8, top: 8, bottom: 8 }}
+                      >
+                        <Ionicons name="exit-outline" size={14} color="#6C5CE7" />
+                      </TouchableOpacity>
                     </View>
-                  )}
-                  {!mergeMode && (
+                  ))}
+                </View>
+              );
+            })
+          ) : (
+            list.map((item) => (
+              <View key={`${item.source}-${item.id}`} style={styles.supplierCard}>
+                {editingId === item.id && editingSource === item.source ? (
+                  <View style={styles.editRow}>
+                    <TextInput
+                      ref={editNameInputRef}
+                      style={styles.editInputInline}
+                      value={editName}
+                      onChangeText={setEditName}
+                      placeholder="Supplier name *"
+                      placeholderTextColor="#95A5A6"
+                    />
+                    <TextInput
+                      style={styles.editInputInline}
+                      value={editTaxNumber}
+                      onChangeText={setEditTaxNumber}
+                      placeholder="Tax number (optional)"
+                      placeholderTextColor="#95A5A6"
+                    />
+                    <TextInput
+                      style={styles.editInputInline}
+                      value={editPhone}
+                      onChangeText={setEditPhone}
+                      placeholder="Phone (optional)"
+                      placeholderTextColor="#95A5A6"
+                      keyboardType="phone-pad"
+                    />
+                    <TextInput
+                      style={[styles.editInputInline, styles.multilineInput]}
+                      value={editAddress}
+                      onChangeText={setEditAddress}
+                      placeholder="Address (optional)"
+                      placeholderTextColor="#95A5A6"
+                      multiline
+                      numberOfLines={2}
+                    />
+                    {editingSource === 'supplier' && (
+                      <TouchableOpacity style={styles.toggleButton} onPress={() => setEditIsCustomer(!editIsCustomer)}>
+                        <Ionicons name={editIsCustomer ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={editIsCustomer ? '#6C5CE7' : '#95A5A6'} />
+                        <Text style={[styles.toggleButtonText, editIsCustomer && styles.toggleButtonTextActive]}>Also a customer</Text>
+                      </TouchableOpacity>
+                    )}
+                    {editingSource === 'customer' && (
+                      <TouchableOpacity style={styles.toggleButton} onPress={() => setEditIsSupplier(!editIsSupplier)}>
+                        <Ionicons name={editIsSupplier ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={editIsSupplier ? '#6C5CE7' : '#95A5A6'} />
+                        <Text style={[styles.toggleButtonText, editIsSupplier && styles.toggleButtonTextActive]}>Also a supplier</Text>
+                      </TouchableOpacity>
+                    )}
+                    <View style={styles.editButtonsInline}>
+                      <TouchableOpacity style={styles.cancelButtonInline} onPress={cancelEdit}>
+                        <Text style={styles.cancelButtonTextInline}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.confirmButtonInline} onPress={() => handleUpdate(item.id, item.source)}>
+                        <Text style={styles.confirmButtonTextInline}>Confirm</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : (
+                  <TouchableOpacity style={styles.supplierRow} onPress={() => {}}>
+                    <View style={styles.supplierIndicator}>
+                      <Ionicons name="storefront-outline" size={16} color="#6C5CE7" />
+                    </View>
+                    <View style={styles.supplierInfo}>
+                      <View style={styles.supplierNameRow}>
+                        <Text style={styles.supplierName} numberOfLines={1}>{item.name}</Text>
+                        {item.source === 'supplier' && item.isCustomer && (
+                          <View style={styles.linkedBadge}>
+                            <Ionicons name="person-outline" size={12} color="#6C5CE7" />
+                            <Text style={styles.linkedBadgeText}>Customer</Text>
+                          </View>
+                        )}
+                        {item.source === 'customer' && (
+                          <View style={styles.linkedBadge}>
+                            <Ionicons name="person-outline" size={12} color="#6C5CE7" />
+                            <Text style={styles.linkedBadgeText}>From customer list</Text>
+                          </View>
+                        )}
+                      </View>
+                      {(item.taxNumber || item.phone || item.address) && (
+                        <View style={styles.supplierDetails}>
+                          {item.taxNumber && <Text style={styles.supplierDetailText} numberOfLines={1}>Tax: {item.taxNumber}</Text>}
+                          {item.phone && <Text style={styles.supplierDetailText} numberOfLines={1}>Phone: {item.phone}</Text>}
+                          {item.address && <Text style={styles.supplierDetailText} numberOfLines={1}>Address: {item.address}</Text>}
+                        </View>
+                      )}
+                    </View>
+                    {'isAiRecognized' in item && item.isAiRecognized && (
+                      <View style={styles.aiBadge}>
+                        <Text style={styles.aiBadgeText}>AI</Text>
+                      </View>
+                    )}
                     <View style={styles.supplierActions}>
                       <TouchableOpacity style={styles.iconButton} onPress={() => startEdit(item)}>
                         <Ionicons name="create-outline" size={18} color="#6C5CE7" />
@@ -637,27 +959,55 @@ export default function SuppliersManageScreen() {
                         <Ionicons name="trash-outline" size={18} color="#E74C3C" />
                       </TouchableOpacity>
                     </View>
-                  )}
-                </TouchableOpacity>
-              )}
-            </View>
-          ))}
+                  </TouchableOpacity>
+                )}
+              </View>
+            ))
+          )}
         </View>
-
-        {/* Merge Suppliers Button */}
-        {!mergeMode && !showAddForm && (
-          <TouchableOpacity
-            style={styles.mergeSupplierCard}
-            onPress={handleStartMerge}
-          >
-            <View style={styles.addSupplierRow}>
-              <Ionicons name="git-merge-outline" size={20} color="#FF9500" />
-              <Text style={styles.mergeSupplierText}>Merge Suppliers</Text>
-            </View>
-          </TouchableOpacity>
-        )}
       </ScrollView>
 
+      {!showAddForm && !mergeMode && (
+        <View style={styles.bottomBar}>
+          <TouchableOpacity style={styles.bottomBarAddButton} onPress={() => setShowAddForm(true)}>
+            <Ionicons name="add-circle" size={20} color="#fff" />
+            <Text style={styles.bottomBarAddButtonText}>Add</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.bottomBarMergeButton} onPress={handleStartMerge}>
+            <Ionicons name="git-merge-outline" size={20} color="#fff" />
+            <Text style={styles.bottomBarMergeButtonText}>Merge & Clean</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {mergeMode && (
+        <View style={[styles.bottomBar, styles.bottomBarMergeMode]}>
+          {selectedSupplierIds.size === 0 ? (
+            <View style={styles.bottomBarCleanWrapper}>
+              <TouchableOpacity style={styles.bottomBarCleanButton} onPress={handleCleanEmpty}>
+                <Ionicons name="trash-outline" size={18} color="#E67E22" />
+                <Text style={styles.bottomBarCleanButtonText}>Quick Clean</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.bottomBarMergeActions}>
+              <TouchableOpacity style={styles.bottomBarCancelButton} onPress={handleCancelMerge}>
+                <Text style={styles.bottomBarCancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.bottomBarConfirmButton}
+                onPress={handleConfirmMerge}
+                disabled={selectedSupplierIds.size < 2}
+              >
+                <Text style={styles.bottomBarConfirmButtonText}>Merge</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.bottomBarDeleteButton} onPress={handleDeleteSelected}>
+                <Text style={styles.bottomBarDeleteButtonText}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -666,6 +1016,34 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8F9FA',
+  },
+  toastWrapper: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  toast: {
+    alignSelf: 'center',
+    backgroundColor: 'rgba(45, 52, 54, 0.9)',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  toastText: {
+    color: '#fff',
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'center',
   },
   loadingContainer: {
     flex: 1,
@@ -682,6 +1060,67 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
+  },
+  headerMerge: {
+    flexDirection: 'column',
+    paddingTop: 13,
+    paddingBottom: 0,
+    minHeight: 88,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9ECEF',
+  },
+  headerMergeTextBlock: {
+    alignItems: 'flex-start',
+    paddingBottom: 4,
+    paddingLeft: 64,
+    paddingRight: 16,
+    paddingTop: 0,
+  },
+  mergeHeaderTextInHeader: {
+    fontSize: 17,
+    fontWeight: '600',
+    textAlign: 'left',
+  },
+  mergeHeaderGradientContainer: {
+    alignItems: 'flex-start',
+    alignSelf: 'flex-start',
+  },
+  headerTableRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingLeft: 6,
+    paddingRight: 32,
+    paddingTop: 0,
+    paddingBottom: 0,
+    minHeight: 24,
+    borderTopWidth: 1,
+    borderTopColor: '#E9ECEF',
+  },
+  headerTableRowNameCell: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  tableHeaderNameLeft: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#636E72',
+  },
+  headerSelectedCount: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#636E72',
+    marginLeft: 4,
+  },
+  tableHeaderCount: {
+    minWidth: 64,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#636E72',
+    textAlign: 'right',
   },
   headerTitleContainer: {
     flex: 1,
@@ -704,6 +1143,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
   },
+  scrollContentWithBottomBar: {
+    paddingBottom: 88,
+  },
   formCard: {
     backgroundColor: '#fff',
     borderRadius: 8,
@@ -717,6 +1159,57 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 8,
     padding: 10,
+  },
+  mergeRowRoot: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 40,
+  },
+  mergeRowSelectionArea: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  expandButtonSmall: {
+    padding: 2,
+    marginRight: 4,
+  },
+  expandPlaceholderSmall: {
+    width: 18,
+  },
+  countsCell: {
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    minWidth: 64,
+  },
+  countText: {
+    fontSize: 13,
+    color: '#636E72',
+    textAlign: 'right',
+  },
+  childRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingLeft: 8,
+    paddingVertical: 6,
+    minHeight: 40,
+    borderTopWidth: 1,
+    borderTopColor: '#E9ECEF',
+  },
+  childName: {
+    flex: 1,
+    fontSize: 14,
+    color: '#636E72',
+  },
+  childRowUnmergeButton: {
+    width: 18,
+    marginRight: 4,
+    padding: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   mergeSupplierCard: {
     backgroundColor: '#fff',
@@ -1042,6 +1535,277 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#636E72',
     marginTop: 2,
+  },
+  bottomBar: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'transparent',
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    paddingTop: 8,
+    flexDirection: 'row',
+    gap: 12,
+  },
+  bottomBarMergeMode: {
+    justifyContent: 'space-between',
+    alignItems: 'stretch',
+  },
+  bottomBarCleanWrapper: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bottomBarMergeActions: {
+    flexDirection: 'row',
+    gap: 12,
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  bottomBarCleanButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    minWidth: 220,
+    borderRadius: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#E67E22',
+  },
+  bottomBarCleanButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#E67E22',
+  },
+  bottomBarAddButton: {
+    flex: 1,
+    backgroundColor: '#6C5CE7',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    ...(Platform.OS === 'android' ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)' } : { elevation: 4 }),
+  },
+  bottomBarAddButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  bottomBarMergeButton: {
+    flex: 1,
+    backgroundColor: '#6C5CE7',
+    borderRadius: 12,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    ...(Platform.OS === 'android' ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)' } : { elevation: 4 }),
+  },
+  bottomBarMergeButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  bottomBarCancelButton: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.11,
+    shadowRadius: 10,
+    ...(Platform.OS === 'android' ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.14)' } : { elevation: 3 }),
+  },
+  bottomBarCancelButtonText: {
+    fontSize: 16,
+    color: '#636E72',
+    fontWeight: '600',
+  },
+  bottomBarConfirmButton: {
+    flex: 1,
+    backgroundColor: '#6C5CE7',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    ...(Platform.OS === 'android' ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)' } : { elevation: 4 }),
+  },
+  bottomBarConfirmButtonText: {
+    fontSize: 16,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  bottomBarDeleteButton: {
+    flex: 1,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E74C3C',
+  },
+  bottomBarDeleteButtonText: {
+    fontSize: 16,
+    color: '#E74C3C',
+    fontWeight: '600',
+  },
+  actionModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  actionModalContentContainer: {
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '80%',
+    alignItems: 'center',
+  },
+  actionModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  actionModalHeader: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    marginBottom: 20,
+    paddingTop: 4,
+  },
+  actionModalHeaderIconWrap: {
+    marginBottom: 8,
+  },
+  actionModalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    marginTop: 8,
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  actionModalSubtitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1A1A2E',
+    textAlign: 'center',
+    lineHeight: 22,
+    paddingHorizontal: 8,
+  },
+  actionModalList: {
+    width: '100%',
+    minHeight: 180,
+    maxHeight: 360,
+    marginTop: 8,
+    marginBottom: 20,
+  },
+  actionModalRow: {
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9ECEF',
+  },
+  actionModalRowTappable: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9ECEF',
+  },
+  actionModalRowSelected: {
+    backgroundColor: '#E8F4FD',
+    borderLeftWidth: 3,
+    borderLeftColor: '#6C5CE7',
+  },
+  actionModalRowText: {
+    fontSize: 16,
+    color: '#2D3436',
+    flex: 1,
+  },
+  actionModalButtons: {
+    flexDirection: 'row',
+    width: '100%',
+    gap: 12,
+    justifyContent: 'flex-end',
+  },
+  actionModalButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+  },
+  actionModalButtonSecondary: {
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+  },
+  actionModalButtonSecondaryText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#636E72',
+  },
+  actionModalButtonPrimary: {
+    backgroundColor: '#6C5CE7',
+  },
+  actionModalButtonPrimaryText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  actionModalButtonWarning: {
+    backgroundColor: '#FFF5F0',
+    borderWidth: 1,
+    borderColor: '#E67E22',
+  },
+  actionModalButtonWarningText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#E67E22',
+  },
+  actionModalButtonDanger: {
+    backgroundColor: '#FFF5F5',
+    borderWidth: 1,
+    borderColor: '#E74C3C',
+  },
+  actionModalButtonDangerText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#E74C3C',
   },
   duplicateModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   duplicateModalContentContainer: { width: '100%', maxWidth: 400, alignItems: 'center' },

@@ -554,6 +554,80 @@ export async function mergeSupplier(
   }
 }
 
+/** 取消合并：将子供应商的 merged_into_id 置为 null，使其重新成为根 */
+export async function unmergeSupplier(supplierId: string): Promise<void> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) throw new Error('Not logged in');
+    const spaceId = user.currentSpaceId || user.spaceId;
+    if (!spaceId) throw new Error('No space selected');
+
+    const { error } = await supabase
+      .from('suppliers')
+      .update({ merged_into_id: null })
+      .eq('id', supplierId)
+      .eq('space_id', spaceId);
+
+    if (error) throw error;
+  } catch (error) {
+    console.error('Error unmerging supplier:', error);
+    throw error;
+  }
+}
+
+/** 合并历史用：无指向的根供应商列表 + 每个根下“指向其”的子供应商列表 */
+export type SuppliersMergeHistoryData = {
+  roots: Supplier[];
+  childrenByRootId: Map<string, Supplier[]>;
+};
+
+export async function getSuppliersForMergeHistory(): Promise<SuppliersMergeHistoryData> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const { data: allRows, error } = await supabase
+    .from('suppliers')
+    .select('*')
+    .eq('space_id', spaceId)
+    .order('name', { ascending: true });
+
+  if (error) throw error;
+  const rows = allRows || [];
+
+  const roots = rows.filter((r: any) => r.merged_into_id == null).map((row: any) => mapSupplierRow(row));
+  const childrenByRootId = new Map<string, Supplier[]>();
+  for (const root of roots) {
+    const children = rows.filter((r: any) => r.merged_into_id === root.id).map((row: any) => mapSupplierRow(row));
+    if (children.length) childrenByRootId.set(root.id, children);
+  }
+  return { roots, childrenByRootId };
+}
+
+/** 各供应商直接关联的 receipts 数量（按 supplier_id 统计，仅 suppliers 表 id） */
+export type SupplierUsageCounts = {
+  receiptCountBySupplierId: Record<string, number>;
+};
+
+export async function getSupplierUsageCounts(): Promise<SupplierUsageCounts> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const receiptCountBySupplierId: Record<string, number> = {};
+  const { data: receiptRows } = await supabase
+    .from('receipts')
+    .select('supplier_id')
+    .eq('space_id', spaceId)
+    .not('supplier_id', 'is', null);
+  (receiptRows || []).forEach((r: any) => {
+    if (r.supplier_id) receiptCountBySupplierId[r.supplier_id] = (receiptCountBySupplierId[r.supplier_id] || 0) + 1;
+  });
+  return { receiptCountBySupplierId };
+}
+
 /** 从 suppliers 表构建合并指向映射 id -> merged_into_id（用于解析） */
 export async function getSupplierMergeMap(spaceId: string): Promise<Map<string, string>> {
   const { data: rows } = await supabase

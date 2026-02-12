@@ -463,6 +463,80 @@ export async function mergeCustomer(
   }
 }
 
+/** 取消合并：将子客户的 merged_into_id 置为 null，使其重新成为根 */
+export async function unmergeCustomer(customerId: string): Promise<void> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) throw new Error('Not logged in');
+    const spaceId = user.currentSpaceId || user.spaceId;
+    if (!spaceId) throw new Error('No space selected');
+
+    const { error } = await supabase
+      .from('customers')
+      .update({ merged_into_id: null })
+      .eq('id', customerId)
+      .eq('space_id', spaceId);
+
+    if (error) throw error;
+  } catch (error) {
+    console.error('Error unmerging customer:', error);
+    throw error;
+  }
+}
+
+/** 合并历史用：无指向的根客户列表 + 每个根下“指向其”的子客户列表 */
+export type CustomersMergeHistoryData = {
+  roots: Customer[];
+  childrenByRootId: Map<string, Customer[]>;
+};
+
+export async function getCustomersForMergeHistory(): Promise<CustomersMergeHistoryData> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const { data: allRows, error } = await supabase
+    .from('customers')
+    .select('*')
+    .eq('space_id', spaceId)
+    .order('name', { ascending: true });
+
+  if (error) throw error;
+  const rows = allRows || [];
+
+  const roots = rows.filter((r: any) => r.merged_into_id == null).map(mapCustomerRow);
+  const childrenByRootId = new Map<string, Customer[]>();
+  for (const root of roots) {
+    const children = rows.filter((r: any) => r.merged_into_id === root.id).map(mapCustomerRow);
+    if (children.length) childrenByRootId.set(root.id, children);
+  }
+  return { roots, childrenByRootId };
+}
+
+/** 各客户直接关联的 invoices 数量（按 customer_id 统计，仅 customers 表 id） */
+export type CustomerUsageCounts = {
+  invoiceCountByCustomerId: Record<string, number>;
+};
+
+export async function getCustomerUsageCounts(): Promise<CustomerUsageCounts> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const invoiceCountByCustomerId: Record<string, number> = {};
+  const { data: invoiceRows } = await supabase
+    .from('invoices')
+    .select('customer_id')
+    .eq('space_id', spaceId)
+    .not('customer_id', 'is', null);
+  (invoiceRows || []).forEach((r: any) => {
+    if (r.customer_id) invoiceCountByCustomerId[r.customer_id] = (invoiceCountByCustomerId[r.customer_id] || 0) + 1;
+  });
+  return { invoiceCountByCustomerId };
+}
+
 /** 从 customers 表构建合并指向映射 id -> merged_into_id */
 export async function getCustomerMergeMap(spaceId: string): Promise<Map<string, string>> {
   const { data: rows } = await supabase

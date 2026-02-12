@@ -402,6 +402,79 @@ export async function mergeWarehouses(
   }
 }
 
+/** 取消合并：将子仓库的 merged_into_id 置为 null，使其重新成为根 */
+export async function unmergeWarehouse(warehouseId: string): Promise<void> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const { error } = await supabase
+    .from('warehouse')
+    .update({ merged_into_id: null })
+    .eq('id', warehouseId)
+    .eq('space_id', spaceId);
+
+  if (error) throw error;
+}
+
+/** 合并历史用：无指向的根仓库列表 + 每个根下“指向其”的子仓库列表 */
+export type WarehousesMergeHistoryData = {
+  roots: Warehouse[];
+  childrenByRootId: Map<string, Warehouse[]>;
+};
+
+export async function getWarehousesForMergeHistory(): Promise<WarehousesMergeHistoryData> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const { data: allRows, error } = await supabase
+    .from('warehouse')
+    .select('*')
+    .eq('space_id', spaceId)
+    .order('name', { ascending: true });
+
+  if (error) throw error;
+  const rows = allRows || [];
+
+  const roots = rows.filter((r: any) => r.merged_into_id == null).map((row: any) => mapWarehouseRow(row));
+  const childrenByRootId = new Map<string, Warehouse[]>();
+  for (const root of roots) {
+    const children = rows.filter((r: any) => r.merged_into_id === root.id).map((row: any) => mapWarehouseRow(row));
+    if (children.length) childrenByRootId.set(root.id, children);
+  }
+  return { roots, childrenByRootId };
+}
+
+/** 各仓库直接关联的出入库单数量（按 warehouse_id 统计），暂无则返回空 */
+export type WarehouseUsageCounts = {
+  usageCountByWarehouseId: Record<string, number>;
+};
+
+export async function getWarehouseUsageCounts(): Promise<WarehouseUsageCounts> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const usageCountByWarehouseId: Record<string, number> = {};
+  try {
+    const { data: outbound } = await supabase.from('outbound').select('warehouse_id').eq('space_id', spaceId).not('warehouse_id', 'is', null);
+    (outbound || []).forEach((r: any) => {
+      if (r.warehouse_id) usageCountByWarehouseId[r.warehouse_id] = (usageCountByWarehouseId[r.warehouse_id] || 0) + 1;
+    });
+    const { data: inbound } = await supabase.from('inbound').select('warehouse_id').eq('space_id', spaceId).not('warehouse_id', 'is', null);
+    (inbound || []).forEach((r: any) => {
+      if (r.warehouse_id) usageCountByWarehouseId[r.warehouse_id] = (usageCountByWarehouseId[r.warehouse_id] || 0) + 1;
+    });
+  } catch {
+    // 表可能不存在，忽略
+  }
+  return { usageCountByWarehouseId };
+}
+
 /** 从 location 表构建合并指向映射 id -> merged_into_id（同一仓库内） */
 export async function getLocationMergeMap(warehouseId: string): Promise<Map<string, string>> {
   const { data: rows } = await supabase
@@ -492,4 +565,62 @@ export async function mergeLocations(
       .eq('warehouse_id', warehouseId);
     if (setSource) throw setSource;
   }
+}
+
+/** 取消合并：将子仓位的 merged_into_id 置为 null，使其重新成为根 */
+export async function unmergeLocation(locationId: string, warehouseId: string): Promise<void> {
+  const { error } = await supabase
+    .from('location')
+    .update({ merged_into_id: null })
+    .eq('id', locationId)
+    .eq('warehouse_id', warehouseId);
+
+  if (error) throw error;
+}
+
+/** 合并历史用（同仓库内）：无指向的根仓位列表 + 每个根下“指向其”的子仓位列表 */
+export type LocationsMergeHistoryData = {
+  roots: Location[];
+  childrenByRootId: Map<string, Location[]>;
+};
+
+export async function getLocationsForMergeHistory(warehouseId: string): Promise<LocationsMergeHistoryData> {
+  const { data: allRows, error } = await supabase
+    .from('location')
+    .select('*')
+    .eq('warehouse_id', warehouseId)
+    .order('name', { ascending: true });
+
+  if (error) throw error;
+  const rows = allRows || [];
+
+  const roots = rows.filter((r: any) => r.merged_into_id == null).map((row: any) => mapLocationRow(row));
+  const childrenByRootId = new Map<string, Location[]>();
+  for (const root of roots) {
+    const children = rows.filter((r: any) => r.merged_into_id === root.id).map((row: any) => mapLocationRow(row));
+    if (children.length) childrenByRootId.set(root.id, children);
+  }
+  return { roots, childrenByRootId };
+}
+
+/** 各仓位直接关联的出入库明细数量（按 location_id 统计），暂无则返回空 */
+export type LocationUsageCounts = {
+  usageCountByLocationId: Record<string, number>;
+};
+
+export async function getLocationUsageCounts(_warehouseId: string): Promise<LocationUsageCounts> {
+  const usageCountByLocationId: Record<string, number> = {};
+  try {
+    const { data: outbound } = await supabase.from('outbound_item').select('location_id').not('location_id', 'is', null);
+    (outbound || []).forEach((r: any) => {
+      if (r.location_id) usageCountByLocationId[r.location_id] = (usageCountByLocationId[r.location_id] || 0) + 1;
+    });
+    const { data: inbound } = await supabase.from('inbound_item').select('location_id').not('location_id', 'is', null);
+    (inbound || []).forEach((r: any) => {
+      if (r.location_id) usageCountByLocationId[r.location_id] = (usageCountByLocationId[r.location_id] || 0) + 1;
+    });
+  } catch {
+    // 表可能不存在，忽略
+  }
+  return { usageCountByLocationId };
 }
