@@ -447,16 +447,218 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
 }
 
 // 获取所有小票（当前家庭的）
-export async function getAllReceipts(): Promise<Receipt[]> {
+/** 获取当前空间下所有小票（列表用，不加载 items 明细，性能优化） */
+export async function getAllReceiptsForList(): Promise<Receipt[]> {
   try {
-    console.log('📊 [getAllReceipts] 开始查询小票数据...');
+    console.log('📊 [getAllReceiptsForList] 开始查询小票数据（轻量级）...');
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
 
-    // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
-    console.log(`📊 [getAllReceipts] 查询空间ID: ${spaceId}`);
+
+    // 轻量级查询：不加载 receipt_items
+    const { data, error } = await supabase
+      .from('receipts')
+      .select(`
+        *,
+        suppliers (*),
+        accounts (*),
+        customers!receipts_supplier_customer_id_fkey (*),
+        created_by_user:users!created_by (
+          id,
+          email,
+          name,
+          current_space_id
+        )
+      `)
+      .eq('space_id', spaceId)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+
+    // 优化：只在需要时才查询 merge maps 和额外数据
+    const rows = data || [];
+    const [mergeMap, customerMergeMap, accountMergeMap] = await Promise.all([
+      getSupplierMergeMap(spaceId),
+      getCustomerMergeMap(spaceId),
+      getAccountMergeMap(spaceId),
+    ]);
+    
+    const resolveSupplier = (sid: string) => {
+      let current = sid;
+      const seen = new Set<string>();
+      while (mergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = mergeMap.get(current)!;
+      }
+      return current;
+    };
+    const resolveCustomer = (cid: string) => {
+      let current = cid;
+      const seen = new Set<string>();
+      while (customerMergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = customerMergeMap.get(current)!;
+      }
+      return current;
+    };
+    const resolveAccount = (aid: string) => {
+      let current = aid;
+      const seen = new Set<string>();
+      while (accountMergeMap.has(current) && !seen.has(current)) {
+        seen.add(current);
+        current = accountMergeMap.get(current)!;
+      }
+      return current;
+    };
+
+    // 优化：只查询 join 中缺失的数据
+    const needResolvedSupplier = new Set<string>();
+    const needResolvedCustomer = new Set<string>();
+    const needResolvedAccount = new Set<string>();
+    for (const row of rows) {
+      if (row.supplier_id) {
+        const resolvedId = resolveSupplier(row.supplier_id);
+        // 如果 join 的数据不存在或 ID 不匹配，才需要额外查询
+        if (!row.suppliers || row.suppliers.id !== resolvedId) {
+          needResolvedSupplier.add(resolvedId);
+        }
+      }
+      if (row.supplier_customer_id) {
+        const resolvedId = resolveCustomer(row.supplier_customer_id);
+        if (!row.customers || row.customers.id !== resolvedId) {
+          needResolvedCustomer.add(resolvedId);
+        }
+      }
+      if (row.account_id) {
+        const resolvedId = resolveAccount(row.account_id);
+        if (!row.accounts || row.accounts.id !== resolvedId) {
+          needResolvedAccount.add(resolvedId);
+        }
+      }
+    }
+
+    const [resolvedSupplierCache, resolvedCustomerCache, resolvedAccountCache] = await Promise.all([
+      needResolvedSupplier.size > 0 ? (async () => {
+        const m = new Map<string, Awaited<ReturnType<typeof getSupplierById>>>();
+        await Promise.all(
+          Array.from(needResolvedSupplier).map(async (id) => {
+            const s = await getSupplierById(id);
+            if (s) m.set(id, s);
+          })
+        );
+        return m;
+      })() : Promise.resolve(new Map()),
+      needResolvedCustomer.size > 0 ? (async () => {
+        const m = new Map<string, Awaited<ReturnType<typeof getCustomerById>>>();
+        await Promise.all(
+          Array.from(needResolvedCustomer).map(async (id) => {
+            const c = await getCustomerById(id);
+            if (c) m.set(id, c);
+          })
+        );
+        return m;
+      })() : Promise.resolve(new Map()),
+      needResolvedAccount.size > 0 ? (async () => {
+        const m = new Map<string, Awaited<ReturnType<typeof getAccountById>>>();
+        await Promise.all(
+          Array.from(needResolvedAccount).map(async (id) => {
+            const a = await getAccountById(id);
+            if (a) m.set(id, a);
+          })
+        );
+        return m;
+      })() : Promise.resolve(new Map()),
+    ]);
+
+    const mappedReceipts = rows.map((row: any) => {
+      const resolvedSupplierId = row.supplier_id ? resolveSupplier(row.supplier_id) : null;
+      const resolvedCustomerId = row.supplier_customer_id ? resolveCustomer(row.supplier_customer_id) : null;
+      const resolvedAccountId = row.account_id ? resolveAccount(row.account_id) : null;
+      const supplierRow = (resolvedSupplierId ? resolvedSupplierCache.get(resolvedSupplierId) : null) ?? row.suppliers;
+      const customerRow = (resolvedCustomerId ? resolvedCustomerCache.get(resolvedCustomerId) : null) ?? row.customers;
+      const accountRow = (resolvedAccountId ? resolvedAccountCache.get(resolvedAccountId) : null) ?? row.accounts;
+      const supplierName = supplierRow?.name || customerRow?.name || row.supplier_name;
+      return {
+        id: row.id,
+        spaceId: row.space_id,
+        supplierName,
+        storeName: supplierRow?.name ?? customerRow?.name ?? row.supplier_name,
+        supplierId: row.supplier_id ?? undefined,
+        supplierCustomerId: row.supplier_customer_id ?? undefined,
+        supplier: supplierRow ? {
+          id: supplierRow.id,
+          spaceId: supplierRow.space_id,
+          name: supplierRow.name,
+          taxNumber: supplierRow.tax_number,
+          phone: supplierRow.phone,
+          address: supplierRow.address,
+          isAiRecognized: supplierRow.is_ai_recognized,
+          isCustomer: (supplierRow as any).is_customer ?? false,
+          createdAt: supplierRow.created_at,
+          updatedAt: supplierRow.updated_at,
+        } : undefined,
+        supplierCustomer: customerRow ? {
+          id: customerRow.id,
+          spaceId: customerRow.space_id,
+          name: customerRow.name,
+          taxNumber: customerRow.tax_number,
+          phone: customerRow.phone,
+          address: customerRow.address,
+          isAiRecognized: customerRow.is_ai_recognized,
+          isSupplier: customerRow.is_supplier || false,
+          createdAt: customerRow.created_at,
+          updatedAt: customerRow.updated_at,
+        } : undefined,
+        totalAmount: row.total_amount,
+        currency: row.currency,
+        tax: row.tax,
+        date: normalizeDate(row.date),
+        accountId: row.account_id,
+        account: accountRow ? {
+          id: accountRow.id,
+          spaceId: accountRow.space_id,
+          name: accountRow.name,
+          isAiRecognized: accountRow.is_ai_recognized,
+          createdAt: accountRow.created_at,
+          updatedAt: accountRow.updated_at,
+        } : undefined,
+        status: row.status as ReceiptStatus,
+        imageUrl: row.image_url,
+        inputType: row.input_type || (row.image_url ? 'image' : 'text'),
+        confidence: row.confidence,
+        processedBy: row.processed_by,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        createdBy: row.created_by,
+        createdByUser: row.created_by_user ? {
+          id: row.created_by_user.id,
+          email: row.created_by_user.email,
+          name: row.created_by_user.name,
+          spaceId: row.created_by_user.current_space_id,
+        } : undefined,
+        items: [], // 列表页不加载 items，提升性能
+      };
+    });
+    
+    console.log(`✅ [getAllReceiptsForList] 数据映射完成，返回 ${mappedReceipts.length} 条小票（轻量级）`);
+    return mappedReceipts;
+  } catch (error) {
+    console.error('❌ [getAllReceiptsForList] 查询失败:', error);
+    throw error;
+  }
+}
+
+/** 获取当前空间下所有小票（完整数据，包含 items，用于详情页等需要完整数据的场景） */
+export async function getAllReceipts(): Promise<Receipt[]> {
+  try {
+    console.log('📊 [getAllReceipts] 开始查询小票数据（完整数据）...');
+    const user = await getCurrentUser();
+    if (!user) throw new Error('Not logged in');
+
+    const spaceId = user.currentSpaceId || user.spaceId;
+    if (!spaceId) throw new Error('No space selected');
 
     const { data, error } = await supabase
       .from('receipts')
@@ -480,8 +682,6 @@ export async function getAllReceipts(): Promise<Receipt[]> {
       .eq('space_id', spaceId)
       .order('created_at', { ascending: false })
       .order('created_at', { foreignTable: 'receipt_items', ascending: true });
-
-    console.log('📊 [getAllReceipts] 数据库查询完成，等待响应...');
 
     if (error) throw error;
 
@@ -523,12 +723,27 @@ export async function getAllReceipts(): Promise<Receipt[]> {
     const needResolvedCustomer = new Set<string>();
     const needResolvedAccount = new Set<string>();
     for (const row of rows) {
-      if (row.supplier_id) needResolvedSupplier.add(resolveSupplier(row.supplier_id));
-      if (row.supplier_customer_id) needResolvedCustomer.add(resolveCustomer(row.supplier_customer_id));
-      if (row.account_id) needResolvedAccount.add(resolveAccount(row.account_id));
+      if (row.supplier_id) {
+        const resolvedId = resolveSupplier(row.supplier_id);
+        if (!row.suppliers || row.suppliers.id !== resolvedId) {
+          needResolvedSupplier.add(resolvedId);
+        }
+      }
+      if (row.supplier_customer_id) {
+        const resolvedId = resolveCustomer(row.supplier_customer_id);
+        if (!row.customers || row.customers.id !== resolvedId) {
+          needResolvedCustomer.add(resolvedId);
+        }
+      }
+      if (row.account_id) {
+        const resolvedId = resolveAccount(row.account_id);
+        if (!row.accounts || row.accounts.id !== resolvedId) {
+          needResolvedAccount.add(resolvedId);
+        }
+      }
     }
     const [resolvedSupplierCache, resolvedCustomerCache, resolvedAccountCache] = await Promise.all([
-      (async () => {
+      needResolvedSupplier.size > 0 ? (async () => {
         const m = new Map<string, Awaited<ReturnType<typeof getSupplierById>>>();
         await Promise.all(
           Array.from(needResolvedSupplier).map(async (id) => {
@@ -537,8 +752,8 @@ export async function getAllReceipts(): Promise<Receipt[]> {
           })
         );
         return m;
-      })(),
-      (async () => {
+      })() : Promise.resolve(new Map()),
+      needResolvedCustomer.size > 0 ? (async () => {
         const m = new Map<string, Awaited<ReturnType<typeof getCustomerById>>>();
         await Promise.all(
           Array.from(needResolvedCustomer).map(async (id) => {
@@ -547,8 +762,8 @@ export async function getAllReceipts(): Promise<Receipt[]> {
           })
         );
         return m;
-      })(),
-      (async () => {
+      })() : Promise.resolve(new Map()),
+      needResolvedAccount.size > 0 ? (async () => {
         const m = new Map<string, Awaited<ReturnType<typeof getAccountById>>>();
         await Promise.all(
           Array.from(needResolvedAccount).map(async (id) => {
@@ -557,108 +772,106 @@ export async function getAllReceipts(): Promise<Receipt[]> {
           })
         );
         return m;
-      })(),
+      })() : Promise.resolve(new Map()),
     ]);
 
-    console.log(`📊 [getAllReceipts] 开始映射 ${rows.length} 条小票数据...`);
     const mappedReceipts = rows.map((row: any) => {
       const resolvedSupplierId = row.supplier_id ? resolveSupplier(row.supplier_id) : null;
       const resolvedCustomerId = row.supplier_customer_id ? resolveCustomer(row.supplier_customer_id) : null;
       const resolvedAccountId = row.account_id ? resolveAccount(row.account_id) : null;
-      // 优先用解析后的目标行（合并后显示目标名称），无则用 join 行
       const supplierRow = (resolvedSupplierId ? resolvedSupplierCache.get(resolvedSupplierId) : null) ?? row.suppliers;
       const customerRow = (resolvedCustomerId ? resolvedCustomerCache.get(resolvedCustomerId) : null) ?? row.customers;
       const accountRow = (resolvedAccountId ? resolvedAccountCache.get(resolvedAccountId) : null) ?? row.accounts;
-      // 有 ID 时以解析出的供应商/客户名称为准，避免与冗余文本不一致导致列表/详情与编辑显示不同
       const supplierName = supplierRow?.name || customerRow?.name || row.supplier_name;
       return {
-      id: row.id,
-      spaceId: row.space_id,
-      supplierName,
-      storeName: supplierRow?.name ?? customerRow?.name ?? row.supplier_name,
-      supplierId: row.supplier_id ?? undefined,
-      supplierCustomerId: row.supplier_customer_id ?? undefined,
-      supplier: supplierRow ? {
-        id: supplierRow.id,
-        spaceId: supplierRow.space_id,
-        name: supplierRow.name,
-        taxNumber: supplierRow.tax_number,
-        phone: supplierRow.phone,
-        address: supplierRow.address,
-        isAiRecognized: supplierRow.is_ai_recognized,
-        isCustomer: (supplierRow as any).is_customer ?? false,
-        createdAt: supplierRow.created_at,
-        updatedAt: supplierRow.updated_at,
-      } : undefined,
-      supplierCustomer: customerRow ? {
-        id: customerRow.id,
-        spaceId: customerRow.space_id,
-        name: customerRow.name,
-        taxNumber: customerRow.tax_number,
-        phone: customerRow.phone,
-        address: customerRow.address,
-        isAiRecognized: customerRow.is_ai_recognized,
-        isSupplier: customerRow.is_supplier || false,
-        createdAt: customerRow.created_at,
-        updatedAt: customerRow.updated_at,
-      } : undefined,
-      totalAmount: row.total_amount,
-      currency: row.currency,
-      tax: row.tax,
-      date: normalizeDate(row.date),
-      accountId: row.account_id,
-      account: accountRow ? {
-        id: accountRow.id,
-        spaceId: accountRow.space_id,
-        name: accountRow.name,
-        isAiRecognized: accountRow.is_ai_recognized,
-        createdAt: accountRow.created_at,
-        updatedAt: accountRow.updated_at,
-      } : undefined,
-      status: row.status as ReceiptStatus,
-      imageUrl: row.image_url,
-      inputType: row.input_type || (row.image_url ? 'image' : 'text'),
-      confidence: row.confidence,
-      processedBy: row.processed_by,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      createdBy: row.created_by,
-      createdByUser: row.created_by_user ? {
-        id: row.created_by_user.id,
-        email: row.created_by_user.email,
-        name: row.created_by_user.name,
-        spaceId: row.created_by_user.current_space_id,
-      } : undefined,
-      items: (row.receipt_items || []).map((item: any) => ({
-        id: item.id,
-        name: item.name,
-        categoryId: item.category_id,
-        category: item.categories ? {
-          id: item.categories.id,
-          spaceId: item.categories.space_id,
-          name: item.categories.name,
-          color: item.categories.color,
-          isDefault: item.categories.is_default,
-          createdAt: item.categories.created_at,
-          updatedAt: item.categories.updated_at,
+        id: row.id,
+        spaceId: row.space_id,
+        supplierName,
+        storeName: supplierRow?.name ?? customerRow?.name ?? row.supplier_name,
+        supplierId: row.supplier_id ?? undefined,
+        supplierCustomerId: row.supplier_customer_id ?? undefined,
+        supplier: supplierRow ? {
+          id: supplierRow.id,
+          spaceId: supplierRow.space_id,
+          name: supplierRow.name,
+          taxNumber: supplierRow.tax_number,
+          phone: supplierRow.phone,
+          address: supplierRow.address,
+          isAiRecognized: supplierRow.is_ai_recognized,
+          isCustomer: (supplierRow as any).is_customer ?? false,
+          createdAt: supplierRow.created_at,
+          updatedAt: supplierRow.updated_at,
         } : undefined,
-        purposeId: item.purpose_id ?? null,
-        purpose: item.purposes ? {
-          id: item.purposes.id,
-          spaceId: item.purposes.space_id,
-          name: item.purposes.name,
-          color: item.purposes.color,
-          isDefault: item.purposes.is_default,
-          createdAt: item.purposes.created_at,
-          updatedAt: item.purposes.updated_at,
+        supplierCustomer: customerRow ? {
+          id: customerRow.id,
+          spaceId: customerRow.space_id,
+          name: customerRow.name,
+          taxNumber: customerRow.tax_number,
+          phone: customerRow.phone,
+          address: customerRow.address,
+          isAiRecognized: customerRow.is_ai_recognized,
+          isSupplier: customerRow.is_supplier || false,
+          createdAt: customerRow.created_at,
+          updatedAt: customerRow.updated_at,
         } : undefined,
-        price: item.price,
-        isAsset: item.is_asset,
-        confidence: item.confidence,
-      })),
-    };
+        totalAmount: row.total_amount,
+        currency: row.currency,
+        tax: row.tax,
+        date: normalizeDate(row.date),
+        accountId: row.account_id,
+        account: accountRow ? {
+          id: accountRow.id,
+          spaceId: accountRow.space_id,
+          name: accountRow.name,
+          isAiRecognized: accountRow.is_ai_recognized,
+          createdAt: accountRow.created_at,
+          updatedAt: accountRow.updated_at,
+        } : undefined,
+        status: row.status as ReceiptStatus,
+        imageUrl: row.image_url,
+        inputType: row.input_type || (row.image_url ? 'image' : 'text'),
+        confidence: row.confidence,
+        processedBy: row.processed_by,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        createdBy: row.created_by,
+        createdByUser: row.created_by_user ? {
+          id: row.created_by_user.id,
+          email: row.created_by_user.email,
+          name: row.created_by_user.name,
+          spaceId: row.created_by_user.current_space_id,
+        } : undefined,
+        items: (row.receipt_items || []).map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          categoryId: item.category_id,
+          category: item.categories ? {
+            id: item.categories.id,
+            spaceId: item.categories.space_id,
+            name: item.categories.name,
+            color: item.categories.color,
+            isDefault: item.categories.is_default,
+            createdAt: item.categories.created_at,
+            updatedAt: item.categories.updated_at,
+          } : undefined,
+          purposeId: item.purpose_id ?? null,
+          purpose: item.purposes ? {
+            id: item.purposes.id,
+            spaceId: item.purposes.space_id,
+            name: item.purposes.name,
+            color: item.purposes.color,
+            isDefault: item.purposes.is_default,
+            createdAt: item.purposes.created_at,
+            updatedAt: item.purposes.updated_at,
+          } : undefined,
+          price: item.price,
+          isAsset: item.is_asset,
+          confidence: item.confidence,
+        })),
+      };
     });
-    console.log(`✅ [getAllReceipts] 数据映射完成，返回 ${mappedReceipts.length} 条小票`);
+    
+    console.log(`✅ [getAllReceipts] 数据映射完成，返回 ${mappedReceipts.length} 条小票（完整数据）`);
     return mappedReceipts;
   } catch (error) {
     console.error('❌ [getAllReceipts] 查询失败:', error);

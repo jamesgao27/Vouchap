@@ -19,7 +19,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 // DocumentScanner 将在需要时动态导入（因为它在 Expo Go 中不可用）
 import Constants from 'expo-constants';
-import { getAllReceipts, deleteReceipt, saveReceipt } from '@/lib/database';
+import { getAllReceiptsForList, getAllReceipts, deleteReceipt, saveReceipt } from '@/lib/database';
 import { Receipt, ReceiptStatus } from '@/types';
 import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
@@ -136,8 +136,8 @@ export default function ReceiptsScreen() {
 
   const loadReceipts = useCallback(async () => {
     try {
-      console.log('🔄 [loadReceipts] 开始加载小票数据...');
-      const data = await getAllReceipts();
+      console.log('🔄 [loadReceipts] 开始加载小票数据（轻量级）...');
+      const data = await getAllReceiptsForList();
       console.log(`✅ [loadReceipts] 加载完成，共 ${data.length} 条小票`);
       setReceipts(data);
     } catch (error) {
@@ -928,12 +928,19 @@ export default function ReceiptsScreen() {
       const displaySupplierName = receipt.supplier?.name || receipt.supplierName || '';
       const supplierNameMatch = displaySupplierName.toLowerCase().includes(query);
       
-      // 搜索商品明细名称
-      const itemsMatch = receipt.items?.some(item => 
-        item.name?.toLowerCase().includes(query)
-      );
+      // 搜索账户名称
+      const accountNameMatch = receipt.account?.name?.toLowerCase().includes(query) || false;
       
-      return supplierNameMatch || itemsMatch;
+      // 搜索金额（转换为字符串匹配）
+      const amountMatch = receipt.totalAmount?.toString().includes(query) || false;
+      
+      // 注意：列表页不加载 items，如需搜索 items 请使用详情页
+      // 如果 receipt.items 存在（可能是从其他地方加载的），也支持搜索
+      const itemsMatch = receipt.items?.length > 0 ? receipt.items.some(item => 
+        item.name?.toLowerCase().includes(query)
+      ) : false;
+      
+      return supplierNameMatch || accountNameMatch || amountMatch || itemsMatch;
     });
   }, [filteredReceipts, searchQuery]);
 

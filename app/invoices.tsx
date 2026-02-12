@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getAllInvoices, deleteInvoice, saveInvoice } from '@/lib/invoices';
+import { getAllInvoicesForList, getAllInvoices, deleteInvoice, saveInvoice } from '@/lib/invoices';
 import { Invoice } from '@/types';
 import { format } from 'date-fns';
 import { VoucherStatus } from '@/types';
@@ -87,7 +87,7 @@ export default function InvoicesScreen() {
 
   const loadInvoices = useCallback(async () => {
     try {
-      const data = await getAllInvoices();
+      const data = await getAllInvoicesForList();
       setInvoices(data);
     } catch (error) {
       Alert.alert('Error', 'Failed to load income');
@@ -385,7 +385,15 @@ export default function InvoicesScreen() {
   const searchedInvoices = useMemo(() => {
     if (!searchQuery.trim()) return filteredInvoices;
     const q = searchQuery.trim().toLowerCase();
-    return filteredInvoices.filter(inv => (inv.customerName || '').toLowerCase().includes(q));
+    return filteredInvoices.filter(inv => {
+      // 搜索客户名称
+      const customerNameMatch = (inv.customerName || inv.customer?.name || '').toLowerCase().includes(q);
+      // 搜索账户名称
+      const accountNameMatch = inv.account?.name?.toLowerCase().includes(q) || false;
+      // 搜索金额
+      const amountMatch = inv.totalAmount?.toString().includes(q) || false;
+      return customerNameMatch || accountNameMatch || amountMatch;
+    });
   }, [filteredInvoices, searchQuery]);
 
   const filterOptions = useMemo(() => {

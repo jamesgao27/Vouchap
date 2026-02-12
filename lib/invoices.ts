@@ -72,6 +72,115 @@ function rowToInvoice(row: any, items: InvoiceItem[] = []): Invoice {
 }
 
 /** 获取当前空间下所有发票（列表用，含 account / createdByUser / customer，不含明细）；合并指向会解析为最终目标展示 */
+/** 获取当前空间下所有发票（列表用，不加载 items 明细，性能优化） */
+export async function getAllInvoicesForList(): Promise<Invoice[]> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const { data, error } = await supabase
+    .from('invoices')
+    .select(`
+      *,
+      customers (*),
+      suppliers!invoices_customer_supplier_id_fkey (*),
+      accounts (*),
+      created_by_user:users!created_by (
+        id,
+        email,
+        name,
+        current_space_id
+      )
+    `)
+    .eq('space_id', spaceId)
+    .order('date', { ascending: false });
+
+  if (error) throw error;
+  const rows = data || [];
+  const [customerMergeMap, supplierMergeMap, accountMergeMap] = await Promise.all([
+    getCustomerMergeMap(spaceId),
+    getSupplierMergeMap(spaceId),
+    getAccountMergeMap(spaceId),
+  ]);
+  const resolve = (map: Map<string, string>, id: string) => {
+    let current = id;
+    const seen = new Set<string>();
+    while (map.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = map.get(current)!;
+    }
+    return current;
+  };
+  
+  // 优化：只查询 join 中缺失的数据
+  const needCustomer = new Set<string>();
+  const needSupplier = new Set<string>();
+  const needAccount = new Set<string>();
+  for (const r of rows) {
+    if (r.customer_id) {
+      const resolvedId = resolve(customerMergeMap, r.customer_id);
+      if (!r.customers || r.customers.id !== resolvedId) {
+        needCustomer.add(resolvedId);
+      }
+    }
+    if (r.customer_supplier_id) {
+      const resolvedId = resolve(supplierMergeMap, r.customer_supplier_id);
+      if (!r.suppliers || r.suppliers.id !== resolvedId) {
+        needSupplier.add(resolvedId);
+      }
+    }
+    if (r.account_id) {
+      const resolvedId = resolve(accountMergeMap, r.account_id);
+      if (!r.accounts || r.accounts.id !== resolvedId) {
+        needAccount.add(resolvedId);
+      }
+    }
+  }
+  
+  const [customerCache, supplierCache, accountCache] = await Promise.all([
+    needCustomer.size > 0 ? (async () => {
+      const m = new Map<string, Awaited<ReturnType<typeof getCustomerById>>>();
+      await Promise.all(Array.from(needCustomer).map(async (id) => { const c = await getCustomerById(id); if (c) m.set(id, c); }));
+      return m;
+    })() : Promise.resolve(new Map()),
+    needSupplier.size > 0 ? (async () => {
+      const m = new Map<string, Awaited<ReturnType<typeof getSupplierById>>>();
+      await Promise.all(Array.from(needSupplier).map(async (id) => { const s = await getSupplierById(id); if (s) m.set(id, s); }));
+      return m;
+    })() : Promise.resolve(new Map()),
+    needAccount.size > 0 ? (async () => {
+      const m = new Map<string, Awaited<ReturnType<typeof getAccountById>>>();
+      await Promise.all(Array.from(needAccount).map(async (id) => { const a = await getAccountById(id); if (a) m.set(id, a); }));
+      return m;
+    })() : Promise.resolve(new Map()),
+  ]);
+  
+  return rows.map((r: any) => {
+    const rc = { ...r };
+    if (r.customer_id) {
+      const resolvedId = resolve(customerMergeMap, r.customer_id);
+      if (!r.customers || r.customers.id !== resolvedId) {
+        rc.customers = customerCache.get(resolvedId);
+      }
+    }
+    if (r.customer_supplier_id) {
+      const resolvedId = resolve(supplierMergeMap, r.customer_supplier_id);
+      if (!r.suppliers || r.suppliers.id !== resolvedId) {
+        rc.suppliers = supplierCache.get(resolvedId);
+      }
+    }
+    if (r.account_id) {
+      const resolvedId = resolve(accountMergeMap, r.account_id);
+      if (!r.accounts || r.accounts.id !== resolvedId) {
+        rc.accounts = accountCache.get(resolvedId);
+      }
+    }
+    return rowToInvoice(rc, []); // 列表页不加载 items
+  });
+}
+
+/** 获取当前空间下所有发票（完整数据，包含 items，用于详情页等需要完整数据的场景） */
 export async function getAllInvoices(): Promise<Invoice[]> {
   const user = await getCurrentUser();
   if (!user) throw new Error('Not logged in');
@@ -115,32 +224,62 @@ export async function getAllInvoices(): Promise<Invoice[]> {
   const needSupplier = new Set<string>();
   const needAccount = new Set<string>();
   for (const r of rows) {
-    if (r.customer_id && !r.customers) needCustomer.add(resolve(customerMergeMap, r.customer_id));
-    if (r.customer_supplier_id && !r.suppliers) needSupplier.add(resolve(supplierMergeMap, r.customer_supplier_id));
-    if (r.account_id && !r.accounts) needAccount.add(resolve(accountMergeMap, r.account_id));
+    if (r.customer_id) {
+      const resolvedId = resolve(customerMergeMap, r.customer_id);
+      if (!r.customers || r.customers.id !== resolvedId) {
+        needCustomer.add(resolvedId);
+      }
+    }
+    if (r.customer_supplier_id) {
+      const resolvedId = resolve(supplierMergeMap, r.customer_supplier_id);
+      if (!r.suppliers || r.suppliers.id !== resolvedId) {
+        needSupplier.add(resolvedId);
+      }
+    }
+    if (r.account_id) {
+      const resolvedId = resolve(accountMergeMap, r.account_id);
+      if (!r.accounts || r.accounts.id !== resolvedId) {
+        needAccount.add(resolvedId);
+      }
+    }
   }
   const [customerCache, supplierCache, accountCache] = await Promise.all([
-    (async () => {
+    needCustomer.size > 0 ? (async () => {
       const m = new Map<string, Awaited<ReturnType<typeof getCustomerById>>>();
       await Promise.all(Array.from(needCustomer).map(async (id) => { const c = await getCustomerById(id); if (c) m.set(id, c); }));
       return m;
-    })(),
-    (async () => {
+    })() : Promise.resolve(new Map()),
+    needSupplier.size > 0 ? (async () => {
       const m = new Map<string, Awaited<ReturnType<typeof getSupplierById>>>();
       await Promise.all(Array.from(needSupplier).map(async (id) => { const s = await getSupplierById(id); if (s) m.set(id, s); }));
       return m;
-    })(),
-    (async () => {
+    })() : Promise.resolve(new Map()),
+    needAccount.size > 0 ? (async () => {
       const m = new Map<string, Awaited<ReturnType<typeof getAccountById>>>();
       await Promise.all(Array.from(needAccount).map(async (id) => { const a = await getAccountById(id); if (a) m.set(id, a); }));
       return m;
-    })(),
+    })() : Promise.resolve(new Map()),
   ]);
   return rows.map((r: any) => {
     const rc = { ...r };
-    if (r.customer_id && !r.customers) rc.customers = customerCache.get(resolve(customerMergeMap, r.customer_id));
-    if (r.customer_supplier_id && !r.suppliers) rc.suppliers = supplierCache.get(resolve(supplierMergeMap, r.customer_supplier_id));
-    if (r.account_id && !r.accounts) rc.accounts = accountCache.get(resolve(accountMergeMap, r.account_id));
+    if (r.customer_id) {
+      const resolvedId = resolve(customerMergeMap, r.customer_id);
+      if (!r.customers || r.customers.id !== resolvedId) {
+        rc.customers = customerCache.get(resolvedId);
+      }
+    }
+    if (r.customer_supplier_id) {
+      const resolvedId = resolve(supplierMergeMap, r.customer_supplier_id);
+      if (!r.suppliers || r.suppliers.id !== resolvedId) {
+        rc.suppliers = supplierCache.get(resolvedId);
+      }
+    }
+    if (r.account_id) {
+      const resolvedId = resolve(accountMergeMap, r.account_id);
+      if (!r.accounts || r.accounts.id !== resolvedId) {
+        rc.accounts = accountCache.get(resolvedId);
+      }
+    }
     return rowToInvoice(rc, []);
   });
 }
