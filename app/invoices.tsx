@@ -23,7 +23,7 @@ import { VoucherStatus } from '@/types';
 import { SwipeableRow } from './SwipeableRow';
 import { getLocalDateString } from '@/lib/date-utils';
 
-type GroupByType = 'month' | 'recordDate' | 'paymentAccount' | 'createdBy';
+type GroupByType = 'month' | 'recordDate' | 'paymentAccount' | 'createdBy' | 'customer';
 
 const statusColors: Record<VoucherStatus, string> = {
   pending: '#FF9500',
@@ -318,15 +318,41 @@ export default function InvoicesScreen() {
       .sort((a, b) => a.title.localeCompare(b.title));
   }, []);
 
+  const groupByCustomer = useCallback((list: Invoice[]): SectionData[] => {
+    const grouped = new Map<string, Invoice[]>();
+    list.forEach(inv => {
+      const customerName = inv.customerName || inv.customer?.name || 'Unknown Customer';
+      const customerKey = `customer-${inv.customerId || inv.customer?.id || 'none'}`;
+      if (!grouped.has(customerKey)) grouped.set(customerKey, []);
+      grouped.get(customerKey)!.push(inv);
+    });
+    return Array.from(grouped.entries())
+      .map(([customerKey, data]) => {
+        const customerName = data[0].customerName || data[0].customer?.name || 'Unknown Customer';
+        return {
+          title: customerName,
+          monthKey: customerKey,
+          data: data.sort((a, b) => parseLocalDate(b.date).getTime() - parseLocalDate(a.date).getTime()),
+        };
+      })
+      .sort((a, b) => {
+        // Unknown Customer 放在最后
+        if (a.title === 'Unknown Customer') return 1;
+        if (b.title === 'Unknown Customer') return -1;
+        return a.title.localeCompare(b.title);
+      });
+  }, []);
+
   const getGroupedInvoices = useCallback((list: Invoice[]): SectionData[] => {
     switch (groupBy) {
       case 'recordDate': return groupByRecordDate(list);
       case 'paymentAccount': return groupByAccount(list);
       case 'createdBy': return groupByCreatedBy(list);
+      case 'customer': return groupByCustomer(list);
       case 'month':
       default: return groupByMonth(list);
     }
-  }, [groupBy, groupByMonth, groupByRecordDate, groupByAccount, groupByCreatedBy]);
+  }, [groupBy, groupByMonth, groupByRecordDate, groupByAccount, groupByCreatedBy, groupByCustomer]);
 
   const filteredInvoices = useMemo(() => {
     let filtered = invoices;
@@ -433,6 +459,7 @@ export default function InvoicesScreen() {
                 {groupBy === 'recordDate' && <Ionicons name="time-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
                 {groupBy === 'paymentAccount' && <Ionicons name="wallet-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
                 {groupBy === 'createdBy' && <Ionicons name="person-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                {groupBy === 'customer' && <Ionicons name="people-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
                 <Text style={styles.sortText}>Group</Text>
                 <Ionicons name="chevron-down" size={16} color="#636E72" />
               </TouchableOpacity>
@@ -602,21 +629,24 @@ export default function InvoicesScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
-              {(['month', 'recordDate', 'paymentAccount', 'createdBy'] as const).map((key) => (
+              {/* 统一顺序：交易月份、账户、供应商/客户、记录者、记录日期 */}
+              {(['month', 'paymentAccount', 'customer', 'createdBy', 'recordDate'] as const).map((key) => (
                 <TouchableOpacity
                   key={key}
                   style={[styles.pickerOption, groupBy === key && styles.pickerOptionSelected]}
                   onPress={() => { setGroupBy(key); setShowSortMenu(false); }}
                 >
                   {key === 'month' && <Ionicons name="calendar-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
-                  {key === 'recordDate' && <Ionicons name="time-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   {key === 'paymentAccount' && <Ionicons name="wallet-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
+                  {key === 'customer' && <Ionicons name="people-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   {key === 'createdBy' && <Ionicons name="person-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
+                  {key === 'recordDate' && <Ionicons name="time-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   <Text style={[styles.pickerOptionText, groupBy === key && styles.pickerOptionTextSelected, { flex: 1 }]}>
                     {key === 'month' && 'Transaction Month'}
-                    {key === 'recordDate' && 'Record Date'}
                     {key === 'paymentAccount' && 'Account'}
+                    {key === 'customer' && 'Customer'}
                     {key === 'createdBy' && 'Recorder'}
+                    {key === 'recordDate' && 'Record Date'}
                   </Text>
                   {groupBy === key && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
                 </TouchableOpacity>

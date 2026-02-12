@@ -36,7 +36,8 @@ import { getLocalDateString } from '@/lib/date-utils';
 // - recordDate: 按记录时间（创建时间）的日期分组（按天）
 // - paymentAccount: 按支付账户分组
 // - createdBy: 按提交人分组
-type GroupByType = 'month' | 'recordDate' | 'paymentAccount' | 'createdBy';
+// - supplier: 按供应商分组
+type GroupByType = 'month' | 'recordDate' | 'paymentAccount' | 'createdBy' | 'supplier';
 
 const statusColors: Record<ReceiptStatus, string> = {
   pending: '#FF9500',
@@ -742,6 +743,38 @@ export default function ReceiptsScreen() {
       .sort((a, b) => a.title.localeCompare(b.title));
   }, []);
 
+  // 按供应商分组小票
+  const groupReceiptsBySupplier = useCallback((receipts: Receipt[]): SectionData[] => {
+    const grouped = new Map<string, Receipt[]>();
+    
+    receipts.forEach(receipt => {
+      const supplierName = receipt.supplier?.name || receipt.supplierName || 'Unknown Supplier';
+      const supplierKey = `supplier-${receipt.supplier?.id || receipt.supplierId || 'none'}`;
+      
+      if (!grouped.has(supplierKey)) {
+        grouped.set(supplierKey, []);
+      }
+      grouped.get(supplierKey)!.push(receipt);
+    });
+
+    // 转换为数组并按供应商名称排序
+    return Array.from(grouped.entries())
+      .map(([supplierKey, data]) => {
+        const supplierName = data[0].supplier?.name || data[0].supplierName || 'Unknown Supplier';
+        return {
+          title: supplierName,
+          monthKey: supplierKey,
+          data: data.sort((a, b) => parseLocalDate(b.date).getTime() - parseLocalDate(a.date).getTime()),
+        };
+      })
+      .sort((a, b) => {
+        // Unknown Supplier 放在最后
+        if (a.title === 'Unknown Supplier') return 1;
+        if (b.title === 'Unknown Supplier') return -1;
+        return a.title.localeCompare(b.title);
+      });
+  }, []);
+
   // 根据分组类型获取分组数据
   const getGroupedReceipts = useCallback((receipts: Receipt[]): SectionData[] => {
     switch (groupBy) {
@@ -751,11 +784,13 @@ export default function ReceiptsScreen() {
         return groupReceiptsByAccount(receipts);
       case 'createdBy':
         return groupReceiptsByCreatedBy(receipts);
+      case 'supplier':
+        return groupReceiptsBySupplier(receipts);
       case 'month':
       default:
         return groupReceiptsByMonth(receipts);
     }
-  }, [groupBy, groupReceiptsByMonth, groupReceiptsByRecordDate, groupReceiptsByAccount, groupReceiptsByCreatedBy]);
+  }, [groupBy, groupReceiptsByMonth, groupReceiptsByRecordDate, groupReceiptsByAccount, groupReceiptsByCreatedBy, groupReceiptsBySupplier]);
 
   // 筛选小票（交集筛选）
   const filteredReceipts = useMemo(() => {
@@ -950,6 +985,7 @@ export default function ReceiptsScreen() {
             {groupBy === 'recordDate' && <Ionicons name="time-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
             {groupBy === 'paymentAccount' && <Ionicons name="wallet-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
             {groupBy === 'createdBy' && <Ionicons name="person-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+            {groupBy === 'supplier' && <Ionicons name="storefront-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
             <Text style={styles.sortText}>Group</Text>
             <Ionicons name="chevron-down" size={16} color="#636E72" />
           </TouchableOpacity>
@@ -1291,6 +1327,7 @@ export default function ReceiptsScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
+              {/* 1. 交易月份 */}
               <TouchableOpacity
                 style={[
                   styles.pickerOption,
@@ -1315,6 +1352,7 @@ export default function ReceiptsScreen() {
                 )}
               </TouchableOpacity>
 
+              {/* 2. 账户 */}
               <TouchableOpacity
                 style={[
                   styles.pickerOption,
@@ -1339,6 +1377,32 @@ export default function ReceiptsScreen() {
                 )}
               </TouchableOpacity>
 
+              {/* 3. 供应商 */}
+              <TouchableOpacity
+                style={[
+                  styles.pickerOption,
+                  groupBy === 'supplier' && styles.pickerOptionSelected,
+                ]}
+                onPress={() => {
+                  setGroupBy('supplier');
+                  setShowSortMenu(false);
+                }}
+              >
+                <Ionicons name="storefront-outline" size={20} color={groupBy === 'supplier' ? '#6C5CE7' : '#636E72'} />
+                <Text
+                  style={[
+                    styles.pickerOptionText,
+                    groupBy === 'supplier' && styles.pickerOptionTextSelected,
+                  ]}
+                >
+                  Supplier
+                </Text>
+                {groupBy === 'supplier' && (
+                  <Ionicons name="checkmark" size={20} color="#6C5CE7" />
+                )}
+              </TouchableOpacity>
+
+              {/* 4. 记录者 */}
               <TouchableOpacity
                 style={[
                   styles.pickerOption,
@@ -1363,6 +1427,7 @@ export default function ReceiptsScreen() {
                 )}
               </TouchableOpacity>
 
+              {/* 5. 记录日期 */}
               <TouchableOpacity
                 style={[
                   styles.pickerOption,
