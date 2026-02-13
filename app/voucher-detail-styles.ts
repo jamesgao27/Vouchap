@@ -1,8 +1,18 @@
 /**
  * 与 receipt-details 一致的凭证详情页样式（入库/出库详情复用）
- * 样式布局保持，数据对象替换为 Inbound/Outbound 即可
+ * 底部 Cancel/Confirm 与 lib/action-button-styles 规范统一（尺寸、底色、字色、边框、阴影）
  */
-import { StyleSheet } from 'react-native';
+import { StyleSheet, Platform } from 'react-native';
+
+const BAR_BTN_HEIGHT = 48;
+const BAR_BORDER_RADIUS = 12;
+const BAR_SHADOW = {
+  shadowColor: '#000',
+  shadowOffset: { width: 0, height: 2 },
+  shadowOpacity: 0.1,
+  shadowRadius: 6,
+  ...(Platform.OS === 'android' ? { elevation: 2 } : {}),
+};
 
 export const voucherDetailStyles = StyleSheet.create({
   container: {
@@ -335,30 +345,30 @@ export const voucherDetailStyles = StyleSheet.create({
   },
   cancelButton: {
     flex: 1,
-    backgroundColor: '#DDE2E6',
-    borderRadius: 12,
-    padding: 16,
+    flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.22,
-    shadowRadius: 6,
-    elevation: 6,
+    justifyContent: 'center',
+    minHeight: BAR_BTN_HEIGHT,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: BAR_BORDER_RADIUS,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    ...BAR_SHADOW,
   },
   cancelButtonText: { fontSize: 16, color: '#636E72', fontWeight: '600' },
   confirmButton: {
     flex: 1,
-    backgroundColor: '#6C5CE7',
-    borderRadius: 12,
-    padding: 16,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.22,
-    shadowRadius: 6,
-    elevation: 6,
+    minHeight: BAR_BTN_HEIGHT,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: BAR_BORDER_RADIUS,
+    backgroundColor: '#6C5CE7',
+    ...BAR_SHADOW,
   },
   confirmButtonText: { marginLeft: 8, fontSize: 16, color: '#fff', fontWeight: '600' },
   fab: {

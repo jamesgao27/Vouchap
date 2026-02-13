@@ -11,10 +11,13 @@ import {
   Modal,
   Platform,
   Animated,
+  KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import { actionButtonStyles } from '@/lib/action-button-styles';
 import {
   getAccounts,
   createAccount,
@@ -44,6 +47,12 @@ export default function AccountsManageScreen() {
   const [usageCounts, setUsageCounts] = useState<AccountUsageCounts | null>(null);
   const [expandedRootIds, setExpandedRootIds] = useState<Set<string>>(new Set());
   const editNameInputRef = useRef<TextInput>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const newNameInputRef = useRef<TextInput>(null);
+  const scrollContentRef = useRef<View>(null);
+  const addFormCardRef = useRef<View>(null);
+  const HEADER_HEIGHT_PX = 88;
+  const KEYBOARD_SCROLL_OFFSET_PX = 304; // 账户页：略大一点，少滚一点，新建卡片更靠近键盘
   const [showDuplicateNameModal, setShowDuplicateNameModal] = useState(false);
   const [duplicateNameModalPayload, setDuplicateNameModalPayload] = useState<{
     duplicateName: string;
@@ -57,6 +66,7 @@ export default function AccountsManageScreen() {
   const [showDeleteSelectedModal, setShowDeleteSelectedModal] = useState(false);
   const [deleteSelectedModalAccounts, setDeleteSelectedModalAccounts] = useState<Account[] | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const toastOpacity = useRef(new Animated.Value(0)).current;
 
   const showToast = (message: string, duration: number = 1500) => {
@@ -82,6 +92,41 @@ export default function AccountsManageScreen() {
     loadAccounts();
   }, []);
 
+  useEffect(() => {
+    if (showAddForm) {
+      const t = setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+        newNameInputRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(t);
+    }
+  }, [showAddForm]);
+
+  useEffect(() => {
+    if (!showAddForm) return;
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const subShow = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+      setTimeout(() => {
+        addFormCardRef.current?.measureLayout(
+          scrollContentRef.current as any,
+          (_x: number, y: number) => {
+            scrollViewRef.current?.scrollTo({
+              y: Math.max(0, y - KEYBOARD_SCROLL_OFFSET_PX),
+              animated: true,
+            });
+          }
+        );
+      }, 150);
+    });
+    const subHide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, [showAddForm]);
+
   const loadAccounts = async () => {
     try {
       setLoading(true);
@@ -89,7 +134,7 @@ export default function AccountsManageScreen() {
       setAccounts(data);
     } catch (error) {
       console.error('Error loading accounts:', error);
-      Alert.alert('Error', 'Failed to load accounts');
+      showToast('Failed to load accounts');
     } finally {
       setLoading(false);
     }
@@ -97,7 +142,7 @@ export default function AccountsManageScreen() {
 
   const handleAddAccount = async () => {
     if (!newName.trim()) {
-      Alert.alert('Error', 'Please enter account name');
+      showToast('Please enter account name');
       return;
     }
 
@@ -107,10 +152,10 @@ export default function AccountsManageScreen() {
       setAccounts(prev => [...prev, newAccount]);
       setNewName('');
       setShowAddForm(false);
-      Alert.alert('Success', 'Account created');
+      showToast('Account created');
     } catch (error: any) {
       console.error('Error creating account:', error);
-      Alert.alert('Error', error.message || 'Failed to create account');
+      showToast(error.message || 'Failed to create account');
       // 如果失败，重新加载以确保数据一致
       loadAccounts();
     }
@@ -118,7 +163,7 @@ export default function AccountsManageScreen() {
 
   const handleUpdateAccount = async (accountId: string) => {
     if (!editName.trim()) {
-      Alert.alert('Error', 'Please enter account name');
+      showToast('Please enter account name');
       return;
     }
 
@@ -146,7 +191,7 @@ export default function AccountsManageScreen() {
         return;
       }
       console.error('Error updating account:', error);
-      Alert.alert('Error', error.message || 'Failed to update account');
+      showToast(error.message || 'Failed to update account');
       loadAccounts();
     }
   };
@@ -182,7 +227,7 @@ export default function AccountsManageScreen() {
       setEditName('');
       loadAccounts();
     } catch (e: any) {
-      Alert.alert('Merge failed', e?.message ?? String(e));
+      showToast(e?.message ?? 'Merge failed');
       loadAccounts();
     }
   };
@@ -199,13 +244,11 @@ export default function AccountsManageScreen() {
           onPress: async () => {
             try {
               await deleteAccount(account.id);
-              // 乐观更新：直接从列表中移除，不需要重新加载所有账户
               setAccounts(prev => prev.filter(acc => acc.id !== account.id));
-              Alert.alert('Success', 'Account deleted');
+              showToast('Account deleted');
             } catch (error: any) {
               console.error('Error deleting account:', error);
-              Alert.alert('Error', error.message || 'Failed to delete account');
-              // 如果失败，重新加载以确保数据一致
+              showToast(error.message || 'Failed to delete account');
               loadAccounts();
             }
           },
@@ -249,7 +292,7 @@ export default function AccountsManageScreen() {
       setUsageCounts(counts);
     } catch (e: any) {
       console.error('Error loading merge history:', e);
-      Alert.alert('Error', e?.message ?? 'Failed to load merge data');
+      showToast(e?.message ?? 'Failed to load merge data');
     }
   };
 
@@ -263,7 +306,7 @@ export default function AccountsManageScreen() {
 
   const handleConfirmMerge = () => {
     if (selectedAccountIds.size < 2) {
-      Alert.alert('Error', 'Please select at least 2 accounts to merge');
+      showToast('Please select at least 2 accounts to merge');
       return;
     }
     const allAccountsInMergeMode = mergeHistoryData
@@ -310,7 +353,7 @@ export default function AccountsManageScreen() {
       });
       showToast('Unmerged');
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? String(e));
+      showToast(e?.message ?? 'Failed to unmerge');
     }
   };
 
@@ -329,7 +372,7 @@ export default function AccountsManageScreen() {
       showToast('Accounts merged successfully');
     } catch (error: any) {
       console.error('Error merging accounts:', error);
-      Alert.alert('Error', error.message || 'Failed to merge accounts');
+      showToast(error.message || 'Failed to merge accounts');
     }
   };
 
@@ -361,7 +404,7 @@ export default function AccountsManageScreen() {
 
   const handleCleanEmpty = () => {
     if (cleanableRoots.length === 0) {
-      Alert.alert('Notice', 'No empty accounts to clean.');
+      showToast('No empty accounts to clean.');
       return;
     }
     setShowQuickCleanModal(true);
@@ -381,9 +424,9 @@ export default function AccountsManageScreen() {
       ]);
       setMergeHistoryData(historyData);
       setUsageCounts(counts);
-      Alert.alert('Done', `Cleaned ${cleanableRoots.length} empty account(s).`);
+      showToast(`Cleaned ${cleanableRoots.length} empty account(s).`);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? String(e));
+      showToast(e?.message ?? 'Failed to clean');
     }
   };
 
@@ -419,7 +462,7 @@ export default function AccountsManageScreen() {
       setSelectedAccountIds(new Set());
       showToast(`Deleted ${selected.length} account(s).`);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? String(e));
+      showToast(e?.message ?? 'Failed to delete');
     }
   };
 
@@ -498,10 +541,11 @@ export default function AccountsManageScreen() {
                 </View>
                 <Text style={styles.actionModalTitle}>Quick Clean</Text>
                 <Text style={styles.actionModalSubtitle}>
-                  Delete {cleanableRoots.length} empty account(s) (no linked data, not merged):
+                  Delete {cleanableRoots.length} empty account(s):
                 </Text>
+                <Text style={styles.actionModalSubtitleLight}>(no linked data, not merged)</Text>
               </View>
-              <ScrollView style={styles.actionModalList} nestedScrollEnabled>
+              <ScrollView style={styles.actionModalList} contentContainerStyle={styles.actionModalListContent} nestedScrollEnabled showsVerticalScrollIndicator>
                 {cleanableRoots.map((r) => (
                   <View key={r.id} style={styles.actionModalRow}>
                     <Text style={styles.actionModalRowText} numberOfLines={1}>{r.name}</Text>
@@ -512,8 +556,8 @@ export default function AccountsManageScreen() {
                 <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonSecondary]} onPress={() => setShowQuickCleanModal(false)} activeOpacity={0.8}>
                   <Text style={styles.actionModalButtonSecondaryText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonWarning]} onPress={doQuickCleanConfirm} activeOpacity={0.8}>
-                  <Text style={styles.actionModalButtonWarningText}>Clean</Text>
+                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonDanger]} onPress={doQuickCleanConfirm} activeOpacity={0.8}>
+                  <Text style={styles.actionModalButtonDangerText}>Delete</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -533,7 +577,7 @@ export default function AccountsManageScreen() {
                 <Text style={styles.actionModalTitle}>Choose which account to keep,</Text>
                 <Text style={styles.actionModalSubtitle}>Others will be merged into it.</Text>
               </View>
-              <ScrollView style={styles.actionModalList} nestedScrollEnabled>
+              <ScrollView style={styles.actionModalList} contentContainerStyle={styles.actionModalListContent} nestedScrollEnabled showsVerticalScrollIndicator>
                 {(mergeTargetModalAccounts ?? []).map((acc) => (
                   <TouchableOpacity
                     key={acc.id}
@@ -576,7 +620,7 @@ export default function AccountsManageScreen() {
                   Delete {deleteSelectedModalAccounts?.length ?? 0} selected account(s)?
                 </Text>
               </View>
-              <ScrollView style={styles.actionModalList} nestedScrollEnabled>
+              <ScrollView style={styles.actionModalList} contentContainerStyle={styles.actionModalListContent} nestedScrollEnabled showsVerticalScrollIndicator>
                 {(deleteSelectedModalAccounts ?? []).map((acc) => (
                   <View key={acc.id} style={styles.actionModalRow}>
                     <Text style={styles.actionModalRowText} numberOfLines={1}>{acc.name}</Text>
@@ -595,7 +639,8 @@ export default function AccountsManageScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-      
+
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}>
       {/* Header */}
       {mergeMode ? (
         <View style={styles.headerMerge}>
@@ -635,41 +680,9 @@ export default function AccountsManageScreen() {
         </View>
       )}
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={[styles.scrollContent, styles.scrollContentTop, (!showAddForm && !mergeMode) || mergeMode ? styles.scrollContentWithBottomBar : null]}>
+      <ScrollView ref={scrollViewRef} style={styles.scrollView} contentContainerStyle={[styles.scrollContent, styles.scrollContentTop, styles.scrollContentWithBottomBar, showAddForm && keyboardHeight > 0 && { paddingBottom: 88 + keyboardHeight + 6 }]} keyboardShouldPersistTaps="handled">
         {/* Accounts List */}
-        <View style={styles.accountsList}>
-          {/* Add Account Form */}
-          {showAddForm && (
-            <View style={styles.formCard}>
-              {/* 第一行：名称 */}
-              <TextInput
-                style={styles.editInputInline}
-                value={newName}
-                onChangeText={setNewName}
-                placeholder="Account name"
-                placeholderTextColor="#95A5A6"
-              />
-
-              {/* 第二行：确认取消按钮 */}
-              <View style={styles.editButtonsInline}>
-                <TouchableOpacity
-                  style={styles.cancelButtonInline}
-                  onPress={() => {
-                    setShowAddForm(false);
-                    setNewName('');
-                  }}
-                >
-                  <Text style={styles.cancelButtonTextInline}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.confirmButtonInline}
-                  onPress={handleAddAccount}
-                >
-                  <Text style={styles.confirmButtonTextInline}>Confirm</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
+        <View ref={scrollContentRef} style={styles.accountsList}>
           {mergeMode ? (
             // Merge Mode: 直接显示复选框列表，不闪现 icon/AI；展开 icon 放最右
             accounts.map((account) => {
@@ -779,18 +792,18 @@ export default function AccountsManageScreen() {
                       placeholderTextColor="#95A5A6"
                     />
                     {/* 第二行：确认取消按钮 */}
-                    <View style={styles.editButtonsInline}>
+                    <View style={actionButtonStyles.editRowButtons}>
                       <TouchableOpacity
-                        style={styles.cancelButtonInline}
+                        style={actionButtonStyles.editCancelButton}
                         onPress={cancelEdit}
                       >
-                        <Text style={styles.cancelButtonTextInline}>Cancel</Text>
+                        <Text style={actionButtonStyles.editCancelButtonText}>Cancel</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
-                        style={styles.confirmButtonInline}
+                        style={actionButtonStyles.editConfirmButton}
                         onPress={() => handleUpdateAccount(account.id)}
                       >
-                        <Text style={styles.confirmButtonTextInline}>Confirm</Text>
+                        <Text style={actionButtonStyles.editConfirmButtonText}>Confirm</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -824,12 +837,6 @@ export default function AccountsManageScreen() {
                         >
                           <Ionicons name="create-outline" size={18} color="#6C5CE7" />
                         </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.iconButton}
-                          onPress={() => handleDeleteAccount(account)}
-                        >
-                          <Ionicons name="trash-outline" size={18} color="#E74C3C" />
-                        </TouchableOpacity>
                       </View>
                     )}
                   </TouchableOpacity>
@@ -837,68 +844,100 @@ export default function AccountsManageScreen() {
               </View>
             ))
           )}
+
+          {/* Add Account Form - 列表最下方，与编辑表单一致（editRow） */}
+          {showAddForm && (
+            <View ref={addFormCardRef} style={styles.formCard}>
+              <View style={styles.editRow}>
+                <TextInput
+                  ref={newNameInputRef}
+                  style={styles.editInputInline}
+                  value={newName}
+                  onChangeText={setNewName}
+                  placeholder="Account name"
+                  placeholderTextColor="#95A5A6"
+                />
+                <View style={actionButtonStyles.editRowButtons}>
+                <TouchableOpacity
+                  style={actionButtonStyles.editCancelButton}
+                  onPress={() => {
+                    setShowAddForm(false);
+                    setNewName('');
+                  }}
+                >
+                  <Text style={actionButtonStyles.editCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={actionButtonStyles.editConfirmButton}
+                  onPress={handleAddAccount}
+                >
+                  <Text style={actionButtonStyles.editConfirmButtonText}>Confirm</Text>
+                </TouchableOpacity>
+              </View>
+              </View>
+            </View>
+          )}
         </View>
 
       </ScrollView>
 
       {/* 底部浮动：Add + Merge 按钮 */}
       {!showAddForm && !mergeMode && (
-        <View style={styles.bottomBar}>
-          <TouchableOpacity
-            style={styles.bottomBarAddButton}
-            onPress={() => setShowAddForm(true)}
-          >
-            <Ionicons name="add-circle" size={20} color="#fff" />
-            <Text style={styles.bottomBarAddButtonText}>Add</Text>
+        <View style={[actionButtonStyles.bar, actionButtonStyles.barMergeMode]}>
+          <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={() => setShowAddForm(true)}>
+            <Ionicons name="add-circle" size={20} color="#6C5CE7" style={actionButtonStyles.barIconFix} />
+            <Text style={actionButtonStyles.barButtonSecondaryText}>Add</Text>
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.bottomBarMergeButton}
-            onPress={handleStartMerge}
-          >
-            <Ionicons name="git-merge-outline" size={20} color="#fff" />
-            <Text style={styles.bottomBarMergeButtonText}>Merge & Clean</Text>
+          <TouchableOpacity style={actionButtonStyles.barButtonPrimaryFlex} onPress={handleStartMerge}>
+            <Ionicons name="git-merge-outline" size={20} color="#fff" style={actionButtonStyles.barIconFix} />
+            <Text style={actionButtonStyles.barButtonPrimaryText}>Merge & Clean</Text>
           </TouchableOpacity>
         </View>
       )}
 
-      {/* Organize mode: no selection = Quick Clean only (centered, wide); with selection = Cancel, Merge, Delete only */}
+      {/* Organize mode: Cancel 靠左, Merge 居中, Delete 靠右 */}
       {mergeMode && (
-        <View style={[styles.bottomBar, styles.bottomBarMergeMode]}>
-          {selectedAccountIds.size === 0 ? (
-            <View style={styles.bottomBarCleanWrapper}>
-              <TouchableOpacity
-                style={styles.bottomBarCleanButton}
-                onPress={handleCleanEmpty}
-              >
-                <Ionicons name="trash-outline" size={18} color="#E67E22" />
-                <Text style={styles.bottomBarCleanButtonText}>Quick Clean</Text>
+        <View style={[actionButtonStyles.bar, actionButtonStyles.barMergeMode]}>
+          {selectedAccountIds.size === 0 && (
+            <>
+              <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
+                <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
               </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.bottomBarMergeActions}>
-              <TouchableOpacity
-                style={styles.bottomBarCancelButton}
-                onPress={handleCancelMerge}
-              >
-                <Text style={styles.bottomBarCancelButtonText}>Cancel</Text>
+              <TouchableOpacity style={actionButtonStyles.barButtonDangerFlex} onPress={handleCleanEmpty}>
+                <Ionicons name="trash-outline" size={18} color="#E74C3C" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonDangerText} numberOfLines={1}>Quick Clean</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.bottomBarConfirmButton}
-                onPress={handleConfirmMerge}
-                disabled={selectedAccountIds.size < 2}
-              >
-                <Text style={styles.bottomBarConfirmButtonText}>Merge</Text>
+            </>
+          )}
+          {selectedAccountIds.size === 1 && (
+            <>
+              <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
+                <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.bottomBarDeleteButton}
-                onPress={handleDeleteSelected}
-              >
-                <Text style={styles.bottomBarDeleteButtonText}>Delete</Text>
+              <TouchableOpacity style={actionButtonStyles.barButtonDangerFlex} onPress={handleDeleteSelected}>
+                <Ionicons name="trash-outline" size={18} color="#E74C3C" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonDangerText} numberOfLines={1}>Delete</Text>
               </TouchableOpacity>
-            </View>
+            </>
+          )}
+          {selectedAccountIds.size >= 2 && (
+            <>
+              <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
+                <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={actionButtonStyles.barButtonPrimaryFlex} onPress={handleConfirmMerge}>
+                <Ionicons name="git-merge-outline" size={18} color="#fff" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonPrimaryText} numberOfLines={1}>Merge</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={actionButtonStyles.barButtonDangerFlex} onPress={handleDeleteSelected}>
+                <Ionicons name="trash-outline" size={18} color="#E74C3C" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonDangerText} numberOfLines={1}>Delete</Text>
+              </TouchableOpacity>
+            </>
           )}
         </View>
       )}
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -1011,154 +1050,6 @@ const styles = StyleSheet.create({
   scrollContentWithBottomBar: {
     paddingBottom: 88,
   },
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'transparent',
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    paddingTop: 8,
-    flexDirection: 'row',
-    gap: 12,
-  },
-  bottomBarMergeMode: {
-    justifyContent: 'space-between',
-    alignItems: 'stretch',
-  },
-  bottomBarCleanWrapper: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bottomBarMergeActions: {
-    flexDirection: 'row',
-    gap: 12,
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  bottomBarCleanButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    minWidth: 220,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E67E22',
-  },
-  bottomBarCleanButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#E67E22',
-  },
-  // 深色按钮样式（与详情页 Confirm 一致）
-  bottomBarAddButton: {
-    flex: 1,
-    backgroundColor: '#6C5CE7',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    ...(Platform.OS === 'android'
-      ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)' }
-      : { elevation: 4 }),
-  },
-  bottomBarAddButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  bottomBarMergeButton: {
-    flex: 1,
-    backgroundColor: '#6C5CE7',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    ...(Platform.OS === 'android'
-      ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)' }
-      : { elevation: 4 }),
-  },
-  bottomBarMergeButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  // Merge 模式下的取消按钮（与详情页 Cancel 一致）
-  bottomBarCancelButton: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.11,
-    shadowRadius: 10,
-    ...(Platform.OS === 'android'
-      ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.14)' }
-      : { elevation: 3 }),
-  },
-  bottomBarCancelButtonText: {
-    fontSize: 16,
-    color: '#636E72',
-    fontWeight: '600',
-  },
-  // Merge 模式下的确认按钮（与详情页 Confirm 一致）
-  bottomBarConfirmButton: {
-    flex: 1,
-    backgroundColor: '#6C5CE7',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    ...(Platform.OS === 'android'
-      ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)' }
-      : { elevation: 4 }),
-  },
-  bottomBarConfirmButtonText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  bottomBarDeleteButton: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E74C3C',
-  },
-  bottomBarDeleteButtonText: {
-    fontSize: 16,
-    color: '#E74C3C',
-    fontWeight: '600',
-  },
   formCard: {
     backgroundColor: '#fff',
     borderRadius: 8,
@@ -1175,9 +1066,12 @@ const styles = StyleSheet.create({
     minHeight: 40,
     flex: 1,
   },
+  /** 展开 icon 或占位，固定宽度保证数字列对齐 */
   expandButtonSmall: {
+    width: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
     padding: 2,
-    marginRight: 4,
   },
   mergeRowSelectionArea: {
     flex: 1,
@@ -1186,7 +1080,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   expandPlaceholderSmall: {
-    width: 18,
+    width: 26,
   },
   countsCell: {
     alignItems: 'center',
@@ -1227,8 +1121,7 @@ const styles = StyleSheet.create({
     color: '#636E72',
   },
   childRowUnmergeButton: {
-    width: 18,
-    marginRight: 4,
+    width: 26,
     padding: 2,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1311,38 +1204,6 @@ const styles = StyleSheet.create({
     borderColor: '#E9ECEF',
     marginBottom: 8,
   },
-  editButtonsInline: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-    alignItems: 'center',
-  },
-  cancelButtonInline: {
-    backgroundColor: '#E9ECEF',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  confirmButtonInline: {
-    backgroundColor: '#6C5CE7',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  cancelButtonTextInline: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#636E72',
-  },
-  confirmButtonTextInline: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
-  },
   mergeHeaderTextInHeader: {
     fontSize: 17,
     fontWeight: '600',
@@ -1423,8 +1284,6 @@ const styles = StyleSheet.create({
   },
   accountRowSelected: {
     backgroundColor: '#E8F4FD',
-    borderRadius: 8,
-    padding: 4,
   },
   duplicateModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 24 },
   duplicateModalContentContainer: { width: '100%', maxWidth: 400, alignItems: 'center' },
@@ -1494,12 +1353,24 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     paddingHorizontal: 8,
   },
+  actionModalSubtitleLight: {
+    fontSize: 16,
+    fontWeight: '400',
+    color: '#1A1A2E',
+    textAlign: 'center',
+    lineHeight: 22,
+    paddingHorizontal: 8,
+    marginTop: 2,
+  },
   actionModalList: {
     width: '100%',
-    minHeight: 180,
-    maxHeight: 360,
+    minHeight: 120,
+    maxHeight: 352,
     marginTop: 8,
     marginBottom: 20,
+  },
+  actionModalListContent: {
+    paddingBottom: 8,
   },
   actionModalRow: {
     paddingVertical: 12,

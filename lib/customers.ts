@@ -172,11 +172,13 @@ export async function updateCustomer(
     if (updates.address !== undefined) updateData.address = updates.address?.trim() || null;
     if (updates.isSupplier !== undefined) updateData.is_supplier = updates.isSupplier;
 
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from('customers')
       .update(updateData)
       .eq('id', customerId)
-      .eq('space_id', spaceId);
+      .eq('space_id', spaceId)
+      .select('id')
+      .maybeSingle();
 
     if (error) {
       if (error.code === '23505') {
@@ -184,6 +186,9 @@ export async function updateCustomer(
         throw new Error('客户名称已存在');
       }
       throw error;
+    }
+    if (updated == null) {
+      throw new Error('未找到要更新的客户，请刷新后重试');
     }
   } catch (error) {
     if (error instanceof Error && error.message === '客户名称已存在') throw error;

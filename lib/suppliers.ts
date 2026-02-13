@@ -172,11 +172,13 @@ export async function updateSupplier(
     if (updates.address !== undefined) updateData.address = updates.address?.trim() || null;
     if (updates.isCustomer !== undefined) updateData.is_customer = updates.isCustomer;
 
-    const { error } = await supabase
+    const { data: updated, error } = await supabase
       .from('suppliers')
       .update(updateData)
       .eq('id', supplierId)
-      .eq('space_id', spaceId);
+      .eq('space_id', spaceId)
+      .select('id')
+      .maybeSingle();
 
     if (error) {
       if (error.code === '23505') {
@@ -184,6 +186,9 @@ export async function updateSupplier(
         throw new Error('供应商名称已存在');
       }
       throw error;
+    }
+    if (updated == null) {
+      throw new Error('未找到要更新的供应商，请刷新后重试');
     }
   } catch (error) {
     if (error instanceof Error && error.message === '供应商名称已存在') throw error;

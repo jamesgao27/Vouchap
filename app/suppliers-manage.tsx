@@ -11,10 +11,13 @@ import {
   Modal,
   Platform,
   Animated,
+  KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
+import { actionButtonStyles } from '@/lib/action-button-styles';
 import {
   createSupplier,
   updateSupplier,
@@ -55,6 +58,11 @@ export default function SuppliersManageScreen() {
   const [usageCounts, setUsageCounts] = useState<SupplierUsageCounts | null>(null);
   const [expandedRootIds, setExpandedRootIds] = useState<Set<string>>(new Set());
   const editNameInputRef = useRef<TextInput>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const newNameInputRef = useRef<TextInput>(null);
+  const scrollContentRef = useRef<View>(null);
+  const addFormCardRef = useRef<View>(null);
+  const HEADER_HEIGHT_PX = 88;
   const [showDuplicateNameModal, setShowDuplicateNameModal] = useState(false);
   const [showQuickCleanModal, setShowQuickCleanModal] = useState(false);
   const [showMergeTargetModal, setShowMergeTargetModal] = useState(false);
@@ -63,6 +71,7 @@ export default function SuppliersManageScreen() {
   const [showDeleteSelectedModal, setShowDeleteSelectedModal] = useState(false);
   const [deleteSelectedModalAccounts, setDeleteSelectedModalAccounts] = useState<Supplier[] | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const toastOpacity = useRef(new Animated.Value(0)).current;
 
   const showToast = (message: string, duration: number = 1500) => {
@@ -86,14 +95,58 @@ export default function SuppliersManageScreen() {
     loadList();
   }, []);
 
+  useEffect(() => {
+    if (showAddForm) {
+      const t = setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+        newNameInputRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(t);
+    }
+  }, [showAddForm]);
+
+  useEffect(() => {
+    if (!showAddForm) return;
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const subShow = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+      setTimeout(() => {
+        addFormCardRef.current?.measureLayout(
+          scrollContentRef.current as any,
+          (_x: number, y: number) => {
+            scrollViewRef.current?.scrollTo({
+              y: Math.max(0, y - HEADER_HEIGHT_PX),
+              animated: true,
+            });
+          }
+        );
+      }, 150);
+    });
+    const subHide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, [showAddForm]);
+
   const loadList = async () => {
     try {
       setLoading(true);
-      const data = await getSupplierListForManage();
-      setList(data);
+      const [data, counts] = await Promise.all([
+        getSupplierListForManage(),
+        getSupplierUsageCounts(),
+      ]);
+      const sorted = [...data].sort((a, b) => {
+        const ua = a.source === 'supplier' ? (counts.receiptCountBySupplierId[a.id] ?? 0) : 0;
+        const ub = b.source === 'supplier' ? (counts.receiptCountBySupplierId[b.id] ?? 0) : 0;
+        if (ub !== ua) return ub - ua;
+        return a.name.localeCompare(b.name);
+      });
+      setList(sorted);
     } catch (error) {
       console.error('Error loading supplier list:', error);
-      Alert.alert('Error', 'Failed to load list');
+      showToast('Failed to load list');
     } finally {
       setLoading(false);
     }
@@ -102,7 +155,7 @@ export default function SuppliersManageScreen() {
 
   const handleAddSupplier = async () => {
     if (!newName.trim()) {
-      Alert.alert('Error', 'Please enter supplier name');
+      showToast('Please enter supplier name');
       return;
     }
 
@@ -122,17 +175,17 @@ export default function SuppliersManageScreen() {
       setNewAddress('');
       setNewIsCustomer(false);
       setShowAddForm(false);
-      Alert.alert('Success', 'Supplier created');
+      showToast('Supplier created');
     } catch (error: any) {
       console.error('Error creating supplier:', error);
-      Alert.alert('Error', error.message || 'Failed to create supplier');
+      showToast(error.message || 'Failed to create supplier');
       loadList();
     }
   };
 
   const handleUpdate = async (id: string, source: 'supplier' | 'customer') => {
     if (!editName.trim()) {
-      Alert.alert('Error', 'Please enter name');
+      showToast('Please enter name');
       return;
     }
     try {
@@ -153,7 +206,7 @@ export default function SuppliersManageScreen() {
           isSupplier: editIsSupplier,
         });
       }
-      setList(prev => prev.map(it => (it.id === id && it.source === source ? { ...it, name: editName.trim(), taxNumber: editTaxNumber.trim() || undefined, phone: editPhone.trim() || undefined, address: editAddress.trim() || undefined, ...(source === 'supplier' ? { isCustomer: editIsCustomer } : { isSupplier: editIsSupplier }) } : it)));
+      await loadList();
       setEditingId(null);
       setEditName('');
       setEditTaxNumber('');
@@ -178,7 +231,7 @@ export default function SuppliersManageScreen() {
         return;
       }
       console.error('Error updating:', error);
-      Alert.alert('Error', error.message || 'Failed to update');
+      showToast(error.message || 'Failed to update');
       loadList();
     }
   };
@@ -214,13 +267,13 @@ export default function SuppliersManageScreen() {
     if (!payload?.targetId || payload.targetSource == null) {
       setShowDuplicateNameModal(false);
       setDuplicateNameModalPayload(null);
-      Alert.alert('Notice', 'Cannot merge: target not found.');
+      showToast('Cannot merge: target not found.');
       return;
     }
     if (payload.editingSource !== payload.targetSource) {
       setShowDuplicateNameModal(false);
       setDuplicateNameModalPayload(null);
-      Alert.alert('Notice', 'Current and target types differ. Cannot merge.');
+      showToast('Current and target types differ. Cannot merge.');
       return;
     }
     setShowDuplicateNameModal(false);
@@ -240,7 +293,7 @@ export default function SuppliersManageScreen() {
       setEditIsSupplier(false);
       loadList();
     } catch (e: any) {
-      Alert.alert('Merge failed', e?.message ?? String(e));
+      showToast(e?.message ?? 'Merge failed');
       loadList();
     }
   };
@@ -256,9 +309,9 @@ export default function SuppliersManageScreen() {
             try {
               await deleteSupplier(item.id);
               setList(prev => prev.filter(it => !(it.id === item.id && it.source === 'supplier')));
-              Alert.alert('Success', 'Supplier deleted');
+              showToast('Supplier deleted');
             } catch (e: any) {
-              Alert.alert('Error', e.message || 'Failed to delete');
+              showToast(e.message || 'Failed to delete');
               loadList();
             }
           },
@@ -273,9 +326,9 @@ export default function SuppliersManageScreen() {
             try {
               await updateCustomer(item.id, { isSupplier: false });
               setList(prev => prev.filter(it => !(it.id === item.id && it.source === 'customer')));
-              Alert.alert('Success', 'Removed from supplier list');
+              showToast('Removed from supplier list');
             } catch (e: any) {
-              Alert.alert('Error', e.message || 'Failed');
+              showToast(e.message || 'Failed');
               loadList();
             }
           },
@@ -330,7 +383,7 @@ export default function SuppliersManageScreen() {
       setUsageCounts(counts);
     } catch (e: any) {
       console.error('Error loading merge data:', e);
-      Alert.alert('Error', e?.message ?? 'Failed to load merge data');
+      showToast(e?.message ?? 'Failed to load merge data');
     }
   };
 
@@ -347,6 +400,18 @@ export default function SuppliersManageScreen() {
     directReceipts(root.id) + children.reduce((s, c) => s + directReceipts(c.id), 0);
   const directCount = (id: string) => directReceipts(id);
 
+  const sortedMergeRoots = (() => {
+    if (!mergeHistoryData || !usageCounts) return [];
+    return [...mergeHistoryData.roots].sort((a, b) => {
+      const childrenA = mergeHistoryData.childrenByRootId.get(a.id) ?? [];
+      const childrenB = mergeHistoryData.childrenByRootId.get(b.id) ?? [];
+      const ta = totalCount(a, childrenA);
+      const tb = totalCount(b, childrenB);
+      if (tb !== ta) return tb - ta;
+      return a.name.localeCompare(b.name);
+    });
+  })();
+
   const cleanableRoots = (() => {
     if (!mergeHistoryData || !usageCounts) return [];
     return mergeHistoryData.roots.filter((root) => {
@@ -360,7 +425,7 @@ export default function SuppliersManageScreen() {
 
   const handleCleanEmpty = () => {
     if (cleanableRoots.length === 0) {
-      Alert.alert('Notice', 'No empty suppliers to clean.');
+      showToast('No empty suppliers to clean.');
       return;
     }
     setShowQuickCleanModal(true);
@@ -382,7 +447,7 @@ export default function SuppliersManageScreen() {
       setUsageCounts(counts);
       showToast(`Cleaned ${cleanableRoots.length} empty supplier(s).`);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? String(e));
+      showToast(e?.message ?? 'Failed to clean');
     }
   };
 
@@ -405,7 +470,7 @@ export default function SuppliersManageScreen() {
 
   const handleConfirmMerge = () => {
     if (selectedSupplierIds.size < 2) {
-      Alert.alert('Error', 'Please select at least 2 suppliers to merge');
+      showToast('Please select at least 2 suppliers to merge');
       return;
     }
     const allInMerge = mergeHistoryData
@@ -432,7 +497,7 @@ export default function SuppliersManageScreen() {
       showToast('Suppliers merged successfully');
     } catch (error: any) {
       console.error('Error merging suppliers:', error);
-      Alert.alert('Error', error.message || 'Failed to merge suppliers');
+      showToast(error.message || 'Failed to merge suppliers');
     }
   };
 
@@ -453,7 +518,7 @@ export default function SuppliersManageScreen() {
       });
       showToast('Unmerged');
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? String(e));
+      showToast(e?.message ?? 'Failed to unmerge');
     }
   };
 
@@ -486,7 +551,7 @@ export default function SuppliersManageScreen() {
       setSelectedSupplierIds(new Set());
       showToast(`Deleted ${selected.length} supplier(s).`);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? String(e));
+      showToast(e?.message ?? 'Failed to delete');
     }
   };
 
@@ -527,7 +592,7 @@ export default function SuppliersManageScreen() {
           <View style={styles.duplicateModalContentContainer} onStartShouldSetResponder={() => true}>
             <View style={styles.duplicateModalContent}>
               <View style={styles.duplicateModalHeader}>
-                <Ionicons name="business-outline" size={48} color="#6C5CE7" />
+                <Ionicons name="storefront-outline" size={48} color="#6C5CE7" />
                 <Text style={styles.duplicateModalTitle}>
                   {duplicateNameModalPayload?.code === 'SUPPLIER_NAME_EXISTS' ? 'Duplicate supplier name:' : 'Duplicate customer name:'}
                 </Text>
@@ -567,10 +632,11 @@ export default function SuppliersManageScreen() {
                 </View>
                 <Text style={styles.actionModalTitle}>Quick Clean</Text>
                 <Text style={styles.actionModalSubtitle}>
-                  Delete {cleanableRoots.length} empty supplier(s) (no receipts, not merged):
+                  Delete {cleanableRoots.length} empty supplier(s):
                 </Text>
+                <Text style={styles.actionModalSubtitleLight}>(no linked data, not merged)</Text>
               </View>
-              <ScrollView style={styles.actionModalList} nestedScrollEnabled>
+              <ScrollView style={styles.actionModalList} contentContainerStyle={styles.actionModalListContent} nestedScrollEnabled showsVerticalScrollIndicator>
                 {cleanableRoots.map((r) => (
                   <View key={r.id} style={styles.actionModalRow}>
                     <Text style={styles.actionModalRowText} numberOfLines={1}>{r.name}</Text>
@@ -581,8 +647,8 @@ export default function SuppliersManageScreen() {
                 <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonSecondary]} onPress={() => setShowQuickCleanModal(false)} activeOpacity={0.8}>
                   <Text style={styles.actionModalButtonSecondaryText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonWarning]} onPress={doQuickCleanConfirm} activeOpacity={0.8}>
-                  <Text style={styles.actionModalButtonWarningText}>Clean</Text>
+                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonDanger]} onPress={doQuickCleanConfirm} activeOpacity={0.8}>
+                  <Text style={styles.actionModalButtonDangerText}>Delete</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -602,7 +668,7 @@ export default function SuppliersManageScreen() {
                 <Text style={styles.actionModalTitle}>Choose which supplier to keep,</Text>
                 <Text style={styles.actionModalSubtitle}>Others will be merged into it.</Text>
               </View>
-              <ScrollView style={styles.actionModalList} nestedScrollEnabled>
+              <ScrollView style={styles.actionModalList} contentContainerStyle={styles.actionModalListContent} nestedScrollEnabled showsVerticalScrollIndicator>
                 {(mergeTargetModalAccounts ?? []).map((s) => (
                   <TouchableOpacity
                     key={s.id}
@@ -645,7 +711,7 @@ export default function SuppliersManageScreen() {
                   Delete {deleteSelectedModalAccounts?.length ?? 0} selected supplier(s)?
                 </Text>
               </View>
-              <ScrollView style={styles.actionModalList} nestedScrollEnabled>
+              <ScrollView style={styles.actionModalList} contentContainerStyle={styles.actionModalListContent} nestedScrollEnabled showsVerticalScrollIndicator>
                 {(deleteSelectedModalAccounts ?? []).map((s) => (
                   <View key={s.id} style={styles.actionModalRow}>
                     <Text style={styles.actionModalRowText} numberOfLines={1}>{s.name}</Text>
@@ -664,7 +730,8 @@ export default function SuppliersManageScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-      
+
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}>
       {/* Header */}
       {mergeMode ? (
         <View style={styles.headerMerge}>
@@ -701,95 +768,11 @@ export default function SuppliersManageScreen() {
         </View>
       )}
 
-      <ScrollView style={styles.scrollView} contentContainerStyle={[styles.scrollContent, mergeMode ? styles.scrollContentWithBottomBar : null]}>
+      <ScrollView ref={scrollViewRef} style={styles.scrollView} contentContainerStyle={[styles.scrollContent, styles.scrollContentTop, styles.scrollContentWithBottomBar, showAddForm && keyboardHeight > 0 && { paddingBottom: 88 + keyboardHeight + 6 }]} keyboardShouldPersistTaps="handled">
         {/* Suppliers List */}
-        <View style={styles.suppliersList}>
-          {/* Add New Supplier Button */}
-          {!showAddForm && !mergeMode && (
-            <TouchableOpacity
-              style={styles.supplierCard}
-              onPress={() => setShowAddForm(true)}
-            >
-              <View style={styles.addSupplierRow}>
-                <Ionicons name="add-circle" size={20} color="#6C5CE7" />
-                <Text style={styles.addSupplierText}>Add Supplier</Text>
-              </View>
-            </TouchableOpacity>
-          )}
-
-          {/* Add Supplier Form */}
-          {showAddForm && (
-            <View style={styles.formCard}>
-              <TextInput
-                style={styles.editInputInline}
-                value={newName}
-                onChangeText={setNewName}
-                placeholder="Supplier name *"
-                placeholderTextColor="#95A5A6"
-              />
-              <TextInput
-                style={styles.editInputInline}
-                value={newTaxNumber}
-                onChangeText={setNewTaxNumber}
-                placeholder="Tax number (optional)"
-                placeholderTextColor="#95A5A6"
-              />
-              <TextInput
-                style={styles.editInputInline}
-                value={newPhone}
-                onChangeText={setNewPhone}
-                placeholder="Phone (optional)"
-                placeholderTextColor="#95A5A6"
-                keyboardType="phone-pad"
-              />
-              <TextInput
-                style={[styles.editInputInline, styles.multilineInput]}
-                value={newAddress}
-                onChangeText={setNewAddress}
-                placeholder="Address (optional)"
-                placeholderTextColor="#95A5A6"
-                multiline
-                numberOfLines={2}
-              />
-              <TouchableOpacity
-                style={styles.toggleButton}
-                onPress={() => setNewIsCustomer(!newIsCustomer)}
-              >
-                <Ionicons
-                  name={newIsCustomer ? 'checkmark-circle' : 'ellipse-outline'}
-                  size={20}
-                  color={newIsCustomer ? '#6C5CE7' : '#95A5A6'}
-                />
-                <Text style={[styles.toggleButtonText, newIsCustomer && styles.toggleButtonTextActive]}>
-                  Also a customer
-                </Text>
-              </TouchableOpacity>
-              <View style={styles.editButtonsInline}>
-                <TouchableOpacity
-                  style={styles.cancelButtonInline}
-                  onPress={() => {
-                    setShowAddForm(false);
-                    setNewName('');
-                    setNewTaxNumber('');
-                    setNewPhone('');
-                    setNewAddress('');
-                    setNewIsCustomer(false);
-                  }}
-                >
-                  <Text style={styles.cancelButtonTextInline}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.confirmButtonInline}
-                  onPress={handleAddSupplier}
-                >
-                  <Text style={styles.confirmButtonTextInline}>Confirm</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
+        <View ref={scrollContentRef} style={styles.suppliersList}>
           {mergeMode && mergeHistoryData ? (
-            mergeHistoryData.roots.map((root) => {
+            sortedMergeRoots.map((root) => {
               const children = mergeHistoryData.childrenByRootId.get(root.id) ?? [];
               const expanded = expandedRootIds.has(root.id);
               const hasChildren = children.length > 0;
@@ -864,12 +847,35 @@ export default function SuppliersManageScreen() {
               <View key={`${item.source}-${item.id}`} style={styles.supplierCard}>
                 {editingId === item.id && editingSource === item.source ? (
                   <View style={styles.editRow}>
+                    <View style={styles.editFormTagRow}>
+                      <View style={styles.editFormTagLeft}>
+                        <Ionicons
+                          name={editingSource === 'supplier' ? 'storefront-outline' : 'person-circle-outline'}
+                          size={18}
+                          color="#6C5CE7"
+                        />
+                        <Text style={styles.editFormTagText}>
+                          {editingSource === 'supplier' ? 'Supplier' : 'Customer'}
+                        </Text>
+                      </View>
+                      {editingSource === 'supplier' ? (
+                        <TouchableOpacity style={styles.editFormTagToggle} onPress={() => setEditIsCustomer(!editIsCustomer)}>
+                          <Ionicons name={editIsCustomer ? 'checkmark-circle' : 'ellipse-outline'} size={16} color={editIsCustomer ? '#6C5CE7' : '#95A5A6'} />
+                          <Text style={[styles.editFormTagToggleText, editIsCustomer && styles.editFormTagToggleTextActive]}>Also a customer</Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity style={styles.editFormTagToggle} onPress={() => setEditIsSupplier(!editIsSupplier)}>
+                          <Ionicons name={editIsSupplier ? 'checkmark-circle' : 'ellipse-outline'} size={16} color={editIsSupplier ? '#6C5CE7' : '#95A5A6'} />
+                          <Text style={[styles.editFormTagToggleText, editIsSupplier && styles.editFormTagToggleTextActive]}>Also a supplier</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
                     <TextInput
                       ref={editNameInputRef}
                       style={styles.editInputInline}
                       value={editName}
                       onChangeText={setEditName}
-                      placeholder="Supplier name *"
+                      placeholder={editingSource === 'supplier' ? 'Supplier name *' : 'Customer name *'}
                       placeholderTextColor="#95A5A6"
                     />
                     <TextInput
@@ -896,67 +902,49 @@ export default function SuppliersManageScreen() {
                       multiline
                       numberOfLines={2}
                     />
-                    {editingSource === 'supplier' && (
-                      <TouchableOpacity style={styles.toggleButton} onPress={() => setEditIsCustomer(!editIsCustomer)}>
-                        <Ionicons name={editIsCustomer ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={editIsCustomer ? '#6C5CE7' : '#95A5A6'} />
-                        <Text style={[styles.toggleButtonText, editIsCustomer && styles.toggleButtonTextActive]}>Also a customer</Text>
+                    <View style={actionButtonStyles.editRowButtons}>
+                      <TouchableOpacity style={actionButtonStyles.editCancelButton} onPress={cancelEdit}>
+                        <Text style={actionButtonStyles.editCancelButtonText}>Cancel</Text>
                       </TouchableOpacity>
-                    )}
-                    {editingSource === 'customer' && (
-                      <TouchableOpacity style={styles.toggleButton} onPress={() => setEditIsSupplier(!editIsSupplier)}>
-                        <Ionicons name={editIsSupplier ? 'checkmark-circle' : 'ellipse-outline'} size={20} color={editIsSupplier ? '#6C5CE7' : '#95A5A6'} />
-                        <Text style={[styles.toggleButtonText, editIsSupplier && styles.toggleButtonTextActive]}>Also a supplier</Text>
-                      </TouchableOpacity>
-                    )}
-                    <View style={styles.editButtonsInline}>
-                      <TouchableOpacity style={styles.cancelButtonInline} onPress={cancelEdit}>
-                        <Text style={styles.cancelButtonTextInline}>Cancel</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.confirmButtonInline} onPress={() => handleUpdate(item.id, item.source)}>
-                        <Text style={styles.confirmButtonTextInline}>Confirm</Text>
+                      <TouchableOpacity style={actionButtonStyles.editConfirmButton} onPress={() => handleUpdate(item.id, item.source)}>
+                        <Text style={actionButtonStyles.editConfirmButtonText}>Confirm</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
                 ) : (
                   <TouchableOpacity style={styles.supplierRow} onPress={() => {}}>
                     <View style={styles.supplierIndicator}>
-                      <Ionicons name="storefront-outline" size={16} color="#6C5CE7" />
-                    </View>
-                    <View style={styles.supplierInfo}>
-                      <View style={styles.supplierNameRow}>
-                        <Text style={styles.supplierName} numberOfLines={1}>{item.name}</Text>
-                        {item.source === 'supplier' && item.isCustomer && (
-                          <View style={styles.linkedBadge}>
-                            <Ionicons name="person-outline" size={12} color="#6C5CE7" />
-                            <Text style={styles.linkedBadgeText}>Customer</Text>
-                          </View>
-                        )}
-                        {item.source === 'customer' && (
-                          <View style={styles.linkedBadge}>
-                            <Ionicons name="person-outline" size={12} color="#6C5CE7" />
-                            <Text style={styles.linkedBadgeText}>From customer list</Text>
-                          </View>
-                        )}
-                      </View>
-                      {(item.taxNumber || item.phone || item.address) && (
-                        <View style={styles.supplierDetails}>
-                          {item.taxNumber && <Text style={styles.supplierDetailText} numberOfLines={1}>Tax: {item.taxNumber}</Text>}
-                          {item.phone && <Text style={styles.supplierDetailText} numberOfLines={1}>Phone: {item.phone}</Text>}
-                          {item.address && <Text style={styles.supplierDetailText} numberOfLines={1}>Address: {item.address}</Text>}
+                      <Ionicons
+                        name={item.source === 'supplier' ? 'storefront-outline' : 'person-circle-outline'}
+                        size={item.source === 'supplier' ? 16 : 18}
+                        color="#6C5CE7"
+                      />
+                      {'isAiRecognized' in item && item.isAiRecognized && (
+                        <View style={styles.aiBadgeInIcon}>
+                          <Text style={styles.aiBadgeTextInIcon}>AI</Text>
                         </View>
                       )}
                     </View>
-                    {'isAiRecognized' in item && item.isAiRecognized && (
-                      <View style={styles.aiBadge}>
-                        <Text style={styles.aiBadgeText}>AI</Text>
+                    <View style={styles.supplierInfo}>
+                      <View style={styles.supplierNameRow}>
+                        <View style={styles.supplierNameWrap}>
+                          <Text style={[styles.supplierName, styles.supplierNameTight]} numberOfLines={1}>{item.name}</Text>
+                        </View>
+                        {item.source === 'supplier' && item.isCustomer && (
+                          <View style={styles.linkedBadgeAfterName}>
+                            <Ionicons name="person-circle-outline" size={14} color="#6C5CE7" />
+                          </View>
+                        )}
+                        {item.source === 'customer' && (
+                          <View style={styles.linkedBadgeAfterName}>
+                            <Ionicons name="storefront-outline" size={12} color="#6C5CE7" />
+                          </View>
+                        )}
                       </View>
-                    )}
+                    </View>
                     <View style={styles.supplierActions}>
                       <TouchableOpacity style={styles.iconButton} onPress={() => startEdit(item)}>
                         <Ionicons name="create-outline" size={18} color="#6C5CE7" />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={styles.iconButton} onPress={() => handleDelete(item)}>
-                        <Ionicons name="trash-outline" size={18} color="#E74C3C" />
                       </TouchableOpacity>
                     </View>
                   </TouchableOpacity>
@@ -964,50 +952,135 @@ export default function SuppliersManageScreen() {
               </View>
             ))
           )}
+
+          {/* Add Supplier Form - 列表最下方，与编辑表单一致：tag + Also 选框 */}
+          {showAddForm && (
+            <View ref={addFormCardRef} style={styles.formCard}>
+              <View style={styles.editRow}>
+                <View style={styles.editFormTagRow}>
+                  <View style={styles.editFormTagLeft}>
+                    <Ionicons name="storefront-outline" size={18} color="#6C5CE7" />
+                    <Text style={styles.editFormTagText}>Supplier</Text>
+                  </View>
+                  <TouchableOpacity style={styles.editFormTagToggle} onPress={() => setNewIsCustomer(!newIsCustomer)}>
+                    <Ionicons name={newIsCustomer ? 'checkmark-circle' : 'ellipse-outline'} size={16} color={newIsCustomer ? '#6C5CE7' : '#95A5A6'} />
+                    <Text style={[styles.editFormTagToggleText, newIsCustomer && styles.editFormTagToggleTextActive]}>Also a customer</Text>
+                  </TouchableOpacity>
+                </View>
+                <TextInput
+                  ref={newNameInputRef}
+                  style={styles.editInputInline}
+                  value={newName}
+                  onChangeText={setNewName}
+                  placeholder="Supplier name *"
+                  placeholderTextColor="#95A5A6"
+                />
+                <TextInput
+                  style={styles.editInputInline}
+                  value={newTaxNumber}
+                  onChangeText={setNewTaxNumber}
+                  placeholder="Tax number (optional)"
+                  placeholderTextColor="#95A5A6"
+                />
+                <TextInput
+                  style={styles.editInputInline}
+                  value={newPhone}
+                  onChangeText={setNewPhone}
+                  placeholder="Phone (optional)"
+                  placeholderTextColor="#95A5A6"
+                  keyboardType="phone-pad"
+                />
+                <TextInput
+                  style={[styles.editInputInline, styles.multilineInput]}
+                  value={newAddress}
+                  onChangeText={setNewAddress}
+                  placeholder="Address (optional)"
+                  placeholderTextColor="#95A5A6"
+                  multiline
+                  numberOfLines={2}
+                />
+                <View style={actionButtonStyles.editRowButtons}>
+                <TouchableOpacity
+                  style={actionButtonStyles.editCancelButton}
+                  onPress={() => {
+                    setShowAddForm(false);
+                    setNewName('');
+                    setNewTaxNumber('');
+                    setNewPhone('');
+                    setNewAddress('');
+                    setNewIsCustomer(false);
+                  }}
+                >
+                  <Text style={actionButtonStyles.editCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={actionButtonStyles.editConfirmButton}
+                  onPress={handleAddSupplier}
+                >
+                  <Text style={actionButtonStyles.editConfirmButtonText}>Confirm</Text>
+                </TouchableOpacity>
+              </View>
+              </View>
+            </View>
+          )}
         </View>
       </ScrollView>
 
       {!showAddForm && !mergeMode && (
-        <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.bottomBarAddButton} onPress={() => setShowAddForm(true)}>
-            <Ionicons name="add-circle" size={20} color="#fff" />
-            <Text style={styles.bottomBarAddButtonText}>Add</Text>
+        <View style={[actionButtonStyles.bar, actionButtonStyles.barMergeMode]}>
+          <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={() => setShowAddForm(true)}>
+            <Ionicons name="add-circle" size={20} color="#6C5CE7" style={actionButtonStyles.barIconFix} />
+            <Text style={actionButtonStyles.barButtonSecondaryText}>Add</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.bottomBarMergeButton} onPress={handleStartMerge}>
-            <Ionicons name="git-merge-outline" size={20} color="#fff" />
-            <Text style={styles.bottomBarMergeButtonText}>Merge & Clean</Text>
+          <TouchableOpacity style={actionButtonStyles.barButtonPrimaryFlex} onPress={handleStartMerge}>
+            <Ionicons name="git-merge-outline" size={20} color="#fff" style={actionButtonStyles.barIconFix} />
+            <Text style={actionButtonStyles.barButtonPrimaryText}>Merge & Clean</Text>
           </TouchableOpacity>
         </View>
       )}
 
       {mergeMode && (
-        <View style={[styles.bottomBar, styles.bottomBarMergeMode]}>
-          {selectedSupplierIds.size === 0 ? (
-            <View style={styles.bottomBarCleanWrapper}>
-              <TouchableOpacity style={styles.bottomBarCleanButton} onPress={handleCleanEmpty}>
-                <Ionicons name="trash-outline" size={18} color="#E67E22" />
-                <Text style={styles.bottomBarCleanButtonText}>Quick Clean</Text>
+        <View style={[actionButtonStyles.bar, actionButtonStyles.barMergeMode]}>
+          {selectedSupplierIds.size === 0 && (
+            <>
+              <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
+                <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
               </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.bottomBarMergeActions}>
-              <TouchableOpacity style={styles.bottomBarCancelButton} onPress={handleCancelMerge}>
-                <Text style={styles.bottomBarCancelButtonText}>Cancel</Text>
+              <TouchableOpacity style={actionButtonStyles.barButtonDangerFlex} onPress={handleCleanEmpty}>
+                <Ionicons name="trash-outline" size={18} color="#E74C3C" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonDangerText} numberOfLines={1}>Quick Clean</Text>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.bottomBarConfirmButton}
-                onPress={handleConfirmMerge}
-                disabled={selectedSupplierIds.size < 2}
-              >
-                <Text style={styles.bottomBarConfirmButtonText}>Merge</Text>
+            </>
+          )}
+          {selectedSupplierIds.size === 1 && (
+            <>
+              <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
+                <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.bottomBarDeleteButton} onPress={handleDeleteSelected}>
-                <Text style={styles.bottomBarDeleteButtonText}>Delete</Text>
+              <TouchableOpacity style={actionButtonStyles.barButtonDangerFlex} onPress={handleDeleteSelected}>
+                <Ionicons name="trash-outline" size={18} color="#E74C3C" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonDangerText} numberOfLines={1}>Delete</Text>
               </TouchableOpacity>
-            </View>
+            </>
+          )}
+          {selectedSupplierIds.size >= 2 && (
+            <>
+              <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
+                <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={actionButtonStyles.barButtonPrimaryFlex} onPress={handleConfirmMerge}>
+                <Ionicons name="git-merge-outline" size={18} color="#fff" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonPrimaryText} numberOfLines={1}>Merge</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={actionButtonStyles.barButtonDangerFlex} onPress={handleDeleteSelected}>
+                <Ionicons name="trash-outline" size={18} color="#E74C3C" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonDangerText} numberOfLines={1}>Delete</Text>
+              </TouchableOpacity>
+            </>
           )}
         </View>
       )}
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -1143,6 +1216,9 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
   },
+  scrollContentTop: {
+    paddingTop: 6,
+  },
   scrollContentWithBottomBar: {
     paddingBottom: 88,
   },
@@ -1153,12 +1229,14 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   suppliersList: {
-    gap: 12,
+    gap: 6,
   },
   supplierCard: {
     backgroundColor: '#fff',
     borderRadius: 8,
     padding: 10,
+    minHeight: 40,
+    flex: 1,
   },
   mergeRowRoot: {
     flexDirection: 'row',
@@ -1172,12 +1250,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
+  /** 展开 icon 或占位，固定宽度保证数字列对齐 */
   expandButtonSmall: {
+    width: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
     padding: 2,
-    marginRight: 4,
   },
   expandPlaceholderSmall: {
-    width: 18,
+    width: 26,
   },
   countsCell: {
     alignItems: 'center',
@@ -1205,8 +1286,7 @@ const styles = StyleSheet.create({
     color: '#636E72',
   },
   childRowUnmergeButton: {
-    width: 18,
-    marginRight: 4,
+    width: 26,
     padding: 2,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1219,8 +1299,9 @@ const styles = StyleSheet.create({
   },
   supplierRow: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 10,
+    minHeight: 40,
   },
   supplierIndicator: {
     width: 32,
@@ -1230,37 +1311,53 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     flexShrink: 0,
-    marginTop: 2,
+    position: 'relative',
+  },
+  aiBadgeInIcon: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#E8F4FD',
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: 3,
+    minWidth: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiBadgeTextInIcon: {
+    fontSize: 8,
+    fontWeight: '600',
+    color: '#6C5CE7',
   },
   supplierInfo: {
     flex: 1,
   },
   supplierName: {
+    flex: 1,
     fontSize: 15,
     fontWeight: '600',
     color: '#2D3436',
-    marginBottom: 4,
   },
-  supplierDetails: {
-    gap: 2,
+  supplierNameWrap: {
+    flexShrink: 1,
   },
-  supplierDetailText: {
-    fontSize: 12,
-    color: '#636E72',
-    lineHeight: 16,
+  supplierNameTight: {
+    flex: 0,
   },
-  aiBadge: {
+  supplierNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  linkedBadgeAfterName: {
     backgroundColor: '#E8F4FD',
-    paddingHorizontal: 6,
+    paddingHorizontal: 4,
     paddingVertical: 2,
-    borderRadius: 4,
-    alignSelf: 'flex-start',
-    marginTop: 2,
-  },
-  aiBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#6C5CE7',
+    borderRadius: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   supplierActions: {
     flexDirection: 'row',
@@ -1290,6 +1387,35 @@ const styles = StyleSheet.create({
   editRow: {
     flexDirection: 'column',
     gap: 8,
+  },
+  editFormTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  editFormTagLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  editFormTagText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6C5CE7',
+  },
+  editFormTagToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  editFormTagToggleText: {
+    fontSize: 12,
+    color: '#636E72',
+  },
+  editFormTagToggleTextActive: {
+    color: '#6C5CE7',
+    fontWeight: '600',
   },
   editInputInline: {
     width: '100%',
@@ -1336,38 +1462,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#636E72',
     marginTop: 2,
-  },
-  editButtonsInline: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: 12,
-    alignItems: 'center',
-  },
-  cancelButtonInline: {
-    backgroundColor: '#E9ECEF',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  confirmButtonInline: {
-    backgroundColor: '#6C5CE7',
-    borderRadius: 8,
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  cancelButtonTextInline: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#636E72',
-  },
-  confirmButtonTextInline: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: '#fff',
   },
   mergeHeaderCard: {
     backgroundColor: '#E8F4FD',
@@ -1426,28 +1520,6 @@ const styles = StyleSheet.create({
   },
   supplierRowSelected: {
     backgroundColor: '#E8F4FD',
-    borderRadius: 8,
-    padding: 4,
-  },
-  supplierNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  linkedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E8F4FD',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    gap: 4,
-  },
-  linkedBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
-    color: '#6C5CE7',
   },
   linkedInfo: {
     marginTop: 4,
@@ -1536,143 +1608,6 @@ const styles = StyleSheet.create({
     color: '#636E72',
     marginTop: 2,
   },
-  bottomBar: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: 'transparent',
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    paddingTop: 8,
-    flexDirection: 'row',
-    gap: 12,
-  },
-  bottomBarMergeMode: {
-    justifyContent: 'space-between',
-    alignItems: 'stretch',
-  },
-  bottomBarCleanWrapper: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  bottomBarMergeActions: {
-    flexDirection: 'row',
-    gap: 12,
-    flex: 1,
-    justifyContent: 'flex-end',
-  },
-  bottomBarCleanButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    minWidth: 220,
-    borderRadius: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#E67E22',
-  },
-  bottomBarCleanButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#E67E22',
-  },
-  bottomBarAddButton: {
-    flex: 1,
-    backgroundColor: '#6C5CE7',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    ...(Platform.OS === 'android' ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)' } : { elevation: 4 }),
-  },
-  bottomBarAddButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  bottomBarMergeButton: {
-    flex: 1,
-    backgroundColor: '#6C5CE7',
-    borderRadius: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    ...(Platform.OS === 'android' ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)' } : { elevation: 4 }),
-  },
-  bottomBarMergeButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  bottomBarCancelButton: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.11,
-    shadowRadius: 10,
-    ...(Platform.OS === 'android' ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.14)' } : { elevation: 3 }),
-  },
-  bottomBarCancelButtonText: {
-    fontSize: 16,
-    color: '#636E72',
-    fontWeight: '600',
-  },
-  bottomBarConfirmButton: {
-    flex: 1,
-    backgroundColor: '#6C5CE7',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    ...(Platform.OS === 'android' ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)' } : { elevation: 4 }),
-  },
-  bottomBarConfirmButtonText: {
-    fontSize: 16,
-    color: '#fff',
-    fontWeight: '600',
-  },
-  bottomBarDeleteButton: {
-    flex: 1,
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E74C3C',
-  },
-  bottomBarDeleteButtonText: {
-    fontSize: 16,
-    color: '#E74C3C',
-    fontWeight: '600',
-  },
   actionModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
@@ -1723,12 +1658,24 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     paddingHorizontal: 8,
   },
+  actionModalSubtitleLight: {
+    fontSize: 16,
+    fontWeight: '400',
+    color: '#1A1A2E',
+    textAlign: 'center',
+    lineHeight: 22,
+    paddingHorizontal: 8,
+    marginTop: 2,
+  },
   actionModalList: {
     width: '100%',
-    minHeight: 180,
-    maxHeight: 360,
+    minHeight: 120,
+    maxHeight: 352,
     marginTop: 8,
     marginBottom: 20,
+  },
+  actionModalListContent: {
+    paddingBottom: 8,
   },
   actionModalRow: {
     paddingVertical: 12,
