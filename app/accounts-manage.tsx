@@ -694,6 +694,7 @@ export default function AccountsManageScreen() {
                   <View
                     style={[
                       styles.accountRow,
+                      styles.accountRowCountsGap,
                       selectedAccountIds.has(account.id) && styles.accountRowSelected,
                     ]}
                   >
@@ -1011,9 +1012,9 @@ const styles = StyleSheet.create({
   headerTableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 2,
     paddingLeft: 6,
-    paddingRight: 32,
+    paddingRight: 12,
     paddingTop: 0,
     paddingBottom: 0,
     minHeight: 24,
@@ -1043,6 +1044,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+    paddingRight: 12,
   },
   scrollContentTop: {
     paddingTop: 6,
@@ -1063,12 +1065,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 8,
     padding: 10,
+    paddingRight: 4,
     minHeight: 40,
     flex: 1,
   },
   /** 展开 icon 或占位，固定宽度保证数字列对齐 */
   expandButtonSmall: {
-    width: 26,
+    width: 20,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 2,
@@ -1077,15 +1080,15 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 6,
   },
   expandPlaceholderSmall: {
-    width: 26,
+    width: 20,
   },
   countsCell: {
     alignItems: 'center',
     justifyContent: 'flex-end',
-    minWidth: 64,
+    minWidth: 72,
   },
   countText: {
     fontSize: 13,
@@ -1099,7 +1102,7 @@ const styles = StyleSheet.create({
     color: '#636E72',
   },
   tableHeaderCount: {
-    minWidth: 64,
+    minWidth: 72,
     fontSize: 13,
     fontWeight: '600',
     color: '#636E72',
@@ -1108,7 +1111,7 @@ const styles = StyleSheet.create({
   childRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 2,
     paddingLeft: 8,
     paddingVertical: 6,
     minHeight: 40,
@@ -1121,7 +1124,7 @@ const styles = StyleSheet.create({
     color: '#636E72',
   },
   childRowUnmergeButton: {
-    width: 26,
+    width: 20,
     padding: 2,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1129,9 +1132,11 @@ const styles = StyleSheet.create({
   accountRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 6,
     minHeight: 40,
   },
+  /** merge 表行：数字列与右端 icon 间距缩小，数字列右移 */
+  accountRowCountsGap: { gap: 2 },
   accountIndicator: {
     width: 32,
     height: 32,

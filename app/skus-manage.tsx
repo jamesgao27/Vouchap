@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  FlatList,
   ScrollView,
   TouchableOpacity,
   RefreshControl,
@@ -13,6 +12,8 @@ import {
   Modal,
   Platform,
   Animated,
+  KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -31,6 +32,7 @@ import {
 } from '@/lib/skus';
 import { Sku } from '@/types';
 import { GradientText } from '@/lib/GradientText';
+import { actionButtonStyles } from '@/lib/action-button-styles';
 
 export default function SkusManageScreen() {
   const [skus, setSkus] = useState<Sku[]>([]);
@@ -40,7 +42,7 @@ export default function SkusManageScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
-  const [unit, setUnit] = useState('件');
+  const [unit, setUnit] = useState('pcs');
   const [saving, setSaving] = useState(false);
   const [mergeMode, setMergeMode] = useState(false);
   const [selectedSkuIds, setSelectedSkuIds] = useState<Set<string>>(new Set());
@@ -54,7 +56,17 @@ export default function SkusManageScreen() {
   const [showDeleteSelectedModal, setShowDeleteSelectedModal] = useState(false);
   const [deleteSelectedModalAccounts, setDeleteSelectedModalAccounts] = useState<Sku[] | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newCode, setNewCode] = useState('');
+  const [newUnit, setNewUnit] = useState('pcs');
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const toastOpacity = useRef(new Animated.Value(0)).current;
+  const scrollViewRef = useRef<ScrollView>(null);
+  const newNameInputRef = useRef<TextInput>(null);
+  const scrollContentRef = useRef<View>(null);
+  const addFormCardRef = useRef<View>(null);
+  const HEADER_HEIGHT_PX = 88;
 
   const showToast = (message: string, duration: number = 1500) => {
     setToastMessage(message);
@@ -68,7 +80,7 @@ export default function SkusManageScreen() {
   const load = async () => {
     try {
       const data = await getSkus();
-      setSkus(data);
+      setSkus([...data].sort((a, b) => a.name.localeCompare(b.name)));
     } catch (e) {
       console.error('Load skus error:', e);
     } finally {
@@ -84,19 +96,74 @@ export default function SkusManageScreen() {
     }, [])
   );
 
+  useEffect(() => {
+    if (showAddForm) {
+      const t = setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+        newNameInputRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(t);
+    }
+  }, [showAddForm]);
+
+  useEffect(() => {
+    if (!showAddForm) return;
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const subShow = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+      setTimeout(() => {
+        addFormCardRef.current?.measureLayout(
+          scrollContentRef.current as any,
+          (_x: number, y: number) => {
+            scrollViewRef.current?.scrollTo({
+              y: Math.max(0, y - HEADER_HEIGHT_PX),
+              animated: true,
+            });
+          }
+        );
+      }, 150);
+    });
+    const subHide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, [showAddForm]);
+
   const openAdd = () => {
-    setEditingId(null);
-    setName('');
-    setCode('');
-    setUnit('件');
-    setModalVisible(true);
+    setShowAddForm(true);
+    setNewName('');
+    setNewCode('');
+    setNewUnit('pcs');
+  };
+
+  const handleAddSku = async () => {
+    if (!newName.trim()) {
+      showToast('Please enter name');
+      return;
+    }
+    setSaving(true);
+    try {
+      await createSku({ name: newName.trim(), code: newCode.trim() || undefined, unit: newUnit.trim() || 'pcs' });
+      setShowAddForm(false);
+      setNewName('');
+      setNewCode('');
+      setNewUnit('pcs');
+      load();
+      showToast('SKU created');
+    } catch (e: any) {
+      showToast(e?.message ?? 'Failed to create');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const openEdit = (sku: Sku) => {
     setEditingId(sku.id);
     setName(sku.name);
     setCode(sku.code || '');
-    setUnit(sku.unit || '件');
+    setUnit(sku.unit || 'pcs');
     setModalVisible(true);
   };
 
@@ -105,32 +172,34 @@ export default function SkusManageScreen() {
     setSaving(true);
     try {
       if (editingId) {
-        await updateSku(editingId, { name: name.trim(), code: code.trim() || undefined, unit: unit.trim() || '件' });
+        await updateSku(editingId, { name: name.trim(), code: code.trim() || undefined, unit: unit.trim() || 'pcs' });
       } else {
-        await createSku({ name: name.trim(), code: code.trim() || undefined, unit: unit.trim() || '件' });
+        await createSku({ name: name.trim(), code: code.trim() || undefined, unit: unit.trim() || 'pcs' });
       }
       setModalVisible(false);
       load();
+      showToast(editingId ? 'SKU updated' : 'SKU created');
     } catch (e) {
       console.error('Save sku error:', e);
-      Alert.alert('保存失败', (e as Error).message);
+      showToast((e as Error).message);
     } finally {
       setSaving(false);
     }
   };
 
   const remove = (sku: Sku) => {
-    Alert.alert('删除商品', `确定删除「${sku.name}」？`, [
-      { text: '取消', style: 'cancel' },
+    Alert.alert('Delete SKU', `Delete "${sku.name}"?`, [
+      { text: 'Cancel', style: 'cancel' },
       {
-        text: '删除',
+        text: 'Delete',
         style: 'destructive',
         onPress: async () => {
           try {
             await deleteSku(sku.id);
             load();
+            showToast('SKU deleted');
           } catch (e) {
-            Alert.alert('删除失败', (e as Error).message);
+            showToast((e as Error).message);
           }
         },
       },
@@ -145,9 +214,9 @@ export default function SkusManageScreen() {
   };
 
   const handleStartMerge = async () => {
+    setModalVisible(false);
     setMergeMode(true);
     setSelectedSkuIds(new Set());
-    setModalVisible(false);
     setExpandedRootIds(new Set());
     try {
       const [historyData, counts] = await Promise.all([
@@ -158,7 +227,7 @@ export default function SkusManageScreen() {
       setUsageCounts(counts);
     } catch (e: any) {
       console.error('Error loading merge data:', e);
-      Alert.alert('Error', e?.message ?? 'Failed to load merge data');
+      showToast(e?.message ?? 'Failed to load merge data');
     }
   };
 
@@ -175,6 +244,17 @@ export default function SkusManageScreen() {
     directUsage(root.id) + children.reduce((s, c) => s + directUsage(c.id), 0);
   const directCount = (id: string) => directUsage(id);
 
+  /** 与非 merge 一致：按直接用量降序、名称升序（无 usageCounts 时按名称） */
+  const sortedMergeDisplayRoots = (() => {
+    const arr = mergeHistoryData?.roots ?? skus;
+    return [...arr].sort((a, b) => {
+      const ua = directUsage(a.id);
+      const ub = directUsage(b.id);
+      if (ub !== ua) return ub - ua;
+      return a.name.localeCompare(b.name);
+    });
+  })();
+
   const cleanableRoots = (() => {
     if (!mergeHistoryData || !usageCounts) return [];
     return mergeHistoryData.roots.filter((root) => {
@@ -188,7 +268,7 @@ export default function SkusManageScreen() {
 
   const handleCleanEmpty = () => {
     if (cleanableRoots.length === 0) {
-      Alert.alert('Notice', 'No empty SKUs to clean.');
+      showToast('No empty SKUs to clean.');
       return;
     }
     setShowQuickCleanModal(true);
@@ -210,7 +290,7 @@ export default function SkusManageScreen() {
       setUsageCounts(counts);
       showToast(`Cleaned ${cleanableRoots.length} empty SKU(s).`);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? String(e));
+      showToast(e?.message ?? 'Failed to clean');
     }
   };
 
@@ -226,7 +306,7 @@ export default function SkusManageScreen() {
 
   const handleConfirmMerge = () => {
     if (selectedSkuIds.size < 2) {
-      Alert.alert('Error', 'Please select at least 2 SKUs to merge');
+      showToast('Please select at least 2 SKUs to merge');
       return;
     }
     const allInMerge = mergeHistoryData
@@ -253,7 +333,7 @@ export default function SkusManageScreen() {
       showToast('SKUs merged successfully');
     } catch (error: any) {
       console.error('Error merging SKUs:', error);
-      Alert.alert('Error', error.message || 'Failed to merge SKUs');
+      showToast(error.message || 'Failed to merge SKUs');
     }
   };
 
@@ -274,7 +354,7 @@ export default function SkusManageScreen() {
       });
       showToast('Unmerged');
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? String(e));
+      showToast(e?.message ?? 'Failed to unmerge');
     }
   };
 
@@ -307,7 +387,7 @@ export default function SkusManageScreen() {
       setSelectedSkuIds(new Set());
       showToast(`Deleted ${selected.length} SKU(s).`);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? String(e));
+      showToast(e?.message ?? 'Failed to delete');
     }
   };
 
@@ -346,14 +426,12 @@ export default function SkusManageScreen() {
             <View style={styles.actionModalContent}>
               <View style={styles.actionModalHeader}>
                 <View style={styles.actionModalHeaderIconWrap}>
-                  <Ionicons name="trash-outline" size={40} color="#E67E22" />
+                  <Ionicons name="trash-outline" size={40} color="#E74C3C" />
                 </View>
-                <Text style={styles.actionModalTitle}>Quick Clean</Text>
-                <Text style={styles.actionModalSubtitle}>
-                  Delete {cleanableRoots.length} empty SKU(s) (no usage, not merged):
-                </Text>
+                <Text style={styles.actionModalTitle}>Delete {cleanableRoots.length} empty SKU(s)</Text>
+                <Text style={styles.actionModalSubtitleLight}>(no linked data, not merged)</Text>
               </View>
-              <ScrollView style={styles.actionModalList} nestedScrollEnabled>
+              <ScrollView style={styles.actionModalList} contentContainerStyle={styles.actionModalListContent} nestedScrollEnabled showsVerticalScrollIndicator>
                 {cleanableRoots.map((r) => (
                   <View key={r.id} style={styles.actionModalRow}>
                     <Text style={styles.actionModalRowText} numberOfLines={1}>{r.name}{r.code ? ` (${r.code})` : ''}</Text>
@@ -364,8 +442,8 @@ export default function SkusManageScreen() {
                 <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonSecondary]} onPress={() => setShowQuickCleanModal(false)} activeOpacity={0.8}>
                   <Text style={styles.actionModalButtonSecondaryText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonWarning]} onPress={doQuickCleanConfirm} activeOpacity={0.8}>
-                  <Text style={styles.actionModalButtonWarningText}>Clean</Text>
+                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonDanger]} onPress={doQuickCleanConfirm} activeOpacity={0.8}>
+                  <Text style={styles.actionModalButtonDangerText}>Delete</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -463,7 +541,7 @@ export default function SkusManageScreen() {
             <View style={styles.headerTableRowNameCell}>
               <Text style={styles.tableHeaderNameLeft}>SKU</Text>
               <Text style={styles.headerSelectedCount}>
-                （{selectedSkuIds.size}/{mergeHistoryData ? mergeHistoryData.roots.length : 0}）
+                ({selectedSkuIds.size}/{mergeHistoryData ? mergeHistoryData.roots.length : skus.length})
               </Text>
             </View>
             <View style={styles.countsCell}>
@@ -474,15 +552,21 @@ export default function SkusManageScreen() {
         </View>
       ) : (
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>商品 SKU</Text>
+          <View style={styles.headerTitleContainer}>
+            <GradientText
+              text="Product items for inbound and outbound, Support merge and quick clean."
+              style={styles.headerTitle}
+              containerStyle={styles.gradientTextContainer}
+            />
+          </View>
         </View>
       )}
 
-      {mergeMode && mergeHistoryData ? (
-        <ScrollView style={styles.scrollView} contentContainerStyle={[styles.scrollContent, styles.scrollContentWithBottomBar]}>
+      {mergeMode ? (
+        <ScrollView style={styles.scrollView} contentContainerStyle={[styles.scrollContent, styles.scrollContentTop, styles.scrollContentWithBottomBar]}>
           <View style={styles.skusList}>
-            {mergeHistoryData.roots.map((root) => {
-              const children = mergeHistoryData.childrenByRootId.get(root.id) ?? [];
+            {sortedMergeDisplayRoots.map((root) => {
+              const children = mergeHistoryData?.childrenByRootId?.get(root.id) ?? [];
               const expanded = expandedRootIds.has(root.id);
               const hasChildren = children.length > 0;
               return (
@@ -492,9 +576,15 @@ export default function SkusManageScreen() {
                       <View style={styles.checkboxContainer}>
                         {selectedSkuIds.has(root.id) ? <Ionicons name="checkbox" size={24} color="#6C5CE7" /> : <Ionicons name="checkbox-outline" size={24} color="#BDC3C7" />}
                       </View>
-                      <Text style={styles.skuName} numberOfLines={1}>{root.name}{root.code ? ` (${root.code})` : ''}</Text>
+                      <View style={styles.rowContent}>
+                        <Text style={styles.skuName} numberOfLines={1}>{root.name}</Text>
+                        <View style={styles.rowMeta}>
+                          <View style={styles.rowMetaLeft}>{root.code ? <View style={styles.tagCodeWrap}><Text style={styles.tagCodePrefix}>#</Text><View style={styles.tagPill}><Text style={styles.tagCode} numberOfLines={1} ellipsizeMode="tail">{root.code}</Text></View></View> : null}</View>
+                          <View style={styles.unitCell}><View style={styles.tagPill}><Text style={styles.tagUnit}>{root.unit}</Text></View></View>
+                        </View>
+                      </View>
                       <View style={styles.countsCell}>
-                        <Text style={styles.countText}>{expanded ? directCount(root.id) : totalCount(root, children)}</Text>
+                        <Text style={styles.countText}>{usageCounts ? (expanded ? directCount(root.id) : totalCount(root, children)) : '0'}</Text>
                       </View>
                     </TouchableOpacity>
                     {hasChildren ? (
@@ -511,14 +601,22 @@ export default function SkusManageScreen() {
                         <View style={styles.checkboxContainer}>
                           {selectedSkuIds.has(child.id) ? <Ionicons name="checkbox" size={24} color="#6C5CE7" /> : <Ionicons name="checkbox-outline" size={24} color="#BDC3C7" />}
                         </View>
-                        <Text style={styles.childName} numberOfLines={1}>{child.name}{child.code ? ` (${child.code})` : ''}</Text>
+                        <View style={styles.rowContent}>
+                          <Text style={styles.childName} numberOfLines={1}>{child.name}</Text>
+                          <View style={styles.rowMeta}>
+                            <View style={styles.rowMetaLeft}>{child.code ? <View style={styles.tagCodeWrap}><Text style={styles.tagCodePrefix}>#</Text><View style={styles.tagPill}><Text style={styles.tagCode} numberOfLines={1} ellipsizeMode="tail">{child.code}</Text></View></View> : null}</View>
+                            <View style={styles.unitCell}><View style={styles.tagPill}><Text style={styles.tagUnit}>{child.unit}</Text></View></View>
+                          </View>
+                        </View>
                         <View style={styles.countsCell}>
-                          <Text style={styles.countText}>{directCount(child.id)}</Text>
+                          <Text style={styles.countText}>{usageCounts ? directCount(child.id) : '0'}</Text>
                         </View>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.childRowUnmergeButton} onPress={() => handleUnmerge(child.id)} hitSlop={{ left: 8, right: 8, top: 8, bottom: 8 }}>
-                        <Ionicons name="exit-outline" size={14} color="#6C5CE7" />
-                      </TouchableOpacity>
+                      {mergeHistoryData && (
+                        <TouchableOpacity style={styles.childRowUnmergeButton} onPress={() => handleUnmerge(child.id)} hitSlop={{ left: 8, right: 8, top: 8, bottom: 8 }}>
+                          <Ionicons name="exit-outline" size={14} color="#6C5CE7" />
+                        </TouchableOpacity>
+                      )}
                     </View>
                   ))}
                 </View>
@@ -527,68 +625,128 @@ export default function SkusManageScreen() {
           </View>
         </ScrollView>
       ) : (
-        <FlatList
-          data={skus}
-          keyExtractor={(item) => item.id}
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}>
+        <ScrollView
+          ref={scrollViewRef}
+          style={styles.scrollView}
+          contentContainerStyle={[styles.scrollContent, styles.scrollContentTop, styles.scrollContentWithBottomBar, showAddForm && keyboardHeight > 0 && { paddingBottom: 88 + keyboardHeight + 6 }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} colors={['#6C5CE7']} />}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Ionicons name="cube-outline" size={48} color="#BDC3C7" />
-              <Text style={styles.emptyText}>暂无商品 SKU</Text>
-              <Text style={styles.emptyHint}>入库/出库明细可关联标准商品</Text>
-            </View>
-          }
-          renderItem={({ item }) => (
-            <View style={styles.row}>
-              <TouchableOpacity style={styles.rowContent} onPress={() => openEdit(item)} activeOpacity={0.7}>
-                <Text style={styles.skuName}>{item.name}</Text>
-                <View style={styles.rowMeta}>
-                  {item.code ? <Text style={styles.skuCode}>{item.code}</Text> : null}
-                  <Text style={styles.skuUnit}>{item.unit}</Text>
+          keyboardShouldPersistTaps="handled"
+        >
+          <View ref={scrollContentRef} style={styles.skusList}>
+            {skus.length === 0 && !showAddForm ? (
+              <View style={styles.empty}>
+                <Ionicons name="cube-outline" size={48} color="#BDC3C7" />
+                <Text style={styles.emptyText}>No SKU yet</Text>
+                <Text style={styles.emptyHint}>Link in inbound/outbound</Text>
+              </View>
+            ) : (
+              skus.map((item) => (
+                <View key={item.id} style={styles.skuCard}>
+                  <TouchableOpacity style={styles.row} onPress={() => openEdit(item)} activeOpacity={0.7}>
+                    <View style={styles.skuIndicator}>
+                      <Ionicons name="cube-outline" size={16} color="#6C5CE7" />
+                      {'isAiRecognized' in item && item.isAiRecognized && (
+                        <View style={styles.aiBadgeInIcon}>
+                          <Text style={styles.aiBadgeTextInIcon}>AI</Text>
+                        </View>
+                      )}
+                    </View>
+                    <View style={styles.rowContent}>
+                      <Text style={styles.skuName} numberOfLines={1} ellipsizeMode="tail">{item.name}</Text>
+                      <View style={styles.rowMeta}>
+                        <View style={styles.rowMetaLeft}>{item.code ? <View style={styles.tagCodeWrap}><Text style={styles.tagCodePrefix}>#</Text><View style={styles.tagPill}><Text style={styles.tagCode} numberOfLines={1} ellipsizeMode="tail">{item.code}</Text></View></View> : null}</View>
+                        <View style={styles.unitCell}><View style={styles.tagPill}><Text style={styles.tagUnit}>{item.unit}</Text></View></View>
+                      </View>
+                    </View>
+                    <View style={styles.countsCellPlaceholder} />
+                    <View style={styles.trailingSlot}>
+                      <Ionicons name="create-outline" size={18} color="#6C5CE7" />
+                    </View>
+                  </TouchableOpacity>
                 </View>
-              </TouchableOpacity>
-              <TouchableOpacity onPress={() => remove(item)} style={styles.deleteBtn}>
-                <Ionicons name="trash-outline" size={22} color="#E74C3C" />
-              </TouchableOpacity>
-            </View>
-          )}
-        />
+              ))
+            )}
+            {showAddForm && (
+              <View ref={addFormCardRef} style={styles.formCard}>
+                <View style={styles.editRow}>
+                  <TextInput
+                    ref={newNameInputRef}
+                    style={styles.input}
+                    value={newName}
+                    onChangeText={setNewName}
+                    placeholder="Name *"
+                    placeholderTextColor="#95A5A6"
+                  />
+                  <TextInput style={styles.input} value={newCode} onChangeText={setNewCode} placeholder="Code (optional)" placeholderTextColor="#95A5A6" />
+                  <TextInput style={styles.input} value={newUnit} onChangeText={setNewUnit} placeholder="Unit" placeholderTextColor="#95A5A6" />
+                  <View style={actionButtonStyles.editRowButtons}>
+                    <TouchableOpacity style={actionButtonStyles.editCancelButton} onPress={() => { setShowAddForm(false); setNewName(''); setNewCode(''); setNewUnit('pcs'); }} disabled={saving}>
+                      <Text style={actionButtonStyles.editCancelButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={actionButtonStyles.editConfirmButton} onPress={handleAddSku} disabled={saving || !newName.trim()}>
+                      {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={actionButtonStyles.editConfirmButtonText}>Confirm</Text>}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </View>
+            )}
+          </View>
+        </ScrollView>
+        </KeyboardAvoidingView>
       )}
 
-      {!mergeMode && (
-        <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.bottomBarAddButton} onPress={openAdd}>
-            <Ionicons name="add-circle" size={20} color="#fff" />
-            <Text style={styles.bottomBarAddButtonText}>Add</Text>
+      {!showAddForm && !mergeMode && (
+        <View style={[actionButtonStyles.bar, actionButtonStyles.barMergeMode]}>
+          <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={openAdd}>
+            <Ionicons name="add-circle" size={20} color="#6C5CE7" style={actionButtonStyles.barIconFix} />
+            <Text style={actionButtonStyles.barButtonSecondaryText}>Add</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.bottomBarMergeButton} onPress={handleStartMerge}>
-            <Ionicons name="git-merge-outline" size={20} color="#fff" />
-            <Text style={styles.bottomBarMergeButtonText}>Merge & Clean</Text>
+          <TouchableOpacity style={actionButtonStyles.barButtonPrimaryFlex} onPress={handleStartMerge}>
+            <Ionicons name="git-merge-outline" size={20} color="#fff" style={actionButtonStyles.barIconFix} />
+            <Text style={actionButtonStyles.barButtonPrimaryText}>Merge & Clean</Text>
           </TouchableOpacity>
         </View>
       )}
 
       {mergeMode && (
-        <View style={[styles.bottomBar, styles.bottomBarMergeMode]}>
-          {selectedSkuIds.size === 0 ? (
-            <View style={styles.bottomBarCleanWrapper}>
-              <TouchableOpacity style={styles.bottomBarCleanButton} onPress={handleCleanEmpty}>
-                <Ionicons name="trash-outline" size={18} color="#E67E22" />
-                <Text style={styles.bottomBarCleanButtonText}>Quick Clean</Text>
+        <View style={[actionButtonStyles.bar, actionButtonStyles.barMergeMode]}>
+          {selectedSkuIds.size === 0 && (
+            <>
+              <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
+                <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
               </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.bottomBarMergeActions}>
-              <TouchableOpacity style={styles.bottomBarCancelButton} onPress={handleCancelMerge}>
-                <Text style={styles.bottomBarCancelButtonText}>Cancel</Text>
+              <TouchableOpacity style={actionButtonStyles.barButtonDangerFlex} onPress={handleCleanEmpty}>
+                <Ionicons name="trash-outline" size={18} color="#E74C3C" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonDangerText} numberOfLines={1}>Quick Clean</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.bottomBarConfirmButton} onPress={handleConfirmMerge} disabled={selectedSkuIds.size < 2}>
-                <Text style={styles.bottomBarConfirmButtonText}>Merge</Text>
+            </>
+          )}
+          {selectedSkuIds.size === 1 && (
+            <>
+              <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
+                <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.bottomBarDeleteButton} onPress={handleDeleteSelected}>
-                <Text style={styles.bottomBarDeleteButtonText}>Delete</Text>
+              <TouchableOpacity style={actionButtonStyles.barButtonDangerFlex} onPress={handleDeleteSelected}>
+                <Ionicons name="trash-outline" size={18} color="#E74C3C" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonDangerText} numberOfLines={1}>Delete</Text>
               </TouchableOpacity>
-            </View>
+            </>
+          )}
+          {selectedSkuIds.size >= 2 && (
+            <>
+              <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
+                <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={actionButtonStyles.barButtonPrimaryFlex} onPress={handleConfirmMerge}>
+                <Ionicons name="git-merge-outline" size={18} color="#fff" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonPrimaryText} numberOfLines={1}>Merge</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={actionButtonStyles.barButtonDangerFlex} onPress={handleDeleteSelected}>
+                <Ionicons name="trash-outline" size={18} color="#E74C3C" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonDangerText} numberOfLines={1}>Delete</Text>
+              </TouchableOpacity>
+            </>
           )}
         </View>
       )}
@@ -596,16 +754,16 @@ export default function SkusManageScreen() {
       <Modal visible={modalVisible} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>{editingId ? '编辑商品' : '新增商品'}</Text>
-            <TextInput style={styles.input} placeholder="名称 *" placeholderTextColor="#95A5A6" value={name} onChangeText={setName} />
-            <TextInput style={styles.input} placeholder="编码（可选）" placeholderTextColor="#95A5A6" value={code} onChangeText={setCode} />
-            <TextInput style={styles.input} placeholder="单位" placeholderTextColor="#95A5A6" value={unit} onChangeText={setUnit} />
+            <Text style={styles.modalTitle}>{editingId ? 'Edit SKU' : 'Add SKU'}</Text>
+            <TextInput style={styles.input} placeholder="Name *" placeholderTextColor="#95A5A6" value={name} onChangeText={setName} />
+            <TextInput style={styles.input} placeholder="Code (optional)" placeholderTextColor="#95A5A6" value={code} onChangeText={setCode} />
+            <TextInput style={styles.input} placeholder="Unit" placeholderTextColor="#95A5A6" value={unit} onChangeText={setUnit} />
             <View style={styles.modalButtons}>
               <TouchableOpacity style={[styles.modalBtn, styles.cancelBtn]} onPress={() => setModalVisible(false)} disabled={saving}>
-                <Text style={styles.cancelBtnText}>取消</Text>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.modalBtn, styles.saveBtn]} onPress={save} disabled={saving || !name.trim()}>
-                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveBtnText}>保存</Text>}
+                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveBtnText}>Save</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -655,7 +813,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
   },
+  headerTitleContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   headerTitle: { fontSize: 16, fontWeight: '600', textAlign: 'center' },
+  gradientTextContainer: { alignItems: 'center', justifyContent: 'center' },
   headerMerge: {
     flexDirection: 'column',
     paddingTop: 13,
@@ -671,9 +831,9 @@ const styles = StyleSheet.create({
   headerTableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 2,
     paddingLeft: 6,
-    paddingRight: 32,
+    paddingRight: 12,
     paddingTop: 0,
     paddingBottom: 0,
     minHeight: 24,
@@ -683,39 +843,75 @@ const styles = StyleSheet.create({
   headerTableRowNameCell: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start' },
   tableHeaderNameLeft: { fontSize: 13, fontWeight: '600', color: '#636E72' },
   headerSelectedCount: { fontSize: 13, fontWeight: '600', color: '#636E72', marginLeft: 4 },
-  tableHeaderCount: { minWidth: 64, fontSize: 13, fontWeight: '600', color: '#636E72', textAlign: 'right' },
+  tableHeaderCount: { minWidth: 72, fontSize: 13, fontWeight: '600', color: '#636E72', textAlign: 'right' },
   checkboxContainer: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
-  expandPlaceholderSmall: { width: 18 },
+  expandPlaceholderSmall: { width: 20 },
+  trailingSlot: { width: 20, alignItems: 'center', justifyContent: 'center' },
+  expandButtonSmall: { width: 20, alignItems: 'center', justifyContent: 'center', padding: 2 },
   scrollView: { flex: 1 },
-  scrollContent: { padding: 16 },
+  scrollContent: { padding: 16, paddingRight: 12 },
+  scrollContentTop: { paddingTop: 6 },
   scrollContentWithBottomBar: { paddingBottom: 88 },
-  skusList: { gap: 12 },
-  skuCard: { backgroundColor: '#fff', borderRadius: 8, padding: 10 },
-  mergeRowRoot: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 40 },
-  mergeRowSelectionArea: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  countsCell: { alignItems: 'center', justifyContent: 'flex-end', minWidth: 64 },
+  skusList: { gap: 6 },
+  formCard: { backgroundColor: '#fff', borderRadius: 8, padding: 10, marginTop: 8, marginBottom: 12 },
+  editRow: { flexDirection: 'column' as const, gap: 8 },
+  skuCard: { backgroundColor: '#fff', borderRadius: 8, padding: 10, paddingRight: 4, minHeight: 48 },
+  mergeRowRoot: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 48 },
+  mergeRowSelectionArea: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 2 },
+  countsCell: { alignItems: 'center', justifyContent: 'flex-end', minWidth: 72 },
+  countsCellPlaceholder: { minWidth: 72 },
   countText: { fontSize: 13, color: '#636E72', textAlign: 'right' },
-  expandButtonSmall: { padding: 2, marginRight: 4 },
   childRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 2,
     paddingLeft: 8,
     paddingVertical: 6,
-    minHeight: 40,
+    minHeight: 48,
     borderTopWidth: 1,
     borderTopColor: '#E9ECEF',
   },
   childName: { flex: 1, fontSize: 14, color: '#636E72' },
-  childRowUnmergeButton: { width: 18, marginRight: 4, padding: 2, justifyContent: 'center', alignItems: 'center' },
+  childRowUnmergeButton: { width: 20, padding: 2, justifyContent: 'center', alignItems: 'center' },
   skuRowSelected: { backgroundColor: '#E8F4FD', borderRadius: 8, padding: 4 },
-  row: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', marginHorizontal: 16, marginTop: 8, borderRadius: 12, borderWidth: 1, borderColor: '#E9ECEF' },
-  rowContent: { flex: 1, padding: 16 },
-  rowMeta: { flexDirection: 'row', alignItems: 'center', marginTop: 4, gap: 12 },
-  skuName: { fontSize: 16, fontWeight: '600', color: '#2D3436' },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 48 },
+  skuIndicator: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F0F0F0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+    position: 'relative' as const,
+  },
+  aiBadgeInIcon: {
+    position: 'absolute' as const,
+    right: 0,
+    bottom: 0,
+    backgroundColor: '#E8F4FD',
+    paddingHorizontal: 3,
+    paddingVertical: 1,
+    borderRadius: 3,
+    minWidth: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  aiBadgeTextInIcon: { fontSize: 8, fontWeight: '600' as const, color: '#6C5CE7' },
+  rowContent: { flex: 1, minWidth: 0 },
+  rowMeta: { flexDirection: 'row' as const, alignItems: 'center', marginTop: 4, marginLeft: 6, gap: 6 },
+  rowMetaLeft: { flex: 1, minWidth: 0 },
+  unitCell: { minWidth: 48, alignItems: 'flex-end', justifyContent: 'center' },
+  tagPill: { backgroundColor: '#E8F4FD', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, alignSelf: 'flex-start', maxWidth: '100%' },
+  tagCodeWrap: { flexDirection: 'row' as const, alignItems: 'center', gap: 4, flex: 1, minWidth: 0 },
+  tagCodePrefix: { fontSize: 12, color: '#636E72' },
+  tagCode: { fontSize: 12, color: '#6C5CE7' },
+  tagUnit: { fontSize: 12, color: '#6C5CE7' },
+  skuName: { fontSize: 16, fontWeight: '600' as const, color: '#2D3436' },
   skuCode: { fontSize: 14, color: '#636E72' },
+  childCode: { fontSize: 14, color: '#636E72' },
   skuUnit: { fontSize: 14, color: '#95A5A6' },
-  deleteBtn: { padding: 16 },
+  iconBtn: { padding: 8 },
   bottomBar: {
     position: 'absolute',
     bottom: 0,
@@ -816,7 +1012,9 @@ const styles = StyleSheet.create({
   actionModalHeaderIconWrap: { marginBottom: 8 },
   actionModalTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginTop: 8, marginBottom: 4, textAlign: 'center' },
   actionModalSubtitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', textAlign: 'center', lineHeight: 22, paddingHorizontal: 8 },
-  actionModalList: { width: '100%', minHeight: 180, maxHeight: 360, marginTop: 8, marginBottom: 20 },
+  actionModalSubtitleLight: { fontSize: 14, fontWeight: '400', color: '#636E72', textAlign: 'center', marginTop: 4 },
+  actionModalList: { width: '100%', minHeight: 120, maxHeight: 352, marginTop: 8, marginBottom: 20 },
+  actionModalListContent: { paddingBottom: 8 },
   actionModalRow: { paddingVertical: 12, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#E9ECEF' },
   actionModalRowTappable: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#E9ECEF' },
   actionModalRowSelected: { backgroundColor: '#E8F4FD', borderLeftWidth: 3, borderLeftColor: '#6C5CE7' },

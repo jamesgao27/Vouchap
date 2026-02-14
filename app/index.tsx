@@ -760,7 +760,7 @@ export default function HomeScreen() {
           onPress={() => router.push('/ai-inventory')}
         >
           <Ionicons name="cube-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
-          <Text style={styles.secondaryButtonText}>AI 进销存</Text>
+          <Text style={styles.secondaryButtonText}>AI Inventory</Text>
         </TouchableOpacity>
       )}
       </ScrollView>

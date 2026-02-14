@@ -400,17 +400,18 @@ export default function SuppliersManageScreen() {
     directReceipts(root.id) + children.reduce((s, c) => s + directReceipts(c.id), 0);
   const directCount = (id: string) => directReceipts(id);
 
+  /** 与非 merge 列表一致：按直接用量降序、名称升序 */
   const sortedMergeRoots = (() => {
     if (!mergeHistoryData || !usageCounts) return [];
     return [...mergeHistoryData.roots].sort((a, b) => {
-      const childrenA = mergeHistoryData.childrenByRootId.get(a.id) ?? [];
-      const childrenB = mergeHistoryData.childrenByRootId.get(b.id) ?? [];
-      const ta = totalCount(a, childrenA);
-      const tb = totalCount(b, childrenB);
-      if (tb !== ta) return tb - ta;
+      const ua = directReceipts(a.id);
+      const ub = directReceipts(b.id);
+      if (ub !== ua) return ub - ua;
       return a.name.localeCompare(b.name);
     });
   })();
+  /** merge 下先同步切 UI，无数据时用当前 list 当 roots，数据到达后刷新数字与展开 */
+  const mergeDisplayRoots = mergeHistoryData ? sortedMergeRoots : list;
 
   const cleanableRoots = (() => {
     if (!mergeHistoryData || !usageCounts) return [];
@@ -747,7 +748,7 @@ export default function SuppliersManageScreen() {
             <View style={styles.headerTableRowNameCell}>
               <Text style={styles.tableHeaderNameLeft}>Supplier</Text>
               <Text style={styles.headerSelectedCount}>
-                （{selectedSupplierIds.size}/{mergeHistoryData ? mergeHistoryData.roots.length : 0}）
+                （{selectedSupplierIds.size}/{mergeHistoryData ? mergeHistoryData.roots.length : list.length}）
               </Text>
             </View>
             <View style={styles.countsCell}>
@@ -771,9 +772,9 @@ export default function SuppliersManageScreen() {
       <ScrollView ref={scrollViewRef} style={styles.scrollView} contentContainerStyle={[styles.scrollContent, styles.scrollContentTop, styles.scrollContentWithBottomBar, showAddForm && keyboardHeight > 0 && { paddingBottom: 88 + keyboardHeight + 6 }]} keyboardShouldPersistTaps="handled">
         {/* Suppliers List */}
         <View ref={scrollContentRef} style={styles.suppliersList}>
-          {mergeMode && mergeHistoryData ? (
-            sortedMergeRoots.map((root) => {
-              const children = mergeHistoryData.childrenByRootId.get(root.id) ?? [];
+          {mergeMode ? (
+            mergeDisplayRoots.map((root) => {
+              const children = mergeHistoryData?.childrenByRootId?.get(root.id) ?? [];
               const expanded = expandedRootIds.has(root.id);
               const hasChildren = children.length > 0;
               return (
@@ -794,7 +795,7 @@ export default function SuppliersManageScreen() {
                       <Text style={styles.supplierName} numberOfLines={1}>{root.name}</Text>
                       <View style={styles.countsCell}>
                         <Text style={styles.countText}>
-                          {expanded ? directCount(root.id) : totalCount(root, children)}
+                          {usageCounts ? (expanded ? directCount(root.id) : totalCount(root, children)) : '0'}
                         </Text>
                       </View>
                     </TouchableOpacity>
@@ -827,16 +828,18 @@ export default function SuppliersManageScreen() {
                         </View>
                         <Text style={styles.childName} numberOfLines={1}>{child.name}</Text>
                         <View style={styles.countsCell}>
-                          <Text style={styles.countText}>{directCount(child.id)}</Text>
+                          <Text style={styles.countText}>{usageCounts ? directCount(child.id) : '0'}</Text>
                         </View>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.childRowUnmergeButton}
-                        onPress={() => handleUnmerge(child.id)}
-                        hitSlop={{ left: 8, right: 8, top: 8, bottom: 8 }}
-                      >
-                        <Ionicons name="exit-outline" size={14} color="#6C5CE7" />
-                      </TouchableOpacity>
+                      {mergeHistoryData && (
+                        <TouchableOpacity
+                          style={styles.childRowUnmergeButton}
+                          onPress={() => handleUnmerge(child.id)}
+                          hitSlop={{ left: 8, right: 8, top: 8, bottom: 8 }}
+                        >
+                          <Ionicons name="exit-outline" size={14} color="#6C5CE7" />
+                        </TouchableOpacity>
+                      )}
                     </View>
                   ))}
                 </View>
@@ -1162,9 +1165,9 @@ const styles = StyleSheet.create({
   headerTableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 2,
     paddingLeft: 6,
-    paddingRight: 32,
+    paddingRight: 12,
     paddingTop: 0,
     paddingBottom: 0,
     minHeight: 24,
@@ -1189,7 +1192,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   tableHeaderCount: {
-    minWidth: 64,
+    minWidth: 72,
     fontSize: 13,
     fontWeight: '600',
     color: '#636E72',
@@ -1215,6 +1218,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+    paddingRight: 12,
   },
   scrollContentTop: {
     paddingTop: 6,
@@ -1235,35 +1239,35 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderRadius: 8,
     padding: 10,
+    paddingRight: 4,
     minHeight: 40,
     flex: 1,
   },
   mergeRowRoot: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 2,
     minHeight: 40,
   },
   mergeRowSelectionArea: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 2,
   },
-  /** 展开 icon 或占位，固定宽度保证数字列对齐 */
   expandButtonSmall: {
-    width: 26,
+    width: 20,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 2,
   },
   expandPlaceholderSmall: {
-    width: 26,
+    width: 20,
   },
   countsCell: {
     alignItems: 'center',
     justifyContent: 'flex-end',
-    minWidth: 64,
+    minWidth: 72,
   },
   countText: {
     fontSize: 13,
@@ -1273,7 +1277,7 @@ const styles = StyleSheet.create({
   childRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 2,
     paddingLeft: 8,
     paddingVertical: 6,
     minHeight: 40,
@@ -1286,7 +1290,7 @@ const styles = StyleSheet.create({
     color: '#636E72',
   },
   childRowUnmergeButton: {
-    width: 26,
+    width: 20,
     padding: 2,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1300,7 +1304,7 @@ const styles = StyleSheet.create({
   supplierRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 2,
     minHeight: 40,
   },
   supplierIndicator: {

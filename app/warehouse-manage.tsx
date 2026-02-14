@@ -12,6 +12,8 @@ import {
   Modal,
   Platform,
   Animated,
+  KeyboardAvoidingView,
+  Keyboard,
 } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -34,6 +36,7 @@ import {
 } from '@/lib/warehouse';
 import { Warehouse, Location } from '@/types';
 import { GradientText } from '@/lib/GradientText';
+import { actionButtonStyles } from '@/lib/action-button-styles';
 
 export default function WarehouseManageScreen() {
   const [warehouses, setWarehouses] = useState<Warehouse[]>([]);
@@ -63,7 +66,21 @@ export default function WarehouseManageScreen() {
   const [showDeleteSelectedModal, setShowDeleteSelectedModal] = useState(false);
   const [deleteSelectedModalAccounts, setDeleteSelectedModalAccounts] = useState<Warehouse[] | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [newWhName, setNewWhName] = useState('');
+  const [newWhCode, setNewWhCode] = useState('');
+  const [newWhAddress, setNewWhAddress] = useState('');
+  const [showAddLocFormForWhId, setShowAddLocFormForWhId] = useState<string | null>(null);
+  const [newLocName, setNewLocName] = useState('');
+  const [newLocCode, setNewLocCode] = useState('');
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const toastOpacity = useRef(new Animated.Value(0)).current;
+  const scrollViewRef = useRef<ScrollView>(null);
+  const newWhNameInputRef = useRef<TextInput>(null);
+  const newLocNameInputRef = useRef<TextInput>(null);
+  const scrollContentRef = useRef<View>(null);
+  const addFormCardRef = useRef<View>(null);
+  const HEADER_HEIGHT_PX = 88;
 
   const showToast = (message: string, duration: number = 1500) => {
     setToastMessage(message);
@@ -77,9 +94,10 @@ export default function WarehouseManageScreen() {
   const load = async () => {
     try {
       const list = await getWarehouses();
-      setWarehouses(list);
+      const sorted = [...list].sort((a, b) => a.name.localeCompare(b.name));
+      setWarehouses(sorted);
       const map: Record<string, Location[]> = {};
-      for (const w of list) {
+      for (const w of sorted) {
         map[w.id] = await getLocationsByWarehouse(w.id);
       }
       setLocationsByWh(map);
@@ -93,12 +111,74 @@ export default function WarehouseManageScreen() {
 
   useFocusEffect(useCallback(() => { setLoading(true); load(); }, []));
 
+  useEffect(() => {
+    if (showAddForm) {
+      const t = setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+        newWhNameInputRef.current?.focus();
+      }, 100);
+      return () => clearTimeout(t);
+    }
+  }, [showAddForm]);
+
+  useEffect(() => {
+    if (showAddLocFormForWhId) {
+      const t = setTimeout(() => newLocNameInputRef.current?.focus(), 100);
+      return () => clearTimeout(t);
+    }
+  }, [showAddLocFormForWhId]);
+
+  useEffect(() => {
+    if (!showAddForm) return;
+    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const subShow = Keyboard.addListener(showEvent, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+      setTimeout(() => {
+        addFormCardRef.current?.measureLayout(
+          scrollContentRef.current as any,
+          (_x: number, y: number) => {
+            scrollViewRef.current?.scrollTo({
+              y: Math.max(0, y - HEADER_HEIGHT_PX),
+              animated: true,
+            });
+          }
+        );
+      }, 150);
+    });
+    const subHide = Keyboard.addListener(hideEvent, () => setKeyboardHeight(0));
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, [showAddForm]);
+
   const openAddWh = () => {
-    setWhId(null);
-    setWhName('');
-    setWhCode('');
-    setWhAddress('');
-    setWhModal('add');
+    setShowAddForm(true);
+    setNewWhName('');
+    setNewWhCode('');
+    setNewWhAddress('');
+  };
+
+  const handleAddWarehouse = async () => {
+    if (!newWhName.trim()) {
+      showToast('Please enter warehouse name');
+      return;
+    }
+    setSaving(true);
+    try {
+      await createWarehouse({ name: newWhName.trim(), code: newWhCode.trim() || undefined, address: newWhAddress.trim() || undefined });
+      setShowAddForm(false);
+      setNewWhName('');
+      setNewWhCode('');
+      setNewWhAddress('');
+      load();
+      showToast('Warehouse created');
+    } catch (e: any) {
+      showToast(e?.message ?? 'Failed to create');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const openEditWh = (w: Warehouse) => {
@@ -120,25 +200,33 @@ export default function WarehouseManageScreen() {
       }
       setWhModal(null);
       load();
+      showToast(whId ? 'Warehouse updated' : 'Warehouse created');
     } catch (e) {
-      Alert.alert('保存失败', (e as Error).message);
+      showToast((e as Error).message);
     } finally {
       setSaving(false);
     }
   };
 
   const removeWh = (w: Warehouse) => {
-    Alert.alert('删除仓库', `确定删除「${w.name}」？其下仓位将一并删除。`, [
-      { text: '取消', style: 'cancel' },
-      { text: '删除', style: 'destructive', onPress: async () => { await deleteWarehouse(w.id); load(); } },
+    Alert.alert('Delete warehouse', `Delete "${w.name}"? Its locations will be removed.`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        try {
+          await deleteWarehouse(w.id);
+          load();
+          showToast('Warehouse deleted');
+        } catch (e: any) {
+          showToast(e?.message ?? 'Failed to delete');
+        }
+      } },
     ]);
   };
 
   const openAddLoc = (warehouseId: string) => {
-    setLocModal({ whId: warehouseId });
-    setLocEditId(null);
-    setLocName('');
-    setLocCode('');
+    setShowAddLocFormForWhId(warehouseId);
+    setNewLocName('');
+    setNewLocCode('');
   };
 
   const openEditLoc = (warehouseId: string, loc: Location) => {
@@ -152,24 +240,46 @@ export default function WarehouseManageScreen() {
     if (!locModal?.whId || !locName.trim()) return;
     setSaving(true);
     try {
-      if (locEditId) {
-        await updateLocation(locEditId, { name: locName.trim(), code: locCode.trim() || undefined });
-      } else {
-        await createLocation({ warehouseId: locModal.whId, name: locName.trim(), code: locCode.trim() || undefined });
-      }
+      await updateLocation(locEditId!, { name: locName.trim(), code: locCode.trim() || undefined });
       setLocModal(null);
       load();
+      showToast('Location updated');
     } catch (e) {
-      Alert.alert('保存失败', (e as Error).message);
+      showToast((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAddLocation = async () => {
+    if (!showAddLocFormForWhId || !newLocName.trim()) return;
+    setSaving(true);
+    try {
+      await createLocation({ warehouseId: showAddLocFormForWhId, name: newLocName.trim(), code: newLocCode.trim() || undefined });
+      setShowAddLocFormForWhId(null);
+      setNewLocName('');
+      setNewLocCode('');
+      load();
+      showToast('Location created');
+    } catch (e) {
+      showToast((e as Error).message);
     } finally {
       setSaving(false);
     }
   };
 
   const removeLoc = (loc: Location) => {
-    Alert.alert('删除仓位', `确定删除「${loc.name}」？`, [
-      { text: '取消', style: 'cancel' },
-      { text: '删除', style: 'destructive', onPress: async () => { await deleteLocation(loc.id); load(); } },
+    Alert.alert('Delete location', `Delete "${loc.name}"?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        try {
+          await deleteLocation(loc.id);
+          load();
+          showToast('Location deleted');
+        } catch (e: any) {
+          showToast(e?.message ?? 'Failed to delete');
+        }
+      } },
     ]);
   };
 
@@ -185,6 +295,7 @@ export default function WarehouseManageScreen() {
     setSelectedWarehouseIds(new Set());
     setWhModal(null);
     setLocModal(null);
+    setShowAddLocFormForWhId(null);
     setExpandedRootIds(new Set());
     try {
       const [historyData, counts] = await Promise.all([
@@ -195,7 +306,7 @@ export default function WarehouseManageScreen() {
       setUsageCounts(counts);
     } catch (e: any) {
       console.error('Error loading merge data:', e);
-      Alert.alert('Error', e?.message ?? 'Failed to load merge data');
+      showToast(e?.message ?? 'Failed to load merge data');
     }
   };
 
@@ -212,6 +323,17 @@ export default function WarehouseManageScreen() {
     directUsage(root.id) + children.reduce((s, c) => s + directUsage(c.id), 0);
   const directCount = (id: string) => directUsage(id);
 
+  /** 与非 merge 一致：按直接用量降序、名称升序（无 usageCounts 时按名称） */
+  const sortedMergeDisplayRoots = (() => {
+    const arr = mergeHistoryData?.roots ?? warehouses;
+    return [...arr].sort((a, b) => {
+      const ua = directUsage(a.id);
+      const ub = directUsage(b.id);
+      if (ub !== ua) return ub - ua;
+      return a.name.localeCompare(b.name);
+    });
+  })();
+
   const cleanableRoots = (() => {
     if (!mergeHistoryData || !usageCounts) return [];
     return mergeHistoryData.roots.filter((root) => {
@@ -225,7 +347,7 @@ export default function WarehouseManageScreen() {
 
   const handleCleanEmpty = () => {
     if (cleanableRoots.length === 0) {
-      Alert.alert('Notice', 'No empty warehouses to clean.');
+      showToast('No empty warehouses to clean.');
       return;
     }
     setShowQuickCleanModal(true);
@@ -247,7 +369,7 @@ export default function WarehouseManageScreen() {
       setUsageCounts(counts);
       showToast(`Cleaned ${cleanableRoots.length} empty warehouse(s).`);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? String(e));
+      showToast(e?.message ?? 'Failed to clean');
     }
   };
 
@@ -263,7 +385,7 @@ export default function WarehouseManageScreen() {
 
   const handleConfirmMerge = () => {
     if (selectedWarehouseIds.size < 2) {
-      Alert.alert('Error', 'Please select at least 2 warehouses to merge');
+      showToast('Please select at least 2 warehouses to merge');
       return;
     }
     const allInMerge = mergeHistoryData
@@ -290,7 +412,7 @@ export default function WarehouseManageScreen() {
       showToast('Warehouses merged successfully');
     } catch (error: any) {
       console.error('Error merging warehouses:', error);
-      Alert.alert('Error', error.message || 'Failed to merge warehouses');
+      showToast(error.message || 'Failed to merge warehouses');
     }
   };
 
@@ -311,7 +433,7 @@ export default function WarehouseManageScreen() {
       });
       showToast('Unmerged');
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? String(e));
+      showToast(e?.message ?? 'Failed to unmerge');
     }
   };
 
@@ -344,7 +466,7 @@ export default function WarehouseManageScreen() {
       setSelectedWarehouseIds(new Set());
       showToast(`Deleted ${selected.length} warehouse(s).`);
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? String(e));
+      showToast(e?.message ?? 'Failed to delete');
     }
   };
 
@@ -383,14 +505,12 @@ export default function WarehouseManageScreen() {
             <View style={styles.actionModalContent}>
               <View style={styles.actionModalHeader}>
                 <View style={styles.actionModalHeaderIconWrap}>
-                  <Ionicons name="trash-outline" size={40} color="#E67E22" />
+                  <Ionicons name="trash-outline" size={40} color="#E74C3C" />
                 </View>
-                <Text style={styles.actionModalTitle}>Quick Clean</Text>
-                <Text style={styles.actionModalSubtitle}>
-                  Delete {cleanableRoots.length} empty warehouse(s) (no usage, not merged):
-                </Text>
+                <Text style={styles.actionModalTitle}>Delete {cleanableRoots.length} empty warehouse(s)</Text>
+                <Text style={styles.actionModalSubtitleLight}>(no linked data, not merged)</Text>
               </View>
-              <ScrollView style={styles.actionModalList} nestedScrollEnabled>
+              <ScrollView style={styles.actionModalList} contentContainerStyle={styles.actionModalListContent} nestedScrollEnabled showsVerticalScrollIndicator>
                 {cleanableRoots.map((r) => (
                   <View key={r.id} style={styles.actionModalRow}>
                     <Text style={styles.actionModalRowText} numberOfLines={1}>{r.name}{r.code ? ` (${r.code})` : ''}</Text>
@@ -401,8 +521,8 @@ export default function WarehouseManageScreen() {
                 <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonSecondary]} onPress={() => setShowQuickCleanModal(false)} activeOpacity={0.8}>
                   <Text style={styles.actionModalButtonSecondaryText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonWarning]} onPress={doQuickCleanConfirm} activeOpacity={0.8}>
-                  <Text style={styles.actionModalButtonWarningText}>Clean</Text>
+                <TouchableOpacity style={[styles.actionModalButton, styles.actionModalButtonDanger]} onPress={doQuickCleanConfirm} activeOpacity={0.8}>
+                  <Text style={styles.actionModalButtonDangerText}>Delete</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -500,7 +620,7 @@ export default function WarehouseManageScreen() {
             <View style={styles.headerTableRowNameCell}>
               <Text style={styles.tableHeaderNameLeft}>Warehouse</Text>
               <Text style={styles.headerSelectedCount}>
-                （{selectedWarehouseIds.size}/{mergeHistoryData ? mergeHistoryData.roots.length : 0}）
+                ({selectedWarehouseIds.size}/{mergeHistoryData ? mergeHistoryData.roots.length : warehouses.length})
               </Text>
             </View>
             <View style={styles.countsCell}>
@@ -511,15 +631,21 @@ export default function WarehouseManageScreen() {
         </View>
       ) : (
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>仓库与仓位</Text>
+          <View style={styles.headerTitleContainer}>
+            <GradientText
+              text="Warehouses and locations for inventory, Expand to add and manage storage spots."
+              style={styles.headerTitle}
+              containerStyle={styles.gradientTextContainer}
+            />
+          </View>
         </View>
       )}
 
-      {mergeMode && mergeHistoryData ? (
-        <ScrollView style={styles.scrollView} contentContainerStyle={[styles.content, styles.scrollContentWithBottomBar]}>
+      {mergeMode ? (
+        <ScrollView style={styles.scrollView} contentContainerStyle={[styles.content, styles.contentTop, styles.scrollContentWithBottomBar]}>
           <View style={styles.whList}>
-            {mergeHistoryData.roots.map((root) => {
-              const children = mergeHistoryData.childrenByRootId.get(root.id) ?? [];
+            {sortedMergeDisplayRoots.map((root) => {
+              const children = mergeHistoryData?.childrenByRootId?.get(root.id) ?? [];
               const expanded = expandedRootIds.has(root.id);
               const hasChildren = children.length > 0;
               return (
@@ -531,7 +657,7 @@ export default function WarehouseManageScreen() {
                       </View>
                       <Text style={styles.warehouseName} numberOfLines={1}>{root.name}{root.code ? ` (${root.code})` : ''}</Text>
                       <View style={styles.countsCell}>
-                        <Text style={styles.countText}>{expanded ? directCount(root.id) : totalCount(root, children)}</Text>
+                        <Text style={styles.countText}>{usageCounts ? (expanded ? directCount(root.id) : totalCount(root, children)) : '0'}</Text>
                       </View>
                     </TouchableOpacity>
                     {hasChildren ? (
@@ -550,12 +676,14 @@ export default function WarehouseManageScreen() {
                         </View>
                         <Text style={styles.childName} numberOfLines={1}>{child.name}{child.code ? ` (${child.code})` : ''}</Text>
                         <View style={styles.countsCell}>
-                          <Text style={styles.countText}>{directCount(child.id)}</Text>
+                          <Text style={styles.countText}>{usageCounts ? directCount(child.id) : '0'}</Text>
                         </View>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.childRowUnmergeButton} onPress={() => handleUnmerge(child.id)} hitSlop={{ left: 8, right: 8, top: 8, bottom: 8 }}>
-                        <Ionicons name="exit-outline" size={14} color="#6C5CE7" />
-                      </TouchableOpacity>
+                      {mergeHistoryData && (
+                        <TouchableOpacity style={styles.childRowUnmergeButton} onPress={() => handleUnmerge(child.id)} hitSlop={{ left: 8, right: 8, top: 8, bottom: 8 }}>
+                          <Ionicons name="exit-outline" size={14} color="#6C5CE7" />
+                        </TouchableOpacity>
+                      )}
                     </View>
                   ))}
                 </View>
@@ -564,93 +692,165 @@ export default function WarehouseManageScreen() {
           </View>
         </ScrollView>
       ) : (
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined} keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}>
         <ScrollView
+          ref={scrollViewRef}
           style={styles.scrollView}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[styles.content, styles.contentTop, styles.scrollContentWithBottomBar, showAddForm && keyboardHeight > 0 && { paddingBottom: 88 + keyboardHeight + 6 }]}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(); }} colors={['#6C5CE7']} />}
+          keyboardShouldPersistTaps="handled"
         >
-          <TouchableOpacity style={styles.addCard} onPress={openAddWh}>
-            <Ionicons name="add-circle-outline" size={22} color="#6C5CE7" />
-            <Text style={styles.addCardText}>新增仓库</Text>
-          </TouchableOpacity>
-
-          {warehouses.map((w) => (
-            <View key={w.id} style={styles.warehouseCard}>
-              <TouchableOpacity
-                style={styles.warehouseRow}
-                onPress={() => setExpandedId(expandedId === w.id ? null : w.id)}
-                activeOpacity={0.7}
-              >
-                <Ionicons name={expandedId === w.id ? 'chevron-down' : 'chevron-forward'} size={20} color="#95A5A6" />
-                <Text style={styles.warehouseName}>{w.name}</Text>
-                {w.code ? <Text style={styles.warehouseCode}>{w.code}</Text> : null}
-                <TouchableOpacity onPress={() => openEditWh(w)} style={styles.iconBtn}>
-                  <Ionicons name="create-outline" size={18} color="#6C5CE7" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => removeWh(w)} style={styles.iconBtn}>
-                  <Ionicons name="trash-outline" size={18} color="#E74C3C" />
-                </TouchableOpacity>
-              </TouchableOpacity>
-
-              {expandedId === w.id && (
-                <View style={styles.locations}>
-                  <TouchableOpacity style={styles.addLocRow} onPress={() => openAddLoc(w.id)}>
-                    <Ionicons name="add" size={18} color="#6C5CE7" />
-                    <Text style={styles.addLocText}>新增仓位</Text>
+          <View ref={scrollContentRef} style={styles.whList}>
+            {warehouses.map((w) => (
+              <View key={w.id} style={styles.warehouseCard}>
+                <TouchableOpacity
+                  style={styles.warehouseRow}
+                  onPress={() => {
+                    if (expandedId === w.id) {
+                      setExpandedId(null);
+                      setShowAddLocFormForWhId((id) => (id === w.id ? null : id));
+                    } else {
+                      setExpandedId(w.id);
+                    }
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={expandedId === w.id ? 'chevron-down' : 'chevron-forward'} size={20} color="#95A5A6" />
+                  <Text style={styles.warehouseName}>{w.name}</Text>
+                  {w.code ? <Text style={styles.warehouseCode}>{w.code}</Text> : null}
+                  <TouchableOpacity onPress={() => openEditWh(w)} style={styles.iconBtn}>
+                    <Ionicons name="create-outline" size={18} color="#6C5CE7" />
                   </TouchableOpacity>
-                  {(locationsByWh[w.id] || []).map((loc) => (
-                    <View key={loc.id} style={styles.locRow}>
-                      <Text style={styles.locName}>{loc.name}</Text>
-                      {loc.code ? <Text style={styles.locCode}>{loc.code}</Text> : null}
-                      <TouchableOpacity onPress={() => openEditLoc(w.id, loc)} style={styles.iconBtn}>
-                        <Ionicons name="create-outline" size={16} color="#6C5CE7" />
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={() => removeLoc(loc)} style={styles.iconBtn}>
-                        <Ionicons name="trash-outline" size={16} color="#E74C3C" />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
+                </TouchableOpacity>
+
+                {expandedId === w.id && (
+                  <View style={styles.locations}>
+                    <TouchableOpacity style={styles.addLocRow} onPress={() => openAddLoc(w.id)} disabled={showAddLocFormForWhId === w.id}>
+                      <Ionicons name="add" size={18} color="#6C5CE7" />
+                      <Text style={styles.addLocText}>Add location</Text>
+                    </TouchableOpacity>
+                    {(locationsByWh[w.id] || []).map((loc) => (
+                      <View key={loc.id} style={styles.locRow}>
+                        <Text style={styles.locName}>{loc.name}</Text>
+                        {loc.code ? <Text style={styles.locCode}>{loc.code}</Text> : null}
+                        <TouchableOpacity onPress={() => openEditLoc(w.id, loc)} style={styles.iconBtn}>
+                          <Ionicons name="create-outline" size={16} color="#6C5CE7" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                    {showAddLocFormForWhId === w.id && (
+                      <View style={styles.locFormCard}>
+                        <View style={styles.locEditRow}>
+                          <TextInput
+                            ref={newLocNameInputRef}
+                            style={styles.input}
+                            value={newLocName}
+                            onChangeText={setNewLocName}
+                            placeholder="Location name *"
+                            placeholderTextColor="#95A5A6"
+                          />
+                          <TextInput
+                            style={styles.input}
+                            value={newLocCode}
+                            onChangeText={setNewLocCode}
+                            placeholder="Code (optional)"
+                            placeholderTextColor="#95A5A6"
+                          />
+                          <View style={actionButtonStyles.editRowButtons}>
+                            <TouchableOpacity style={actionButtonStyles.editCancelButton} onPress={() => { setShowAddLocFormForWhId(null); setNewLocName(''); setNewLocCode(''); }} disabled={saving}>
+                              <Text style={actionButtonStyles.editCancelButtonText}>Cancel</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={actionButtonStyles.editConfirmButton} onPress={handleAddLocation} disabled={saving || !newLocName.trim()}>
+                              {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={actionButtonStyles.editConfirmButtonText}>Confirm</Text>}
+                            </TouchableOpacity>
+                          </View>
+                        </View>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
+            ))}
+            {showAddForm && (
+              <View ref={addFormCardRef} style={styles.formCard}>
+                <View style={styles.editRow}>
+                  <TextInput
+                    ref={newWhNameInputRef}
+                    style={styles.input}
+                    value={newWhName}
+                    onChangeText={setNewWhName}
+                    placeholder="Warehouse name *"
+                    placeholderTextColor="#95A5A6"
+                  />
+                  <TextInput style={styles.input} value={newWhCode} onChangeText={setNewWhCode} placeholder="Code (optional)" placeholderTextColor="#95A5A6" />
+                  <TextInput style={[styles.input, styles.inputArea]} value={newWhAddress} onChangeText={setNewWhAddress} placeholder="Address (optional)" placeholderTextColor="#95A5A6" multiline />
+                  <View style={actionButtonStyles.editRowButtons}>
+                    <TouchableOpacity style={actionButtonStyles.editCancelButton} onPress={() => { setShowAddForm(false); setNewWhName(''); setNewWhCode(''); setNewWhAddress(''); }} disabled={saving}>
+                      <Text style={actionButtonStyles.editCancelButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity style={actionButtonStyles.editConfirmButton} onPress={handleAddWarehouse} disabled={saving || !newWhName.trim()}>
+                      {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={actionButtonStyles.editConfirmButtonText}>Confirm</Text>}
+                    </TouchableOpacity>
+                  </View>
                 </View>
-              )}
-            </View>
-          ))}
+              </View>
+            )}
+          </View>
         </ScrollView>
+        </KeyboardAvoidingView>
       )}
 
-      {!mergeMode && (
-        <View style={styles.bottomBar}>
-          <TouchableOpacity style={styles.bottomBarAddButton} onPress={openAddWh}>
-            <Ionicons name="add-circle" size={20} color="#fff" />
-            <Text style={styles.bottomBarAddButtonText}>Add</Text>
+      {!showAddForm && !mergeMode && (
+        <View style={[actionButtonStyles.bar, actionButtonStyles.barMergeMode]}>
+          <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={openAddWh}>
+            <Ionicons name="add-circle" size={20} color="#6C5CE7" style={actionButtonStyles.barIconFix} />
+            <Text style={actionButtonStyles.barButtonSecondaryText}>Add</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.bottomBarMergeButton} onPress={handleStartMerge}>
-            <Ionicons name="git-merge-outline" size={20} color="#fff" />
-            <Text style={styles.bottomBarMergeButtonText}>Merge & Clean</Text>
+          <TouchableOpacity style={actionButtonStyles.barButtonPrimaryFlex} onPress={handleStartMerge}>
+            <Ionicons name="git-merge-outline" size={20} color="#fff" style={actionButtonStyles.barIconFix} />
+            <Text style={actionButtonStyles.barButtonPrimaryText}>Merge & Clean</Text>
           </TouchableOpacity>
         </View>
       )}
 
       {mergeMode && (
-        <View style={[styles.bottomBar, styles.bottomBarMergeMode]}>
-          {selectedWarehouseIds.size === 0 ? (
-            <View style={styles.bottomBarCleanWrapper}>
-              <TouchableOpacity style={styles.bottomBarCleanButton} onPress={handleCleanEmpty}>
-                <Ionicons name="trash-outline" size={18} color="#E67E22" />
-                <Text style={styles.bottomBarCleanButtonText}>Quick Clean</Text>
+        <View style={[actionButtonStyles.bar, actionButtonStyles.barMergeMode]}>
+          {selectedWarehouseIds.size === 0 && (
+            <>
+              <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
+                <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
               </TouchableOpacity>
-            </View>
-          ) : (
-            <View style={styles.bottomBarMergeActions}>
-              <TouchableOpacity style={styles.bottomBarCancelButton} onPress={handleCancelMerge}>
-                <Text style={styles.bottomBarCancelButtonText}>Cancel</Text>
+              <TouchableOpacity style={actionButtonStyles.barButtonDangerFlex} onPress={handleCleanEmpty}>
+                <Ionicons name="trash-outline" size={18} color="#E74C3C" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonDangerText} numberOfLines={1}>Quick Clean</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.bottomBarConfirmButton} onPress={handleConfirmMerge} disabled={selectedWarehouseIds.size < 2}>
-                <Text style={styles.bottomBarConfirmButtonText}>Merge</Text>
+            </>
+          )}
+          {selectedWarehouseIds.size === 1 && (
+            <>
+              <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
+                <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.bottomBarDeleteButton} onPress={handleDeleteSelected}>
-                <Text style={styles.bottomBarDeleteButtonText}>Delete</Text>
+              <TouchableOpacity style={actionButtonStyles.barButtonDangerFlex} onPress={handleDeleteSelected}>
+                <Ionicons name="trash-outline" size={18} color="#E74C3C" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonDangerText} numberOfLines={1}>Delete</Text>
               </TouchableOpacity>
-            </View>
+            </>
+          )}
+          {selectedWarehouseIds.size >= 2 && (
+            <>
+              <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
+                <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={actionButtonStyles.barButtonPrimaryFlex} onPress={handleConfirmMerge}>
+                <Ionicons name="git-merge-outline" size={18} color="#fff" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonPrimaryText} numberOfLines={1}>Merge</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={actionButtonStyles.barButtonDangerFlex} onPress={handleDeleteSelected}>
+                <Ionicons name="trash-outline" size={18} color="#E74C3C" style={actionButtonStyles.barIconFix} />
+                <Text style={actionButtonStyles.barButtonDangerText} numberOfLines={1}>Delete</Text>
+              </TouchableOpacity>
+            </>
           )}
         </View>
       )}
@@ -658,16 +858,16 @@ export default function WarehouseManageScreen() {
       <Modal visible={whModal !== null} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>{whModal === 'add' ? '新增仓库' : '编辑仓库'}</Text>
-            <TextInput style={styles.input} placeholder="仓库名称 *" placeholderTextColor="#95A5A6" value={whName} onChangeText={setWhName} />
-            <TextInput style={styles.input} placeholder="编码（可选）" placeholderTextColor="#95A5A6" value={whCode} onChangeText={setWhCode} />
-            <TextInput style={[styles.input, styles.inputArea]} placeholder="地址（可选）" placeholderTextColor="#95A5A6" value={whAddress} onChangeText={setWhAddress} multiline />
+            <Text style={styles.modalTitle}>{whModal === 'add' ? 'Add warehouse' : 'Edit warehouse'}</Text>
+            <TextInput style={styles.input} placeholder="Warehouse name *" placeholderTextColor="#95A5A6" value={whName} onChangeText={setWhName} />
+            <TextInput style={styles.input} placeholder="Code (optional)" placeholderTextColor="#95A5A6" value={whCode} onChangeText={setWhCode} />
+            <TextInput style={[styles.input, styles.inputArea]} placeholder="Address (optional)" placeholderTextColor="#95A5A6" value={whAddress} onChangeText={setWhAddress} multiline />
             <View style={styles.modalButtons}>
               <TouchableOpacity style={[styles.modalBtn, styles.cancelBtn]} onPress={() => setWhModal(null)} disabled={saving}>
-                <Text style={styles.cancelBtnText}>取消</Text>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.modalBtn, styles.saveBtn]} onPress={saveWh} disabled={saving || !whName.trim()}>
-                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveBtnText}>保存</Text>}
+                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveBtnText}>Save</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -677,15 +877,15 @@ export default function WarehouseManageScreen() {
       <Modal visible={locModal !== null} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalBox}>
-            <Text style={styles.modalTitle}>{locEditId ? '编辑仓位' : '新增仓位'}</Text>
-            <TextInput style={styles.input} placeholder="仓位名称 *" placeholderTextColor="#95A5A6" value={locName} onChangeText={setLocName} />
-            <TextInput style={styles.input} placeholder="编码（可选）" placeholderTextColor="#95A5A6" value={locCode} onChangeText={setLocCode} />
+            <Text style={styles.modalTitle}>Edit location</Text>
+            <TextInput style={styles.input} placeholder="Location name *" placeholderTextColor="#95A5A6" value={locName} onChangeText={setLocName} />
+            <TextInput style={styles.input} placeholder="Code (optional)" placeholderTextColor="#95A5A6" value={locCode} onChangeText={setLocCode} />
             <View style={styles.modalButtons}>
               <TouchableOpacity style={[styles.modalBtn, styles.cancelBtn]} onPress={() => setLocModal(null)} disabled={saving}>
-                <Text style={styles.cancelBtnText}>取消</Text>
+                <Text style={styles.cancelBtnText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.modalBtn, styles.saveBtn]} onPress={saveLoc} disabled={saving || !locName.trim()}>
-                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveBtnText}>保存</Text>}
+                {saving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.saveBtnText}>Save</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -720,7 +920,10 @@ const styles = StyleSheet.create({
     elevation: 6,
   },
   toastText: { color: '#fff', fontSize: 15, fontWeight: '600', textAlign: 'center' },
-  content: { padding: 16, paddingBottom: 40 },
+  content: { padding: 16, paddingRight: 12 },
+  contentTop: { paddingTop: 6 },
+  formCard: { backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#E9ECEF' },
+  editRow: { flexDirection: 'column' as const, gap: 8 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   header: {
     flexDirection: 'row',
@@ -733,7 +936,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
   },
+  headerTitleContainer: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
   headerTitle: { fontSize: 16, fontWeight: '600', textAlign: 'center' },
+  gradientTextContainer: { alignItems: 'center', justifyContent: 'center' },
   headerMerge: {
     flexDirection: 'column',
     paddingTop: 13,
@@ -749,9 +954,9 @@ const styles = StyleSheet.create({
   headerTableRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 2,
     paddingLeft: 6,
-    paddingRight: 32,
+    paddingRight: 12,
     paddingTop: 0,
     paddingBottom: 0,
     minHeight: 24,
@@ -761,43 +966,43 @@ const styles = StyleSheet.create({
   headerTableRowNameCell: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start' },
   tableHeaderNameLeft: { fontSize: 13, fontWeight: '600', color: '#636E72' },
   headerSelectedCount: { fontSize: 13, fontWeight: '600', color: '#636E72', marginLeft: 4 },
-  tableHeaderCount: { minWidth: 64, fontSize: 13, fontWeight: '600', color: '#636E72', textAlign: 'right' },
+  tableHeaderCount: { minWidth: 72, fontSize: 13, fontWeight: '600', color: '#636E72', textAlign: 'right' },
   checkboxContainer: { width: 32, height: 32, justifyContent: 'center', alignItems: 'center', flexShrink: 0 },
-  expandPlaceholderSmall: { width: 18 },
+  expandPlaceholderSmall: { width: 20 },
+  expandButtonSmall: { width: 20, alignItems: 'center', justifyContent: 'center', padding: 2 },
   scrollView: { flex: 1 },
   scrollContentWithBottomBar: { paddingBottom: 88 },
-  whList: { gap: 12 },
-  warehouseCard: { backgroundColor: '#fff', borderRadius: 12, marginBottom: 12, borderWidth: 1, borderColor: '#E9ECEF', overflow: 'hidden' },
-  mergeRowRoot: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 40, padding: 12 },
-  mergeRowSelectionArea: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 },
-  countsCell: { alignItems: 'center', justifyContent: 'flex-end', minWidth: 64 },
+  whList: { gap: 6 },
+  warehouseCard: { backgroundColor: '#fff', borderRadius: 8, padding: 10, paddingRight: 4, minHeight: 40, overflow: 'hidden' },
+  mergeRowRoot: { flexDirection: 'row', alignItems: 'center', gap: 2, minHeight: 40 },
+  mergeRowSelectionArea: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  countsCell: { alignItems: 'center', justifyContent: 'flex-end', minWidth: 72 },
   countText: { fontSize: 13, color: '#636E72', textAlign: 'right' },
-  expandButtonSmall: { padding: 2, marginRight: 4 },
   childRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingLeft: 20,
+    gap: 2,
+    paddingLeft: 8,
     paddingVertical: 6,
     minHeight: 40,
     borderTopWidth: 1,
     borderTopColor: '#E9ECEF',
   },
   childName: { flex: 1, fontSize: 14, color: '#636E72' },
-  childRowUnmergeButton: { width: 18, marginRight: 4, padding: 2, justifyContent: 'center', alignItems: 'center' },
+  childRowUnmergeButton: { width: 20, padding: 2, justifyContent: 'center', alignItems: 'center' },
   whRowSelected: { backgroundColor: '#E8F4FD', borderRadius: 8, padding: 4 },
-  warehouseRow: { flexDirection: 'row', alignItems: 'center', padding: 16, gap: 8 },
+  warehouseRow: { flexDirection: 'row', alignItems: 'center', gap: 10, minHeight: 40 },
   warehouseName: { flex: 1, fontSize: 16, fontWeight: '600', color: '#2D3436' },
   warehouseCode: { fontSize: 14, color: '#636E72' },
   iconBtn: { padding: 4 },
-  addCard: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#fff', borderRadius: 12, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: '#E9ECEF' },
-  addCardText: { fontSize: 16, fontWeight: '600', color: '#6C5CE7' },
-  locations: { paddingHorizontal: 16, paddingBottom: 12, borderTopWidth: 1, borderTopColor: '#F0F0F0' },
-  addLocRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12 },
+  locations: { paddingHorizontal: 12, paddingTop: 8, paddingBottom: 12, borderTopWidth: 1, borderTopColor: '#E9ECEF' },
+  addLocRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10, minHeight: 40 },
   addLocText: { fontSize: 14, fontWeight: '500', color: '#6C5CE7' },
-  locRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingLeft: 16, gap: 8 },
+  locRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 8, paddingLeft: 8, gap: 8, minHeight: 40 },
   locName: { flex: 1, fontSize: 15, color: '#2D3436' },
   locCode: { fontSize: 13, color: '#95A5A6' },
+  locFormCard: { backgroundColor: '#F8F9FA', borderRadius: 8, padding: 10, marginTop: 8, marginBottom: 8, borderWidth: 1, borderColor: '#E9ECEF' },
+  locEditRow: { flexDirection: 'column' as const, gap: 8 },
   bottomBar: {
     position: 'absolute',
     bottom: 0,
@@ -890,7 +1095,9 @@ const styles = StyleSheet.create({
   actionModalHeaderIconWrap: { marginBottom: 8 },
   actionModalTitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', marginTop: 8, marginBottom: 4, textAlign: 'center' },
   actionModalSubtitle: { fontSize: 16, fontWeight: '700', color: '#1A1A2E', textAlign: 'center', lineHeight: 22, paddingHorizontal: 8 },
-  actionModalList: { width: '100%', minHeight: 180, maxHeight: 360, marginTop: 8, marginBottom: 20 },
+  actionModalSubtitleLight: { fontSize: 14, fontWeight: '400', color: '#636E72', textAlign: 'center', marginTop: 4 },
+  actionModalList: { width: '100%', minHeight: 120, maxHeight: 352, marginTop: 8, marginBottom: 20 },
+  actionModalListContent: { paddingBottom: 8 },
   actionModalRow: { paddingVertical: 12, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#E9ECEF' },
   actionModalRowTappable: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 12, paddingHorizontal: 12, borderBottomWidth: 1, borderBottomColor: '#E9ECEF' },
   actionModalRowSelected: { backgroundColor: '#E8F4FD', borderLeftWidth: 3, borderLeftColor: '#6C5CE7' },
