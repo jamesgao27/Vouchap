@@ -447,17 +447,77 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
 }
 
 // 获取所有小票（当前家庭的）
-/** 获取当前空间下所有小票（列表用，不加载 items 明细，性能优化） */
+
+/** 首屏极速加载：仅 receipts 表、limit 15、无 join，用于立即渲染，合计后续更新 */
+const FIRST_PAINT_LIMIT = 15;
+
+export async function getReceiptsForListFirstPaint(): Promise<Receipt[]> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const { data, error } = await supabase
+    .from('receipts')
+    .select(`
+      id, space_id, supplier_id, supplier_customer_id, total_amount, currency, tax, date, account_id, status, image_url, input_type, confidence, processed_by, created_at, updated_at, created_by,
+      suppliers (name),
+      customers!receipts_supplier_customer_id_fkey (name),
+      accounts (name),
+      created_by_user:users!created_by (id, email, name, current_space_id)
+    `)
+    .eq('space_id', spaceId)
+    .order('created_at', { ascending: false })
+    .limit(FIRST_PAINT_LIMIT);
+
+  if (error) throw error;
+  const rows = data || [];
+  return rows.map((row: any) => {
+    const supplierName = row.suppliers?.name || row.customers?.name || '';
+    return {
+    id: row.id,
+    spaceId: row.space_id,
+    supplierName,
+    storeName: supplierName,
+    supplierId: row.supplier_id ?? undefined,
+    supplierCustomerId: row.supplier_customer_id ?? undefined,
+    supplier: undefined,
+    supplierCustomer: undefined,
+    totalAmount: row.total_amount,
+    currency: row.currency,
+    tax: row.tax,
+    date: normalizeDate(row.date),
+    accountId: row.account_id,
+    account: row.account_id && row.accounts ? { id: row.account_id, spaceId, name: row.accounts.name || '', isAiRecognized: false, createdAt: '', updatedAt: '' } : (row.account_id ? { id: row.account_id, spaceId, name: '', isAiRecognized: false, createdAt: '', updatedAt: '' } : undefined),
+    status: row.status as ReceiptStatus,
+    imageUrl: row.image_url,
+    inputType: row.input_type || (row.image_url ? 'image' : 'text'),
+    confidence: row.confidence,
+    processedBy: row.processed_by,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdBy: row.created_by,
+    createdByUser: row.created_by_user ? {
+      id: row.created_by_user.id,
+      email: row.created_by_user.email,
+      name: row.created_by_user.name,
+      spaceId: row.created_by_user.current_space_id,
+    } : undefined,
+    items: [],
+  };
+  });
+}
+
+/** 获取当前空间下所有小票（列表用，含 merge 解析，不加载 items 明细） */
 export async function getAllReceiptsForList(): Promise<Receipt[]> {
   try {
-    console.log('📊 [getAllReceiptsForList] 开始查询小票数据（轻量级）...');
+    console.log('📊 [getAllReceiptsForList] 开始查询小票数据（含 merge 解析）...');
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
 
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
-    // 轻量级查询：不加载 receipt_items
     const { data, error } = await supabase
       .from('receipts')
       .select(`
@@ -465,19 +525,14 @@ export async function getAllReceiptsForList(): Promise<Receipt[]> {
         suppliers (*),
         accounts (*),
         customers!receipts_supplier_customer_id_fkey (*),
-        created_by_user:users!created_by (
-          id,
-          email,
-          name,
-          current_space_id
-        )
+        created_by_user:users!created_by (id, email, name, current_space_id)
       `)
       .eq('space_id', spaceId)
       .order('created_at', { ascending: false });
 
     if (error) throw error;
 
-    // 优化：只在需要时才查询 merge maps 和额外数据
+    // merge maps 和 getById 解析（后加载阶段）
     const rows = data || [];
     const [mergeMap, customerMergeMap, accountMergeMap] = await Promise.all([
       getSupplierMergeMap(spaceId),

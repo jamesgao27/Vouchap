@@ -71,8 +71,67 @@ function rowToInvoice(row: any, items: InvoiceItem[] = []): Invoice {
   };
 }
 
-/** 获取当前空间下所有发票（列表用，含 account / createdByUser / customer，不含明细）；合并指向会解析为最终目标展示 */
-/** 获取当前空间下所有发票（列表用，不加载 items 明细，性能优化） */
+/** 首屏极速加载：仅 invoices 表、limit 15、无 join，用于立即渲染，合计后续更新 */
+const FIRST_PAINT_LIMIT = 15;
+
+export async function getInvoicesForListFirstPaint(): Promise<Invoice[]> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const { data, error } = await supabase
+    .from('invoices')
+    .select(`
+      id, space_id, customer_id, customer_supplier_id, customer_name, total_amount, currency, tax, date, account_id, status, image_url, input_type, confidence, processed_by, created_at, updated_at, created_by,
+      customers (name),
+      suppliers:suppliers!invoices_customer_supplier_id_fkey (name),
+      accounts (name),
+      created_by_user:users!created_by (id, email, name, current_space_id)
+    `)
+    .eq('space_id', spaceId)
+    .order('date', { ascending: false })
+    .limit(FIRST_PAINT_LIMIT);
+
+  if (error) throw error;
+  const rows = data || [];
+  return rows.map((r: any) => {
+    const customerName = r.customer_name || r.customers?.name || r.suppliers?.name || '';
+    const accountName = r.accounts?.name || '';
+    return {
+    id: r.id,
+    spaceId: r.space_id,
+    customerName,
+    customerId: r.customer_id ?? undefined,
+    customerSupplierId: r.customer_supplier_id ?? undefined,
+    customer: undefined,
+    customerSupplier: undefined,
+    totalAmount: Number(r.total_amount),
+    currency: r.currency ?? undefined,
+    tax: r.tax != null ? Number(r.tax) : undefined,
+    date: r.date,
+    accountId: r.account_id ?? undefined,
+    account: r.account_id ? { id: r.account_id, spaceId, name: accountName, isAiRecognized: false, createdAt: '', updatedAt: '' } : undefined,
+    status: r.status ?? 'pending',
+    imageUrl: r.image_url ?? undefined,
+    inputType: r.input_type ?? 'image',
+    confidence: r.confidence != null ? Number(r.confidence) : undefined,
+    processedBy: r.processed_by ?? undefined,
+    createdBy: r.created_by ?? undefined,
+    createdByUser: r.created_by_user ? {
+      id: r.created_by_user.id,
+      email: r.created_by_user.email,
+      name: r.created_by_user.name,
+      spaceId: r.created_by_user.current_space_id ?? null,
+    } : undefined,
+    items: [],
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+  });
+}
+
+/** 获取当前空间下所有发票（列表用，含 merge 解析，不含 items） */
 export async function getAllInvoicesForList(): Promise<Invoice[]> {
   const user = await getCurrentUser();
   if (!user) throw new Error('Not logged in');
@@ -86,12 +145,7 @@ export async function getAllInvoicesForList(): Promise<Invoice[]> {
       customers (*),
       suppliers!invoices_customer_supplier_id_fkey (*),
       accounts (*),
-      created_by_user:users!created_by (
-        id,
-        email,
-        name,
-        current_space_id
-      )
+      created_by_user:users!created_by (id, email, name, current_space_id)
     `)
     .eq('space_id', spaceId)
     .order('date', { ascending: false });

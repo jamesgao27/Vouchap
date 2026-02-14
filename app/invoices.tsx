@@ -12,11 +12,10 @@ import {
   Modal,
   ScrollView,
   Animated,
-  InteractionManager,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getAllInvoicesForList, getAllInvoicesWithItems, deleteInvoice, saveInvoice } from '@/lib/invoices';
+import { getInvoicesForListFirstPaint, getAllInvoicesWithItems, deleteInvoice, saveInvoice } from '@/lib/invoices';
 import { Invoice } from '@/types';
 import { format } from 'date-fns';
 import { getExchangeRates, sumAmountsInCurrency } from '@/lib/exchange-rates';
@@ -87,44 +86,30 @@ export default function InvoicesScreen() {
   const fabAnimation = useRef(new Animated.Value(0)).current;
   const router = useRouter();
 
-  /** 异步后加载：汇率（用于分组合计）、明细 items（用于搜索），不阻塞列表首屏 */
+  /** 异步后加载：汇率、merge 解析 + 明细 items（getAllInvoicesWithItems 已含 merge），不阻塞首屏 */
   const loadDetailsAsync = useCallback(() => {
-    getExchangeRates().then(rates => setExchangeRates(rates));
+    getExchangeRates().then(rates => setExchangeRates(rates)).catch(() => {});
     getAllInvoicesWithItems().then(fullData => {
-      setInvoices(prev => {
-        const idToItems = new Map<string, NonNullable<Invoice['items']>>();
-        fullData.forEach(r => {
-          if (r.id && r.items && r.items.length > 0) idToItems.set(r.id, r.items);
-        });
-        if (idToItems.size === 0) return prev;
-        return prev.map(r => ({
-          ...r,
-          items: idToItems.get(r.id!) ?? r.items ?? [],
-        }));
-      });
-    }).catch(err => console.warn('[loadDetailsAsync] 明细加载失败:', err));
+      setInvoices(fullData);
+    }).catch(() => {});
   }, []);
 
   const loadInvoices = useCallback(async () => {
     try {
-      const data = await getAllInvoicesForList();
+      const data = await getInvoicesForListFirstPaint();
       setInvoices(data);
+      setLoading(false);
+      setRefreshing(false);
       loadDetailsAsync();
     } catch (error) {
       Alert.alert('Error', 'Failed to load income');
       console.error(error);
-    } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, [loadDetailsAsync]);
 
-  useFocusEffect(
-    useCallback(() => {
-      const task = InteractionManager.runAfterInteractions(() => loadInvoices());
-      return () => task.cancel();
-    }, [loadInvoices])
-  );
+  useFocusEffect(useCallback(() => { loadInvoices(); }, [loadInvoices]));
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -595,7 +580,7 @@ export default function InvoicesScreen() {
                 dominantCurrency || 'USD',
                 exchangeRates
               )
-            : confirmed.reduce((sum: number, r: Invoice) => sum + r.totalAmount, 0);
+            : 0;
           return (
             <TouchableOpacity style={styles.sectionHeader} onPress={() => toggleSection(section.monthKey)} activeOpacity={0.7}>
               <View style={styles.sectionHeaderContent}>

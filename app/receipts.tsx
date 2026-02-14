@@ -12,14 +12,13 @@ import {
   Animated,
   Modal,
   ScrollView,
-  InteractionManager,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 // DocumentScanner 将在需要时动态导入（因为它在 Expo Go 中不可用）
 import Constants from 'expo-constants';
-import { getAllReceiptsForList, getAllReceipts, deleteReceipt, saveReceipt } from '@/lib/database';
+import { getReceiptsForListFirstPaint, getAllReceiptsForList, getAllReceipts, deleteReceipt, saveReceipt } from '@/lib/database';
 import { Receipt, ReceiptStatus } from '@/types';
 import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
@@ -134,9 +133,12 @@ export default function ReceiptsScreen() {
   // Check if running in Expo Go
   const isExpoGo = Constants.appOwnership === 'expo';
 
-  /** 异步后加载：汇率（用于分组合计）、明细 items（用于搜索商品名），不阻塞列表首屏 */
+  /** 异步后加载：完整列表、merge 解析、汇率、明细 items，不阻塞首屏 */
   const loadDetailsAsync = useCallback(() => {
-    getExchangeRates().then(rates => setExchangeRates(rates));
+    getExchangeRates().then(rates => setExchangeRates(rates)).catch(() => {});
+    getAllReceiptsForList().then(fullList => {
+      setReceipts(fullList);
+    }).catch(() => {});
     getAllReceipts().then(fullData => {
       setReceipts(prev => {
         const idToItems = new Map<string, NonNullable<Receipt['items']>>();
@@ -149,20 +151,19 @@ export default function ReceiptsScreen() {
           items: idToItems.get(r.id!) ?? r.items ?? [],
         }));
       });
-    }).catch(err => console.warn('[loadDetailsAsync] 明细加载失败:', err));
+    }).catch(() => {});
   }, []);
 
   const loadReceipts = useCallback(async () => {
     try {
-      console.log('🔄 [loadReceipts] 开始加载小票数据（轻量级）...');
-      const data = await getAllReceiptsForList();
-      console.log(`✅ [loadReceipts] 加载完成，共 ${data.length} 条小票`);
+      const data = await getReceiptsForListFirstPaint();
       setReceipts(data);
+      setLoading(false);
+      setRefreshing(false);
       loadDetailsAsync();
     } catch (error) {
       console.error('❌ [loadReceipts] 加载失败:', error);
       Alert.alert('Error', 'Failed to load expenses');
-    } finally {
       setLoading(false);
       setRefreshing(false);
     }
@@ -492,13 +493,7 @@ export default function ReceiptsScreen() {
     };
   }, [loadReceipts]);
 
-  // 页面聚焦时延后加载，先完成转场再拉数据。首屏只加载列表，汇率和明细异步后加载
-  useFocusEffect(
-    useCallback(() => {
-      const task = InteractionManager.runAfterInteractions(() => loadReceipts());
-      return () => task.cancel();
-    }, [loadReceipts])
-  );
+  useFocusEffect(useCallback(() => { loadReceipts(); }, [loadReceipts]));
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -1160,14 +1155,14 @@ export default function ReceiptsScreen() {
               ).pop() 
             : 'USD';
           
-          // 如果有汇率数据，将所有金额折算为主要币种后合计；否则直接相加
+          // 汇率未就绪时先显示 0，避免首屏等待；就绪后按汇率折算合计
           const totalAmount = exchangeRates
             ? sumAmountsInCurrency(
                 confirmedReceipts.map((r: Receipt) => ({ amount: r.totalAmount, currency: r.currency || 'USD' })),
                 dominantCurrency || 'USD',
                 exchangeRates
               )
-            : confirmedReceipts.reduce((sum: number, receipt: Receipt) => sum + receipt.totalAmount, 0);
+            : 0;
           
           return (
             <TouchableOpacity
