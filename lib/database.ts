@@ -463,7 +463,6 @@ export async function getReceiptsForListFirstPaint(): Promise<Receipt[]> {
       id, space_id, supplier_id, supplier_customer_id, total_amount, currency, tax, date, account_id, status, image_url, input_type, confidence, processed_by, created_at, updated_at, created_by,
       suppliers (name),
       customers!receipts_supplier_customer_id_fkey (name),
-      accounts (name),
       created_by_user:users!created_by (id, email, name, current_space_id)
     `)
     .eq('space_id', spaceId)
@@ -488,7 +487,7 @@ export async function getReceiptsForListFirstPaint(): Promise<Receipt[]> {
     tax: row.tax,
     date: normalizeDate(row.date),
     accountId: row.account_id,
-    account: row.account_id && row.accounts ? { id: row.account_id, spaceId, name: row.accounts.name || '', isAiRecognized: false, createdAt: '', updatedAt: '' } : (row.account_id ? { id: row.account_id, spaceId, name: '', isAiRecognized: false, createdAt: '', updatedAt: '' } : undefined),
+    account: row.account_id ? { id: row.account_id, spaceId, name: '', isAiRecognized: false, createdAt: '', updatedAt: '' } : undefined,
     status: row.status as ReceiptStatus,
     imageUrl: row.image_url,
     inputType: row.input_type || (row.image_url ? 'image' : 'text'),

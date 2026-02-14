@@ -85,8 +85,7 @@ export async function getInvoicesForListFirstPaint(): Promise<Invoice[]> {
     .select(`
       id, space_id, customer_id, customer_supplier_id, customer_name, total_amount, currency, tax, date, account_id, status, image_url, input_type, confidence, processed_by, created_at, updated_at, created_by,
       customers (name),
-      suppliers:suppliers!invoices_customer_supplier_id_fkey (name),
-      accounts (name),
+      suppliers!invoices_customer_supplier_id_fkey (name),
       created_by_user:users!created_by (id, email, name, current_space_id)
     `)
     .eq('space_id', spaceId)
@@ -97,7 +96,6 @@ export async function getInvoicesForListFirstPaint(): Promise<Invoice[]> {
   const rows = data || [];
   return rows.map((r: any) => {
     const customerName = r.customer_name || r.customers?.name || r.suppliers?.name || '';
-    const accountName = r.accounts?.name || '';
     return {
     id: r.id,
     spaceId: r.space_id,
@@ -111,7 +109,7 @@ export async function getInvoicesForListFirstPaint(): Promise<Invoice[]> {
     tax: r.tax != null ? Number(r.tax) : undefined,
     date: r.date,
     accountId: r.account_id ?? undefined,
-    account: r.account_id ? { id: r.account_id, spaceId, name: accountName, isAiRecognized: false, createdAt: '', updatedAt: '' } : undefined,
+    account: r.account_id ? { id: r.account_id, spaceId, name: '', isAiRecognized: false, createdAt: '', updatedAt: '' } : undefined,
     status: r.status ?? 'pending',
     imageUrl: r.image_url ?? undefined,
     inputType: r.input_type ?? 'image',
