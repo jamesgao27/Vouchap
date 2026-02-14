@@ -134,12 +134,31 @@ export default function ReceiptsScreen() {
   // Check if running in Expo Go
   const isExpoGo = Constants.appOwnership === 'expo';
 
+  /** 异步后加载：汇率（用于分组合计）、明细 items（用于搜索商品名），不阻塞列表首屏 */
+  const loadDetailsAsync = useCallback(() => {
+    getExchangeRates().then(rates => setExchangeRates(rates));
+    getAllReceipts().then(fullData => {
+      setReceipts(prev => {
+        const idToItems = new Map<string, NonNullable<Receipt['items']>>();
+        fullData.forEach(r => {
+          if (r.id && r.items && r.items.length > 0) idToItems.set(r.id, r.items);
+        });
+        if (idToItems.size === 0) return prev;
+        return prev.map(r => ({
+          ...r,
+          items: idToItems.get(r.id!) ?? r.items ?? [],
+        }));
+      });
+    }).catch(err => console.warn('[loadDetailsAsync] 明细加载失败:', err));
+  }, []);
+
   const loadReceipts = useCallback(async () => {
     try {
       console.log('🔄 [loadReceipts] 开始加载小票数据（轻量级）...');
       const data = await getAllReceiptsForList();
       console.log(`✅ [loadReceipts] 加载完成，共 ${data.length} 条小票`);
       setReceipts(data);
+      loadDetailsAsync();
     } catch (error) {
       console.error('❌ [loadReceipts] 加载失败:', error);
       Alert.alert('Error', 'Failed to load expenses');
@@ -147,7 +166,7 @@ export default function ReceiptsScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [loadDetailsAsync]);
 
   const scanDocument = async () => {
     console.log('📷 [scanDocument] 开始调用文档扫描...');
@@ -473,13 +492,10 @@ export default function ReceiptsScreen() {
     };
   }, [loadReceipts]);
 
-  // 页面聚焦时延后加载，先完成转场再拉数据，不阻塞前端
+  // 页面聚焦时延后加载，先完成转场再拉数据。首屏只加载列表，汇率和明细异步后加载
   useFocusEffect(
     useCallback(() => {
-      const task = InteractionManager.runAfterInteractions(() => {
-        loadReceipts();
-        getExchangeRates().then(rates => setExchangeRates(rates));
-      });
+      const task = InteractionManager.runAfterInteractions(() => loadReceipts());
       return () => task.cancel();
     }, [loadReceipts])
   );

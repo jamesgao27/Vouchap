@@ -16,9 +16,10 @@ import {
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getAllInvoicesForList, getAllInvoices, deleteInvoice, saveInvoice } from '@/lib/invoices';
+import { getAllInvoicesForList, getAllInvoicesWithItems, deleteInvoice, saveInvoice } from '@/lib/invoices';
 import { Invoice } from '@/types';
 import { format } from 'date-fns';
+import { getExchangeRates, sumAmountsInCurrency } from '@/lib/exchange-rates';
 import { VoucherStatus } from '@/types';
 import { SwipeableRow } from './SwipeableRow';
 import { getLocalDateString } from '@/lib/date-utils';
@@ -81,14 +82,34 @@ export default function InvoicesScreen() {
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
   const [selectedCreators, setSelectedCreators] = useState<Set<string>>(new Set());
   const [filterSubMenu, setFilterSubMenu] = useState<'main' | 'month' | 'recordDate' | 'account' | 'creator'>('main');
+  const [exchangeRates, setExchangeRates] = useState<{ [key: string]: number } | null>(null);
   const [showFabActions, setShowFabActions] = useState(false);
   const fabAnimation = useRef(new Animated.Value(0)).current;
   const router = useRouter();
+
+  /** 异步后加载：汇率（用于分组合计）、明细 items（用于搜索），不阻塞列表首屏 */
+  const loadDetailsAsync = useCallback(() => {
+    getExchangeRates().then(rates => setExchangeRates(rates));
+    getAllInvoicesWithItems().then(fullData => {
+      setInvoices(prev => {
+        const idToItems = new Map<string, NonNullable<Invoice['items']>>();
+        fullData.forEach(r => {
+          if (r.id && r.items && r.items.length > 0) idToItems.set(r.id, r.items);
+        });
+        if (idToItems.size === 0) return prev;
+        return prev.map(r => ({
+          ...r,
+          items: idToItems.get(r.id!) ?? r.items ?? [],
+        }));
+      });
+    }).catch(err => console.warn('[loadDetailsAsync] 明细加载失败:', err));
+  }, []);
 
   const loadInvoices = useCallback(async () => {
     try {
       const data = await getAllInvoicesForList();
       setInvoices(data);
+      loadDetailsAsync();
     } catch (error) {
       Alert.alert('Error', 'Failed to load income');
       console.error(error);
@@ -96,7 +117,7 @@ export default function InvoicesScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [loadDetailsAsync]);
 
   useFocusEffect(
     useCallback(() => {
@@ -386,13 +407,11 @@ export default function InvoicesScreen() {
     if (!searchQuery.trim()) return filteredInvoices;
     const q = searchQuery.trim().toLowerCase();
     return filteredInvoices.filter(inv => {
-      // 搜索客户名称
       const customerNameMatch = (inv.customerName || inv.customer?.name || '').toLowerCase().includes(q);
-      // 搜索账户名称
       const accountNameMatch = inv.account?.name?.toLowerCase().includes(q) || false;
-      // 搜索金额
       const amountMatch = inv.totalAmount?.toString().includes(q) || false;
-      return customerNameMatch || accountNameMatch || amountMatch;
+      const itemsMatch = inv.items?.length ? inv.items.some(item => item.name?.toLowerCase().includes(q)) : false;
+      return customerNameMatch || accountNameMatch || amountMatch || itemsMatch;
     });
   }, [filteredInvoices, searchQuery]);
 
@@ -570,7 +589,13 @@ export default function InvoicesScreen() {
           const dominantCurrency = confirmed.length ? (confirmed.map((r: Invoice) => r.currency || 'USD').sort((a: string, b: string) =>
             confirmed.filter((v: Invoice) => (v.currency || 'USD') === a).length - confirmed.filter((v: Invoice) => (v.currency || 'USD') === b).length
           ).pop()) : 'USD';
-          const totalAmount = confirmed.reduce((sum: number, r: Invoice) => sum + r.totalAmount, 0);
+          const totalAmount = exchangeRates
+            ? sumAmountsInCurrency(
+                confirmed.map((r: Invoice) => ({ amount: r.totalAmount, currency: r.currency || 'USD' })),
+                dominantCurrency || 'USD',
+                exchangeRates
+              )
+            : confirmed.reduce((sum: number, r: Invoice) => sum + r.totalAmount, 0);
           return (
             <TouchableOpacity style={styles.sectionHeader} onPress={() => toggleSection(section.monthKey)} activeOpacity={0.7}>
               <View style={styles.sectionHeaderContent}>

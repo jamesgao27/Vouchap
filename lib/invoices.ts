@@ -180,7 +180,30 @@ export async function getAllInvoicesForList(): Promise<Invoice[]> {
   });
 }
 
-/** 获取当前空间下所有发票（完整数据，包含 items，用于详情页等需要完整数据的场景） */
+/** 获取当前空间下所有发票（含 items 明细，用于列表页搜索等需要明细的场景） */
+export async function getAllInvoicesWithItems(): Promise<Invoice[]> {
+  const invoices = await getAllInvoices();
+  const ids = invoices.map(inv => inv.id).filter((id): id is string => !!id);
+  if (ids.length === 0) return invoices;
+  const { data: itemRows } = await supabase
+    .from('invoice_items')
+    .select('id, name, price, invoice_id, category_id, purpose_id')
+    .in('invoice_id', ids)
+    .order('id', { ascending: true });
+  const itemsByInvoice = new Map<string, InvoiceItem[]>();
+  (itemRows || []).forEach((r: any) => {
+    const list = itemsByInvoice.get(r.invoice_id) ?? [];
+    list.push({ id: r.id, name: r.name, price: r.price });
+    itemsByInvoice.set(r.invoice_id, list);
+  });
+  return invoices.map(inv =>
+    inv.id && itemsByInvoice.has(inv.id)
+      ? { ...inv, items: itemsByInvoice.get(inv.id)! }
+      : inv
+  );
+}
+
+/** 获取当前空间下所有发票（完整数据，不含 items；含 items 请用 getAllInvoicesWithItems） */
 export async function getAllInvoices(): Promise<Invoice[]> {
   const user = await getCurrentUser();
   if (!user) throw new Error('Not logged in');
