@@ -1148,10 +1148,12 @@ const styles = StyleSheet.create({
   },
   headerMergeTextBlock: {
     alignItems: 'flex-start',
+    alignSelf: 'stretch',
     paddingBottom: 4,
     paddingLeft: 64,
     paddingRight: 16,
     paddingTop: 0,
+    minHeight: 56,
   },
   mergeHeaderTextInHeader: {
     fontSize: 17,
@@ -1160,7 +1162,8 @@ const styles = StyleSheet.create({
   },
   mergeHeaderGradientContainer: {
     alignItems: 'flex-start',
-    alignSelf: 'flex-start',
+    alignSelf: 'stretch',
+    width: '100%',
   },
   headerTableRow: {
     flexDirection: 'row',

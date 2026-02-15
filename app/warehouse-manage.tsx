@@ -948,9 +948,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
   },
-  headerMergeTextBlock: { alignItems: 'flex-start', paddingBottom: 4, paddingLeft: 64, paddingRight: 16, paddingTop: 0 },
+  headerMergeTextBlock: { alignItems: 'flex-start', alignSelf: 'stretch', paddingBottom: 4, paddingLeft: 64, paddingRight: 16, paddingTop: 0, minHeight: 56 },
   mergeHeaderTextInHeader: { fontSize: 17, fontWeight: '600', textAlign: 'left' },
-  mergeHeaderGradientContainer: { alignItems: 'flex-start', alignSelf: 'flex-start' },
+  mergeHeaderGradientContainer: { alignItems: 'flex-start', alignSelf: 'stretch', width: '100%' },
   headerTableRow: {
     flexDirection: 'row',
     alignItems: 'center',

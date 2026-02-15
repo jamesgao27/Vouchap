@@ -80,7 +80,7 @@ export const GradientText: React.FC<GradientTextProps> = ({
       ) : (
         <View
           onLayout={onLayout}
-          style={{ alignItems: 'center', justifyContent: 'center' }}
+          style={{ width: '100%', alignItems: 'center', justifyContent: 'center' }}
         >
           <Text style={textStyle}>{lines.join('\n')}</Text>
         </View>
