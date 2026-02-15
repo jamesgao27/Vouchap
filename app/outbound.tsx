@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
 import { showAiInventory } from '@/lib/feature-flags';
-import { getAllOutbound, deleteOutbound, saveOutbound } from '@/lib/outbound';
+import { getOutboundForListFirstPaint, getAllOutbound, deleteOutbound, saveOutbound } from '@/lib/outbound';
 import { Outbound } from '@/types';
 import { format } from 'date-fns';
 import { VoucherStatus } from '@/types';
@@ -93,6 +93,7 @@ export default function OutboundScreen() {
   const [list, setList] = useState<Outbound[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [fullDataLoaded, setFullDataLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
@@ -114,30 +115,52 @@ export default function OutboundScreen() {
     if (!showAiInventory) router.replace('/');
   }, []);
 
-  const load = useCallback(async () => {
+  const loadDetailsAsync = useCallback(() => {
+    getAllOutbound().then(fullList => {
+      setList(fullList);
+      setFullDataLoaded(true);
+    }).catch(() => setFullDataLoaded(true));
+  }, []);
+
+  const load = useCallback(async (options?: { full?: boolean }) => {
+    const full = options?.full ?? false;
     try {
-      const data = await getAllOutbound();
-      setList(data);
+      setFullDataLoaded(false);
+      if (full) {
+        const data = await getAllOutbound();
+        setList(data);
+        setFullDataLoaded(true);
+        setLoading(false);
+        setRefreshing(false);
+      } else {
+        const data = await getOutboundForListFirstPaint();
+        setList(data);
+        setFullDataLoaded(false);
+        setLoading(false);
+        setRefreshing(false);
+        loadDetailsAsync();
+      }
     } catch (e) {
       Alert.alert('Error', 'Failed to load outbound');
       console.error(e);
-    } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [loadDetailsAsync]);
 
   useFocusEffect(
     useCallback(() => {
-      const task = InteractionManager.runAfterInteractions(() => load());
-      return () => task.cancel();
-    }, [load])
+      if (list.length === 0) {
+        const task = InteractionManager.runAfterInteractions(() => load());
+        return () => task.cancel();
+      }
+    }, [load, list.length])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
     setSelectedIds(new Set());
-    load();
+    load({ full: true });
   };
 
   const handleAddOutbound = async () => {
@@ -149,7 +172,7 @@ export default function OutboundScreen() {
         status: 'pending',
         items: [],
       });
-      load();
+      load({ full: true });
       router.push(`/outbound-details/${id}?new=true`);
     } catch (e) {
       Alert.alert('Error', 'Failed to create outbound');
@@ -269,13 +292,13 @@ export default function OutboundScreen() {
         console.log('[出库单] 出库单记录创建完成，outboundId:', outboundId);
         
         setLastOutboundId(outboundId);
-        load();
+        load({ full: true });
         
         console.log('[出库单] 步骤4: 启动后台识别处理...');
         processOutboundInBackground(imageUrl, outboundId, processedImageUri)
           .then(() => {
             console.log('[出库单] ✅ 后台处理成功，刷新列表');
-            load();
+            load({ full: true });
           })
           .catch(err => {
             console.error('[出库单] ❌ 后台处理失败:');
@@ -283,7 +306,7 @@ export default function OutboundScreen() {
             console.error('[出库单] 错误消息:', err instanceof Error ? err.message : String(err));
             console.error('[出库单] 错误堆栈:', err instanceof Error ? err.stack : 'No stack trace');
             console.error('[出库单] 完整错误:', err);
-            load(); // 即使失败也刷新列表，显示pending状态
+            load({ full: true });
           });
       } catch (error) {
         const msg = getErrorMessage(error);
@@ -334,7 +357,7 @@ export default function OutboundScreen() {
               setSelectedIds(prev => { const s = new Set(prev); s.delete(outboundId); return s; });
             } catch (error) {
               Alert.alert('Error', 'Failed to delete outbound');
-              load();
+              load({ full: true });
             }
           },
         },
@@ -360,7 +383,7 @@ export default function OutboundScreen() {
               setSelectedIds(new Set());
             } catch (error) {
               Alert.alert('Error', 'Failed to delete some outbound');
-              load();
+              load({ full: true });
             }
           },
         },
@@ -505,12 +528,13 @@ export default function OutboundScreen() {
 
   const searchedList = useMemo(() => {
     if (!searchQuery.trim()) return filteredList;
+    if (!fullDataLoaded) return filteredList; // 搜索 pending，等加载完成
     const q = searchQuery.trim().toLowerCase();
     return filteredList.filter(inv =>
       (inv.documentNo || '').toLowerCase().includes(q) ||
       (inv.customerName || '').toLowerCase().includes(q)
     );
-  }, [filteredList, searchQuery]);
+  }, [filteredList, searchQuery, fullDataLoaded]);
 
   const filterOptions = useMemo(() => {
     const months = new Set<string>();
@@ -605,6 +629,11 @@ export default function OutboundScreen() {
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                 />
+                {searchQuery.trim() ? (
+                  <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.searchClear}>
+                    <Ionicons name="close-circle" size={20} color="#95A5A6" />
+                  </TouchableOpacity>
+                ) : null}
               </View>
             </>
           )}
@@ -612,7 +641,7 @@ export default function OutboundScreen() {
       </View>
 
       <SectionList
-        sections={sections.map(s => ({
+        sections={refreshing && searchQuery.trim() ? [] : sections.map(s => ({
           ...s,
           data: collapsedSections.has(s.monthKey) ? [] : s.data,
           originalData: s.data,
@@ -700,20 +729,34 @@ export default function OutboundScreen() {
           );
         }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListEmptyComponent={
-          loading && list.length === 0 ? (
+        ListEmptyComponent={(() => {
+          const isEmpty = sections.length === 0 || (refreshing && searchQuery.trim());
+          const loadInProgress = loading || refreshing || !fullDataLoaded;
+          if (loadInProgress && isEmpty) {
+            if (refreshing) return <View style={styles.emptyContainer} />;
+            return (
+              <View style={styles.emptyContainer}>
+                <ActivityIndicator size="large" color="#6C5CE7" />
+                <Text style={styles.emptyText}>Loading...</Text>
+              </View>
+            );
+          }
+          if (list.length === 0) {
+            return (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="arrow-up-circle-outline" size={64} color="#BDC3C7" />
+                <Text style={styles.emptyText}>No outbound yet</Text>
+                <Text style={styles.emptySubtext}>Tap + to add an outbound</Text>
+              </View>
+            );
+          }
+          return (
             <View style={styles.emptyContainer}>
-              <ActivityIndicator size="large" color="#6C5CE7" />
-              <Text style={styles.emptyText}>Loading...</Text>
+              <Ionicons name="search-outline" size={64} color="#BDC3C7" />
+              <Text style={styles.emptyText}>No search result</Text>
             </View>
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="arrow-up-circle-outline" size={64} color="#BDC3C7" />
-              <Text style={styles.emptyText}>No outbound yet</Text>
-              <Text style={styles.emptySubtext}>Tap + to add an outbound</Text>
-            </View>
-          )
-        }
+          );
+        })()}
         contentContainerStyle={sections.length === 0 ? styles.emptyList : styles.listContent}
         stickySectionHeadersEnabled={false}
       />

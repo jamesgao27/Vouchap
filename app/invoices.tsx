@@ -70,6 +70,7 @@ export default function InvoicesScreen() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [fullDataLoaded, setFullDataLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
@@ -91,16 +92,30 @@ export default function InvoicesScreen() {
     getExchangeRates().then(rates => setExchangeRates(rates)).catch(() => {});
     getAllInvoicesWithItems().then(fullData => {
       setInvoices(fullData);
-    }).catch(() => {});
+      setFullDataLoaded(true);
+    }).catch(() => setFullDataLoaded(true));
   }, []);
 
-  const loadInvoices = useCallback(async () => {
+  const loadInvoices = useCallback(async (options?: { full?: boolean }) => {
+    const full = options?.full ?? false;
     try {
-      const data = await getInvoicesForListFirstPaint();
-      setInvoices(data);
-      setLoading(false);
-      setRefreshing(false);
-      loadDetailsAsync();
+      setFullDataLoaded(false);
+      if (full) {
+        // 刷新：一次加载完整数据，避免中间态
+        const data = await getAllInvoicesWithItems();
+        setInvoices(data);
+        setFullDataLoaded(true);
+        setLoading(false);
+        setRefreshing(false);
+        getExchangeRates().then(rates => setExchangeRates(rates)).catch(() => {});
+      } else {
+        const data = await getInvoicesForListFirstPaint();
+        setInvoices(data);
+        setFullDataLoaded(false);
+        setLoading(false);
+        setRefreshing(false);
+        loadDetailsAsync();
+      }
     } catch (error) {
       Alert.alert('Error', 'Failed to load income');
       console.error(error);
@@ -109,12 +124,15 @@ export default function InvoicesScreen() {
     }
   }, [loadDetailsAsync]);
 
-  useFocusEffect(useCallback(() => { loadInvoices(); }, [loadInvoices]));
+  // 仅首次进入时加载，返回列表时保留当前结果；下拉刷新时由 onRefresh 处理
+  useFocusEffect(useCallback(() => {
+    if (invoices.length === 0) loadInvoices();
+  }, [loadInvoices, invoices.length]));
 
   const onRefresh = () => {
     setRefreshing(true);
     setSelectedIds(new Set());
-    loadInvoices();
+    loadInvoices({ full: true });
   };
 
   const handleAddInvoice = async () => {
@@ -390,6 +408,7 @@ export default function InvoicesScreen() {
 
   const searchedInvoices = useMemo(() => {
     if (!searchQuery.trim()) return filteredInvoices;
+    if (!fullDataLoaded) return filteredInvoices; // 搜索 pending，等加载完成
     const q = searchQuery.trim().toLowerCase();
     return filteredInvoices.filter(inv => {
       const customerNameMatch = (inv.customerName || inv.customer?.name || '').toLowerCase().includes(q);
@@ -398,7 +417,7 @@ export default function InvoicesScreen() {
       const itemsMatch = inv.items?.length ? inv.items.some(item => item.name?.toLowerCase().includes(q)) : false;
       return customerNameMatch || accountNameMatch || amountMatch || itemsMatch;
     });
-  }, [filteredInvoices, searchQuery]);
+  }, [filteredInvoices, searchQuery, fullDataLoaded]);
 
   const filterOptions = useMemo(() => {
     const months = new Set<string>();
@@ -496,6 +515,11 @@ export default function InvoicesScreen() {
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                 />
+                {searchQuery.trim() ? (
+                  <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.searchClear}>
+                    <Ionicons name="close-circle" size={20} color="#95A5A6" />
+                  </TouchableOpacity>
+                ) : null}
               </View>
             </>
           )}
@@ -503,7 +527,7 @@ export default function InvoicesScreen() {
       </View>
 
       <SectionList
-        sections={sections.map(s => ({
+        sections={refreshing && searchQuery.trim() ? [] : sections.map(s => ({
           ...s,
           data: collapsedSections.has(s.monthKey) ? [] : s.data,
           originalData: s.data,
@@ -595,20 +619,34 @@ export default function InvoicesScreen() {
           );
         }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListEmptyComponent={
-          loading && invoices.length === 0 ? (
+        ListEmptyComponent={(() => {
+          const isEmpty = sections.length === 0 || (refreshing && searchQuery.trim());
+          const loadInProgress = loading || refreshing || !fullDataLoaded;
+          if (loadInProgress && isEmpty) {
+            if (refreshing) return <View style={styles.emptyContainer} />; // RefreshControl 已有 spinner
+            return (
+              <View style={styles.emptyContainer}>
+                <ActivityIndicator size="large" color="#6C5CE7" />
+                <Text style={styles.emptyText}>Loading...</Text>
+              </View>
+            );
+          }
+          if (invoices.length === 0) {
+            return (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="document-text-outline" size={64} color="#BDC3C7" />
+                <Text style={styles.emptyText}>No income yet</Text>
+                <Text style={styles.emptySubtext}>Tap + to add income</Text>
+              </View>
+            );
+          }
+          return (
             <View style={styles.emptyContainer}>
-              <ActivityIndicator size="large" color="#6C5CE7" />
-              <Text style={styles.emptyText}>Loading...</Text>
+              <Ionicons name="search-outline" size={64} color="#BDC3C7" />
+              <Text style={styles.emptyText}>No search result</Text>
             </View>
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="document-text-outline" size={64} color="#BDC3C7" />
-              <Text style={styles.emptyText}>No income yet</Text>
-              <Text style={styles.emptySubtext}>Tap + to add income</Text>
-            </View>
-          )
-        }
+          );
+        })()}
         contentContainerStyle={sections.length === 0 ? styles.emptyList : styles.listContent}
         stickySectionHeadersEnabled={false}
       />
@@ -784,6 +822,7 @@ const styles = StyleSheet.create({
   searchContainer: { flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: '#E9ECEF' },
   searchIcon: { marginRight: 8 },
   searchInput: { flex: 1, fontSize: 14, color: '#2D3436', padding: 0 },
+  searchClear: { marginLeft: 4 },
   invoiceItem: { backgroundColor: '#fff', paddingVertical: 10, paddingHorizontal: 12, paddingLeft: 24, borderBottomWidth: 1, borderBottomColor: '#E9ECEF', flexDirection: 'row', alignItems: 'center' },
   receiptItemSelected: { backgroundColor: '#E8F4FD' },
   checkboxContainer: { marginRight: 12 },

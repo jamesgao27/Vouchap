@@ -108,6 +108,7 @@ export default function ReceiptsScreen() {
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [fullDataLoaded, setFullDataLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
@@ -133,12 +134,13 @@ export default function ReceiptsScreen() {
   // Check if running in Expo Go
   const isExpoGo = Constants.appOwnership === 'expo';
 
-  /** 异步后加载：完整列表、merge 解析、汇率、明细 items，不阻塞首屏 */
+  /** 首屏后加载：完整列表 + items，分步加载保障等待最短 */
   const loadDetailsAsync = useCallback(() => {
     getExchangeRates().then(rates => setExchangeRates(rates)).catch(() => {});
     getAllReceiptsForList().then(fullList => {
       setReceipts(fullList);
-    }).catch(() => {});
+      setFullDataLoaded(true);
+    }).catch(() => setFullDataLoaded(true));
     getAllReceipts().then(fullData => {
       setReceipts(prev => {
         const idToItems = new Map<string, NonNullable<Receipt['items']>>();
@@ -154,13 +156,26 @@ export default function ReceiptsScreen() {
     }).catch(() => {});
   }, []);
 
-  const loadReceipts = useCallback(async () => {
+  const loadReceipts = useCallback(async (options?: { full?: boolean }) => {
+    const full = options?.full ?? false;
     try {
-      const data = await getReceiptsForListFirstPaint();
-      setReceipts(data);
-      setLoading(false);
-      setRefreshing(false);
-      loadDetailsAsync();
+      setFullDataLoaded(false);
+      if (full) {
+        // 刷新：一次加载完整数据，避免两阶段导致的中间态（No result 闪屏）
+        const data = await getAllReceipts();
+        setReceipts(data);
+        setFullDataLoaded(true);
+        setLoading(false);
+        setRefreshing(false);
+        getExchangeRates().then(rates => setExchangeRates(rates)).catch(() => {});
+      } else {
+        const data = await getReceiptsForListFirstPaint();
+        setReceipts(data);
+        setFullDataLoaded(false);
+        setLoading(false);
+        setRefreshing(false);
+        loadDetailsAsync();
+      }
     } catch (error) {
       console.error('❌ [loadReceipts] 加载失败:', error);
       Alert.alert('Error', 'Failed to load expenses');
@@ -493,12 +508,15 @@ export default function ReceiptsScreen() {
     };
   }, [loadReceipts]);
 
-  useFocusEffect(useCallback(() => { loadReceipts(); }, [loadReceipts]));
+  // 仅首次进入时加载，返回列表时保留当前结果；下拉刷新时由 onRefresh 处理
+  useFocusEffect(useCallback(() => {
+    if (receipts.length === 0) loadReceipts();
+  }, [loadReceipts, receipts.length]));
 
   const onRefresh = () => {
     setRefreshing(true);
     setSelectedIds(new Set());
-    loadReceipts();
+    loadReceipts({ full: true });
   };
 
   const handleToggleSelect = (receiptId: string) => {
@@ -926,14 +944,12 @@ export default function ReceiptsScreen() {
     };
   }, [receipts]);
 
-  // 搜索小票（在筛选后的结果中搜索）
+  // 搜索小票：加载未完成时搜索记 pending，不应用过滤；fullDataLoaded 后再执行搜索
   const searchedReceipts = useMemo(() => {
-    if (!searchQuery.trim()) {
-      return filteredReceipts;
-    }
+    if (!searchQuery.trim()) return filteredReceipts;
+    if (!fullDataLoaded) return filteredReceipts; // pending，等加载完成
 
     const query = searchQuery.trim().toLowerCase();
-    
     return filteredReceipts.filter(receipt => {
       // 搜索供应商名称（优先使用 supplier.name，兼容旧数据的 supplierName）
       const displaySupplierName = receipt.supplier?.name || receipt.supplierName || '';
@@ -953,7 +969,7 @@ export default function ReceiptsScreen() {
       
       return supplierNameMatch || accountNameMatch || amountMatch || itemsMatch;
     });
-  }, [filteredReceipts, searchQuery]);
+  }, [filteredReceipts, searchQuery, fullDataLoaded]);
 
   const sections = getGroupedReceipts(searchedReceipts);
 
@@ -1033,6 +1049,11 @@ export default function ReceiptsScreen() {
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                 />
+                {searchQuery.trim() ? (
+                  <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.searchClear}>
+                    <Ionicons name="close-circle" size={20} color="#95A5A6" />
+                  </TouchableOpacity>
+                ) : null}
               </View>
             </>
           )}
@@ -1040,7 +1061,7 @@ export default function ReceiptsScreen() {
       </View>
 
       <SectionList
-        sections={sections.map(section => {
+        sections={refreshing && searchQuery.trim() ? [] : sections.map(section => {
           const isCollapsed = collapsedSections.has(section.monthKey);
           return {
             ...section,
@@ -1188,20 +1209,34 @@ export default function ReceiptsScreen() {
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
-        ListEmptyComponent={
-          loading && receipts.length === 0 ? (
+        ListEmptyComponent={(() => {
+          const isEmpty = sections.length === 0 || (refreshing && searchQuery.trim());
+          const loadInProgress = loading || refreshing || !fullDataLoaded;
+          if (loadInProgress && isEmpty) {
+            if (refreshing) return <View style={styles.emptyContainer} />; // RefreshControl 已有 spinner
+            return (
+              <View style={styles.emptyContainer}>
+                <ActivityIndicator size="large" color="#6C5CE7" />
+                <Text style={styles.emptyText}>Loading...</Text>
+              </View>
+            );
+          }
+          if (receipts.length === 0) {
+            return (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="receipt-outline" size={64} color="#BDC3C7" />
+                <Text style={styles.emptyText}>No receipts yet</Text>
+                <Text style={styles.emptySubtext}>Tap the button to add a receipt</Text>
+              </View>
+            );
+          }
+          return (
             <View style={styles.emptyContainer}>
-              <ActivityIndicator size="large" color="#6C5CE7" />
-              <Text style={styles.emptyText}>Loading...</Text>
+              <Ionicons name="search-outline" size={64} color="#BDC3C7" />
+              <Text style={styles.emptyText}>No search result</Text>
             </View>
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="receipt-outline" size={64} color="#BDC3C7" />
-              <Text style={styles.emptyText}>No receipts yet</Text>
-              <Text style={styles.emptySubtext}>Tap the button to add a receipt</Text>
-            </View>
-          )
-        }
+          );
+        })()}
         contentContainerStyle={sections.length === 0 ? styles.emptyList : styles.listContent}
         stickySectionHeadersEnabled={false}
       />
@@ -1917,6 +1952,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#2D3436',
     padding: 0,
+  },
+  searchClear: {
+    marginLeft: 4,
   },
   receiptItem: {
     backgroundColor: '#fff',

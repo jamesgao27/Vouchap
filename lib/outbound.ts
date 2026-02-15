@@ -34,6 +34,24 @@ function rowToOutbound(row: any, items: OutboundItem[] = []): Outbound {
   };
 }
 
+const FIRST_PAINT_LIMIT = 15;
+
+/** 首屏极速加载：limit 15，用于立即渲染 */
+export async function getOutboundForListFirstPaint(): Promise<Outbound[]> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+  const { data, error } = await supabase
+    .from('outbound')
+    .select('*')
+    .eq('space_id', spaceId)
+    .order('date', { ascending: false })
+    .limit(FIRST_PAINT_LIMIT);
+  if (error) throw error;
+  return (data || []).map((r: any) => rowToOutbound(r, []));
+}
+
 /** 获取当前空间下所有出库单（列表用） */
 export async function getAllOutbound(): Promise<Outbound[]> {
   const user = await getCurrentUser();

@@ -57,6 +57,7 @@ export const voucherListStyles = StyleSheet.create({
   },
   searchIcon: { marginRight: 8 },
   searchInput: { flex: 1, fontSize: 14, color: '#2D3436', padding: 0 },
+  searchClear: { marginLeft: 4 },
   receiptItem: {
     backgroundColor: '#fff',
     paddingVertical: 10,

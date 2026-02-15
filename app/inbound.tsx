@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
 import { showAiInventory } from '@/lib/feature-flags';
-import { getAllInbound, deleteInbound, saveInbound } from '@/lib/inbound';
+import { getInboundForListFirstPaint, getAllInbound, deleteInbound, saveInbound } from '@/lib/inbound';
 import { Inbound } from '@/types';
 import { format } from 'date-fns';
 import { VoucherStatus } from '@/types';
@@ -76,6 +76,7 @@ export default function InboundScreen() {
   const [list, setList] = useState<Inbound[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [fullDataLoaded, setFullDataLoaded] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
@@ -97,30 +98,52 @@ export default function InboundScreen() {
     if (!showAiInventory) router.replace('/');
   }, []);
 
-  const load = useCallback(async () => {
+  const loadDetailsAsync = useCallback(() => {
+    getAllInbound().then(fullList => {
+      setList(fullList);
+      setFullDataLoaded(true);
+    }).catch(() => setFullDataLoaded(true));
+  }, []);
+
+  const load = useCallback(async (options?: { full?: boolean }) => {
+    const full = options?.full ?? false;
     try {
-      const data = await getAllInbound();
-      setList(data);
+      setFullDataLoaded(false);
+      if (full) {
+        const data = await getAllInbound();
+        setList(data);
+        setFullDataLoaded(true);
+        setLoading(false);
+        setRefreshing(false);
+      } else {
+        const data = await getInboundForListFirstPaint();
+        setList(data);
+        setFullDataLoaded(false);
+        setLoading(false);
+        setRefreshing(false);
+        loadDetailsAsync();
+      }
     } catch (e) {
       Alert.alert('Error', 'Failed to load inbound');
       console.error(e);
-    } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [loadDetailsAsync]);
 
   useFocusEffect(
     useCallback(() => {
-      const task = InteractionManager.runAfterInteractions(() => load());
-      return () => task.cancel();
-    }, [load])
+      if (list.length === 0) {
+        const task = InteractionManager.runAfterInteractions(() => load());
+        return () => task.cancel();
+      }
+    }, [load, list.length])
   );
 
   const onRefresh = () => {
     setRefreshing(true);
     setSelectedIds(new Set());
-    load();
+    load({ full: true });
   };
 
   const handleAddInbound = async () => {
@@ -132,7 +155,7 @@ export default function InboundScreen() {
         status: 'pending',
         items: [],
       });
-      load();
+      load({ full: true });
       router.push(`/inbound-details/${id}?new=true`);
     } catch (e) {
       Alert.alert('Error', 'Failed to create inbound');
@@ -242,8 +265,8 @@ export default function InboundScreen() {
           inputType: 'image',
         });
         setLastInboundId(inboundId);
-        load();
-        processInboundInBackground(imageUrl, inboundId, processedImageUri).then(() => load()).catch(err => console.error('Background process failed:', err));
+        load({ full: true });
+        processInboundInBackground(imageUrl, inboundId, processedImageUri).then(() => load({ full: true })).catch(err => console.error('Background process failed:', err));
       } catch (error) {
         console.error('Processing error:', error);
         Alert.alert('Error', 'Failed to process inbound image.');
@@ -292,7 +315,7 @@ export default function InboundScreen() {
               setSelectedIds(prev => { const s = new Set(prev); s.delete(inboundId); return s; });
             } catch (error) {
               Alert.alert('Error', 'Failed to delete inbound');
-              load();
+              load({ full: true });
             }
           },
         },
@@ -318,7 +341,7 @@ export default function InboundScreen() {
               setSelectedIds(new Set());
             } catch (error) {
               Alert.alert('Error', 'Failed to delete some inbound');
-              load();
+              load({ full: true });
             }
           },
         },
@@ -463,12 +486,13 @@ export default function InboundScreen() {
 
   const searchedList = useMemo(() => {
     if (!searchQuery.trim()) return filteredList;
+    if (!fullDataLoaded) return filteredList; // 搜索 pending，等加载完成
     const q = searchQuery.trim().toLowerCase();
     return filteredList.filter(inv =>
       (inv.documentNo || '').toLowerCase().includes(q) ||
       (inv.supplierName || '').toLowerCase().includes(q)
     );
-  }, [filteredList, searchQuery]);
+  }, [filteredList, searchQuery, fullDataLoaded]);
 
   const filterOptions = useMemo(() => {
     const months = new Set<string>();
@@ -563,6 +587,11 @@ export default function InboundScreen() {
                   value={searchQuery}
                   onChangeText={setSearchQuery}
                 />
+                {searchQuery.trim() ? (
+                  <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.searchClear}>
+                    <Ionicons name="close-circle" size={20} color="#95A5A6" />
+                  </TouchableOpacity>
+                ) : null}
               </View>
             </>
           )}
@@ -570,7 +599,7 @@ export default function InboundScreen() {
       </View>
 
       <SectionList
-        sections={sections.map(s => ({
+        sections={refreshing && searchQuery.trim() ? [] : sections.map(s => ({
           ...s,
           data: collapsedSections.has(s.monthKey) ? [] : s.data,
           originalData: s.data,
@@ -658,20 +687,34 @@ export default function InboundScreen() {
           );
         }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        ListEmptyComponent={
-          loading && list.length === 0 ? (
+        ListEmptyComponent={(() => {
+          const isEmpty = sections.length === 0 || (refreshing && searchQuery.trim());
+          const loadInProgress = loading || refreshing || !fullDataLoaded;
+          if (loadInProgress && isEmpty) {
+            if (refreshing) return <View style={styles.emptyContainer} />;
+            return (
+              <View style={styles.emptyContainer}>
+                <ActivityIndicator size="large" color="#6C5CE7" />
+                <Text style={styles.emptyText}>Loading...</Text>
+              </View>
+            );
+          }
+          if (list.length === 0) {
+            return (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="arrow-down-circle-outline" size={64} color="#BDC3C7" />
+                <Text style={styles.emptyText}>No inbound yet</Text>
+                <Text style={styles.emptySubtext}>Tap + to add an inbound</Text>
+              </View>
+            );
+          }
+          return (
             <View style={styles.emptyContainer}>
-              <ActivityIndicator size="large" color="#6C5CE7" />
-              <Text style={styles.emptyText}>Loading...</Text>
+              <Ionicons name="search-outline" size={64} color="#BDC3C7" />
+              <Text style={styles.emptyText}>No search result</Text>
             </View>
-          ) : (
-            <View style={styles.emptyContainer}>
-              <Ionicons name="arrow-down-circle-outline" size={64} color="#BDC3C7" />
-              <Text style={styles.emptyText}>No inbound yet</Text>
-              <Text style={styles.emptySubtext}>Tap + to add an inbound</Text>
-            </View>
-          )
-        }
+          );
+        })()}
         contentContainerStyle={sections.length === 0 ? styles.emptyList : styles.listContent}
         stickySectionHeadersEnabled={false}
       />

@@ -35,6 +35,24 @@ function rowToInbound(row: any, items: InboundItem[] = []): Inbound {
   };
 }
 
+const FIRST_PAINT_LIMIT = 15;
+
+/** 首屏极速加载：limit 15，用于立即渲染 */
+export async function getInboundForListFirstPaint(): Promise<Inbound[]> {
+  const user = await getCurrentUser();
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+  const { data, error } = await supabase
+    .from('inbound')
+    .select('*')
+    .eq('space_id', spaceId)
+    .order('date', { ascending: false })
+    .limit(FIRST_PAINT_LIMIT);
+  if (error) throw error;
+  return (data || []).map((r: any) => rowToInbound(r, []));
+}
+
 /** 获取当前空间下所有入库单（列表用） */
 export async function getAllInbound(): Promise<Inbound[]> {
   const user = await getCurrentUser();

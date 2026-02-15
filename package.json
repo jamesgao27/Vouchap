@@ -11,7 +11,8 @@
     "ios": "expo run:ios",
     "web": "expo start --web",
     "prebuild": "expo prebuild",
-    "prebuild:clean": "expo prebuild --clean"
+    "prebuild:clean": "expo prebuild --clean",
+    "verify:android:permissions": "node scripts/verify-android-media-permissions.js"
   },
   "dependencies": {
     "@react-native-async-storage/async-storage": "2.2.0",
