@@ -20,6 +20,7 @@ import {
 } from '@/lib/categories';
 import { Category } from '@/types';
 import { GradientText } from '@/lib/GradientText';
+import { showToast } from '@/lib/toast';
 
 // 预设颜色列表（减少数量，确保一行显示）
 const COLOR_OPTIONS = [
@@ -49,7 +50,7 @@ export default function CategoriesManageScreen() {
       setCategories(data);
     } catch (error) {
       console.error('Error loading categories:', error);
-      Alert.alert('Error', 'Failed to load categories');
+      showToast('Failed to load categories', 'error');
     } finally {
       setLoading(false);
     }
@@ -57,7 +58,7 @@ export default function CategoriesManageScreen() {
 
   const handleAddCategory = async () => {
     if (!newName.trim()) {
-      Alert.alert('Error', 'Please enter category name');
+      showToast('Please enter category name', 'error');
       return;
     }
 
@@ -68,10 +69,10 @@ export default function CategoriesManageScreen() {
       setNewName('');
       setNewColor('#95A5A6');
       setShowAddForm(false);
-      Alert.alert('Success', 'Category created');
+      showToast('Category created', 'success');
     } catch (error: any) {
       console.error('Error creating category:', error);
-      Alert.alert('Error', error.message || 'Failed to create category');
+      showToast(error.message || 'Failed to create category', 'error');
       // 如果失败，重新加载以确保数据一致
       loadCategories();
     }
@@ -79,7 +80,7 @@ export default function CategoriesManageScreen() {
 
   const handleUpdateCategory = async (categoryId: string) => {
     if (!editName.trim()) {
-      Alert.alert('Error', 'Please enter category name');
+      showToast('Please enter category name', 'error');
       return;
     }
 
@@ -100,7 +101,7 @@ export default function CategoriesManageScreen() {
       // 移除成功提示对话框
     } catch (error: any) {
       console.error('Error updating category:', error);
-      Alert.alert('Error', error.message || 'Failed to update category');
+      showToast(error.message || 'Failed to update category', 'error');
       // 如果失败，重新加载以确保数据一致
       loadCategories();
     }
@@ -120,10 +121,10 @@ export default function CategoriesManageScreen() {
               await deleteCategory(category.id);
               // 乐观更新：直接从列表中移除，不需要重新加载所有分类
               setCategories(prev => prev.filter(cat => cat.id !== category.id));
-              Alert.alert('Success', 'Category deleted');
+              showToast('Category deleted', 'success');
             } catch (error: any) {
               console.error('Error deleting category:', error);
-              Alert.alert('Error', error.message || 'Failed to delete category');
+              showToast(error.message || 'Failed to delete category', 'error');
               // 如果失败，重新加载以确保数据一致
               loadCategories();
             }

@@ -3,7 +3,7 @@ import { Receipt, ReceiptItem, ReceiptStatus } from '@/types';
 import { getCurrentUser } from './auth';
 import { findCategoryByName } from './categories';
 import { findOrCreateAccount, getAccountMergeMap, getAccountById } from './accounts';
-import { updateSupplier, getSupplierMergeMap, getSupplierById, resolveSupplierId } from './suppliers';
+import { updateSupplier, getSupplierMergeMap, getSupplierById, resolveSupplierId, findOrCreateSupplier } from './suppliers';
 import { updateCustomer, getCustomerMergeMap, getCustomerById, resolveCustomerId } from './customers';
 import { getSupplierOptions, getSupplierOptionsForDuplicateCheck } from './customer-supplier-list';
 import { normalizeNameForCompare } from './name-utils';

@@ -1,6 +1,8 @@
 import { Stack } from 'expo-router';
 import { useEffect } from 'react';
+import { View, StyleSheet } from 'react-native';
 import { validateSupabaseConfig } from '@/lib/supabase';
+import { ToastHost } from '@/components/ToastHost';
 
 export default function RootLayout() {
   useEffect(() => {
@@ -13,7 +15,8 @@ export default function RootLayout() {
   }, []);
 
   return (
-    <Stack>
+    <View style={styles.root}>
+      <Stack>
         <Stack.Screen 
           name="index" 
           options={{ 
@@ -230,5 +233,13 @@ export default function RootLayout() {
           }} 
         />
       </Stack>
+      <ToastHost />
+    </View>
   );
 }
+
+const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
+});

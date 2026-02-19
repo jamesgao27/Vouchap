@@ -21,6 +21,7 @@ import { getCurrentSpace, getCurrentUser, getUserSpaces, setCurrentSpace, create
 import { initializeAuthCache, updateCachedUser, updateCachedSpace } from '@/lib/auth-cache';
 import { supabase } from '@/lib/supabase';
 import { Space, UserSpace, User } from '@/types';
+import { showToast } from '@/lib/toast';
 
 export default function ManagementScreen() {
   const router = useRouter();
@@ -289,11 +290,11 @@ export default function ManagementScreen() {
         await loadSpaces();
         await loadData();
         setShowSpaceSwitch(false);
-        Alert.alert('Success', 'Space created successfully');
+        showToast('Space created successfully', 'success');
       }
     } catch (error) {
       console.error('Error creating space:', error);
-      Alert.alert('Error', 'Failed to create space');
+      showToast('Failed to create space', 'error');
     } finally {
       setCreating(false);
     }

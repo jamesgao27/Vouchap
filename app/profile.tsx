@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getCurrentUser } from '@/lib/auth';
 import { User } from '@/types';
 import { supabase } from '@/lib/supabase';
+import { showToast } from '@/lib/toast';
 
 export default function ProfileScreen() {
   const router = useRouter();
@@ -38,7 +39,7 @@ export default function ProfileScreen() {
       }
     } catch (error) {
       console.error('Error loading user:', error);
-      Alert.alert('Error', 'Failed to load user information');
+      showToast('Failed to load user information', 'error');
     } finally {
       setLoading(false);
     }
@@ -58,10 +59,10 @@ export default function ProfileScreen() {
 
       setEditing(false);
       await loadUser();
-      Alert.alert('Success', 'Profile updated successfully');
+      showToast('Profile updated successfully', 'success');
     } catch (error) {
       console.error('Error updating profile:', error);
-      Alert.alert('Error', 'Failed to update profile');
+      showToast('Failed to update profile', 'error');
     } finally {
       setSaving(false);
     }

@@ -15,6 +15,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getCurrentSpace, getCurrentUser } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { Space } from '@/types';
+import { showToast } from '@/lib/toast';
 
 export default function SpaceManageScreen() {
   const router = useRouter();
@@ -40,7 +41,7 @@ export default function SpaceManageScreen() {
       }
     } catch (error) {
       console.error('Error loading space:', error);
-      Alert.alert('Error', 'Failed to load space information');
+      showToast('Failed to load space information', 'error');
     } finally {
       setLoading(false);
     }
@@ -48,7 +49,7 @@ export default function SpaceManageScreen() {
 
   const handleSave = async () => {
     if (!space || !spaceName.trim()) {
-      Alert.alert('Error', 'Space name cannot be empty');
+      showToast('Space name cannot be empty', 'error');
       return;
     }
 
@@ -71,12 +72,12 @@ export default function SpaceManageScreen() {
 
       if (error) throw error;
 
-      Alert.alert('Success', 'Space information updated');
+      showToast('Space information updated', 'success');
       setEditing(false);
       await loadSpace();
     } catch (error) {
       console.error('Error updating space:', error);
-      Alert.alert('Error', 'Failed to update space information');
+      showToast('Failed to update space information', 'error');
     } finally {
       setSaving(false);
     }

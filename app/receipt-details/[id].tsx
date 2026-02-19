@@ -32,6 +32,7 @@ import { getLocalDateString } from '@/lib/date-utils';
 import { playAudio, stopPlayback } from '@/lib/audio';
 import { Receipt, ReceiptItem, Category, Purpose, ReceiptStatus, Account } from '@/types';
 import { format } from 'date-fns';
+import { showToast } from '@/lib/toast';
 
 export default function ReceiptDetailsScreen() {
   const { id, new: isNew } = useLocalSearchParams<{ id: string; new?: string }>();
@@ -150,7 +151,7 @@ export default function ReceiptDetailsScreen() {
         setPriceInputTexts(priceTexts);
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to load receipt details');
+      showToast('Failed to load receipt details', 'error');
       console.error(error);
     } finally {
       setLoading(false);
@@ -211,9 +212,10 @@ export default function ReceiptDetailsScreen() {
           }
         }
         setEditing(false);
+        showToast('Receipt saved', 'success');
         loadReceipt();
       } catch (e: any) {
-        Alert.alert('Error', e?.message ?? 'Failed to save');
+        showToast(e?.message ?? 'Failed to save', 'error');
         console.error(e);
       }
       return;
@@ -225,6 +227,7 @@ export default function ReceiptDetailsScreen() {
         status: 'confirmed' as ReceiptStatus,
       });
       setEditing(false);
+      showToast('Receipt saved', 'success');
       loadReceipt();
     } catch (error: any) {
       const code = error?.code as string | undefined;
@@ -243,7 +246,7 @@ export default function ReceiptDetailsScreen() {
         setShowDuplicateNameModal(true);
         return;
       }
-      Alert.alert('Error', 'Failed to save');
+      showToast('Failed to save', 'error');
       console.error(error);
     }
   };
@@ -297,7 +300,7 @@ export default function ReceiptDetailsScreen() {
         setEditing(false);
         loadReceipt();
       } catch (e: any) {
-        Alert.alert('Error', e?.message ?? 'Failed to save');
+        showToast(e?.message ?? 'Failed to save', 'error');
       }
       return;
     }
@@ -318,7 +321,7 @@ export default function ReceiptDetailsScreen() {
       setEditing(false);
       loadReceipt();
     } catch (e: any) {
-      Alert.alert('Error', e?.message ?? 'Failed to save');
+      showToast(e?.message ?? 'Failed to save', 'error');
     }
   };
 
@@ -395,7 +398,7 @@ export default function ReceiptDetailsScreen() {
       setEditing(false);
       loadReceipt();
     } catch (e) {
-      Alert.alert('Error', 'Failed to replace voucher');
+      showToast('Failed to replace voucher', 'error');
       console.error(e);
     }
   };
@@ -492,7 +495,7 @@ export default function ReceiptDetailsScreen() {
       });
       loadReceipt();
     } catch (error) {
-      Alert.alert('Error', 'Failed to confirm receipt');
+      showToast('Failed to confirm receipt', 'error');
       console.error(error);
     }
   };
@@ -696,7 +699,7 @@ export default function ReceiptDetailsScreen() {
       await updateReceiptItem(id, item.id, field, value);
     } catch (error) {
       console.error('Error updating item:', error);
-      Alert.alert('Error', 'Failed to update item');
+      showToast('Failed to update item', 'error');
       // 如果失败，重新加载以恢复原状态
       await loadReceipt();
     }
@@ -797,9 +800,9 @@ export default function ReceiptDetailsScreen() {
               if (!result.canceled && result.assets[0]) {
                 await uploadImage(result.assets[0].uri);
               }
-            } catch (error) {
-              console.error('Error launching camera:', error);
-              Alert.alert('Error', 'Failed to launch camera. Please try again.');
+    } catch (error) {
+      console.error('Error launching camera:', error);
+      showToast('Failed to launch camera. Please try again.', 'error');
             }
           },
         },
@@ -825,9 +828,9 @@ export default function ReceiptDetailsScreen() {
               if (!result.canceled && result.assets[0]) {
                 await uploadImage(result.assets[0].uri);
               }
-            } catch (error) {
-              console.error('Error picking image:', error);
-              Alert.alert('Error', 'Failed to pick image. Please try again.');
+    } catch (error) {
+      console.error('Error picking image:', error);
+      showToast('Failed to pick image. Please try again.', 'error');
             }
           },
         },
@@ -855,7 +858,7 @@ export default function ReceiptDetailsScreen() {
       await loadReceipt();
     } catch (error) {
       console.error('Error uploading image:', error);
-      Alert.alert('Error', 'Failed to upload image. Please try again.');
+      showToast('Failed to upload image. Please try again.', 'error');
     } finally {
       setIsUploadingImage(false);
     }

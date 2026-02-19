@@ -28,6 +28,7 @@ import { playAudio, stopPlayback } from '@/lib/audio';
 import { showAiInventory } from '@/lib/feature-flags';
 import { voucherDetailStyles as styles } from '../voucher-detail-styles';
 import { getLocalDateString } from '@/lib/date-utils';
+import { showToast } from '@/lib/toast';
 
 export default function InboundDetailsScreen() {
   const { id, new: isNew } = useLocalSearchParams<{ id: string; new?: string }>();
@@ -98,7 +99,7 @@ export default function InboundDetailsScreen() {
         id,
         status: 'confirmed' as VoucherStatus,
       });
-      Alert.alert('Success', 'Inbound saved');
+      showToast('Inbound saved', 'success');
       setEditing(false);
       loadInbound();
     } catch (error: any) {
@@ -117,7 +118,7 @@ export default function InboundDetailsScreen() {
         setShowDuplicateNameModal(true);
         return;
       }
-      Alert.alert('Error', 'Failed to save');
+      showToast('Failed to save', 'error');
       console.error(error);
     }
   };

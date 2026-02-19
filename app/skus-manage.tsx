@@ -33,6 +33,7 @@ import {
 import { Sku } from '@/types';
 import { GradientText } from '@/lib/GradientText';
 import { actionButtonStyles } from '@/lib/action-button-styles';
+import { showToast } from '@/lib/toast';
 
 export default function SkusManageScreen() {
   const [skus, setSkus] = useState<Sku[]>([]);
@@ -55,27 +56,16 @@ export default function SkusManageScreen() {
   const [mergeTargetSelectedId, setMergeTargetSelectedId] = useState<string | null>(null);
   const [showDeleteSelectedModal, setShowDeleteSelectedModal] = useState(false);
   const [deleteSelectedModalAccounts, setDeleteSelectedModalAccounts] = useState<Sku[] | null>(null);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState('');
   const [newCode, setNewCode] = useState('');
   const [newUnit, setNewUnit] = useState('pcs');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const toastOpacity = useRef(new Animated.Value(0)).current;
   const scrollViewRef = useRef<ScrollView>(null);
   const newNameInputRef = useRef<TextInput>(null);
   const scrollContentRef = useRef<View>(null);
   const addFormCardRef = useRef<View>(null);
   const HEADER_HEIGHT_PX = 88;
-
-  const showToast = (message: string, duration: number = 1500) => {
-    setToastMessage(message);
-    Animated.sequence([
-      Animated.timing(toastOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
-      Animated.delay(duration),
-      Animated.timing(toastOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
-    ]).start(() => setToastMessage(null));
-  };
 
   const load = async () => {
     try {
@@ -411,13 +401,6 @@ export default function SkusManageScreen() {
   return (
     <View style={styles.container}>
       <StatusBar style="dark" />
-      {toastMessage && (
-        <Animated.View style={[styles.toastWrapper, { opacity: toastOpacity }]} pointerEvents="none">
-          <View style={styles.toast}>
-            <Text style={styles.toastText}>{toastMessage}</Text>
-          </View>
-        </Animated.View>
-      )}
 
       {/* Quick Clean */}
       <Modal visible={showQuickCleanModal} transparent animationType="fade" onRequestClose={() => setShowQuickCleanModal(false)}>

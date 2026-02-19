@@ -17,7 +17,8 @@
     "production": {
       "autoIncrement": false,
       "env": {
-        "EXPO_PUBLIC_SHOW_AI_INVENTORY": "false"
+        "EXPO_PUBLIC_SHOW_AI_INVENTORY": "false",
+        "EXPO_PUBLIC_SHOW_PRICE_COMPARISON": "false"
       }
     }
   },

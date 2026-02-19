@@ -30,6 +30,7 @@ import { mergeSupplier } from '@/lib/suppliers';
 import { Invoice, InvoiceItem, Category, Purpose, VoucherStatus, Account } from '@/types';
 import { format } from 'date-fns';
 import { getLocalDateString } from '@/lib/date-utils';
+import { showToast } from '@/lib/toast';
 
 export default function InvoiceDetailsScreen() {
   const { id, new: isNew } = useLocalSearchParams<{ id: string; new?: string }>();
@@ -130,7 +131,7 @@ export default function InvoiceDetailsScreen() {
         setPriceInputTexts(priceTexts);
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to load invoice details');
+      showToast('Failed to load invoice details', 'error');
       console.error(error);
     } finally {
       setLoading(false);
@@ -181,11 +182,11 @@ export default function InvoiceDetailsScreen() {
           }
           await saveInvoice(reverted);
         }
-        Alert.alert('Success', 'Income confirmed and saved');
         setEditing(false);
+        showToast('Income saved', 'success');
         loadInvoice();
       } catch (e: any) {
-        Alert.alert('Error', e?.message ?? 'Failed to save');
+        showToast(e?.message ?? 'Failed to save', 'error');
         console.error(e);
       }
       return;
@@ -197,8 +198,8 @@ export default function InvoiceDetailsScreen() {
         id,
         status: 'confirmed' as VoucherStatus,
       });
-      Alert.alert('Success', 'Income confirmed and saved');
       setEditing(false);
+      showToast('Income saved', 'success');
       loadInvoice();
     } catch (error: any) {
       const code = error?.code as string | undefined;
@@ -228,7 +229,7 @@ export default function InvoiceDetailsScreen() {
         setShowDuplicateNameModal(true);
         return;
       }
-      Alert.alert('Error', 'Failed to save');
+      showToast('Failed to save', 'error');
       console.error(error);
     }
   };

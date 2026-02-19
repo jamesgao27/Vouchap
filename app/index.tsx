@@ -429,7 +429,7 @@ export default function HomeScreen() {
         await loadSpaces();
         await loadSpace();
         setShowSpaceSwitch(false);
-        Alert.alert('Success', 'Space created successfully');
+        showToast('Space created successfully', 'success');
       }
     } catch (error) {
       console.error('Error creating space:', error);
@@ -755,13 +755,15 @@ export default function HomeScreen() {
       </View>
 
       {SHOW_AI_INVENTORY_ENTRY && (
-        <TouchableOpacity 
-          style={[styles.secondaryButton, { marginTop: 12 }]}
-          onPress={() => router.push('/ai-inventory')}
-        >
-          <Ionicons name="cube-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
-          <Text style={styles.secondaryButtonText}>AI Inventory</Text>
-        </TouchableOpacity>
+        <View style={[styles.buttonsRow, { marginTop: 12 }]}>
+          <TouchableOpacity 
+            style={[styles.secondaryButtonAlt, styles.halfWidthButton]}
+            onPress={() => router.push('/ai-inventory')}
+          >
+            <Ionicons name="cube-outline" size={20} color="#FF9500" style={styles.buttonIcon} />
+            <Text style={styles.secondaryButtonAltText}>AI Inventory</Text>
+          </TouchableOpacity>
+        </View>
       )}
       </ScrollView>
 
@@ -1159,6 +1161,22 @@ const styles = StyleSheet.create({
   },
   secondaryButtonText: {
     color: '#6C5CE7',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  secondaryButtonAlt: {
+    backgroundColor: 'rgba(255, 149, 0, 0.08)',
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#FF9500',
+  },
+  secondaryButtonAltText: {
+    color: '#FF9500',
     fontSize: 16,
     fontWeight: '600',
   },

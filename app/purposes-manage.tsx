@@ -20,6 +20,7 @@ import {
   Purpose,
 } from '@/lib/purposes';
 import { GradientText } from '@/lib/GradientText';
+import { showToast } from '@/lib/toast';
 
 // 预设颜色列表（减少数量，确保一行显示）
 const COLOR_OPTIONS = [
@@ -49,7 +50,7 @@ export default function PurposesManageScreen() {
       setPurposes(data);
     } catch (error) {
       console.error('Error loading purposes:', error);
-      Alert.alert('Error', 'Failed to load purposes');
+      showToast('Failed to load purposes', 'error');
     } finally {
       setLoading(false);
     }
@@ -57,7 +58,7 @@ export default function PurposesManageScreen() {
 
   const handleAddPurpose = async () => {
     if (!newName.trim()) {
-      Alert.alert('Error', 'Please enter purpose name');
+      showToast('Please enter purpose name', 'error');
       return;
     }
 
@@ -68,10 +69,10 @@ export default function PurposesManageScreen() {
       setNewName('');
       setNewColor('#95A5A6');
       setShowAddForm(false);
-      Alert.alert('Success', 'Purpose created');
+      showToast('Purpose created', 'success');
     } catch (error: any) {
       console.error('Error creating purpose:', error);
-      Alert.alert('Error', error.message || 'Failed to create purpose');
+      showToast(error.message || 'Failed to create purpose', 'error');
       // 如果失败，重新加载以确保数据一致
       loadPurposes();
     }
@@ -79,7 +80,7 @@ export default function PurposesManageScreen() {
 
   const handleUpdatePurpose = async (purposeId: string) => {
     if (!editName.trim()) {
-      Alert.alert('Error', 'Please enter purpose name');
+      showToast('Please enter purpose name', 'error');
       return;
     }
 
@@ -100,7 +101,7 @@ export default function PurposesManageScreen() {
       // 移除成功提示对话框
     } catch (error: any) {
       console.error('Error updating purpose:', error);
-      Alert.alert('Error', error.message || 'Failed to update purpose');
+      showToast(error.message || 'Failed to update purpose', 'error');
       // 如果失败，重新加载以确保数据一致
       loadPurposes();
     }
@@ -120,10 +121,10 @@ export default function PurposesManageScreen() {
               await deletePurpose(purpose.id);
               // 乐观更新：直接从列表中移除，不需要重新加载所有用途
               setPurposes(prev => prev.filter(p => p.id !== purpose.id));
-              Alert.alert('Success', 'Purpose deleted');
+              showToast('Purpose deleted', 'success');
             } catch (error: any) {
               console.error('Error deleting purpose:', error);
-              Alert.alert('Error', error.message || 'Failed to delete purpose');
+              showToast(error.message || 'Failed to delete purpose', 'error');
               // 如果失败，重新加载以确保数据一致
               loadPurposes();
             }

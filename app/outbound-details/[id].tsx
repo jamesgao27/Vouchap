@@ -26,6 +26,7 @@ import { format } from 'date-fns';
 import { showAiInventory } from '@/lib/feature-flags';
 import { voucherDetailStyles as styles } from '../voucher-detail-styles';
 import { getLocalDateString } from '@/lib/date-utils';
+import { showToast } from '@/lib/toast';
 
 export default function OutboundDetailsScreen() {
   const { id, new: isNew } = useLocalSearchParams<{ id: string; new?: string }>();
@@ -79,7 +80,7 @@ export default function OutboundDetailsScreen() {
         id,
         status: 'confirmed' as VoucherStatus,
       });
-      Alert.alert('Success', 'Outbound saved');
+      showToast('Outbound saved', 'success');
       setEditing(false);
       loadOutbound();
     } catch (error: any) {
@@ -98,7 +99,7 @@ export default function OutboundDetailsScreen() {
         setShowDuplicateNameModal(true);
         return;
       }
-      Alert.alert('Error', 'Failed to save');
+      showToast('Failed to save', 'error');
       console.error(error);
     }
   };

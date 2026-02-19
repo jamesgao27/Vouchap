@@ -39,6 +39,7 @@ import {
   stopPlayback,
   requestAudioPermission,
 } from '@/lib/audio';
+import { showToast } from '@/lib/toast';
 
 // 语音识别置信度阈值：与照片 needs_retake 一致，低于此值视为无可识别内容，提示重新提交
 const VOICE_CONFIDENCE_THRESHOLD = 0.4;
@@ -141,30 +142,6 @@ export default function VoiceInputScreen() {
   
   // 组件挂载状态，后台重试完成后仅在校验通过后更新 UI
   const mountedRef = useRef(true);
-
-  // Toast 提示
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const toastOpacity = useRef(new Animated.Value(0)).current;
-  
-  // 显示 Toast
-  const showToast = (message: string, duration: number = 1500) => {
-    setToastMessage(message);
-    Animated.sequence([
-      Animated.timing(toastOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-      Animated.delay(duration),
-      Animated.timing(toastOpacity, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setToastMessage(null);
-    });
-  };
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -1581,13 +1558,6 @@ export default function VoiceInputScreen() {
         )}
       >
       </FlatList>
-
-      {/* Toast 提示 - 显示在输入区域上方 */}
-      {toastMessage && (
-        <Animated.View style={[styles.toast, { opacity: toastOpacity }]}>
-          <Text style={styles.toastText}>{toastMessage}</Text>
-        </Animated.View>
-      )}
 
       <View style={[styles.inputContainer, { paddingBottom: Platform.OS === 'ios' ? (keyboardHeight ? keyboardHeight + 20 : 20) : (keyboardHeight ? keyboardHeight + 16 : 16) }]}>
         {/* 语音/键盘切换按钮 */}
