@@ -1,0 +1,1853 @@
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { getCategories } from './categories';
+import { getPurposes } from './purposes';
+import { getAccountsForOptions } from './accounts';
+import { getSupplierOptions, getCustomerOptions } from './customer-supplier-list';
+import { getWarehousesForOptions, getLocationsByWarehouseForOptions } from './warehouse';
+import { getSkusForOptions } from './skus';
+import Constants from 'expo-constants';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystemNew from 'expo-file-system';
+import { GeminiReceiptResult, GeminiVoucherResult, GeminiInboundOutboundResult, VoucherLogType } from '@/types';
+import { getAvailableImageModel } from './gemini-helper';
+import { getMostFrequentCurrency, getCurrenciesByUsage } from './database';
+import { normalizeShortDate, getLocalDateString } from './date-utils';
+
+// 引用 gemini-helper 中处理好的安全判断逻辑（如果 gemini-helper 导出了 apiKey）
+// 或者直接在此处复制安全获取逻辑：
+const getSafeKey = () => {
+  const k = process.env.EXPO_PUBLIC_GEMINI_API_KEY || Constants.expoConfig?.extra?.geminiApiKey || '';
+  return (k.includes('${') || k === 'undefined') ? '' : k;
+};
+
+const apiKey = getSafeKey();
+
+const genAI = (apiKey && apiKey !== '')
+  ? new GoogleGenerativeAI(apiKey)
+  : null;
+
+// 按你后台可用模型与配额排序：高 RPM 优先（语音/图片/文字通用），失败时自动切换下一模型
+const POSSIBLE_MODELS = [
+  'gemini-2.5-flash-lite',   // 10K RPM, 10M TPM
+  'gemini-2.0-flash-lite',   // 20K RPM, 10M TPM
+  'gemini-2.0-flash',        // 10K RPM, 10M TPM
+  'gemini-2.5-flash',        // 2K RPM, 3M TPM（当前常用）
+  'gemini-3-flash-preview',  // 2K RPM, 3M TPM（Gemini 3 Flash）
+  'gemini-2.5-pro',         // 1K RPM, 5M TPM
+  'gemini-3-pro-preview',    // 1K RPM, 5M TPM（Gemini 3 Pro）
+  'gemini-2.0-flash-exp',    // 10 RPM 兜底
+];
+
+// 动态获取可用模型的缓存
+let availableModelCache: string | null = null;
+
+/** 若错误为 404/模型不可用，清除缓存以便下次重新拉取可用模型列表 */
+function clearModelCacheIfUnavailable(err: unknown) {
+  const msg = err != null ? String(err) : '';
+  if (/404|not found|not supported for generateContent/i.test(msg)) {
+    availableModelCache = null;
+  }
+}
+
+/** 小票识别统一 JSON 输出规范：所有录入方式（图片/文字/语音）必须使用同一套字段，便于下游一致解析 */
+const RECEIPT_JSON_ITEMS_RULE = 'Each item MUST have: "name" (string), "categoryName" (string), "purposeName" (string), "price" (number). Do NOT use "description" or "amount".';
+const RECEIPT_JSON_ITEMS_EXAMPLE = { name: 'Item Name', categoryName: 'Food', purposeName: 'Home', price: 12.99 };
+
+// 识别小票内容（使用图片 URL）
+export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptResult> {
+  // 重新获取 API Key（确保使用最新的值）
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+
+  // 调试日志
+  console.log('=== Gemini API Key Debug ===');
+  console.log('Constants.expoConfig?.extra?.geminiApiKey:', Constants.expoConfig?.extra?.geminiApiKey ? `Present (length: ${Constants.expoConfig.extra.geminiApiKey.length})` : 'Missing');
+  console.log('process.env.EXPO_PUBLIC_GEMINI_API_KEY:', process.env.EXPO_PUBLIC_GEMINI_API_KEY ? `Present (length: ${process.env.EXPO_PUBLIC_GEMINI_API_KEY.length})` : 'Missing');
+  console.log('Final currentApiKey:', currentApiKey ? `Present (length: ${currentApiKey.length})` : 'Missing');
+  console.log('===========================');
+
+  // 验证 API Key 是否配置
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const errorMsg = `Gemini API Key 未配置。\n\n调试信息：\n- Constants.expoConfig?.extra?.geminiApiKey: ${Constants.expoConfig?.extra?.geminiApiKey ? '存在' : '不存在'}\n- process.env.EXPO_PUBLIC_GEMINI_API_KEY: ${process.env.EXPO_PUBLIC_GEMINI_API_KEY ? '存在' : '不存在'}\n- 当前 API Key 值: ${currentApiKey || '(空)'}\n\n请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY，然后重新构建应用。`;
+    const error = new Error(errorMsg) as any;
+    error.code = 'GEMINI_API_KEY_MISSING';
+    throw error;
+  }
+
+  // 记录尝试使用的模型和 API Key 信息
+  console.log('Starting receipt recognition with image URL...');
+  console.log('Image URL:', imageUrl);
+  console.log('API Key present:', !!currentApiKey, 'Length:', currentApiKey?.length || 0);
+  if (currentApiKey) {
+    console.log('API Key prefix:', currentApiKey.substring(0, 10) + '...');
+  }
+
+  // 使用当前获取的 API Key 创建新的 genAI 实例
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+
+  // 首先尝试从 API 获取可用模型（如果缓存为空）
+  if (!availableModelCache) {
+    console.log('Attempting to fetch available models from API...');
+    try {
+      const availableModel = await getAvailableImageModel();
+      if (availableModel) {
+        availableModelCache = availableModel;
+        console.log('✅ Found available model via API:', availableModelCache);
+      } else {
+        console.warn('⚠️  No image models found via API');
+      }
+    } catch (error) {
+      console.warn('⚠️  Could not fetch available models from API:', error);
+      console.warn('Will try default model list...');
+    }
+  }
+
+  // 如果找到了可用模型，优先使用它
+  const modelsToTry = availableModelCache ? [availableModelCache, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+
+  // 获取用户的分类列表
+  let categoryNames: string[] = [];
+  try {
+    const categories = await getCategories();
+    categoryNames = categories.map(cat => cat.name);
+  } catch (error) {
+    console.warn('Failed to fetch categories, using default list:', error);
+    // 如果获取失败，使用默认分类列表
+    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+  }
+
+  // 如果分类列表为空，使用默认分类
+  if (categoryNames.length === 0) {
+    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+  }
+
+  // 获取用户的用途列表
+  let purposeNames: string[] = [];
+  try {
+    const purposes = await getPurposes();
+    purposeNames = purposes.map(p => p.name);
+  } catch (error) {
+    console.warn('Failed to fetch purposes, using default list:', error);
+    // 如果获取失败，使用默认用途列表
+    purposeNames = ['Home', 'Gifts', 'Business'];
+  }
+
+  // 如果用途列表为空，使用默认用途
+  if (purposeNames.length === 0) {
+    purposeNames = ['Home', 'Gifts', 'Business'];
+  }
+
+  // 获取用户已有的支付账户列表（按使用频率排序）
+  let paymentAccountNames: string[] = [];
+  try {
+    const accounts = await getAccountsForOptions();
+    paymentAccountNames = accounts.map(pa => pa.name);
+  } catch (error) {
+    console.warn('Failed to fetch payment accounts:', error);
+  }
+
+  // 获取用户历史小票中的币种列表（按使用频率排序）
+  let userCurrencies: string[] = [];
+  try {
+    userCurrencies = await getCurrenciesByUsage();
+  } catch (error) {
+    console.warn('Failed to fetch currency usage:', error);
+  }
+
+  let supplierNamesImg: string[] = [];
+  try {
+    const suppliers = await getSupplierOptions();
+    supplierNamesImg = suppliers.map((s) => s.name);
+  } catch (e) {
+    console.warn('Failed to fetch suppliers:', e);
+  }
+
+  const categoryList = categoryNames.join(', ');
+  const purposeList = purposeNames.join(', ');
+  const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
+  const supplierListImg = supplierNamesImg.length > 0 ? supplierNamesImg.join(', ') : '';
+  const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
+  const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, MXN';
+
+  const prompt = `You are a financial expert specializing in North American receipts. Analyze the receipt image and extract ALL available information with maximum accuracy.
+
+Existing Suppliers (pick from list if match else return new name, will create): [${supplierListImg || 'None'}]. Same rule for categoryName, purpose, paymentAccountName: match from injected lists or return new value (will create).
+
+1. Supplier name (supplierName): Extract the complete merchant/store name from the receipt header (usually the most prominent text at the top). 
+   - Pick from Existing Suppliers above if it matches; else return the extracted name (will create new supplier).
+   - DO NOT use generic terms like "Receipt", "Invoice", "Bill", "Processing", "Pending", or status words
+   - If truly unidentifiable, use "Unknown Supplier" only as last resort
+
+2. Supplier information (supplierInfo) - CRITICAL: Extract ALL visible merchant information with MAXIMUM DETAIL. Scan the ENTIRE receipt systematically: header, footer, sides, corners, and every section. This information is ESSENTIAL for complete merchant identification.
+   
+   - Tax number (taxNumber): Extract ALL tax identification numbers if present. This is ESSENTIAL for merchant identification and MUST be extracted if visible anywhere on the receipt.
+     * United States formats:
+       - EIN (Employer Identification Number): XX-XXXXXXX (e.g., 12-3456789)
+       - Look for labels: "EIN", "Tax ID", "Federal Tax ID", "Employer ID", "Tax ID#", "Tax Identification Number"
+     * Canada formats:
+       - GST/HST Number: 9 digits, may include RT (e.g., 123456789RT0001, GST/HST #123456789)
+       - PST Number: Provincial Sales Tax number (varies by province)
+       - QST Number: Quebec Sales Tax number
+       - Look for labels: "GST", "HST", "PST", "QST", "GST/HST #", "Tax Registration #", "Business Number", "BN"
+     * Other North American formats:
+       - Business Number (BN): 9 digits (Canada)
+       - State Tax ID (varies by US state)
+     * Common locations: Near store name at top, footer, near tax calculation section, registration section
+     * **Extract ALL tax numbers if multiple are present (e.g., both GST and PST). Combine them with commas if multiple.**
+     * **CRITICAL: Even if partially visible or unclear, extract what you can see. Do not omit tax numbers.**
+   
+   - Phone (phone): Extract the phone number if available. This is IMPORTANT contact information and MUST be extracted if visible.
+     * North American formats (most common):
+       - (XXX) XXX-XXXX (e.g., (416) 555-1234)
+       - XXX-XXX-XXXX (e.g., 416-555-1234)
+       - XXX.XXX.XXXX (e.g., 416.555.1234)
+       - 1-XXX-XXX-XXXX (with country code)
+       - XXX XXX XXXX (spaces only)
+     * Toll-free numbers: 1-800-XXX-XXXX, 1-888-XXX-XXXX, 1-877-XXX-XXXX, 1-866-XXX-XXXX
+     * International formats: +1 XXX XXX XXXX, +1-XXX-XXX-XXXX
+     * Common locations: Header, footer, customer service section, contact section, near store name
+     * Common labels: "Phone:", "Tel:", "Call:", "Customer Service:", "T:", "P:", "Phone #", "Tel #", "Contact:", "Call us at"
+     * **Extract the main business phone number (prefer customer service or main line over fax). If multiple numbers, prefer the primary business number.**
+     * **CRITICAL: Extract phone numbers even if partially visible. Include area codes and country codes if present.**
+   
+   - Address (address): Extract the COMPLETE business address with ALL details. This is CRITICAL location information and MUST be extracted if visible.
+     * North American address format:
+       - Street address: Building number + Street name (e.g., "123 Main Street", "456 Oak Ave", "789 King St W")
+       - City, State/Province, ZIP/Postal Code
+       - US format: "123 Main St, New York, NY 10001"
+       - Canada format: "123 Main St, Toronto, ON M5H 2N2" (postal code format: A1A 1A1)
+     * Include ALL visible details:
+       - Unit/suite number if present (e.g., "Suite 200", "Unit 5", "#101", "Apt 3B")
+       - Street direction if present (e.g., "North", "South", "E", "W", "East", "West")
+       - Full state/province name or abbreviation (e.g., "California" or "CA", "Ontario" or "ON")
+       - Complete ZIP/postal code (e.g., "10001", "M5H 2N2")
+       - Building name if present (e.g., "Empire State Building", "Shopping Mall")
+     * Common locations: Header, footer, dedicated address section, near store name, registration section
+     * Common labels: "Address:", "Location:", "Store Address:", "Business Address:", "Registered Address:", "Mailing Address:", "Physical Address:"
+     * **If multiple addresses are present, prefer the physical store/business address over mailing or registered address**
+     * **For chain stores, prefer the specific location address over corporate headquarters**
+     * **CRITICAL: Extract the COMPLETE address including street number, street name, city, state/province, and postal/ZIP code. Do not omit any part if visible.**
+
+3. Date (date, format: YYYY-MM-DD): Extract the purchase/transaction date from the receipt
+   - Common North American formats on receipts:
+     * Full date: MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD, or written format (e.g., "March 15, 2024")
+     * 6-digit date: MM/DD/YY or DD/MM/YY (e.g., "03/15/24" or "15/03/24")
+   - Look for: Transaction date, purchase date, sale date, or date near receipt header
+   - **CRITICAL for 6-digit slash dates (e.g. 26/02/06, 03/15/24):**
+     * When ambiguous (YY/MM/DD, DD/MM/YY, MM/DD/YY all valid), **choose the interpretation whose date is closest to today** — receipts are usually recent.
+     * North American receipts may use MM/DD/YY or DD/MM/YY
+     * **Resolution strategy:**
+       1. If format is ambiguous (e.g., "03/15/24" could be March 15 or May 3):
+          - **Prioritize the date that is CLOSER to the current date in the past**
+          - Receipts are typically from recent transactions (within days, weeks, or months)
+          - Example: If today is 2024-03-20 and you see "03/15/24":
+            * MM/DD/YY interpretation: 2024-03-15 (5 days ago) ✓ CORRECT
+            * DD/MM/YY interpretation: 2024-15-03 (invalid date) ✗
+          - Example: If today is 2024-05-20 and you see "03/15/24":
+            * MM/DD/YY interpretation: 2024-03-15 (66 days ago) ✓ CORRECT
+            * DD/MM/YY interpretation: 2024-15-03 (invalid date) ✗
+          - Example: If today is 2024-05-20 and you see "15/03/24":
+            * DD/MM/YY interpretation: 2024-03-15 (66 days ago) ✓ CORRECT
+            * MM/DD/YY interpretation: 2024-15-03 (invalid date) ✗
+       2. If both interpretations are valid dates:
+          - Choose the date that is **closer to the current date** (but still in the past)
+          - Receipts are almost always from past transactions, not future dates
+       3. If one interpretation results in a future date and the other in a past date:
+          - **Always choose the past date** (receipts cannot be from the future)
+       4. If one interpretation results in an invalid date (e.g., month > 12 or day > 31):
+          - Use the valid interpretation
+     * Convert 2-digit year to 4-digit:
+       - If YY is 00-30, assume 2000-2030 (e.g., "24" → 2024)
+       - If YY is 31-99, assume 1931-1999 (e.g., "95" → 1995)
+       - However, for recent receipts, prefer current century (2000s)
+   - Convert to YYYY-MM-DD format (e.g., "03/15/2024" → "2024-03-15", "03/15/24" → "2024-03-15")
+
+4. Total amount (totalAmount, numeric type, can be negative for refunds)
+   - Extract the final total amount (after taxes)
+   - Common labels: "Total", "Amount Due", "Grand Total", "TOTAL"
+   - Exclude tip/gratuity if separately listed
+
+5. Currency (currency, ISO code such as: USD, CAD, MXN, etc.)
+   - IMPORTANT: User's most frequently used currencies (in order of frequency): [${currencyList}]
+   - If currency is not explicitly stated, use "${defaultCurrency}" as the default (user's most common currency)
+   - US receipts: Usually USD; Canadian receipts: Usually CAD; Mexican receipts: Usually MXN
+   - Infer from location, store name, or receipt context when not explicit
+6. Payment account (paymentAccountName, if available, MUST include key distinguishing information):
+   - IMPORTANT: If the payment info matches any of these existing accounts, use the EXACT same name: [${paymentAccountList || 'No existing accounts'}]
+   - Match by card suffix (last 4 digits) or payment type when possible
+   - If no match found, create a new descriptive name with:
+     * Card number suffix: Last 4 digits (e.g., ****1234, *1234, Last 4: 1234, ending in 1234)
+     * Account type: Credit Card, Debit Card, Cash, Check, Gift Card, etc.
+     * Card brand if visible: Visa, Mastercard, Amex, Discover, etc.
+   - Example: If existing accounts include "Visa *1234" and receipt shows "VISA ending in 1234", use "Visa *1234"
+
+7. Tax amount (tax, numeric type, 0 if not available)
+   - Extract total tax amount (sum of all taxes if multiple)
+   - Common labels: "Tax", "GST", "HST", "PST", "QST", "Sales Tax", "State Tax", "Provincial Tax"
+   - If multiple taxes (e.g., GST + PST), sum them for total tax
+   - If tax is included in item prices, use 0
+7. Detailed item list (items). ${RECEIPT_JSON_ITEMS_RULE}
+   - name (string): item/product name
+   - categoryName: pick from [${categoryList}]
+   - purposeName: pick from [${purposeList}], default "${purposeNames[0]}"
+   - price (number): unit price or line amount
+8. Image quality assessment (imageQuality):
+   - clarity: Image clarity score (0.0-1.0, where 1.0 is perfectly clear)
+   - completeness: Image completeness score (0.0-1.0, where 1.0 means all receipt content is visible)
+   - clarityComment: Brief comment on image clarity (e.g., "Clear and sharp", "Slightly blurry", "Very blurry")
+   - completenessComment: Brief comment on image completeness (e.g., "Complete receipt visible", "Partially cut off", "Missing important sections")
+9. Data consistency check (dataConsistency):
+   - itemsSum: Sum of all item prices (calculate: sum of all items.price)
+   - itemsSumMatchesTotal: Boolean indicating if itemsSum + tax (if any) equals totalAmount (within 0.01 tolerance)
+   - missingItems: Boolean indicating if there might be items not captured in the list
+   - consistencyComment: Brief comment on data consistency (e.g., "Items sum matches total", "Items sum differs from total by X", "Some items may be missing")
+10. Overall confidence (confidence): Overall recognition confidence score (0.0-1.0). Consider:
+    - Image clarity and completeness
+    - Whether all items are captured
+    - Whether item prices sum matches the total amount
+    - Lower confidence if items sum doesn't match total or if items seem incomplete
+
+Please return strictly in JSON format without any extra text. JSON format as follows:
+{
+  "supplierName": "Supplier Name (must be actual merchant name, not generic terms like 'Receipt', 'Processing', or status words)",
+  "supplierInfo": {
+    "taxNumber": "12-3456789 or GST/HST #123456789 (Extract ALL tax numbers if visible. Use null ONLY if truly not found after scanning entire receipt)",
+    "phone": "(416) 555-1234 or 416-555-1234 (Extract main business phone if visible. Use null ONLY if truly not found)",
+    "address": "123 Main Street, Toronto, ON M5H 2N2 (Extract COMPLETE address including street, city, state/province, ZIP/postal code if visible. Use null ONLY if truly not found)"
+  },
+  "date": "2024-03-13",
+  "totalAmount": 123.45,
+  "currency": "USD",
+  "paymentAccountName": "Credit Card ****1234",
+  "tax": 5.67,
+  "items": [
+    ${JSON.stringify(RECEIPT_JSON_ITEMS_EXAMPLE)}
+  ],
+  "imageQuality": {
+    "clarity": 0.95,
+    "completeness": 1.0,
+    "clarityComment": "Clear and sharp",
+    "completenessComment": "Complete receipt visible"
+  },
+  "dataConsistency": {
+    "itemsSum": 123.45,
+    "itemsSumMatchesTotal": true,
+    "missingItems": false,
+    "consistencyComment": "Items sum matches total"
+  },
+  "confidence": 0.92
+}`;
+
+  // 从 URL 下载图片并转换为 base64（只需要下载一次）
+  console.log('Downloading image from URL...');
+  console.log('Image URL:', imageUrl);
+
+  // 下载文件到临时目录
+  const downloadResult = await FileSystem.downloadAsync(
+    imageUrl,
+    FileSystem.documentDirectory + `temp-${Date.now()}.jpg`
+  );
+
+  if (!downloadResult.uri) {
+    throw new Error('Failed to download image from URL');
+  }
+
+  // 读取文件为 base64
+  const base64 = await FileSystem.readAsStringAsync(downloadResult.uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  // 清理临时文件
+  try {
+    await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true });
+  } catch (e) {
+    console.warn('Failed to delete temp file:', e);
+  }
+
+  // 从 URL 推断 MIME 类型
+  let mimeType = 'image/jpeg';
+  if (imageUrl.includes('.png')) {
+    mimeType = 'image/png';
+  } else if (imageUrl.includes('.gif')) {
+    mimeType = 'image/gif';
+  } else if (imageUrl.includes('.webp')) {
+    mimeType = 'image/webp';
+  }
+
+  console.log('Image downloaded, size:', base64.length, 'bytes, mime type:', mimeType);
+
+  // 使用 base64 图片数据
+  const imagePart = {
+    inlineData: {
+      data: base64,
+      mimeType: mimeType,
+    },
+  };
+
+  // 尝试每个模型，直到找到一个可用的
+  let lastError: Error | null = null;
+
+  for (const modelName of modelsToTry) {
+    try {
+      console.log(`Trying model: ${modelName}...`);
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+
+      console.log('Sending request to Gemini API...');
+      const result = await model.generateContent([prompt, imagePart]);
+      const apiResponse = await result.response;
+      const text = apiResponse.text();
+      console.log(`✅ Model ${modelName} worked! Response length:`, text.length);
+
+      // 提取JSON部分（去除可能的markdown代码块标记）
+      let jsonText = text.trim();
+      if (jsonText.startsWith('```json')) {
+        jsonText = jsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      } else if (jsonText.startsWith('```')) {
+        jsonText = jsonText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      }
+
+      const parsedResult: GeminiReceiptResult = JSON.parse(jsonText);
+
+      // 验证和规范化数据
+      const defaultCategory = categoryNames.length > 0 ? categoryNames[0] : 'Shopping';
+      // 兼容处理：支持 paymentAccount 和 paymentAccountName 两种字段名
+      const paymentAccountName = parsedResult.paymentAccountName || (parsedResult as any).paymentAccount || undefined;
+
+      // 处理图片质量评价
+      const imageQuality = parsedResult.imageQuality ? {
+        clarity: parsedResult.imageQuality.clarity !== undefined ? Number(parsedResult.imageQuality.clarity) : undefined,
+        completeness: parsedResult.imageQuality.completeness !== undefined ? Number(parsedResult.imageQuality.completeness) : undefined,
+        clarityComment: parsedResult.imageQuality.clarityComment,
+        completenessComment: parsedResult.imageQuality.completenessComment,
+      } : undefined;
+
+      // 处理数据一致性检查
+      const dataConsistency = parsedResult.dataConsistency ? {
+        itemsSum: parsedResult.dataConsistency.itemsSum !== undefined ? Number(parsedResult.dataConsistency.itemsSum) : undefined,
+        itemsSumMatchesTotal: parsedResult.dataConsistency.itemsSumMatchesTotal !== undefined ? Boolean(parsedResult.dataConsistency.itemsSumMatchesTotal) : undefined,
+        missingItems: parsedResult.dataConsistency.missingItems !== undefined ? Boolean(parsedResult.dataConsistency.missingItems) : undefined,
+        consistencyComment: parsedResult.dataConsistency.consistencyComment,
+      } : undefined;
+
+      // 计算实际的明细金额总和（用于验证，统一用 price，兼容 amount）
+      const calculatedItemsSum = parsedResult.items.reduce((sum, item) => sum + (Number((item as any).price ?? (item as any).amount) || 0), 0);
+      const totalAmount = Number(parsedResult.totalAmount) || 0;
+      const tax = parsedResult.tax !== undefined ? Number(parsedResult.tax) : 0;
+      const expectedTotal = calculatedItemsSum + tax;
+      const actualItemsSumMatches = Math.abs(expectedTotal - totalAmount) <= 0.01;
+
+      return {
+        supplierName: parsedResult.supplierName || 'Unknown Supplier',
+        supplierInfo: parsedResult.supplierInfo ? {
+          taxNumber: parsedResult.supplierInfo.taxNumber && parsedResult.supplierInfo.taxNumber !== 'null' ? parsedResult.supplierInfo.taxNumber : undefined,
+          phone: parsedResult.supplierInfo.phone && parsedResult.supplierInfo.phone !== 'null' ? parsedResult.supplierInfo.phone : undefined,
+          address: parsedResult.supplierInfo.address && parsedResult.supplierInfo.address !== 'null' ? parsedResult.supplierInfo.address : undefined,
+        } : undefined,
+        date: normalizeShortDate(parsedResult.date || getLocalDateString()),
+        totalAmount: totalAmount,
+        currency: parsedResult.currency || 'CNY',
+        paymentAccountName: paymentAccountName,
+        tax: tax,
+        items: parsedResult.items.map((item: any) => ({
+          name: item.name ?? item.description ?? 'Unknown Item',
+          categoryName: item.categoryName ?? item.category ?? defaultCategory,
+          price: Number(item.price ?? item.amount ?? 0),
+          purposeName: item.purposeName ?? item.purpose ?? 'Home',
+          isAsset: item.isAsset !== undefined ? Boolean(item.isAsset) : false,
+          confidence: item.confidence !== undefined ? Number(item.confidence) : 0.8,
+        })),
+        confidence: parsedResult.confidence !== undefined ? Number(parsedResult.confidence) : 0.8,
+        imageQuality: imageQuality,
+        dataConsistency: dataConsistency || {
+          itemsSum: calculatedItemsSum,
+          itemsSumMatchesTotal: actualItemsSumMatches,
+          missingItems: !actualItemsSumMatches && calculatedItemsSum < totalAmount,
+          consistencyComment: actualItemsSumMatches
+            ? 'Items sum matches total'
+            : `Items sum (${calculatedItemsSum.toFixed(2)}) differs from total (${totalAmount.toFixed(2)}) by ${Math.abs(expectedTotal - totalAmount).toFixed(2)}`,
+        },
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`❌ Model ${modelName} failed:`, lastError.message);
+      clearModelCacheIfUnavailable(error);
+
+      // 如果是模型不存在的错误，尝试下一个模型
+      const errorMsg = lastError.message.toLowerCase();
+      if (errorMsg.includes('not found') || errorMsg.includes('404')) {
+        console.log(`  模型 ${modelName} 不可用，尝试下一个...`);
+        continue;
+      }
+
+      // 如果是其他错误（如 API Key 错误），不再尝试其他模型
+      break;
+    }
+  }
+
+  // 如果所有模型都失败了
+  console.error('All models failed. Last error:', lastError);
+
+  if (lastError) {
+    const errorMsg = lastError.message.toLowerCase();
+
+    // API Key 相关错误
+    if (errorMsg.includes('api key') || errorMsg.includes('api_key') || errorMsg.includes('invalid api key') || errorMsg.includes('401')) {
+      throw new Error(
+        `Gemini API Key 无效或未配置\n\n` +
+        `请检查：\n` +
+        `1. API Key 是否正确设置（检查 .env 文件或 app.config.js）\n` +
+        `2. API Key 是否有效（访问 https://makersuite.google.com/app/apikey 创建新的 Key）\n` +
+        `3. API Key 是否有访问 Gemini API 的权限\n\n` +
+        `当前 API Key 长度: ${apiKey?.length || 0}\n` +
+        `原始错误: ${lastError.message}`
+      );
+    }
+
+    // 配额相关错误
+    if (errorMsg.includes('quota') || errorMsg.includes('429') || errorMsg.includes('rate limit')) {
+      throw new Error(`API quota exhausted or limit reached\nOriginal error: ${lastError.message}`);
+    }
+
+    // 权限相关错误
+    if (errorMsg.includes('permission') || errorMsg.includes('403') || errorMsg.includes('forbidden')) {
+      throw new Error(`API permission insufficient, please check API Key permissions\nOriginal error: ${lastError.message}`);
+    }
+
+    // 模型不存在错误
+    if (errorMsg.includes('not found') || errorMsg.includes('404')) {
+      throw new Error(
+        `All Gemini models unavailable (404)\n\n` +
+        `Attempted models: ${POSSIBLE_MODELS.join(', ')}\n\n` +
+        `Possible causes:\n` +
+        `1. API Key does not have permission to access these models\n` +
+        `2. API Key may not be up to date (need to create new Key at Google AI Studio)\n` +
+        `3. API version mismatch\n\n` +
+        `Suggestions:\n` +
+        `1. Visit https://makersuite.google.com/app/apikey to create a new API Key\n` +
+        `2. Ensure API Key can access Gemini 1.5 models\n` +
+        `3. Check API enablement status in Google Cloud Console\n\n` +
+        `Original error: ${lastError.message}`
+      );
+    }
+
+    // 网络连接错误
+    if (errorMsg.includes('network') ||
+      errorMsg.includes('fetch') ||
+      errorMsg.includes('connection') ||
+      errorMsg.includes('timeout') ||
+      errorMsg.includes('econnrefused') ||
+      errorMsg.includes('failed to fetch') ||
+      errorMsg.includes('generativelanguage.googleapis.com')) {
+      throw new Error(
+        `Network connection failed\n\n` +
+        `Possible causes:\n` +
+        `1. API Key not configured or invalid\n` +
+        `2. Network connectivity issue\n` +
+        `3. Google API service temporarily unavailable\n` +
+        `4. Firewall or proxy blocking the request\n\n` +
+        `Please check:\n` +
+        `- Gemini API Key is set in EAS Secrets (EXPO_PUBLIC_GEMINI_API_KEY)\n` +
+        `- Network connection is working\n` +
+        `- API Key is valid and has proper permissions\n\n` +
+        `Original error: ${lastError.message}`
+      );
+    }
+
+    // 其他错误
+    throw new Error(
+      `Receipt recognition failed\n\n` +
+      `Error type: ${lastError.name}\n` +
+      `Details: ${lastError.message}\n\n` +
+      `Please check API Key configuration and network connection`
+    );
+  }
+
+  throw new Error('Receipt recognition failed: Unknown error');
+}
+
+/**
+ * 异步识别供应商详细信息（地址、电话、税号）
+ * 这是一个独立的识别任务，可以在基本小票信息返回后异步执行
+ */
+export async function recognizeSupplierInfo(
+  imageUrl: string,
+  supplierName: string
+): Promise<{
+  taxNumber?: string;
+  phone?: string;
+  address?: string;
+}> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    console.warn('Gemini API Key not configured for supplier info recognition');
+    return {};
+  }
+
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+
+  const prompt = `You are a receipt analysis expert. Focus ONLY on extracting detailed merchant/supplier information from this receipt image.
+
+SUPPLIER NAME CONTEXT: "${supplierName}"
+
+Your task is to extract COMPLETE merchant information with MAXIMUM DETAIL. Scan the ENTIRE receipt systematically: header, footer, sides, corners, and every section.
+
+EXTRACT THE FOLLOWING INFORMATION:
+
+1. Tax number (taxNumber) - CRITICAL: Extract ALL tax identification numbers if present anywhere on the receipt.
+   * United States formats:
+     - EIN (Employer Identification Number): XX-XXXXXXX (e.g., 12-3456789)
+     - Look for labels: "EIN", "Tax ID", "Federal Tax ID", "Employer ID", "Tax ID#", "Tax Identification Number"
+   * Canada formats:
+     - GST/HST Number: 9 digits, may include RT (e.g., 123456789RT0001, GST/HST #123456789)
+     - PST Number: Provincial Sales Tax number
+     - QST Number: Quebec Sales Tax number
+     - Look for labels: "GST", "HST", "PST", "QST", "GST/HST #", "Tax Registration #", "Business Number", "BN"
+   * Other formats:
+     - Business Number (BN): 9 digits (Canada)
+     - State Tax ID (varies by US state)
+   * Common locations: Near store name at top, footer, near tax calculation section, registration section
+   * **Extract ALL tax numbers if multiple are present. Combine them with commas if multiple.**
+   * **CRITICAL: Even if partially visible or unclear, extract what you can see. Do not omit tax numbers.**
+
+2. Phone (phone) - CRITICAL: Extract the phone number if available anywhere on the receipt.
+   * Formats:
+     - (XXX) XXX-XXXX (e.g., (416) 555-1234)
+     - XXX-XXX-XXXX (e.g., 416-555-1234)
+     - XXX.XXX.XXXX (e.g., 416.555.1234)
+     - 1-XXX-XXX-XXXX (with country code)
+     - Toll-free: 1-800-XXX-XXXX, 1-888-XXX-XXXX, etc.
+   * Common locations: Header, footer, customer service section, contact section
+   * Common labels: "Phone:", "Tel:", "Call:", "Customer Service:", "T:", "P:", "Phone #", "Tel #", "Contact:"
+   * **Extract the main business phone number. If multiple numbers, prefer the primary business number.**
+   * **CRITICAL: Extract phone numbers even if partially visible. Include area codes and country codes if present.**
+
+3. Address (address) - CRITICAL: Extract the COMPLETE business address with ALL details.
+   * Format: Street address, City, State/Province, ZIP/Postal Code
+   * Examples:
+     - US: "123 Main St, New York, NY 10001"
+     - Canada: "123 Main St, Toronto, ON M5H 2N2"
+   * Include ALL visible details:
+     - Unit/suite number if present (e.g., "Suite 200", "Unit 5", "#101")
+     - Street direction if present (e.g., "North", "South", "E", "W")
+     - Full state/province name or abbreviation
+     - Complete ZIP/postal code
+     - Building name if present
+   * Common locations: Header, footer, dedicated address section, near store name
+   * Common labels: "Address:", "Location:", "Store Address:", "Business Address:", "Registered Address:"
+   * **Prefer the physical store/business address over mailing or registered address.**
+   * **CRITICAL: Extract the COMPLETE address including street number, street name, city, state/province, and postal/ZIP code. Do not omit any part if visible.**
+
+Return ONLY valid JSON format without any extra text:
+{
+  "taxNumber": "12-3456789 or GST/HST #123456789 (Extract ALL tax numbers if visible. Use null ONLY if truly not found after scanning entire receipt)",
+  "phone": "(416) 555-1234 or 416-555-1234 (Extract main business phone if visible. Use null ONLY if truly not found)",
+  "address": "123 Main Street, Toronto, ON M5H 2N2 (Extract COMPLETE address including street, city, state/province, ZIP/postal code if visible. Use null ONLY if truly not found)"
+}`;
+
+  try {
+    // 下载图片
+    const downloadResult = await FileSystem.downloadAsync(
+      imageUrl,
+      FileSystem.documentDirectory + `temp-supplier-${Date.now()}.jpg`
+    );
+
+    if (!downloadResult.uri) {
+      console.warn('Failed to download image for supplier info recognition');
+      return {};
+    }
+
+    const base64 = await FileSystem.readAsStringAsync(downloadResult.uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    try {
+      await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true });
+    } catch (e) {
+      console.warn('Failed to delete temp file:', e);
+    }
+
+    let mimeType = 'image/jpeg';
+    if (imageUrl.includes('.png')) {
+      mimeType = 'image/png';
+    } else if (imageUrl.includes('.gif')) {
+      mimeType = 'image/gif';
+    } else if (imageUrl.includes('.webp')) {
+      mimeType = 'image/webp';
+    }
+
+    const imagePart = {
+      inlineData: {
+        data: base64,
+        mimeType: mimeType,
+      },
+    };
+
+    // 尝试使用可用的模型
+    const modelsToTry = availableModelCache ? [availableModelCache, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`[Supplier Info] Trying model: ${modelName}...`);
+        const model = currentGenAI.getGenerativeModel({ model: modelName });
+
+        const result = await model.generateContent([prompt, imagePart]);
+        const apiResponse = await result.response;
+        const text = apiResponse.text();
+        console.log(`[Supplier Info] ✅ Model ${modelName} worked! Response:`, text);
+
+        // 提取JSON部分
+        let jsonText = text.trim();
+        if (jsonText.startsWith('```json')) {
+          jsonText = jsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+        } else if (jsonText.startsWith('```')) {
+          jsonText = jsonText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+        }
+
+        const parsedResult = JSON.parse(jsonText);
+
+        return {
+          taxNumber: parsedResult.taxNumber && parsedResult.taxNumber !== 'null' ? parsedResult.taxNumber : undefined,
+          phone: parsedResult.phone && parsedResult.phone !== 'null' ? parsedResult.phone : undefined,
+          address: parsedResult.address && parsedResult.address !== 'null' ? parsedResult.address : undefined,
+        };
+      } catch (error) {
+        console.warn(`[Supplier Info] Model ${modelName} failed:`, error);
+        continue;
+      }
+    }
+
+    console.warn('[Supplier Info] All models failed for supplier info recognition');
+    return {};
+  } catch (error) {
+    console.error('[Supplier Info] Error recognizing supplier info:', error);
+    return {};
+  }
+}
+
+// 从文字识别小票内容
+export async function recognizeReceiptFromText(text: string): Promise<GeminiReceiptResult> {
+  // 重新获取 API Key（确保使用最新的值）
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const error = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
+    error.code = 'GEMINI_API_KEY_MISSING';
+    throw error;
+  }
+
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+
+  console.log('Starting receipt recognition with text...');
+  console.log('Text input:', text);
+
+  // 获取用户的分类列表
+  let categoryNames: string[] = [];
+  try {
+    const categories = await getCategories();
+    categoryNames = categories.map(cat => cat.name);
+  } catch (error) {
+    console.warn('Failed to fetch categories, using default list:', error);
+    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+  }
+
+  if (categoryNames.length === 0) {
+    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+  }
+
+  // 获取用户的用途列表
+  let purposeNames: string[] = [];
+  try {
+    const purposes = await getPurposes();
+    purposeNames = purposes.map(p => p.name);
+  } catch (error) {
+    console.warn('Failed to fetch purposes, using default list:', error);
+    // 如果获取失败，使用默认用途列表
+    purposeNames = ['Home', 'Gifts', 'Business'];
+  }
+
+  // 如果用途列表为空，使用默认用途
+  if (purposeNames.length === 0) {
+    purposeNames = ['Home', 'Gifts', 'Business'];
+  }
+
+  // 获取用户已有的支付账户列表（按使用频率排序）
+  let paymentAccountNames: string[] = [];
+  try {
+    const accounts = await getAccountsForOptions();
+    paymentAccountNames = accounts.map(pa => pa.name);
+  } catch (error) {
+    console.warn('Failed to fetch payment accounts:', error);
+  }
+
+  // 获取用户历史小票中的币种列表（按使用频率排序）
+  let userCurrencies: string[] = [];
+  try {
+    userCurrencies = await getCurrenciesByUsage();
+    console.log('User currencies by usage:', userCurrencies);
+  } catch (error) {
+    console.warn('Failed to fetch currency usage:', error);
+  }
+
+  let supplierNames: string[] = [];
+  try {
+    const suppliers = await getSupplierOptions();
+    supplierNames = suppliers.map((s) => s.name);
+  } catch (e) {
+    console.warn('Failed to fetch suppliers:', e);
+  }
+
+  const categoryList = categoryNames.join(', ');
+  const purposeList = purposeNames.join(', ');
+  const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
+  const supplierList = supplierNames.length > 0 ? supplierNames.join(', ') : '';
+  const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
+  const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, CNY';
+
+  const now = new Date();
+  const today = getLocalDateString(now);
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1; // 1-12
+  const currentDay = now.getDate();
+  // 上周五：仅用本地年/月/日计算，避免 UTC 导致差一天
+  const dow = now.getDay();
+  const daysBack = dow === 5 ? 7 : dow < 5 ? dow + 2 : 1;
+  const lastFridayStr = getLocalDateString(new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysBack));
+
+  const prompt = `Extract receipt/purchase from text. Return ONLY valid JSON, no markdown.
+
+Rules: Gibberish/no real content → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, purposeName, paymentAccountName: pick from injected lists if match, else return new value (will create). Dates YYYY-MM-DD; categoryName and purposeName from lists. Relative: today=${today}, yesterday=day before ${today}, 上周五/last Friday=${lastFridayStr}. Ambiguous dates → closest to ${today}; year missing → ${currentYear} or ${currentYear - 1}.
+Items: at least one. ${RECEIPT_JSON_ITEMS_RULE} Example item: ${JSON.stringify(RECEIPT_JSON_ITEMS_EXAMPLE)}. Infer single item from total if needed.
+
+Data: today=${today}, 上周五=${lastFridayStr}. Suppliers [${supplierList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Purposes [${purposeList}], default "${purposeNames[0]}".
+
+Output JSON keys: supplierName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items (array of { name, categoryName, purposeName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
+
+User text:
+"${text}"`;
+
+  try {
+    // 首先尝试从 API 获取可用模型
+    let availableModel: string | null = null;
+    try {
+      availableModel = await getAvailableImageModel();
+      if (availableModel) {
+        console.log('✅ Found available model via API:', availableModel);
+      }
+    } catch (error) {
+      console.warn('⚠️  Could not fetch available models from API:', error);
+    }
+
+    // 尝试使用模型（优先使用从 API 获取的模型）
+    const modelsToTry = availableModel
+      ? [availableModel, ...POSSIBLE_MODELS]
+      : POSSIBLE_MODELS;
+
+    let lastError: Error | null = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Trying model: ${modelName}`);
+        const model = currentGenAI.getGenerativeModel({ model: modelName });
+
+        // 使用文本提示
+        const result = await model.generateContent(prompt);
+
+        const response = await result.response;
+        const textResponse = response.text();
+        console.log('Gemini response:', textResponse);
+
+        // 解析JSON响应
+        const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          throw new Error('No JSON found in response');
+        }
+
+        const parsedResult: any = JSON.parse(jsonMatch[0]);
+
+        // 如果供应商名称为空或为"Unknown Supplier"，且有商品项，使用第一个商品名称作为供应商名称
+        if ((!parsedResult.supplierName || parsedResult.supplierName === 'Unknown Supplier') && parsedResult.items && Array.isArray(parsedResult.items) && parsedResult.items.length > 0) {
+          const firstItem = parsedResult.items[0];
+          if (firstItem && firstItem.name) {
+            console.log('Supplier name not found, using first item name as supplier name:', firstItem.name);
+            parsedResult.supplierName = firstItem.name;
+          }
+        }
+
+        // 验证必需字段
+        if (!parsedResult.supplierName || !parsedResult.date || parsedResult.totalAmount === undefined) {
+          console.error('Missing required fields:', {
+            supplierName: !!parsedResult.supplierName,
+            date: !!parsedResult.date,
+            totalAmount: parsedResult.totalAmount !== undefined,
+          });
+          throw new Error('Missing required fields: supplierName, date, or totalAmount');
+        }
+
+        // 确保 items 是数组且不为空
+        if (!parsedResult.items) {
+          console.warn('No items field in response, creating default item from total amount');
+          // 如果没有items，创建一个默认item
+          parsedResult.items = [{
+            name: 'General Purchase',
+            categoryName: categoryNames[0] || 'Shopping',
+            purpose: 'Home',
+            price: parsedResult.totalAmount - (parsedResult.tax || 0),
+          }];
+        } else if (!Array.isArray(parsedResult.items)) {
+          console.warn('Items field is not an array, converting to array');
+          parsedResult.items = [];
+        } else if (parsedResult.items.length === 0) {
+          console.warn('Items array is empty, creating default item from total amount');
+          // 如果items为空，创建一个默认item
+          parsedResult.items = [{
+            name: 'General Purchase',
+            categoryName: categoryNames[0] || 'Shopping',
+            price: parsedResult.totalAmount - (parsedResult.tax || 0),
+          }];
+        }
+
+        // 统一 item 字段：与图片/语音同一套 schema（name, categoryName, purposeName, price）
+        parsedResult.items = parsedResult.items.map((item: any) => {
+          const name = item.name ?? item.description;
+          const price = item.price !== undefined && item.price !== null ? Number(item.price) : Number(item.amount);
+          const purposeName = item.purposeName ?? item.purpose ?? 'Home';
+          return { ...item, name, price, purposeName, categoryName: item.categoryName ?? item.category };
+        }).filter((item: any) => {
+          if (item.name == null || item.name === '' || (item.price === undefined || isNaN(item.price)) || !item.categoryName) {
+            console.warn('Invalid item found, skipping:', item);
+            return false;
+          }
+          return true;
+        });
+
+        // 如果过滤后items为空，创建默认item
+        if (parsedResult.items.length === 0) {
+          console.warn('All items were invalid, creating default item');
+          parsedResult.items = [{
+            name: 'General Purchase',
+            categoryName: categoryNames[0] || 'Shopping',
+            purpose: 'Home',
+            price: parsedResult.totalAmount - (parsedResult.tax || 0),
+          }];
+        }
+
+        console.log('Parsed result items count:', parsedResult.items.length);
+        console.log('Parsed result:', {
+          supplierName: parsedResult.supplierName,
+          date: parsedResult.date,
+          totalAmount: parsedResult.totalAmount,
+          itemsCount: parsedResult.items.length,
+        });
+
+        // 确保 dataConsistency 存在
+        if (!parsedResult.dataConsistency) {
+          parsedResult.dataConsistency = {};
+        }
+
+        // 计算itemsSum如果未提供
+        if (parsedResult.items && parsedResult.items.length > 0) {
+          if (parsedResult.dataConsistency.itemsSum === undefined) {
+            parsedResult.dataConsistency.itemsSum = parsedResult.items.reduce(
+              (sum: number, item: any) => sum + (Number(item.price) || 0),
+              0
+            );
+          }
+          if (parsedResult.dataConsistency.itemsSumMatchesTotal === undefined) {
+            const itemsSum = parsedResult.dataConsistency.itemsSum;
+            const total = Number(parsedResult.totalAmount) || 0;
+            const tax = Number(parsedResult.tax) || 0;
+            parsedResult.dataConsistency.itemsSumMatchesTotal = Math.abs(itemsSum + tax - total) < 0.01;
+          }
+        } else {
+          // 如果没有items，设置默认值
+          parsedResult.dataConsistency.itemsSum = 0;
+          parsedResult.dataConsistency.itemsSumMatchesTotal = false;
+        }
+
+        // 确保 confidence 存在
+        if (parsedResult.confidence === undefined) {
+          parsedResult.confidence = 0.8; // 默认置信度
+        }
+
+        // 确保 currency 存在，使用默认币种
+        if (!parsedResult.currency) {
+          parsedResult.currency = defaultCurrency;
+        }
+
+        // 短日期归一化：取与今天最接近的合法解释（锚点今天）
+        parsedResult.date = normalizeShortDate(parsedResult.date);
+
+        console.log('Final parsed result:', {
+          supplierName: parsedResult.supplierName,
+          date: parsedResult.date,
+          totalAmount: parsedResult.totalAmount,
+          currency: parsedResult.currency,
+          itemsCount: parsedResult.items.length,
+          items: parsedResult.items.map((item: any) => ({ name: item.name, price: item.price })),
+        });
+
+        return parsedResult as GeminiReceiptResult;
+      } catch (error) {
+        console.warn(`Model ${modelName} failed:`, error);
+        clearModelCacheIfUnavailable(error);
+        lastError = error instanceof Error ? error : new Error(String(error));
+        continue;
+      }
+    }
+
+    throw lastError || new Error('All models failed');
+  } catch (error) {
+    console.error('Error recognizing receipt from text:', error);
+    throw error;
+  }
+}
+
+// 从音频识别小票内容
+export async function recognizeReceiptFromAudio(audioUri: string): Promise<GeminiReceiptResult> {
+  // 重新获取 API Key（确保使用最新的值）
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const error = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
+    error.code = 'GEMINI_API_KEY_MISSING';
+    throw error;
+  }
+
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+
+  console.log('Starting receipt recognition with audio...');
+  console.log('Audio URI:', audioUri);
+
+  // 获取用户的分类列表
+  let categoryNames: string[] = [];
+  try {
+    const categories = await getCategories();
+    categoryNames = categories.map(cat => cat.name);
+  } catch (error) {
+    console.warn('Failed to fetch categories, using default list:', error);
+    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+  }
+
+  if (categoryNames.length === 0) {
+    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+  }
+
+  // 获取用户的用途列表
+  let purposeNames: string[] = [];
+  try {
+    const purposes = await getPurposes();
+    purposeNames = purposes.map(p => p.name);
+  } catch (error) {
+    console.warn('Failed to fetch purposes, using default list:', error);
+    purposeNames = ['Home', 'Gifts', 'Business'];
+  }
+
+  if (purposeNames.length === 0) {
+    purposeNames = ['Home', 'Gifts', 'Business'];
+  }
+
+  // 获取用户已有的支付账户列表（按使用频率排序）
+  let paymentAccountNames: string[] = [];
+  try {
+    const accounts = await getAccountsForOptions();
+    paymentAccountNames = accounts.map(pa => pa.name);
+  } catch (error) {
+    console.warn('Failed to fetch payment accounts:', error);
+  }
+
+  // 获取用户历史小票中的币种列表（按使用频率排序）
+  let userCurrencies: string[] = [];
+  try {
+    userCurrencies = await getCurrenciesByUsage();
+    console.log('User currencies by usage:', userCurrencies);
+  } catch (error) {
+    console.warn('Failed to fetch currency usage:', error);
+  }
+
+  let supplierNamesAudio: string[] = [];
+  try {
+    const suppliers = await getSupplierOptions();
+    supplierNamesAudio = suppliers.map((s) => s.name);
+  } catch (e) {
+    console.warn('Failed to fetch suppliers:', e);
+  }
+
+  const categoryList = categoryNames.join(', ');
+  const purposeList = purposeNames.join(', ');
+  const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
+  const supplierListAudio = supplierNamesAudio.length > 0 ? supplierNamesAudio.join(', ') : '';
+  const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
+  const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, CNY';
+
+  const today = new Date();
+  const todayStr = getLocalDateString(today);
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayStr = getLocalDateString(yesterday);
+
+  const prompt = `Extract receipt/purchase from this audio. Return ONLY valid JSON, no markdown.
+
+Rules: Unclear/noise-only audio → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, purposeName, paymentAccountName: pick from injected lists if match, else return new value (will create). Only extract what you actually hear.
+Items: at least one. ${RECEIPT_JSON_ITEMS_RULE} Example item: ${JSON.stringify(RECEIPT_JSON_ITEMS_EXAMPLE)}.
+
+Data: today=${todayStr}, yesterday=${yesterdayStr}. Suppliers [${supplierListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Purposes [${purposeList}], default "${purposeNames[0]}".
+
+Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymentAccountName (optional), tax (default 0), items (array of { name, categoryName, purposeName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
+
+  try {
+    // 读取音频文件
+    // 使用 legacy API 读取音频文件（与新版本 API 兼容）
+    const audioBase64 = await FileSystem.readAsStringAsync(audioUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    // 获取音频文件的MIME类型（假设是m4a格式，Expo录音默认格式）
+    const mimeType = 'audio/m4a';
+
+    // 首先尝试从 API 获取可用模型（支持多模态的模型通常也支持音频）
+    let availableModel: string | null = null;
+    try {
+      availableModel = await getAvailableImageModel();
+      if (availableModel) {
+        console.log('✅ Found available model via API:', availableModel);
+      }
+    } catch (error) {
+      console.warn('⚠️  Could not fetch available models from API:', error);
+    }
+
+    // 尝试使用支持音频的模型（优先使用从 API 获取的模型）
+    const modelsToTry = availableModel
+      ? [availableModel, ...POSSIBLE_MODELS]
+      : POSSIBLE_MODELS;
+
+    let lastError: Error | null = null;
+
+    for (const modelName of modelsToTry) {
+      try {
+        console.log(`Trying model: ${modelName}`);
+        const model = currentGenAI.getGenerativeModel({ model: modelName });
+
+        // 使用音频和文本提示
+        const result = await model.generateContent([
+          {
+            inlineData: {
+              data: audioBase64,
+              mimeType: mimeType,
+            },
+          },
+          prompt,
+        ]);
+
+        const response = await result.response;
+        const text = response.text();
+        console.log('Gemini response:', text);
+
+        // 解析JSON响应
+        const jsonMatch = text.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          throw new Error('No JSON found in response');
+        }
+
+        const parsedResult: any = JSON.parse(jsonMatch[0]);
+
+        // 验证必需字段
+        if (!parsedResult.supplierName || !parsedResult.date || parsedResult.totalAmount === undefined) {
+          throw new Error('Missing required fields in response');
+        }
+
+        // 统一 item 字段：与图片/文字同一套 schema（name, categoryName, purposeName, price）
+        if (parsedResult.items && Array.isArray(parsedResult.items)) {
+          parsedResult.items = parsedResult.items.map((item: any) => {
+            const name = item.name ?? item.description;
+            const price = item.price !== undefined && item.price !== null ? Number(item.price) : Number(item.amount ?? 0);
+            const purposeName = item.purposeName ?? item.purpose ?? 'Home';
+            return { ...item, name, price, purposeName, categoryName: item.categoryName ?? item.category };
+          }).filter((item: any) => item.name != null && item.name !== '' && !isNaN(item.price) && item.categoryName);
+        }
+
+        // 计算itemsSum如果未提供
+        if (parsedResult.items && parsedResult.items.length > 0) {
+          if (parsedResult.dataConsistency?.itemsSum === undefined) {
+            parsedResult.dataConsistency = parsedResult.dataConsistency || {};
+            parsedResult.dataConsistency.itemsSum = parsedResult.items.reduce(
+              (sum: number, item: any) => sum + (item.price || 0),
+              0
+            );
+          }
+          if (parsedResult.dataConsistency?.itemsSumMatchesTotal === undefined) {
+            const itemsSum = parsedResult.dataConsistency.itemsSum;
+            const total = parsedResult.totalAmount || 0;
+            const tax = parsedResult.tax || 0;
+            parsedResult.dataConsistency.itemsSumMatchesTotal = Math.abs(itemsSum + tax - total) < 0.01;
+          }
+        }
+
+        // 确保 currency 存在，使用默认币种
+        if (!parsedResult.currency) {
+          parsedResult.currency = defaultCurrency;
+        }
+
+        return parsedResult as GeminiReceiptResult;
+      } catch (error) {
+        console.warn(`Model ${modelName} failed:`, error);
+        clearModelCacheIfUnavailable(error);
+        lastError = error instanceof Error ? error : new Error(String(error));
+        continue;
+      }
+    }
+
+    throw lastError || new Error('All models failed');
+  } catch (error) {
+    console.error('Error recognizing receipt from audio:', error);
+    throw error;
+  }
+}
+
+// ---------- 按凭证类型识别（由列表页入口决定类型，不由大模型判断） ----------
+
+/** 按凭证类型从文字识别：receipt 用 supplierName，invoice 用 customerName，其余结构一致 */
+export async function recognizeVoucherFromText(text: string, voucherType: VoucherLogType): Promise<GeminiVoucherResult> {
+  if (voucherType === 'receipt') {
+    const r = await recognizeReceiptFromText(text);
+    return { ...r, customerName: undefined } as GeminiVoucherResult;
+  }
+  if (voucherType === 'invoice') {
+    return recognizeInvoiceFromText(text);
+  }
+  // inbound/outbound 暂未实现，回退为 receipt
+  const r = await recognizeReceiptFromText(text);
+  return { ...r, customerName: undefined } as GeminiVoucherResult;
+}
+
+/** 发票文字识别：输出 customerName、items、totalAmount、date、currency、paymentAccountName 等 */
+async function recognizeInvoiceFromText(text: string): Promise<GeminiVoucherResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const error = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
+    error.code = 'GEMINI_API_KEY_MISSING';
+    throw error;
+  }
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+
+  let categoryNames: string[] = [];
+  try {
+    const categories = await getCategories();
+    categoryNames = categories.map(cat => cat.name);
+  } catch {
+    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+  }
+  if (categoryNames.length === 0) categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+
+  let purposeNames: string[] = [];
+  try {
+    const purposes = await getPurposes();
+    purposeNames = purposes.map(p => p.name);
+  } catch {
+    purposeNames = ['Home', 'Gifts', 'Business'];
+  }
+  if (purposeNames.length === 0) purposeNames = ['Home', 'Gifts', 'Business'];
+
+  let paymentAccountNames: string[] = [];
+  try {
+    const accounts = await getAccountsForOptions();
+    paymentAccountNames = accounts.map(pa => pa.name);
+  } catch {}
+
+  let userCurrencies: string[] = [];
+  try {
+    userCurrencies = await getCurrenciesByUsage();
+  } catch {}
+  let customerNames: string[] = [];
+  try {
+    const customers = await getCustomerOptions();
+    customerNames = customers.map((c) => c.name);
+  } catch (e) {
+    console.warn('Failed to fetch customers:', e);
+  }
+  const categoryList = categoryNames.join(', ');
+  const purposeList = purposeNames.join(', ');
+  const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
+  const customerList = customerNames.length > 0 ? customerNames.join(', ') : '';
+  const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
+  const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, CNY';
+  const now = new Date();
+  const today = getLocalDateString(now);
+  const currentYear = now.getFullYear();
+
+  const prompt = `Extract INVOICE (sales / money received) from text. Return ONLY valid JSON, no markdown.
+
+Rules: Gibberish/no real content → confidence 0.1, customerName "Unknown", totalAmount 0, items []. For customerName, categoryName, purpose, paymentAccountName: pick from injected lists if match, else return new value (will create). Dates YYYY-MM-DD; use ${today} if not mentioned.
+
+Data: today=${today}. Customers [${customerList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Purposes [${purposeList}], default "${purposeNames[0]}".
+
+Output: customerName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[], dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
+
+User input:
+"${text}"`;
+
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch {}
+  const modelsToTry = availableModel ? [availableModel, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+  let lastError: Error | null = null;
+
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+
+      if (!parsed.customerName) parsed.customerName = 'Customer';
+      if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
+      if (parsed.totalAmount === undefined) parsed.totalAmount = 0;
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
+      parsed.items = parsed.items.map((item: any) => ({
+        ...item,
+        purpose: item.purpose || item.purposeName || purposeNames[0] || 'Home',
+        purposeName: item.purposeName || item.purpose || purposeNames[0] || 'Home',
+      })).filter((item: any) => item.name != null && item.price !== undefined && item.categoryName);
+      if (parsed.items.length === 0) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
+      if (!parsed.currency) parsed.currency = defaultCurrency;
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      if (!parsed.dataConsistency) parsed.dataConsistency = {};
+
+      return parsed as GeminiVoucherResult;
+    } catch (error) {
+      clearModelCacheIfUnavailable(error);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+/** 按凭证类型从语音识别 */
+export async function recognizeVoucherFromAudio(audioUri: string, voucherType: VoucherLogType): Promise<GeminiVoucherResult> {
+  if (voucherType === 'receipt') {
+    const r = await recognizeReceiptFromAudio(audioUri);
+    return { ...r, customerName: undefined } as GeminiVoucherResult;
+  }
+  if (voucherType === 'invoice') {
+    return recognizeInvoiceFromAudio(audioUri);
+  }
+  const r = await recognizeReceiptFromAudio(audioUri);
+  return { ...r, customerName: undefined } as GeminiVoucherResult;
+}
+
+/** 发票语音识别：与文字相同结构，输出 customerName 等 */
+async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVoucherResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const error = new Error('Gemini API Key 未配置。') as any;
+    error.code = 'GEMINI_API_KEY_MISSING';
+    throw error;
+  }
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+
+  let categoryNames: string[] = [];
+  try {
+    const categories = await getCategories();
+    categoryNames = categories.map(cat => cat.name);
+  } catch {
+    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+  }
+  let purposeNames: string[] = [];
+  try {
+    const purposes = await getPurposes();
+    purposeNames = purposes.map(p => p.name);
+  } catch {
+    purposeNames = ['Home', 'Gifts', 'Business'];
+  }
+  let paymentAccountNames: string[] = [];
+  try {
+    const accounts = await getAccountsForOptions();
+    paymentAccountNames = accounts.map(pa => pa.name);
+  } catch {}
+  let userCurrencies: string[] = [];
+  try {
+    userCurrencies = await getCurrenciesByUsage();
+  } catch {}
+  let customerNamesAudio: string[] = [];
+  try {
+    const customers = await getCustomerOptions();
+    customerNamesAudio = customers.map((c) => c.name);
+  } catch (e) {
+    console.warn('Failed to fetch customers:', e);
+  }
+  const categoryList = categoryNames.join(', ');
+  const purposeList = purposeNames.join(', ');
+  const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
+  const customerListAudio = customerNamesAudio.length > 0 ? customerNamesAudio.join(', ') : '';
+  const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
+  const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, CNY';
+  const today = getLocalDateString();
+
+  const prompt = `Extract INVOICE (sales / money received) from this audio. Return ONLY valid JSON, no markdown.
+
+Rules: Unclear/noise-only audio → confidence 0.1, customerName "Unknown", totalAmount 0, items []. For customerName, categoryName, purpose, paymentAccountName: pick from injected lists if match, else return new value (will create). Only extract what you actually hear.
+
+Data: today=${today}. Customers [${customerListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Purposes: [${purposeList}], default "${purposeNames[0]}". Return ONLY valid JSON: customerName, date (YYYY-MM-DD), totalAmount, currency, tax, paymentAccountName, items (name, categoryName, purpose, price), dataConsistency (itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment), confidence(0-1).`;
+
+  const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch {}
+  const modelsToTry = availableModel ? [availableModel, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+  let lastError: Error | null = null;
+
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([
+        { inlineData: { data: audioBase64, mimeType: 'audio/m4a' } },
+        prompt,
+      ]);
+      const text = result.response.text();
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+      if (!parsed.customerName) parsed.customerName = 'Customer';
+      if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
+      if (parsed.totalAmount === undefined) parsed.totalAmount = 0;
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
+      parsed.items = parsed.items.map((item: any) => ({
+        ...item,
+        purpose: item.purpose || item.purposeName || purposeNames[0] || 'Home',
+        purposeName: item.purposeName || item.purpose || purposeNames[0] || 'Home',
+      })).filter((item: any) => item.name != null && item.price !== undefined && item.categoryName);
+      if (parsed.items.length === 0) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
+      if (!parsed.currency) parsed.currency = defaultCurrency;
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      if (!parsed.dataConsistency) parsed.dataConsistency = {};
+      return parsed as GeminiVoucherResult;
+    } catch (error) {
+      clearModelCacheIfUnavailable(error);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+// ---------- 入库/出库识别（另一套 prompt：货物流，明细为 数量+单位+单价） ----------
+
+const INBOUND_OUTBOUND_POSSIBLE_MODELS = [
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-2.5-flash',
+  'gemini-3-flash-preview',
+  'gemini-2.5-pro',
+  'gemini-3-pro-preview',
+  'gemini-2.0-flash-exp',
+];
+
+const INBOUND_JSON_EXAMPLE = (today: string) => `{
+  "documentNo": "CK-06072",
+  "supplierName": "某某科技有限公司",
+  "warehouseName": "4#",
+  "locationName": "E位",
+  "date": "${today}",
+  "inboundType": "采购入库",
+  "totalAmount": 4030,
+  "totalAmountChinese": "肆仟零佰叁拾零元",
+  "currency": "CNY",
+  "handlerName": "严某",
+  "warehouseKeeperName": "周某",
+  "accountantName": "周某",
+  "remarks": null,
+  "items": [
+    {"lineNo": 1, "productCode": "001", "productName": "红外线探测仪", "specification": "A", "quantity": 5, "qualifiedQuantity": 5, "defectiveQuantity": 0, "unit": "个", "unitPrice": 300, "amount": 1500, "skuCode": "001", "remarks": null},
+    {"lineNo": 2, "productCode": "002", "productName": "触摸开关", "specification": "A", "quantity": 10, "qualifiedQuantity": 9, "defectiveQuantity": 1, "unit": "个", "unitPrice": 130, "amount": 1300, "skuCode": "002", "remarks": null}
+  ],
+  "confidence": 0.9
+}`;
+
+/** 入库单文字识别：按样例表格最完整字段提取 */
+export async function recognizeInboundFromText(text: string): Promise<GeminiInboundOutboundResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const today = getLocalDateString();
+  let supplierListIn = '';
+  let warehouseListIn = '';
+  let locationListIn = '';
+  let skuListIn = '';
+  try {
+    const [suppliers, warehouses, skus] = await Promise.all([
+      getSupplierOptions(),
+      getWarehousesForOptions(),
+      getSkusForOptions(),
+    ]);
+    supplierListIn = suppliers.map((s) => s.name).join(', ');
+    warehouseListIn = warehouses.map((w) => w.name).join(', ');
+    const locNames: string[] = [];
+    for (const w of warehouses) {
+      const locs = await getLocationsByWarehouseForOptions(w.id);
+      locNames.push(...locs.map((l) => l.name));
+    }
+    locationListIn = [...new Set(locNames)].join(', ');
+    skuListIn = skus.map((s) => (s.code ? `${s.code}(${s.name})` : s.name)).join(', ');
+  } catch (e) {
+    console.warn('Failed to fetch inbound options:', e);
+  }
+  const prompt = `Extract INBOUND (入库单) from text. INBOUND = goods received from supplier. Return ONLY valid JSON, no markdown.
+
+Rules: For supplierName, warehouseName, locationName, skuCode/productCode: pick from injected lists if match, else return new value (will create). date YYYY-MM-DD, use ${today} if missing; ambiguous slash dates → closest to today.
+
+Data: today=${today}. Suppliers [${supplierListIn || 'None'}]. Warehouses [${warehouseListIn || 'None'}]. Locations [${locationListIn || 'None'}]. SKUs (code or name) [${skuListIn || 'None'}].
+
+HEADER: documentNo, supplierName, warehouseName, locationName, date, inboundType, totalAmount, totalAmountChinese, currency, handlerName, warehouseKeeperName, accountantName, remarks.
+ITEMS (array, REQUIRED): lineNo, productCode, productName, specification, quantity, qualifiedQuantity, defectiveQuantity, unit, unitPrice, amount, skuCode, remarks. Output confidence(0-1).
+
+User input:
+"${text}"`;
+
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  let lastError: Error | null = null;
+  for (const modelName of INBOUND_OUTBOUND_POSSIBLE_MODELS) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+      if (!parsed.supplierName) parsed.supplierName = 'Supplier';
+      if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
+      parsed.items = normalizeInboundItems(parsed.items, today);
+      if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      return parsed as GeminiInboundOutboundResult;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+function normalizeInboundItems(items: any[], defaultDate: string): any[] {
+  return items
+    .filter(
+      (it: any) =>
+        it &&
+        (it.productName != null || it.name != null) &&
+        (typeof it.quantity === 'number' || typeof it.quantity === 'string'),
+    )
+    .map((it: any, idx: number) => {
+      const q = Number(it.quantity) || 1;
+      const qualified = it.qualifiedQuantity != null ? Number(it.qualifiedQuantity) : undefined;
+      const defective = it.defectiveQuantity != null ? Number(it.defectiveQuantity) : undefined;
+      const unitPrice = it.unitPrice != null ? Number(it.unitPrice) : undefined;
+      const amount = it.amount != null ? Number(it.amount) : (unitPrice != null ? q * unitPrice : undefined);
+      return {
+        lineNo: it.lineNo != null ? Number(it.lineNo) : idx + 1,
+        productCode: it.productCode ?? it.code ?? undefined,
+        productName: it.productName ?? it.name ?? 'Item',
+        specification: it.specification ?? it.spec ?? undefined,
+        quantity: q,
+        qualifiedQuantity: qualified,
+        defectiveQuantity: defective,
+        unit: it.unit ?? '件',
+        unitPrice,
+        amount,
+        skuCode: it.skuCode ?? it.code ?? it.sku ?? undefined,
+        remarks: it.remarks ?? undefined,
+      };
+    });
+}
+
+const OUTBOUND_JSON_EXAMPLE = (today: string) => `{
+  "documentNo": "2023/05/25-1",
+  "customerName": "上海软件公司",
+  "warehouseName": "中关村电器",
+  "locationName": null,
+  "date": "${today}",
+  "totalAmount": 3604,
+  "totalTax": 204,
+  "currency": "CNY",
+  "handlerName": null,
+  "preparerName": "王罗",
+  "accountantName": "林来",
+  "remarks": null,
+  "items": [
+    {"lineNo": 1, "productName": "微波炉", "specification": null, "quantity": 1, "unit": "台", "unitPrice": 1000, "amount": 1000, "supplyPrice": 1000, "tax": 60, "skuCode": null, "remarks": null},
+    {"lineNo": 2, "productName": "电脑", "specification": null, "quantity": 1, "unit": "个", "unitPrice": 2000, "amount": 2000, "supplyPrice": 2000, "tax": 120, "skuCode": null, "remarks": null}
+  ],
+  "confidence": 0.9
+}`;
+
+function normalizeOutboundItems(items: any[], defaultDate: string): any[] {
+  return items
+    .filter(
+      (it: any) =>
+        it &&
+        (it.productName != null || it.name != null) &&
+        (typeof it.quantity === 'number' || typeof it.quantity === 'string'),
+    )
+    .map((it: any, idx: number) => {
+      const q = Number(it.quantity) || 1;
+      const unitPrice = it.unitPrice != null ? Number(it.unitPrice) : undefined;
+      const amount = it.amount != null ? Number(it.amount) : (unitPrice != null ? q * unitPrice : undefined);
+      return {
+        lineNo: it.lineNo != null ? Number(it.lineNo) : idx + 1,
+        productName: it.productName ?? it.name ?? 'Item',
+        specification: it.specification ?? it.spec ?? undefined,
+        quantity: q,
+        unit: it.unit ?? '件',
+        unitPrice,
+        amount,
+        supplyPrice: it.supplyPrice != null ? Number(it.supplyPrice) : undefined,
+        tax: it.tax != null ? Number(it.tax) : undefined,
+        skuCode: it.skuCode ?? it.code ?? it.sku ?? undefined,
+        remarks: it.remarks ?? undefined,
+      };
+    });
+}
+
+/** 出库单文字识别：按样例表格最完整字段提取 */
+export async function recognizeOutboundFromText(text: string): Promise<GeminiInboundOutboundResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const today = getLocalDateString();
+  let customerListOut = '';
+  let warehouseListOut = '';
+  let locationListOut = '';
+  let skuListOut = '';
+  try {
+    const [customers, warehouses, skus] = await Promise.all([
+      getCustomerOptions(),
+      getWarehousesForOptions(),
+      getSkusForOptions(),
+    ]);
+    customerListOut = customers.map((c) => c.name).join(', ');
+    warehouseListOut = warehouses.map((w) => w.name).join(', ');
+    const locNames: string[] = [];
+    for (const w of warehouses) {
+      const locs = await getLocationsByWarehouseForOptions(w.id);
+      locNames.push(...locs.map((l) => l.name));
+    }
+    locationListOut = [...new Set(locNames)].join(', ');
+    skuListOut = skus.map((s) => (s.code ? `${s.code}(${s.name})` : s.name)).join(', ');
+  } catch (e) {
+    console.warn('Failed to fetch outbound options:', e);
+  }
+  const prompt = `Extract OUTBOUND (出库单) from text. OUTBOUND = goods shipped to customer. Return ONLY valid JSON, no markdown.
+
+Rules: For customerName, warehouseName, locationName, skuCode: pick from injected lists if match, else return new value (will create). date YYYY-MM-DD, use ${today} if missing; ambiguous slash dates → closest to today.
+
+Data: today=${today}. Customers [${customerListOut || 'None'}]. Warehouses [${warehouseListOut || 'None'}]. Locations [${locationListOut || 'None'}]. SKUs (code or name) [${skuListOut || 'None'}].
+
+HEADER: documentNo, customerName, warehouseName, locationName, date, totalAmount, totalTax, currency, handlerName, preparerName, accountantName, remarks.
+ITEMS (array, REQUIRED): lineNo, productName, specification, quantity, unit, unitPrice, amount, supplyPrice, tax, skuCode, remarks. Output confidence(0-1).
+
+User input:
+"${text}"`;
+
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  let lastError: Error | null = null;
+  for (const modelName of INBOUND_OUTBOUND_POSSIBLE_MODELS) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+      if (!parsed.customerName) parsed.customerName = 'Customer';
+      if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
+      parsed.items = normalizeOutboundItems(parsed.items, today);
+      if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      return parsed as GeminiInboundOutboundResult;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+/** 语音转文字（供入库/出库语音识别复用） */
+async function transcribeAudioToText(audioUri: string): Promise<string> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key 未配置。') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  const prompt = 'Transcribe this audio to plain text. Output only the transcribed text, no JSON, no explanation.';
+  let lastError: Error | null = null;
+  for (const modelName of INBOUND_OUTBOUND_POSSIBLE_MODELS) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([
+        { inlineData: { data: audioBase64, mimeType: 'audio/m4a' } },
+        prompt,
+      ]);
+      const text = result.response.text()?.trim() || '';
+      if (text) return text;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('Transcription failed');
+}
+
+/** 入库单语音识别：先转写再按入库单 prompt 解析 */
+export async function recognizeInboundFromAudio(audioUri: string): Promise<GeminiInboundOutboundResult> {
+  const text = await transcribeAudioToText(audioUri);
+  return recognizeInboundFromText(text);
+}
+
+/** 出库单语音识别：先转写再按出库单 prompt 解析 */
+export async function recognizeOutboundFromAudio(audioUri: string): Promise<GeminiInboundOutboundResult> {
+  const text = await transcribeAudioToText(audioUri);
+  return recognizeOutboundFromText(text);
+}
+
+/** 从 URL 下载图片并转为 base64 + mimeType（入库/出库图片识别复用） */
+async function downloadImageToBase64(imageUrl: string): Promise<{ base64: string; mimeType: string }> {
+  const downloadResult = await FileSystem.downloadAsync(
+    imageUrl,
+    FileSystem.documentDirectory + `temp-img-${Date.now()}.jpg`
+  );
+  if (!downloadResult.uri) throw new Error('Failed to download image from URL');
+  const base64 = await FileSystem.readAsStringAsync(downloadResult.uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  try {
+    await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true });
+  } catch (_) {}
+  let mimeType = 'image/jpeg';
+  if (imageUrl.includes('.png')) mimeType = 'image/png';
+  else if (imageUrl.includes('.gif')) mimeType = 'image/gif';
+  else if (imageUrl.includes('.webp')) mimeType = 'image/webp';
+  return { base64, mimeType };
+}
+
+/** 入库单图片识别：按样例表格最完整字段提取（与文字识别同一结构） */
+export async function recognizeInboundFromImage(imageUrl: string): Promise<GeminiInboundOutboundResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key 未配置。') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const today = getLocalDateString();
+  const prompt = `You are a warehouse/inventory expert. Analyze this IMAGE of an INBOUND document (入库单). INBOUND = goods received from a supplier. Extract ALL visible information. Return ONLY valid JSON, no markdown.
+
+CURRENT DATE: ${today}. For ambiguous short slash dates, choose the date closest to today.
+
+HEADER: documentNo, supplierName, warehouseName, locationName, date, inboundType, totalAmount, totalAmountChinese, currency, handlerName, warehouseKeeperName, accountantName, remarks.
+ITEMS (array, REQUIRED): lineNo, productCode, productName, specification, quantity, qualifiedQuantity, defectiveQuantity, unit, unitPrice, amount, skuCode, remarks.
+
+Example structure:
+${INBOUND_JSON_EXAMPLE(today)}`;
+
+  const { base64, mimeType } = await downloadImageToBase64(imageUrl);
+  const imagePart = { inlineData: { data: base64, mimeType } };
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch (_) {}
+  const modelsToTry = availableModel ? [availableModel, ...INBOUND_OUTBOUND_POSSIBLE_MODELS] : INBOUND_OUTBOUND_POSSIBLE_MODELS;
+  let lastError: Error | null = null;
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([prompt, imagePart]);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+      if (!parsed.supplierName) parsed.supplierName = 'Supplier';
+      if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
+      parsed.items = normalizeInboundItems(parsed.items, today);
+      if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      return parsed as GeminiInboundOutboundResult;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+/** 出库单图片识别：按样例表格最完整字段提取（与文字识别同一结构） */
+export async function recognizeOutboundFromImage(imageUrl: string): Promise<GeminiInboundOutboundResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key 未配置。') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const today = getLocalDateString();
+  const prompt = `You are a warehouse/inventory expert. Analyze this IMAGE of an OUTBOUND document (出库单). OUTBOUND = goods shipped to a customer. Extract ALL visible information. Return ONLY valid JSON, no markdown.
+
+CURRENT DATE: ${today}. For ambiguous short slash dates, choose the date closest to today.
+
+HEADER: documentNo, customerName, warehouseName, locationName, date, totalAmount, totalTax, currency, handlerName, preparerName, accountantName, remarks.
+ITEMS (array, REQUIRED): lineNo, productName, specification, quantity, unit, unitPrice, amount, supplyPrice, tax, skuCode, remarks.
+
+Example structure:
+${OUTBOUND_JSON_EXAMPLE(today)}`;
+
+  const { base64, mimeType } = await downloadImageToBase64(imageUrl);
+  const imagePart = { inlineData: { data: base64, mimeType } };
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch (_) {}
+  const modelsToTry = availableModel ? [availableModel, ...INBOUND_OUTBOUND_POSSIBLE_MODELS] : INBOUND_OUTBOUND_POSSIBLE_MODELS;
+  let lastError: Error | null = null;
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([prompt, imagePart]);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+      if (!parsed.customerName) parsed.customerName = 'Customer';
+      if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
+      parsed.items = normalizeOutboundItems(parsed.items, today);
+      if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      return parsed as GeminiInboundOutboundResult;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}

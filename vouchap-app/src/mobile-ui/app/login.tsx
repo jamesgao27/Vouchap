@@ -1,0 +1,319 @@
+import { useState, useEffect, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+} from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { Ionicons } from '@expo/vector-icons';
+import { signIn, getCurrentUser, getCurrentSpace } from '@/lib/auth';
+import { showToast } from '@/lib/toast';
+import { initializeAuthCache } from '@/lib/auth-cache';
+
+export default function LoginScreen() {
+  const router = useRouter();
+  const params = useLocalSearchParams<{ inviteId?: string; email?: string }>();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const passwordInputRef = useRef<TextInput>(null);
+
+  useEffect(() => {
+    if (params.email) {
+      setEmail(params.email);
+    }
+    
+    // 检查是否已有登录session，如果有则自动跳转
+    checkExistingSession();
+  }, [params]);
+
+  const checkExistingSession = async () => {
+    try {
+      const { isAuthenticated } = await import('@/lib/auth');
+      const authenticated = await isAuthenticated();
+      if (authenticated) {
+        // 已有session，跳转到首页（首页会处理后续逻辑）
+        router.replace('/');
+      }
+    } catch (error) {
+      // 静默处理错误，不影响登录流程
+      console.log('Session check failed (non-blocking):', error);
+    }
+  };
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) {
+      showToast('Please enter email and password', 'error');
+      return;
+    }
+
+    setLoading(true);
+    const { error } = await signIn(email.trim(), password);
+    setLoading(false);
+
+    if (error) {
+      showToast(error.message, 'error');
+    } else {
+      // 登录成功后，首先检查邀请（处理邀请应在index之前）
+      // 流程：登录成功 -> 判断是否被邀请 -> 有邀请跳转到handle-invitations，无邀请跳转到index
+      try {
+        const { getPendingInvitationsForUser } = await import('@/lib/space-invitations');
+        const invitations = await getPendingInvitationsForUser();
+        
+        if (invitations.length > 0) {
+          // 有邀请，跳转到邀请处理页面（handle-invitations会处理后续流程）
+          console.log('Login: Found pending invitations, redirecting to handle-invitations');
+          router.replace('/handle-invitations');
+          return;
+        }
+      } catch (invError) {
+        // 邀请检查失败不影响登录流程，静默继续（getPendingInvitationsForUser 已处理错误）
+        console.log('Login: Invitation check failed (non-blocking):', invError);
+      }
+      
+      // 没有邀请，跳转到index（index会检查是否有空间，无空间跳转到setup-space，有空间进入应用）
+      console.log('Login: No invitations, redirecting to index');
+      router.replace('/');
+    }
+  };
+
+
+  return (
+    <KeyboardAvoidingView
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
+      <StatusBar style="dark" />
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.content}>
+          <View style={styles.header}>
+            <View style={styles.iconContainer}>
+              <View style={styles.circle}>
+                <Ionicons name="receipt" size={60} color="#6C5CE7" />
+              </View>
+            </View>
+            <Text style={styles.title}>Welcome</Text>
+            <Text style={styles.subtitle}>Sign in to your account</Text>
+          </View>
+
+          <View style={styles.form}>
+            <View style={styles.inputContainer}>
+              <Ionicons name="mail-outline" size={20} color="#636E72" style={styles.inputIcon} />
+              <TextInput
+                style={styles.input}
+                placeholder="Email"
+                placeholderTextColor="#95A5A6"
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                keyboardType="email-address"
+                autoComplete="email"
+                textContentType="emailAddress"
+                importantForAutofill="yes"
+                autoCorrect={false}
+                returnKeyType="next"
+                onSubmitEditing={() => {
+                  passwordInputRef.current?.focus();
+                }}
+                accessibilityLabel="Email address"
+                editable={!loading}
+              />
+            </View>
+
+            <View style={styles.inputContainer}>
+              <Ionicons name="lock-closed-outline" size={20} color="#636E72" style={styles.inputIcon} />
+              <TextInput
+                ref={passwordInputRef}
+                style={styles.input}
+                placeholder="Password"
+                placeholderTextColor="#95A5A6"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoComplete="password"
+                textContentType="password"
+                importantForAutofill="yes"
+                autoCorrect={false}
+                returnKeyType="done"
+                onSubmitEditing={handleLogin}
+                accessibilityLabel="Password"
+                editable={!loading}
+              />
+              <TouchableOpacity
+                onPress={() => setShowPassword(!showPassword)}
+                style={styles.eyeIcon}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityLabel={showPassword ? "Hide password" : "Show password"}
+              >
+                <Ionicons
+                  name={showPassword ? 'eye-outline' : 'eye-off-outline'}
+                  size={20}
+                  color="#636E72"
+                />
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.button, loading && styles.buttonDisabled]}
+              onPress={handleLogin}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <>
+                  <Text style={styles.buttonText}>Sign In</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <View style={styles.linksContainer}>
+              <TouchableOpacity
+                style={styles.linkButton}
+                onPress={() => router.push('/reset-password')}
+              >
+                <Text style={styles.linkText}>
+                  Forgot password? <Text style={styles.linkTextBold}>Reset It</Text>
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.linkButton}
+                onPress={() => router.push('/register')}
+              >
+                <Text style={styles.linkText}>
+                  Don't have an account? <Text style={styles.linkTextBold}>Sign Up</Text>
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+
+    </KeyboardAvoidingView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#F8F9FA',
+  },
+  content: {
+    flex: 1,
+    paddingHorizontal: 20,
+    paddingTop: 80,
+    paddingBottom: 40,
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 40,
+  },
+  iconContainer: {
+    marginBottom: 24,
+  },
+  circle: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#E9ECEF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#2D3436',
+    marginBottom: 8,
+  },
+  subtitle: {
+    fontSize: 16,
+    color: '#636E72',
+  },
+  form: {
+    flex: 1,
+    paddingBottom: 20,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    minHeight: 56,
+    // 优化触摸响应
+    justifyContent: 'flex-start',
+  },
+  inputIcon: {
+    marginRight: 12,
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+    color: '#2D3436',
+    paddingVertical: 0,
+    minHeight: 24,
+    // 优化输入响应性
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+  },
+  eyeIcon: {
+    padding: 4,
+  },
+  button: {
+    backgroundColor: '#6C5CE7',
+    borderRadius: 12,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 8,
+    marginBottom: 32,
+    shadowColor: '#6C5CE7',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+  buttonDisabled: {
+    opacity: 0.6,
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  linksContainer: {
+    gap: 24,
+  },
+  linkButton: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  linkText: {
+    fontSize: 14,
+    color: '#636E72',
+  },
+  linkTextBold: {
+    color: '#6C5CE7',
+    fontWeight: '600',
+  },
+});
+
