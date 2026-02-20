@@ -169,7 +169,7 @@ export default function InvoicesScreen() {
 
   const handleChatFromFab = () => {
     setShowFabActions(false);
-    router.push('/voice-input?type=invoice');
+    router.push('/chat-to-log?type=invoice');
   };
 
   const handleScanFromFab = () => {

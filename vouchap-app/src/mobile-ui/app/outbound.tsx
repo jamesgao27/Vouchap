@@ -9,7 +9,6 @@ import {
   TextInput,
   Modal,
   ScrollView,
-  Animated,
   InteractionManager,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -105,10 +104,8 @@ export default function OutboundScreen() {
   const [selectedRecordDates, setSelectedRecordDates] = useState<Set<string>>(new Set());
   const [selectedCreators, setSelectedCreators] = useState<Set<string>>(new Set());
   const [filterSubMenu, setFilterSubMenu] = useState<'main' | 'month' | 'recordDate' | 'creator'>('main');
-  const [showFabActions, setShowFabActions] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [lastOutboundId, setLastOutboundId] = useState<string | null>(null);
-  const fabAnimation = useRef(new Animated.Value(0)).current;
   const router = useRouter();
   const isExpoGo = Constants.appOwnership === 'expo';
 
@@ -178,16 +175,6 @@ export default function OutboundScreen() {
     } catch (e) {
       showToast('Failed to create outbound', 'error');
       console.error(e);
-    }
-  };
-
-  const handleCameraPress = () => {
-    if (!showFabActions) {
-      setShowFabActions(true);
-      fabAnimation.setValue(0);
-      Animated.timing(fabAnimation, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-    } else {
-      Animated.timing(fabAnimation, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => setShowFabActions(false));
     }
   };
 
@@ -312,21 +299,6 @@ export default function OutboundScreen() {
         setShowSuccessModal(false);
       }
     })();
-  };
-
-  const handleScanFromFab = () => {
-    setShowFabActions(false);
-    scanDocument();
-  };
-
-  const handleChatFromFab = () => {
-    setShowFabActions(false);
-    router.push('/voice-input?type=outbound');
-  };
-
-  const handleAddFromFab = () => {
-    setShowFabActions(false);
-    handleAddOutbound();
   };
 
   const handleToggleSelect = (outboundId: string) => {
@@ -731,7 +703,7 @@ export default function OutboundScreen() {
               <View style={styles.emptyContainer}>
                 <Ionicons name="arrow-up-circle-outline" size={64} color="#BDC3C7" />
                 <Text style={styles.emptyText}>No outbound yet</Text>
-                <Text style={styles.emptySubtext}>Tap + to add an outbound</Text>
+                <Text style={styles.emptySubtext}>Open the chat bubble to add an outbound</Text>
               </View>
             );
           }
@@ -745,33 +717,6 @@ export default function OutboundScreen() {
         contentContainerStyle={sections.length === 0 ? styles.emptyList : styles.listContent}
         stickySectionHeadersEnabled={false}
       />
-
-      <View style={styles.fabContainer}>
-        {showFabActions && (
-          <View style={styles.fabActionsContainer}>
-            <Animated.View style={{ opacity: fabAnimation }}>
-              <TouchableOpacity style={styles.fabAction} onPress={handleScanFromFab} activeOpacity={0.8}>
-                <Ionicons name="camera-outline" size={28} color="#6C5CE7" />
-              </TouchableOpacity>
-            </Animated.View>
-            <Animated.View style={{ marginTop: 8, opacity: fabAnimation }}>
-              <TouchableOpacity style={styles.fabAction} onPress={handleChatFromFab} activeOpacity={0.8}>
-                <Ionicons name="chatbubble-outline" size={28} color="#6C5CE7" />
-              </TouchableOpacity>
-            </Animated.View>
-            <Animated.View style={{ marginTop: 8, opacity: fabAnimation }}>
-              <TouchableOpacity style={styles.fabAction} onPress={handleAddFromFab} activeOpacity={0.8}>
-                <Ionicons name="add" size={28} color="#6C5CE7" />
-              </TouchableOpacity>
-            </Animated.View>
-          </View>
-        )}
-        {!showFabActions && (
-          <TouchableOpacity style={styles.fabMain} onPress={handleCameraPress} activeOpacity={0.8}>
-            <Ionicons name="add" size={32} color="#fff" />
-          </TouchableOpacity>
-        )}
-      </View>
 
       <Modal animationType="fade" transparent visible={showSuccessModal} onRequestClose={() => setShowSuccessModal(false)}>
         <View style={styles.successModalOverlay}>

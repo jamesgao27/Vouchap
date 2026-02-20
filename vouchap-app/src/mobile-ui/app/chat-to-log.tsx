@@ -39,6 +39,7 @@ import {
   requestAudioPermission,
 } from '@/lib/audio';
 import { showToast } from '@/lib/toast';
+import { useChatPanel } from '../contexts/ChatPanelContext';
 
 // 语音识别置信度阈值：与照片 needs_retake 一致，低于此值视为无可识别内容，提示重新提交
 const VOICE_CONFIDENCE_THRESHOLD = 0.4;
@@ -90,13 +91,11 @@ interface Message {
   isPlayingAudio?: boolean;
 }
 
-export type VoiceInputVoucherType = 'receipt' | 'invoice';
-
-export function VoiceInputContent(props: { voucherType: VoiceInputVoucherType }) {
-  return <VoiceInputScreen voucherType={props.voucherType} />;
+export function ChatToLogContent(props: { voucherType: VoucherLogType }) {
+  return <ChatToLogScreen voucherType={props.voucherType} />;
 }
 
-function VoiceInputScreen(props: { voucherType?: VoucherLogType }) {
+function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   const router = useRouter();
   const navigation = useNavigation();
   const params = useLocalSearchParams<{ type?: string; drawer?: string }>();
@@ -152,6 +151,9 @@ function VoiceInputScreen(props: { voucherType?: VoucherLogType }) {
   const isLongPressMode = useRef(false); // 是否是长按模式（按住录音）
   const pressStartTime = useRef(0); // 按下的时间戳
   
+  const chatPanel = useChatPanel();
+  const [showTypeDropdown, setShowTypeDropdown] = useState(false);
+  
   // 组件挂载状态，后台重试完成后仅在校验通过后更新 UI
   const mountedRef = useRef(true);
 
@@ -167,6 +169,33 @@ function VoiceInputScreen(props: { voucherType?: VoucherLogType }) {
   useEffect(() => {
     if (isAiInventoryType && !showAiInventory) router.replace('/');
   }, [isAiInventoryType]);
+
+  // 从 FAB 展开栏带过来的预填输入（打开右栏时填入）
+  useEffect(() => {
+    if (!isPanel || !chatPanel?.initialInput) return;
+    setInputText(chatPanel.initialInput);
+    chatPanel.setInitialInput(null);
+  }, [isPanel, chatPanel?.initialInput]);
+
+  // 右栏模式：注册聚焦回调，供 openPanel 后激活输入框
+  useEffect(() => {
+    if (!isPanel || !chatPanel?.inputFocusRef) return;
+    chatPanel.inputFocusRef.current = () => inputRef.current?.focus();
+    return () => {
+      if (chatPanel?.inputFocusRef) chatPanel.inputFocusRef.current = null;
+    };
+  }, [isPanel, chatPanel]);
+
+  // 提交类别选单打开时：点击选单外区域收起（仅 Web）
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !showTypeDropdown) return;
+    const handler = (e: PointerEvent) => {
+      const el = document.getElementById('chat-to-log-type-dropdown');
+      if (el && !el.contains(e.target as Node)) setShowTypeDropdown(false);
+    };
+    document.addEventListener('pointerdown', handler);
+    return () => document.removeEventListener('pointerdown', handler);
+  }, [showTypeDropdown]);
 
   useFocusEffect(
     useCallback(() => {
@@ -1033,13 +1062,13 @@ function VoiceInputScreen(props: { voucherType?: VoucherLogType }) {
       <View style={drawerStyles.toggleRow}>
         <TouchableOpacity
           style={[drawerStyles.toggleTab, voucherType === 'invoice' && drawerStyles.toggleTabActive]}
-          onPress={() => router.replace('/voice-input?type=invoice&drawer=1')}
+          onPress={() => router.replace('/chat-to-log?type=invoice&drawer=1')}
         >
           <Text style={[drawerStyles.toggleText, voucherType === 'invoice' && drawerStyles.toggleTextActive]}>Income</Text>
         </TouchableOpacity>
         <TouchableOpacity
           style={[drawerStyles.toggleTab, voucherType === 'receipt' && drawerStyles.toggleTabActive]}
-          onPress={() => router.replace('/voice-input?drawer=1')}
+          onPress={() => router.replace('/chat-to-log?drawer=1')}
         >
           <Text style={[drawerStyles.toggleText, voucherType === 'receipt' && drawerStyles.toggleTextActive]}>Expenses</Text>
         </TouchableOpacity>
@@ -1585,45 +1614,84 @@ function VoiceInputScreen(props: { voucherType?: VoucherLogType }) {
 
       <View style={[styles.inputContainer, { paddingBottom: Platform.OS === 'ios' ? (keyboardHeight ? keyboardHeight + 20 : 20) : (keyboardHeight ? keyboardHeight + 16 : 16) }]}>
         {Platform.OS === 'web' ? (
-          <View style={styles.webInputBlock}>
-            <View style={styles.webInputRow}>
-              <View style={styles.webInputWrapper}>
-                <TextInput
-                  ref={inputRef}
-                  style={styles.webInput}
-                  placeholder={voucherType === 'invoice' ? 'Describe your incomes...' : voucherType === 'inbound' ? 'Describe your inbound...' : voucherType === 'outbound' ? 'Describe your outbound...' : 'Describe your expenses...'}
-                  placeholderTextColor="#95A5A6"
-                  value={inputText}
-                  onChangeText={setInputText}
-                  multiline
-                  maxLength={500}
-                  editable={!isProcessing}
-                  returnKeyType="send"
-                  onSubmitEditing={handleSend}
-                  blurOnSubmit={false}
-                  onFocus={() => setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100)}
-                />
+          <View style={styles.webInputOuter}>
+            <View style={styles.webInputBlock}>
+              <View style={styles.webInputRow}>
+                <View style={styles.webInputWrapper}>
+                  <TextInput
+                    ref={inputRef}
+                    style={styles.webInput}
+                    placeholder={voucherType === 'invoice' ? 'Describe your incomes...' : voucherType === 'inbound' ? 'Describe your inbound...' : voucherType === 'outbound' ? 'Describe your outbound...' : 'Describe your expenses...'}
+                    placeholderTextColor="#95A5A6"
+                    value={inputText}
+                    onChangeText={setInputText}
+                    multiline
+                    maxLength={500}
+                    editable={!isProcessing}
+                    returnKeyType="send"
+                    onSubmitEditing={handleSend}
+                    blurOnSubmit={false}
+                    onFocus={() => setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100)}
+                  />
+                </View>
               </View>
-              <TouchableOpacity
-                style={[styles.webSendButton, (!inputText.trim() || isProcessing) && styles.sendButtonDisabled]}
-                onPress={handleSend}
-                disabled={!inputText.trim() || isProcessing}
-              >
-                {isProcessing ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={20} color="#fff" />}
-              </TouchableOpacity>
-            </View>
-            <View style={styles.webInputActionsRow}>
-              <TouchableOpacity style={styles.webActionIcon} onPress={() => showToast('Upload images, PDF or audio – coming soon.', 'info')}>
-                <Ionicons name="add" size={22} color="#636E72" />
-              </TouchableOpacity>
-              <View style={styles.webActionSpacer} />
-              <TouchableOpacity
-                style={[styles.webActionIcon, isRecording && styles.webActionIconRecording]}
-                onPress={() => { if (isRecordingRef.current) handleStopRecording(); else if (!isProcessing) handleStartRecording(); }}
-                disabled={isProcessing}
-              >
-                <Ionicons name={isRecording ? 'mic' : 'mic-outline'} size={22} color={isRecording ? '#E74C3C' : '#636E72'} />
-              </TouchableOpacity>
+              <View style={styles.webInputActionsRow}>
+                <View style={styles.webInputActionsLeft}>
+                  <TouchableOpacity style={styles.webActionIcon} onPress={() => showToast('Upload images, PDF or audio – coming soon.', 'info')}>
+                    <Ionicons name="image-outline" size={22} color="#636E72" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.webActionIcon, isRecording && styles.webActionIconRecording]}
+                    onPress={() => { if (isRecordingRef.current) handleStopRecording(); else if (!isProcessing) handleStartRecording(); }}
+                    disabled={isProcessing}
+                  >
+                    <Ionicons name={isRecording ? 'mic' : 'mic-outline'} size={22} color={isRecording ? '#E74C3C' : '#636E72'} />
+                  </TouchableOpacity>
+                </View>
+                {isPanel && chatPanel && (() => {
+                  const typeOptions: { value: VoucherLogType; label: string }[] = [
+                    { value: 'receipt', label: 'Expenses' },
+                    { value: 'invoice', label: 'Incomes' },
+                    ...(showAiInventory ? [{ value: 'inbound' as const, label: 'Inbound' }, { value: 'outbound' as const, label: 'Outbound' }] : []),
+                  ];
+                  const currentLabel = typeOptions.find(o => o.value === voucherType)?.label ?? 'Expenses';
+                  return (
+                    <View style={styles.webTypeDropdownWrap} nativeID="chat-to-log-type-dropdown">
+                      <Pressable
+                        style={({ hovered }) => [styles.webTypeDropdownTrigger, hovered && styles.webTypeDropdownTriggerHover]}
+                        onPress={() => setShowTypeDropdown(v => !v)}
+                      >
+                        <Text style={styles.webTypeDropdownLabel}>{currentLabel}</Text>
+                        <Ionicons name={showTypeDropdown ? 'chevron-up' : 'chevron-down'} size={16} color="#636E72" />
+                      </Pressable>
+                      {showTypeDropdown && (
+                        <View style={styles.webTypeDropdownMenu}>
+                          {typeOptions.map((opt) => (
+                            <Pressable
+                              key={opt.value}
+                              style={({ hovered }) => [
+                                styles.webTypeDropdownItem,
+                                voucherType === opt.value && styles.webTypeDropdownItemActive,
+                                hovered && styles.webTypeDropdownItemHover,
+                              ]}
+                              onPress={() => { chatPanel.setType(opt.value); setShowTypeDropdown(false); }}
+                            >
+                              <Text style={[styles.webTypeDropdownItemText, voucherType === opt.value && styles.webTypeDropdownItemTextActive]}>{opt.label}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  );
+                })()}
+                <TouchableOpacity
+                  style={[styles.webSendButton, (!inputText.trim() || isProcessing) && styles.sendButtonDisabled]}
+                  onPress={handleSend}
+                  disabled={!inputText.trim() || isProcessing}
+                >
+                  {isProcessing ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={20} color="#fff" />}
+                </TouchableOpacity>
+              </View>
             </View>
             <Text style={styles.webInputDisclaimer}>AI may make mistakes.</Text>
           </View>
@@ -1791,7 +1859,7 @@ function VoiceInputScreen(props: { voucherType?: VoucherLogType }) {
   );
 }
 
-export default VoiceInputScreen;
+export default ChatToLogScreen;
 
 const drawerStyles = StyleSheet.create({
   overlay: {
@@ -1943,29 +2011,28 @@ const styles = StyleSheet.create({
     borderTopColor: '#E9ECEF',
     gap: 8,
   },
-  webInputBlock: {
+  webInputOuter: {
     flex: 1,
+    minWidth: 0,
+  },
+  webInputBlock: {
     backgroundColor: '#fff',
     borderRadius: 24,
     borderWidth: 1,
     borderColor: '#E9ECEF',
     paddingHorizontal: 12,
     paddingTop: 12,
-    paddingBottom: 8,
+    paddingBottom: 10,
     minWidth: 0,
   },
   webInputRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
-    gap: 8,
   },
   webInputWrapper: {
     flex: 1,
     minHeight: 44,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'transparent',
+    borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
     minWidth: 0,
@@ -1977,6 +2044,7 @@ const styles = StyleSheet.create({
     padding: 0,
     fontSize: 15,
     color: '#2D3436',
+    outlineStyle: 'none',
   },
   webSendButton: {
     width: 44,
@@ -1989,8 +2057,14 @@ const styles = StyleSheet.create({
   webInputActionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
     marginTop: 8,
     paddingHorizontal: 4,
+  },
+  webInputActionsLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
   },
   webActionIcon: {
     width: 36,
@@ -2002,14 +2076,67 @@ const styles = StyleSheet.create({
   webActionIconRecording: {
     backgroundColor: '#FFEBEE',
   },
-  webActionSpacer: {
-    flex: 1,
+  webTypeDropdownWrap: {
+    position: 'relative',
+    marginRight: 4,
+  },
+  webTypeDropdownTrigger: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+    minWidth: 100,
+  },
+  webTypeDropdownTriggerHover: {
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
+  webTypeDropdownLabel: {
+    fontSize: 14,
+    color: '#2D3436',
+    fontWeight: '500',
+  },
+  webTypeDropdownMenu: {
+    position: 'absolute',
+    bottom: '100%',
+    left: 0,
+    marginBottom: 4,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 8,
+    minWidth: 120,
+    zIndex: 50,
+  },
+  webTypeDropdownItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  webTypeDropdownItemActive: {
+    backgroundColor: 'transparent',
+  },
+  webTypeDropdownItemHover: {
+    backgroundColor: 'rgba(0,0,0,0.06)',
+  },
+  webTypeDropdownItemText: {
+    fontSize: 14,
+    color: '#2D3436',
+  },
+  webTypeDropdownItemTextActive: {
+    color: '#6C5CE7',
+    fontWeight: '600',
   },
   webInputDisclaimer: {
     fontSize: 12,
     color: '#95A5A6',
     textAlign: 'center',
-    marginTop: 8,
+    marginTop: 10,
   },
   inputWrapper: {
     flex: 1,

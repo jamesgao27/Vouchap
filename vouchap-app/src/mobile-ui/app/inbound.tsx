@@ -9,7 +9,6 @@ import {
   TextInput,
   Modal,
   ScrollView,
-  Animated,
   InteractionManager,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
@@ -88,10 +87,8 @@ export default function InboundScreen() {
   const [selectedRecordDates, setSelectedRecordDates] = useState<Set<string>>(new Set());
   const [selectedCreators, setSelectedCreators] = useState<Set<string>>(new Set());
   const [filterSubMenu, setFilterSubMenu] = useState<'main' | 'month' | 'recordDate' | 'creator'>('main');
-  const [showFabActions, setShowFabActions] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [lastInboundId, setLastInboundId] = useState<string | null>(null);
-  const fabAnimation = useRef(new Animated.Value(0)).current;
   const router = useRouter();
   const isExpoGo = Constants.appOwnership === 'expo';
 
@@ -161,16 +158,6 @@ export default function InboundScreen() {
     } catch (e) {
       showToast('Failed to create inbound', 'error');
       console.error(e);
-    }
-  };
-
-  const handleCameraPress = () => {
-    if (!showFabActions) {
-      setShowFabActions(true);
-      fabAnimation.setValue(0);
-      Animated.timing(fabAnimation, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-    } else {
-      Animated.timing(fabAnimation, { toValue: 0, duration: 200, useNativeDriver: true }).start(() => setShowFabActions(false));
     }
   };
 
@@ -270,21 +257,6 @@ export default function InboundScreen() {
         setShowSuccessModal(false);
       }
     })();
-  };
-
-  const handleScanFromFab = () => {
-    setShowFabActions(false);
-    scanDocument();
-  };
-
-  const handleChatFromFab = () => {
-    setShowFabActions(false);
-    router.push('/voice-input?type=inbound');
-  };
-
-  const handleAddFromFab = () => {
-    setShowFabActions(false);
-    handleAddInbound();
   };
 
   const handleToggleSelect = (inboundId: string) => {
@@ -689,7 +661,7 @@ export default function InboundScreen() {
               <View style={styles.emptyContainer}>
                 <Ionicons name="arrow-down-circle-outline" size={64} color="#BDC3C7" />
                 <Text style={styles.emptyText}>No inbound yet</Text>
-                <Text style={styles.emptySubtext}>Tap + to add an inbound</Text>
+                <Text style={styles.emptySubtext}>Open the chat bubble to add an inbound</Text>
               </View>
             );
           }
@@ -703,33 +675,6 @@ export default function InboundScreen() {
         contentContainerStyle={sections.length === 0 ? styles.emptyList : styles.listContent}
         stickySectionHeadersEnabled={false}
       />
-
-      <View style={styles.fabContainer}>
-        {showFabActions && (
-          <View style={styles.fabActionsContainer}>
-            <Animated.View style={{ opacity: fabAnimation }}>
-              <TouchableOpacity style={styles.fabAction} onPress={handleScanFromFab} activeOpacity={0.8}>
-                <Ionicons name="camera-outline" size={28} color="#6C5CE7" />
-              </TouchableOpacity>
-            </Animated.View>
-            <Animated.View style={{ marginTop: 8, opacity: fabAnimation }}>
-              <TouchableOpacity style={styles.fabAction} onPress={handleChatFromFab} activeOpacity={0.8}>
-                <Ionicons name="chatbubble-outline" size={28} color="#6C5CE7" />
-              </TouchableOpacity>
-            </Animated.View>
-            <Animated.View style={{ marginTop: 8, opacity: fabAnimation }}>
-              <TouchableOpacity style={styles.fabAction} onPress={handleAddFromFab} activeOpacity={0.8}>
-                <Ionicons name="add" size={28} color="#6C5CE7" />
-              </TouchableOpacity>
-            </Animated.View>
-          </View>
-        )}
-        {!showFabActions && (
-          <TouchableOpacity style={styles.fabMain} onPress={handleCameraPress} activeOpacity={0.8}>
-            <Ionicons name="add" size={32} color="#fff" />
-          </TouchableOpacity>
-        )}
-      </View>
 
       <Modal animationType="fade" transparent visible={showSuccessModal} onRequestClose={() => setShowSuccessModal(false)}>
         <View style={styles.successModalOverlay}>

@@ -612,9 +612,9 @@ export default function HomeScreen() {
 
   const handleChatPress = (type: 'receipt' | 'invoice' = 'receipt') => {
     if (type === 'invoice') {
-      router.push('/voice-input?type=invoice');
+      router.push('/chat-to-log?type=invoice');
     } else {
-      router.push('/voice-input');
+      router.push('/chat-to-log');
     }
   };
 

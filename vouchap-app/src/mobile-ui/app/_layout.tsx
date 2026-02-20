@@ -12,7 +12,7 @@ import { ChatPanelProvider, useChatPanel } from '../contexts/ChatPanelContext';
 function LayoutContent() {
   const pathname = usePathname();
   const showSidebar = Platform.OS === 'web' && shouldShowWebSidebar(pathname ?? '/');
-  const { open: chatOpen, pinned } = useChatPanel();
+  const { open: chatOpen } = useChatPanel();
 
   useEffect(() => {
     const config = validateSupabaseConfig();
@@ -197,7 +197,7 @@ function LayoutContent() {
           }} 
         />
         <Stack.Screen 
-          name="voice-input" 
+          name="chat-to-log" 
           options={{ 
             title: 'Chat to Log',
             presentation: 'modal'
@@ -249,8 +249,8 @@ function LayoutContent() {
       </Stack>
       </View>
       {showSidebar && chatOpen && <WebChatPanel />}
-      {showSidebar && !chatOpen && Platform.OS === 'web' && pathname !== '/voice-input' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && (
-        <WebChatFab type="receipt" />
+      {showSidebar && !chatOpen && Platform.OS === 'web' && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && (
+        <WebChatFab type={pathname === '/inbound' ? 'inbound' : pathname === '/outbound' ? 'outbound' : 'receipt'} />
       )}
       <ToastHost />
       <ConfirmModalHost />

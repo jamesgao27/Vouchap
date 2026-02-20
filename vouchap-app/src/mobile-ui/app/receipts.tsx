@@ -370,7 +370,7 @@ export default function ReceiptsScreen() {
   const handleChatFromFab = () => {
     // 直接执行聊天录入入口，并收起按钮组（不再播放收回动画）
     setShowFabActions(false);
-    router.push('/voice-input');
+    router.push('/chat-to-log');
   };
 
   // 设置 Supabase Realtime 订阅监听所有相关表的变化

@@ -1,48 +1,47 @@
 /**
- * Web 聊天侧栏状态：由 FAB 打开，不切换路由；支持 pin 常驻并压缩主区宽度。
+ * Web 聊天侧栏状态：由 FAB 打开，不切换路由；右栏打开即常驻并压缩主区（无 pin 切换）。
  */
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
 
-export type ChatPanelType = 'receipt' | 'invoice';
+export type ChatPanelType = 'receipt' | 'invoice' | 'inbound' | 'outbound';
 
 type ChatPanelContextValue = {
   open: boolean;
-  pinned: boolean;
   type: ChatPanelType;
-  setOpen: (v: boolean) => void;
-  setPinned: (v: boolean) => void;
   setType: (t: ChatPanelType) => void;
   openPanel: (t?: ChatPanelType) => void;
   closePanel: () => void;
-  togglePin: () => void;
+  initialInput: string | null;
+  setInitialInput: (v: string | null) => void;
+  /** 由右栏 ChatToLogContent 注册，openPanel 后用于聚焦输入框 */
+  inputFocusRef: React.MutableRefObject<(() => void) | null>;
 };
 
 const ChatPanelContext = createContext<ChatPanelContextValue | null>(null);
 
 export function ChatPanelProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
-  const [pinned, setPinned] = useState(false);
   const [type, setType] = useState<ChatPanelType>('receipt');
+  const [initialInput, setInitialInput] = useState<string | null>(null);
+  const inputFocusRef = useRef<(() => void) | null>(null);
 
   const openPanel = useCallback((t?: ChatPanelType) => {
     if (t) setType(t);
     setOpen(true);
+    setTimeout(() => inputFocusRef.current?.(), 150);
   }, []);
 
   const closePanel = useCallback(() => setOpen(false), []);
 
-  const togglePin = useCallback(() => setPinned((p) => !p), []);
-
   const value: ChatPanelContextValue = {
     open,
-    pinned,
     type,
-    setOpen,
-    setPinned,
     setType,
     openPanel,
     closePanel,
-    togglePin,
+    initialInput,
+    setInitialInput,
+    inputFocusRef,
   };
 
   return (

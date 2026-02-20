@@ -1,64 +1,36 @@
 /**
- * Web 聊天侧栏：由 context 控制，非 pin 时浮层且点击主区收缩为气泡，pin 时常驻并压缩主区。
+ * Web 聊天侧栏：由 context 控制，打开即常驻并压缩主区（无 pin 切换）。
  */
-import { useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useChatPanel } from '../contexts/ChatPanelContext';
-import { VoiceInputContent } from '../app/voice-input';
+import { ChatToLogContent } from '../app/chat-to-log';
 
 const PANEL_WIDTH = 420;
 
 const PANEL_NATIVE_ID = 'web-chat-panel';
 
 export default function WebChatPanel() {
-  const { open, pinned, type, setType, closePanel, togglePin } = useChatPanel();
-
-  useEffect(() => {
-    if (Platform.OS !== 'web' || !open || pinned) return;
-    const handlePointerDown = (e: PointerEvent) => {
-      const target = e.target as Node;
-      const panelEl = typeof document !== 'undefined' ? document.getElementById(PANEL_NATIVE_ID) : null;
-      if (panelEl && !panelEl.contains(target)) closePanel();
-    };
-    document.addEventListener('pointerdown', handlePointerDown);
-    return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [open, pinned, closePanel]);
+  const { open, type, closePanel } = useChatPanel();
 
   if (Platform.OS !== 'web' || !open) return null;
 
   return (
     <View
       nativeID={PANEL_NATIVE_ID}
-      style={[styles.panel, pinned ? styles.panelPinned : styles.panelFloating]}
+      style={[styles.panel, styles.panelPinned]}
       collapsable={false}
     >
       <View style={styles.header}>
-        <View style={styles.toggleRow}>
-          <TouchableOpacity
-            style={[styles.toggleTab, type === 'invoice' && styles.toggleTabActive]}
-            onPress={() => setType('invoice')}
-          >
-            <Text style={[styles.toggleText, type === 'invoice' && styles.toggleTextActive]}>Income</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.toggleTab, type === 'receipt' && styles.toggleTabActive]}
-            onPress={() => setType('receipt')}
-          >
-            <Text style={[styles.toggleText, type === 'receipt' && styles.toggleTextActive]}>Expenses</Text>
-          </TouchableOpacity>
-        </View>
+        <Text style={styles.headerTitle}>Chat to log</Text>
         <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.iconButton} onPress={togglePin}>
-            <Ionicons name={pinned ? 'bookmark' : 'bookmark-outline'} size={22} color="#2D3436" />
-          </TouchableOpacity>
           <TouchableOpacity style={styles.iconButton} onPress={closePanel}>
             <Ionicons name="close" size={24} color="#2D3436" />
           </TouchableOpacity>
         </View>
       </View>
       <View style={styles.body}>
-        <VoiceInputContent voucherType={type} />
+        <ChatToLogContent voucherType={type} />
       </View>
     </View>
   );
@@ -87,6 +59,18 @@ const styles = StyleSheet.create({
   panelPinned: {
     flexShrink: 0,
   },
+  panelFloating: {
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    bottom: 0,
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: -4, height: 0 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 16,
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -96,25 +80,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
   },
-  toggleRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  toggleTab: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-  },
-  toggleTabActive: {
-    backgroundColor: '#6C5CE7',
-  },
-  toggleText: {
-    fontSize: 15,
+  headerTitle: {
+    fontSize: 17,
+    fontWeight: '600',
     color: '#2D3436',
-    fontWeight: '500',
-  },
-  toggleTextActive: {
-    color: '#fff',
   },
   headerActions: {
     flexDirection: 'row',
