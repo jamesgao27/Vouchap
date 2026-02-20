@@ -666,7 +666,7 @@ export default function AccountsManageScreen() {
         <View style={styles.header}>
           <View style={styles.headerTitleContainer}>
             <GradientText
-              text="Accounts for receipts & invoices, support merged accounts."
+              text="Accounts for expenses & income, support merged accounts."
               style={styles.headerTitle}
               containerStyle={styles.gradientTextContainer}
             />

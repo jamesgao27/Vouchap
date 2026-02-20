@@ -798,7 +798,7 @@ export default function InvoiceDetailsScreen() {
                       style={styles.storeNameInput}
                       value={editedInvoice?.customerName ?? editedInvoice?.customer?.name ?? editedInvoice?.customerSupplier?.name ?? currentInvoice.customerName ?? ''}
                       onChangeText={handleCustomerNameChange}
-                      placeholder="Customer name"
+                      placeholder="Payer"
                       maxLength={100}
                     />
                     <TouchableOpacity
@@ -811,7 +811,7 @@ export default function InvoiceDetailsScreen() {
                   </View>
                 ) : (
                   <Text style={styles.storeName} numberOfLines={1}>
-                    {currentInvoice.customer?.name || currentInvoice.customerSupplier?.name || currentInvoice.customerName || 'Customer'}
+                    {currentInvoice.entity?.name || currentInvoice.customer?.name || currentInvoice.customerSupplier?.name || currentInvoice.customerName || '—'}
                   </Text>
                 )}
                 <View style={styles.amountRow}>

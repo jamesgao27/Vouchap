@@ -497,14 +497,14 @@ export default function InboundDetailsScreen() {
           <View style={styles.summaryContent}>
             <View style={styles.summaryContentTop}>
               <View style={styles.summaryContentMain}>
-                {/* Supplier (goods source) */}
+                {/* Sender */}
                 {editing ? (
                   <View style={styles.storeNameInputRow}>
                     <TextInput
                       style={styles.storeNameInput}
-                      value={editedInbound?.supplierName ?? ''}
+                      value={editedInbound?.supplierName ?? (editedInbound as any)?.entity?.name ?? ''}
                       onChangeText={handleSupplierNameChange}
-                      placeholder="Supplier name"
+                      placeholder="Sender"
                       maxLength={100}
                     />
                     <TouchableOpacity
@@ -517,7 +517,7 @@ export default function InboundDetailsScreen() {
                   </View>
                 ) : (
                   <Text style={styles.storeName} numberOfLines={1}>
-                    {current.supplierName || 'Unknown supplier'}
+                    {(current as any).entity?.name || current.supplierName || '—'}
                   </Text>
                 )}
                 {/* 金额 - 暂留空税额 */}

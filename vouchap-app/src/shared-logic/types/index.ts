@@ -33,7 +33,21 @@ export interface Account {
   updatedAt?: string;
 }
 
-// 供应商
+// 统一关联方（原供应商+客户）：支出 Payee / 收入 Payer / 入库 Sender / 出库 Receiver
+export interface Entity {
+  id: string;
+  spaceId: string;
+  name: string;
+  taxNumber?: string;
+  phone?: string;
+  address?: string;
+  isAiRecognized: boolean;
+  mergedIntoId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** @deprecated 已由 Entity 替代，仅保留兼容 */
 export interface Supplier {
   id: string;
   spaceId: string;
@@ -42,12 +56,12 @@ export interface Supplier {
   phone?: string;
   address?: string;
   isAiRecognized: boolean;
-  isCustomer?: boolean; // 是否也作为客户；为 true 时在客户列表和选客户时可选，不创建 customers 行
+  isCustomer?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
 
-// 客户
+/** @deprecated 已由 Entity 替代，仅保留兼容 */
 export interface Customer {
   id: string;
   spaceId: string;
@@ -56,7 +70,7 @@ export interface Customer {
   phone?: string;
   address?: string;
   isAiRecognized: boolean;
-  isSupplier?: boolean; // 是否也作为供应商；为 true 时在供应商列表和选供应商时可选，不创建 suppliers 行
+  isSupplier?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -77,16 +91,14 @@ export interface ReceiptItem {
 // 提交方式类型
 export type InputType = 'image' | 'text' | 'audio';
 
-// 小票数据
+// 小票数据（支出单：对方为 Payee 收款方）
 export interface Receipt {
   id?: string;
   spaceId: string;
-  supplierName: string;
+  supplierName: string; // 展示用，与 entity?.name 同步
   storeName?: string;
-  supplierId?: string; // 关联的供应商ID（suppliers 表）
-  supplierCustomerId?: string; // 当供应商实为“标记也是供应商”的客户时，填客户ID
-  supplier?: Supplier; // 关联的供应商对象（supplier_id 时）
-  supplierCustomer?: Customer; // 关联的客户对象（supplier_customer_id 时，作为供应商）
+  entityId?: string | null; // 关联方 entities 表（支出单：Payee）
+  entity?: Entity | null;
   totalAmount: number;
   date: string;
   accountId?: string;
@@ -207,15 +219,13 @@ export interface InvoiceItem {
   confidence?: number;
 }
 
-// 销售发票（资金流入）
+// 销售发票（资金流入，对方为 Payer 付款方）
 export interface Invoice {
   id?: string;
   spaceId: string;
-  customerName: string;
-  customerId?: string; // 关联的客户ID（customers 表）
-  customerSupplierId?: string; // 当客户实为“标记也是客户”的供应商时，填供应商ID
-  customer?: Customer; // 关联的客户对象（customer_id 时）
-  customerSupplier?: Supplier; // 关联的供应商对象（customer_supplier_id 时，作为客户）
+  customerName: string; // 展示用，与 entity?.name 同步
+  entityId?: string | null; // 关联方 entities 表（收入单：Payer）
+  entity?: Entity | null;
   totalAmount: number;
   currency?: string;
   tax?: number;
@@ -278,13 +288,14 @@ export interface OutboundItem {
   remarks?: string;
 }
 
-// 入库单（采购端）
+// 入库单（采购端，对方为 Sender 发货方）
 export interface Inbound {
   id?: string;
   spaceId: string;
   documentNo?: string;
-  supplierId?: string | null;
-  supplierName?: string;
+  entityId?: string | null; // 关联方 entities 表（入库：Sender）
+  entity?: Entity | null;
+  supplierName?: string; // 展示用，与 entity?.name 同步
   warehouseId?: string | null;
   locationId?: string | null;
   inboundType?: string;
@@ -309,13 +320,14 @@ export interface Inbound {
   updatedAt?: string;
 }
 
-// 出库单（销售端）
+// 出库单（销售端，对方为 Receiver 收货方）
 export interface Outbound {
   id?: string;
   spaceId: string;
   documentNo?: string;
-  customerId?: string | null;
-  customerName?: string;
+  entityId?: string | null; // 关联方 entities 表（出库：Receiver）
+  entity?: Entity | null;
+  customerName?: string; // 展示用，与 entity?.name 同步
   warehouseId?: string | null;
   locationId?: string | null;
   totalAmount?: number;

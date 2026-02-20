@@ -341,24 +341,23 @@ export default function InvoicesScreen() {
   const groupByCustomer = useCallback((list: Invoice[]): SectionData[] => {
     const grouped = new Map<string, Invoice[]>();
     list.forEach(inv => {
-      const customerName = inv.customerName || inv.customer?.name || 'Unknown Customer';
-      const customerKey = `customer-${inv.customerId || inv.customer?.id || 'none'}`;
-      if (!grouped.has(customerKey)) grouped.set(customerKey, []);
-      grouped.get(customerKey)!.push(inv);
+      const payerName = inv.entity?.name || inv.customerName || '—';
+      const payerKey = `customer-${inv.entityId || inv.customerId || 'none'}`;
+      if (!grouped.has(payerKey)) grouped.set(payerKey, []);
+      grouped.get(payerKey)!.push(inv);
     });
     return Array.from(grouped.entries())
-      .map(([customerKey, data]) => {
-        const customerName = data[0].customerName || data[0].customer?.name || 'Unknown Customer';
+      .map(([payerKey, data]) => {
+        const payerName = data[0].entity?.name || data[0].customerName || '—';
         return {
-          title: customerName,
-          monthKey: customerKey,
+          title: payerName,
+          monthKey: payerKey,
           data: data.sort((a, b) => parseLocalDate(b.date).getTime() - parseLocalDate(a.date).getTime()),
         };
       })
       .sort((a, b) => {
-        // Unknown Customer 放在最后
-        if (a.title === 'Unknown Customer') return 1;
-        if (b.title === 'Unknown Customer') return -1;
+        if (a.title === '—') return 1;
+        if (b.title === '—') return -1;
         return a.title.localeCompare(b.title);
       });
   }, []);
@@ -408,11 +407,11 @@ export default function InvoicesScreen() {
     if (!fullDataLoaded) return filteredInvoices; // 搜索 pending，等加载完成
     const q = searchQuery.trim().toLowerCase();
     return filteredInvoices.filter(inv => {
-      const customerNameMatch = (inv.customerName || inv.customer?.name || '').toLowerCase().includes(q);
+      const payerNameMatch = (inv.entity?.name || inv.customerName || '').toLowerCase().includes(q);
       const accountNameMatch = inv.account?.name?.toLowerCase().includes(q) || false;
       const amountMatch = inv.totalAmount?.toString().includes(q) || false;
       const itemsMatch = inv.items?.length ? inv.items.some(item => item.name?.toLowerCase().includes(q)) : false;
-      return customerNameMatch || accountNameMatch || amountMatch || itemsMatch;
+      return payerNameMatch || accountNameMatch || amountMatch || itemsMatch;
     });
   }, [filteredInvoices, searchQuery, fullDataLoaded]);
 
@@ -701,7 +700,7 @@ export default function InvoicesScreen() {
                 <View style={styles.receiptContent}>
                   <View style={styles.firstRow}>
                     <Text style={styles.storeName} numberOfLines={1}>
-                      {item.customerName || 'Customer'}
+                      {item.entity?.name || item.customerName || '—'}
                     </Text>
                     {item.status === 'confirmed' ? (
                       <View style={styles.confirmedStatusContainer}>
@@ -852,7 +851,7 @@ export default function InvoicesScreen() {
                     {key === 'none' && 'No group'}
                     {key === 'month' && 'Transaction Month'}
                     {key === 'paymentAccount' && 'Account'}
-                    {key === 'customer' && 'Customer'}
+                    {key === 'customer' && 'Payer'}
                     {key === 'createdBy' && 'Recorder'}
                     {key === 'recordDate' && 'Record Date'}
                   </Text>
@@ -873,7 +872,7 @@ export default function InvoicesScreen() {
               { key: 'none' as const, label: 'No group', icon: 'list-outline' as const },
               { key: 'month' as const, label: 'Transaction Month', icon: 'calendar-outline' as const },
               { key: 'paymentAccount' as const, label: 'Account', icon: 'wallet-outline' as const },
-              { key: 'customer' as const, label: 'Customer', icon: 'people-outline' as const },
+              { key: 'customer' as const, label: 'Payer', icon: 'people-outline' as const },
               { key: 'createdBy' as const, label: 'Recorder', icon: 'person-outline' as const },
               { key: 'recordDate' as const, label: 'Record Date', icon: 'time-outline' as const },
             ].map(({ key, label, icon }) => (

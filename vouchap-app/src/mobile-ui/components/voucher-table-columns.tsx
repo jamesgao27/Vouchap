@@ -1,6 +1,6 @@
 /**
  * 四张主表（Expenses/Incomes/Inbound/Outbound）的表格列配置。
- * 默认列顺序：供应商/顾客 → 金额 → 账户 → 交易日期 → 状态 → 记录人 → 记录方式 → 记录日期。
+ * 表头文案：支出 Payee / 收入 Payer / 入库 Sender / 出库 Receiver。
  */
 import { Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -58,11 +58,11 @@ export interface ReceiptColumnOptions {
   statusColors: Record<ReceiptStatus, string>;
 }
 
-/** 默认列顺序：供应商 → 金额 → 账户 → 交易日期 → 状态 → 记录人 → 记录方式 → 记录日期 */
+/** 支出单：关联方列表头为 Payee */
 export function getReceiptColumns(opts: ReceiptColumnOptions): DataTableColumn<Receipt>[] {
   const { formatDate, formatTimeAgo, statusLabels, statusColors } = opts;
   return [
-    { id: 'supplier', label: 'Supplier', minWidth: 140, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.supplier?.name || r.supplierName || '—'}</Text>, getSortValue: r => (r.supplier?.name || r.supplierName || '').toLowerCase() },
+    { id: 'supplier', label: 'Payee', minWidth: 140, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.entity?.name || r.supplierName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.supplierName || '').toLowerCase() },
     { id: 'amount', label: 'Amount', minWidth: 100, getValue: r => <AmountCell amount={r.totalAmount} currency={r.currency} amountColor={AMOUNT_COLOR_EXPENSE} />, getSortValue: r => r.totalAmount ?? -Infinity },
     { id: 'account', label: 'Account', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{r.account?.name || '—'}</Text>, getSortValue: r => (r.account?.name || '').toLowerCase() },
     { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
@@ -80,11 +80,11 @@ export interface InvoiceColumnOptions {
   statusColors: Record<VoucherStatus, string>;
 }
 
-/** 默认列顺序：顾客 → 金额 → 账户 → 交易日期 → 状态 → 记录人 → 记录方式 → 记录日期 */
+/** 收入单：关联方列表头为 Payer */
 export function getInvoiceColumns(opts: InvoiceColumnOptions): DataTableColumn<Invoice>[] {
   const { formatDate, formatTimeAgo, statusLabels, statusColors } = opts;
   return [
-    { id: 'customer', label: 'Customer', minWidth: 140, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.customerName || r.customer?.name || '—'}</Text>, getSortValue: r => (r.customerName || r.customer?.name || '').toLowerCase() },
+    { id: 'customer', label: 'Payer', minWidth: 140, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.entity?.name || r.customerName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.customerName || '').toLowerCase() },
     { id: 'amount', label: 'Amount', minWidth: 100, getValue: r => <AmountCell amount={r.totalAmount} currency={r.currency} amountColor={AMOUNT_COLOR_INCOME} />, getSortValue: r => r.totalAmount ?? -Infinity },
     { id: 'account', label: 'Account', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{r.account?.name || '—'}</Text>, getSortValue: r => (r.account?.name || '').toLowerCase() },
     { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
@@ -102,11 +102,11 @@ export interface InboundColumnOptions {
   statusColors: Record<VoucherStatus, string>;
 }
 
-/** 默认列顺序：供应商 → 金额 → 交易日期 → 状态 → 记录人 → 记录日期，其余列随后 */
+/** 入库单：关联方列表头为 Sender */
 export function getInboundColumns(opts: InboundColumnOptions): DataTableColumn<Inbound>[] {
   const { formatDate, formatTimeAgo, statusLabels, statusColors } = opts;
   return [
-    { id: 'supplier', label: 'Supplier', minWidth: 120, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.supplierName || '—'}</Text>, getSortValue: r => (r.supplierName || '').toLowerCase() },
+    { id: 'supplier', label: 'Sender', minWidth: 120, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.entity?.name || r.supplierName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.supplierName || '').toLowerCase() },
     { id: 'amount', label: 'Amount', minWidth: 100, getValue: r => (
       r.totalAmount != null
         ? <AmountCell amount={Number(r.totalAmount)} currency={r.currency} />
@@ -129,11 +129,11 @@ export interface OutboundColumnOptions {
   statusColors: Record<VoucherStatus, string>;
 }
 
-/** 默认列顺序：顾客 → 金额 → 交易日期 → 状态 → 记录人 → 记录日期，其余列随后 */
+/** 出库单：关联方列表头为 Receiver */
 export function getOutboundColumns(opts: OutboundColumnOptions): DataTableColumn<Outbound>[] {
   const { formatDate, formatTimeAgo, statusLabels, statusColors } = opts;
   return [
-    { id: 'customer', label: 'Customer', minWidth: 120, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.customerName || '—'}</Text>, getSortValue: r => (r.customerName || '').toLowerCase() },
+    { id: 'customer', label: 'Receiver', minWidth: 120, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.entity?.name || r.customerName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.customerName || '').toLowerCase() },
     { id: 'amount', label: 'Amount', minWidth: 100, getValue: r => (
       r.totalAmount != null
         ? <AmountCell amount={Number(r.totalAmount)} currency={r.currency} amountColor={AMOUNT_COLOR_INCOME} />

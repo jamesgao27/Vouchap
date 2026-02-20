@@ -4,12 +4,25 @@ import { getCurrentUser } from './auth';
 import { getSkuById } from './skus';
 
 function rowToOutbound(row: any, items: OutboundItem[] = []): Outbound {
+  const entity = row.entities ? {
+    id: row.entities.id,
+    spaceId: row.entities.space_id ?? row.entities.spaceId,
+    name: row.entities.name,
+    taxNumber: row.entities.tax_number ?? row.entities.taxNumber,
+    phone: row.entities.phone,
+    address: row.entities.address,
+    isAiRecognized: row.entities.is_ai_recognized ?? row.entities.isAiRecognized,
+    mergedIntoId: row.entities.merged_into_id ?? row.entities.mergedIntoId,
+    createdAt: row.entities.created_at ?? row.entities.createdAt,
+    updatedAt: row.entities.updated_at ?? row.entities.updatedAt,
+  } : undefined;
   return {
     id: row.id,
     spaceId: row.space_id,
     documentNo: row.document_no ?? undefined,
-    customerId: row.customer_id ?? undefined,
-    customerName: row.customer_name ?? undefined,
+    entityId: row.entity_id ?? undefined,
+    entity,
+    customerName: row.customer_name ?? row.entities?.name ?? undefined,
     warehouseId: row.warehouse_id ?? undefined,
     locationId: row.location_id ?? undefined,
     totalAmount: row.total_amount != null ? Number(row.total_amount) : undefined,
@@ -130,8 +143,8 @@ export async function saveOutbound(outbound: Outbound): Promise<string> {
   const headerPayload = (isUpdate: boolean) => {
     const base: Record<string, unknown> = {
       document_no: outbound.documentNo ?? null,
-      customer_id: outbound.customerId ?? null,
-      customer_name: outbound.customerName ?? null,
+      entity_id: outbound.entityId ?? null,
+      customer_name: outbound.customerName ?? outbound.entity?.name ?? null,
       warehouse_id: outbound.warehouseId ?? null,
       location_id: outbound.locationId ?? null,
       total_amount: outbound.totalAmount ?? null,

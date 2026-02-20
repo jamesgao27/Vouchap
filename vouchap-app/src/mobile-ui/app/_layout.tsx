@@ -87,17 +87,9 @@ function LayoutContent() {
           }} 
         />
         <Stack.Screen 
-          name="suppliers-manage" 
+          name="entities-manage" 
           options={{ 
-            title: 'Suppliers',
-            headerBackTitle: 'Back',
-            headerBackButtonVisible: true,
-          }} 
-        />
-        <Stack.Screen 
-          name="customers-manage" 
-          options={{ 
-            title: 'Customers',
+            title: 'Entities',
             headerBackTitle: 'Back',
             headerBackButtonVisible: true,
           }} 

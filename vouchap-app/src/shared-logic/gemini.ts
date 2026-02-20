@@ -2,7 +2,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getCategories } from './categories';
 import { getPurposes } from './purposes';
 import { getAccountsForOptions } from './accounts';
-import { getSupplierOptions, getCustomerOptions } from './customer-supplier-list';
+import { getEntityOptions } from './entity-list';
 import { getWarehousesForOptions, getLocationsByWarehouseForOptions } from './warehouse';
 import { getSkusForOptions } from './skus';
 import Constants from 'expo-constants';
@@ -155,8 +155,8 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
 
   let supplierNamesImg: string[] = [];
   try {
-    const suppliers = await getSupplierOptions();
-    supplierNamesImg = suppliers.map((s) => s.name);
+    const entities = await getEntityOptions();
+    supplierNamesImg = entities.map((e) => e.name);
   } catch (e) {
     console.warn('Failed to fetch suppliers:', e);
   }
@@ -790,8 +790,8 @@ export async function recognizeReceiptFromText(text: string): Promise<GeminiRece
 
   let supplierNames: string[] = [];
   try {
-    const suppliers = await getSupplierOptions();
-    supplierNames = suppliers.map((s) => s.name);
+    const entities = await getEntityOptions();
+    supplierNames = entities.map((e) => e.name);
   } catch (e) {
     console.warn('Failed to fetch suppliers:', e);
   }
@@ -1066,8 +1066,8 @@ export async function recognizeReceiptFromAudio(audioUri: string): Promise<Gemin
 
   let supplierNamesAudio: string[] = [];
   try {
-    const suppliers = await getSupplierOptions();
-    supplierNamesAudio = suppliers.map((s) => s.name);
+    const entities = await getEntityOptions();
+    supplierNamesAudio = entities.map((e) => e.name);
   } catch (e) {
     console.warn('Failed to fetch suppliers:', e);
   }
@@ -1259,8 +1259,8 @@ async function recognizeInvoiceFromText(text: string): Promise<GeminiVoucherResu
   } catch {}
   let customerNames: string[] = [];
   try {
-    const customers = await getCustomerOptions();
-    customerNames = customers.map((c) => c.name);
+    const entities = await getEntityOptions();
+    customerNames = entities.map((e) => e.name);
   } catch (e) {
     console.warn('Failed to fetch customers:', e);
   }
@@ -1374,8 +1374,8 @@ async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVouche
   } catch {}
   let customerNamesAudio: string[] = [];
   try {
-    const customers = await getCustomerOptions();
-    customerNamesAudio = customers.map((c) => c.name);
+    const entities = await getEntityOptions();
+    customerNamesAudio = entities.map((e) => e.name);
   } catch (e) {
     console.warn('Failed to fetch customers:', e);
   }
@@ -1485,7 +1485,7 @@ export async function recognizeInboundFromText(text: string): Promise<GeminiInbo
   let skuListIn = '';
   try {
     const [suppliers, warehouses, skus] = await Promise.all([
-      getSupplierOptions(),
+      getEntityOptions(),
       getWarehousesForOptions(),
       getSkusForOptions(),
     ]);
@@ -1633,7 +1633,7 @@ export async function recognizeOutboundFromText(text: string): Promise<GeminiInb
   let skuListOut = '';
   try {
     const [customers, warehouses, skus] = await Promise.all([
-      getCustomerOptions(),
+      getEntityOptions(),
       getWarehousesForOptions(),
       getSkusForOptions(),
     ]);

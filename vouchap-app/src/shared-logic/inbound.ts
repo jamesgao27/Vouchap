@@ -4,12 +4,25 @@ import { getCurrentUser } from './auth';
 import { getSkuById } from './skus';
 
 function rowToInbound(row: any, items: InboundItem[] = []): Inbound {
+  const entity = row.entities ? {
+    id: row.entities.id,
+    spaceId: row.entities.space_id ?? row.entities.spaceId,
+    name: row.entities.name,
+    taxNumber: row.entities.tax_number ?? row.entities.taxNumber,
+    phone: row.entities.phone,
+    address: row.entities.address,
+    isAiRecognized: row.entities.is_ai_recognized ?? row.entities.isAiRecognized,
+    mergedIntoId: row.entities.merged_into_id ?? row.entities.mergedIntoId,
+    createdAt: row.entities.created_at ?? row.entities.createdAt,
+    updatedAt: row.entities.updated_at ?? row.entities.updatedAt,
+  } : undefined;
   return {
     id: row.id,
     spaceId: row.space_id,
     documentNo: row.document_no ?? undefined,
-    supplierId: row.supplier_id ?? undefined,
-    supplierName: row.supplier_name ?? undefined,
+    entityId: row.entity_id ?? undefined,
+    entity,
+    supplierName: row.supplier_name ?? row.entities?.name ?? undefined,
     warehouseId: row.warehouse_id ?? undefined,
     locationId: row.location_id ?? undefined,
     inboundType: row.inbound_type ?? undefined,
@@ -133,8 +146,8 @@ export async function saveInbound(inbound: Inbound): Promise<string> {
   const headerPayload = (isUpdate: boolean) => {
     const base: Record<string, unknown> = {
       document_no: inbound.documentNo ?? null,
-      supplier_id: inbound.supplierId ?? null,
-      supplier_name: inbound.supplierName ?? null,
+      entity_id: inbound.entityId ?? null,
+      supplier_name: inbound.supplierName ?? inbound.entity?.name ?? null,
       warehouse_id: inbound.warehouseId ?? null,
       location_id: inbound.locationId ?? null,
       inbound_type: inbound.inboundType ?? null,

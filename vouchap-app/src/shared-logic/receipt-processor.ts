@@ -4,7 +4,7 @@ import { convertGeminiResultToReceipt } from './receipt-helpers';
 import { updateReceipt, getReceiptById } from './database';
 import { uploadReceiptImage, supabase } from './supabase';
 import { checkDuplicateReceipt } from './receipt-duplicate-checker';
-import { findOrCreateSupplier, updateSupplier } from './suppliers';
+import { findOrCreateEntity, updateEntity } from './entities';
 import { runWithRecognitionRetry } from './recognition-retry';
 import { getCurrentUser } from './auth';
 
@@ -141,39 +141,36 @@ export async function processReceiptInBackground(
             address: detailedSupplierInfo.address || supplierInfoFromBasic?.address,
           };
 
-          // 如果有任何供应商信息，更新供应商记录
-          if (receipt.supplierId && (mergedSupplierInfo.taxNumber || mergedSupplierInfo.phone || mergedSupplierInfo.address)) {
-            console.log('[Supplier Info] 更新供应商详细信息:', mergedSupplierInfo);
+          // 如果有任何关联方信息，更新 entity 记录
+          if (receipt.entityId && (mergedSupplierInfo.taxNumber || mergedSupplierInfo.phone || mergedSupplierInfo.address)) {
+            console.log('[Entity Info] 更新关联方详细信息:', mergedSupplierInfo);
             try {
-              await updateSupplier(receipt.supplierId, {
+              await updateEntity(receipt.entityId, {
                 taxNumber: mergedSupplierInfo.taxNumber,
                 phone: mergedSupplierInfo.phone,
                 address: mergedSupplierInfo.address,
               });
-              console.log('[Supplier Info] ✅ 供应商详细信息已更新');
+              console.log('[Entity Info] ✅ 关联方详细信息已更新');
             } catch (error: any) {
-              // 如果更新时遇到名称重复，静默处理（后台处理场景，不应该因为名称重复而失败）
-              if (error?.code === 'SUPPLIER_NAME_EXISTS' || error?.message === '供应商名称已存在') {
-                console.log('[Supplier Info] 供应商名称已存在，跳过更新（使用已存在的供应商）');
+              if (error?.code === 'ENTITY_NAME_EXISTS' || error?.message === '关联方名称已存在') {
+                console.log('[Entity Info] 关联方名称已存在，跳过更新');
               } else {
-                throw error; // 其他错误继续抛出
+                throw error;
               }
             }
           } else if (receipt.supplierName && (mergedSupplierInfo.taxNumber || mergedSupplierInfo.phone || mergedSupplierInfo.address)) {
-            // 如果没有 supplierId，尝试查找或创建供应商
             try {
-              const supplier = await findOrCreateSupplier(
+              const entity = await findOrCreateEntity(
                 receipt.supplierName,
                 true,
                 mergedSupplierInfo.taxNumber,
                 mergedSupplierInfo.phone,
                 mergedSupplierInfo.address
               );
-              // 更新小票的 supplierId
-              await updateReceipt(receiptId, { supplierId: supplier.id }, true); // autoResolveDuplicate = true，后台处理场景
-              console.log('[Supplier Info] ✅ 供应商已创建/更新，小票已关联');
+              await updateReceipt(receiptId, { entityId: entity.id }, true);
+              console.log('[Entity Info] ✅ 关联方已创建/更新，小票已关联');
             } catch (error) {
-              console.warn('[Supplier Info] 更新供应商失败:', error);
+              console.warn('[Entity Info] 更新关联方失败:', error);
             }
           }
         } catch (error) {

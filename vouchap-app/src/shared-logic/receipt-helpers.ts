@@ -3,7 +3,7 @@ import { getCurrentUser } from './auth';
 import { findCategoryByName, getCategories } from './categories';
 import { findPurposeByName, getPurposes } from './purposes';
 import { findOrCreateAccount } from './accounts';
-import { findOrCreateSupplier } from './suppliers';
+import { findOrCreateEntity } from './entities';
 import { findOrCreateWarehouseByName, findOrCreateLocationByName } from './warehouse';
 import { findOrCreateSkuByNameAndUnit } from './skus';
 
@@ -16,28 +16,25 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
   const categories = await getCategories();
   const purposes = await getPurposes();
 
-  // 处理供应商（排除无效的供应商名称，如 "Processing..." 等）
-  let supplierId: string | undefined;
-  const supplierName = result.supplierName;
-  if (supplierName && supplierName.trim()) {
-    const trimmedSupplierName = supplierName.trim();
-    // 排除处理状态等无效名称
+  // 处理关联方 Payee（排除无效名称）
+  let entityId: string | undefined;
+  const payeeName = result.supplierName;
+  if (payeeName && payeeName.trim()) {
+    const trimmed = payeeName.trim();
     const invalidNames = ['processing', 'processing...', 'pending', 'pending...', 'loading', 'loading...', '识别中', '处理中', '待处理'];
-    const isValidName = !invalidNames.includes(trimmedSupplierName.toLowerCase());
-    
+    const isValidName = !invalidNames.includes(trimmed.toLowerCase());
     if (isValidName) {
       try {
-        const supplier = await findOrCreateSupplier(
-          trimmedSupplierName,
+        const entity = await findOrCreateEntity(
+          trimmed,
           true,
           result.supplierInfo?.taxNumber,
           result.supplierInfo?.phone,
           result.supplierInfo?.address
         );
-        supplierId = supplier.id;
+        entityId = entity.id;
       } catch (error) {
-        console.warn('Failed to create or find supplier:', error);
-        // 如果供应商创建失败，继续处理其他信息，不阻塞整个流程
+        console.warn('Failed to create or find entity (Payee):', error);
       }
     } else {
       console.warn(`Skipping invalid supplier name: "${trimmedSupplierName}"`);
@@ -248,7 +245,7 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
   return {
     spaceId: spaceId,
     supplierName: result.supplierName,
-    supplierId: supplierId,
+    entityId: entityId,
     totalAmount: result.totalAmount,
     currency: result.currency,
     tax: result.tax,
@@ -327,6 +324,17 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
   if (!spaceId) throw new Error('User must have a space selected');
 
   const customerName = result.customerName || result.supplierName || 'Customer';
+  let entityId: string | undefined;
+  const trimmed = customerName.trim();
+  if (trimmed) {
+    const invalidNames = ['processing', 'pending', 'loading', '识别中', '处理中', '待处理', 'customer'];
+    if (!invalidNames.includes(trimmed.toLowerCase())) {
+      try {
+        const entity = await findOrCreateEntity(trimmed, true);
+        entityId = entity.id;
+      } catch (_) {}
+    }
+  }
   const itemsSum = items.reduce((sum, i) => sum + i.price, 0);
   const tax = result.tax ?? 0;
   const totalAmount = result.totalAmount ?? itemsSum + tax;
@@ -334,6 +342,7 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
   return {
     spaceId,
     customerName,
+    entityId,
     totalAmount,
     currency: result.currency,
     tax,
@@ -352,14 +361,14 @@ export async function convertGeminiResultToInbound(result: GeminiInboundOutbound
   const spaceId = user.currentSpaceId || user.spaceId;
   if (!spaceId) throw new Error('No space selected');
 
-  let supplierId: string | undefined;
-  const supplierName = result.supplierName?.trim();
-  if (supplierName) {
+  let entityId: string | undefined;
+  const senderName = result.supplierName?.trim();
+  if (senderName) {
     const invalidNames = ['processing', 'pending', 'loading', '识别中', '处理中', '待处理'];
-    if (!invalidNames.includes(supplierName.toLowerCase())) {
+    if (!invalidNames.includes(senderName.toLowerCase())) {
       try {
-        const supplier = await findOrCreateSupplier(supplierName, true);
-        supplierId = supplier.id;
+        const entity = await findOrCreateEntity(senderName, true);
+        entityId = entity.id;
       } catch (_) {}
     }
   }
@@ -427,7 +436,7 @@ export async function convertGeminiResultToInbound(result: GeminiInboundOutbound
   return {
     spaceId,
     documentNo: result.documentNo,
-    supplierId,
+    entityId,
     supplierName: result.supplierName || undefined,
     warehouseId,
     locationId,
@@ -461,6 +470,19 @@ export async function convertGeminiResultToOutbound(result: GeminiInboundOutboun
     throw new Error('No space selected');
   }
   console.log('[出库单转换] 空间ID:', spaceId);
+
+  // 关联方 Receiver：从识别结果中的客户名称匹配或创建 entity
+  let entityId: string | undefined;
+  const receiverName = result.customerName?.trim();
+  if (receiverName) {
+    const invalidNames = ['processing', 'pending', 'loading', '识别中', '处理中', '待处理'];
+    if (!invalidNames.includes(receiverName.toLowerCase())) {
+      try {
+        const entity = await findOrCreateEntity(receiverName, true);
+        entityId = entity.id;
+      } catch (_) {}
+    }
+  }
 
   // 仓库：从识别结果中提取仓库名称，匹配或创建仓库记录
   let warehouseId: string | undefined;
@@ -538,6 +560,7 @@ export async function convertGeminiResultToOutbound(result: GeminiInboundOutboun
   return {
     spaceId,
     documentNo: result.documentNo,
+    entityId,
     customerName: result.customerName || undefined,
     warehouseId,
     locationId,

@@ -165,7 +165,7 @@ export default function PurposesManageScreen() {
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
           <GradientText
-            text="Tag specific purposes, track for every item."
+            text="Tag specific purposes, track for every expenses."
             style={styles.headerTitle}
             containerStyle={styles.gradientTextContainer}
           />

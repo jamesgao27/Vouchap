@@ -39,8 +39,7 @@ export default function AIInventoryScreen() {
       items: [
         { label: 'SKU', route: '/skus-manage', icon: 'cube-outline' as const },
         { label: 'Warehouse', route: '/warehouse-manage', icon: 'business-outline' as const },
-        { label: 'Suppliers', route: '/suppliers-manage', icon: 'storefront-outline' as const },
-        { label: 'Customers', route: '/customers-manage', icon: 'person-outline' as const },
+        { label: 'Entities', route: '/entities-manage', icon: 'business-outline' as const },
       ],
     },
   ];

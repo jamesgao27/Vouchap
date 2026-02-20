@@ -446,14 +446,14 @@ export default function OutboundDetailsScreen() {
           <View style={styles.summaryContent}>
             <View style={styles.summaryContentTop}>
               <View style={styles.summaryContentMain}>
-                {/* 客户 */}
+                {/* Receiver */}
                 {editing ? (
                   <View style={styles.storeNameInputRow}>
                     <TextInput
                       style={styles.storeNameInput}
-                      value={editedOutbound?.customerName ?? ''}
+                      value={editedOutbound?.customerName ?? (editedOutbound as any)?.entity?.name ?? ''}
                       onChangeText={handleCustomerNameChange}
-                      placeholder="Customer name"
+                      placeholder="Receiver"
                       maxLength={100}
                     />
                     <TouchableOpacity onPress={openCustomerPicker} style={{ paddingLeft: 8 }}>
@@ -462,7 +462,7 @@ export default function OutboundDetailsScreen() {
                   </View>
                 ) : (
                   <Text style={styles.storeName} numberOfLines={1}>
-                    {current.customerName || '未知客户'}
+                    {(current as any).entity?.name || current.customerName || '—'}
                   </Text>
                 )}
                 {/* 金额 - 暂留空税额 */}

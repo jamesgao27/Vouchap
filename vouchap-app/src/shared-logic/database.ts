@@ -3,9 +3,8 @@ import { Receipt, ReceiptItem, ReceiptStatus } from '@/types';
 import { getCurrentUser } from './auth';
 import { findCategoryByName } from './categories';
 import { findOrCreateAccount, getAccountMergeMap, getAccountById } from './accounts';
-import { updateSupplier, getSupplierMergeMap, getSupplierById, resolveSupplierId, findOrCreateSupplier } from './suppliers';
-import { updateCustomer, getCustomerMergeMap, getCustomerById, resolveCustomerId } from './customers';
-import { getSupplierOptions, getSupplierOptionsForDuplicateCheck } from './customer-supplier-list';
+import { updateEntity, getEntityMergeMap, getEntityById, resolveEntityId, findOrCreateEntity } from './entities';
+import { getEntityOptionsForDuplicateCheck } from './entity-list';
 import { normalizeNameForCompare } from './name-utils';
 
 // 将日期数据转换为 YYYY-MM-DD 格式的字符串，完全忠实于票面日期，不做任何时区转换
@@ -63,30 +62,22 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
       throw new Error('User not associated with space account, please sign in again');
     }
 
-    // 供应商：要么来自 suppliers 表（supplier_id），要么来自“标记也是供应商”的客户（supplier_customer_id）
-    let supplierId: string | null = receipt.supplierId ?? null;
-    const supplierCustomerId = receipt.supplierCustomerId ?? null;
-    const supplierName = receipt.supplierName || receipt.storeName;
-
-    if (supplierCustomerId) {
-      supplierId = null; // 二选一
-    } else if (!supplierId && supplierName) {
-      const trimmedSupplierName = supplierName.trim();
+    // 关联方（支出单 Payee）：entity_id 或按名称 findOrCreateEntity
+    let entityId: string | null = receipt.entityId ?? null;
+    const payeeName = receipt.supplierName || receipt.storeName;
+    if (!entityId && payeeName) {
+      const trimmed = payeeName.trim();
       const invalidNames = ['processing', 'processing...', 'pending', 'pending...', 'loading', 'loading...', '识别中', '处理中', '待处理'];
-      const isValidName = !invalidNames.includes(trimmedSupplierName.toLowerCase());
-      if (isValidName) {
+      if (trimmed && !invalidNames.includes(trimmed.toLowerCase())) {
         try {
-          const supplier = await findOrCreateSupplier(trimmedSupplierName, true);
-          supplierId = supplier.id;
+          const entity = await findOrCreateEntity(trimmed, true);
+          entityId = entity.id;
         } catch (error) {
-          console.warn('Failed to create or find supplier:', error);
+          console.warn('Failed to create or find entity (Payee):', error);
         }
       }
-    } else if (!supplierId && receipt.supplier) {
-      supplierId = receipt.supplier.id;
-    } else if (!supplierId && receipt.supplierCustomer) {
-      // 已由 supplierCustomerId 处理
     }
+    if (!entityId && receipt.entity) entityId = receipt.entity.id;
 
     // 处理支付账户ID
     let accountId = receipt.accountId;
@@ -95,11 +86,10 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
       accountId = account.id;
     }
 
-    // 先保存小票主记录（名称以 ID 为准，不写 supplier_name；若表仍有该列可为空）
+    // 先保存小票主记录（支出单 Payee 存 entity_id）
     const insertPayload: Record<string, unknown> = {
       space_id: spaceId,
-      supplier_id: supplierId,
-      supplier_customer_id: supplierCustomerId || null,
+      entity_id: entityId,
       total_amount: receipt.totalAmount,
       currency: receipt.currency,
       tax: receipt.tax,
@@ -250,8 +240,8 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
   }
 }
 
-// 更新小票（不创建新供应商/客户：有关联则更新实体名称，无关联则仅更新小票上的商家名称文本）
-// autoResolveDuplicate: 如果为 true，遇到重复名称时自动使用已存在的ID，不抛出异常（用于后台处理场景）
+// 更新小票（关联方 Payee：有关联则更新 entity 名称，无关联则仅更新展示名称）
+// autoResolveDuplicate: 为 true 时遇到重复名称自动使用已存在 entityId，不抛错
 export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>, autoResolveDuplicate: boolean = false): Promise<void> {
   try {
     const user = await getCurrentUser();
@@ -260,117 +250,54 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
-    let supplierCustomerId = receipt.supplierCustomerId ?? undefined;
-    let supplierId = receipt.supplierId;
-    const supplierName = receipt.supplierName ?? receipt.storeName ?? '';
-    const trimmedSupplierName = supplierName.trim();
+    let entityId = receipt.entityId ?? undefined;
+    const payeeName = (receipt.supplierName ?? receipt.storeName ?? '').trim();
     const invalidNames = ['processing', 'processing...', 'pending', 'pending...', 'loading', 'loading...', '识别中', '处理中', '待处理'];
-    const isValidName = trimmedSupplierName.length > 0 && !invalidNames.includes(trimmedSupplierName.toLowerCase());
+    const isValidName = payeeName.length > 0 && !invalidNames.includes(payeeName.toLowerCase());
 
-    if (!supplierCustomerId && receipt.supplier && !supplierId) {
-      supplierId = receipt.supplier.id;
-    }
+    if (!entityId && receipt.entity) entityId = receipt.entity.id;
 
-    // 名称有效时：先按名称检查是否与已有供应商/客户重复（含已合并指向的），再决定是抛错（触发三选项）还是执行重命名
     if (isValidName) {
-      const options = await getSupplierOptionsForDuplicateCheck();
-      const foundByName = options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(trimmedSupplierName));
-      const currentResolvedId = supplierCustomerId
-        ? (await resolveCustomerId(spaceId, supplierCustomerId))
-        : supplierId
-          ? (await resolveSupplierId(spaceId, supplierId))
-          : null;
-
+      const options = await getEntityOptionsForDuplicateCheck();
+      const foundByName = options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(payeeName));
+      const currentResolvedId = entityId ? await resolveEntityId(spaceId, entityId) : null;
       if (foundByName) {
-        // 解析到最终目标，避免 A→B→C 链；合并时 A 直接指向 C
-        const targetId = foundByName.source === 'supplier'
-          ? await resolveSupplierId(spaceId, foundByName.id)
-          : await resolveCustomerId(spaceId, foundByName.id);
+        const targetId = await resolveEntityId(spaceId, foundByName.id);
         if (targetId !== currentResolvedId) {
-          // 如果 autoResolveDuplicate 为 true（后台处理场景），自动使用已存在的ID
-          // 如果 autoResolveDuplicate 为 false（UI 交互场景），抛出异常触发三选项弹窗
           if (autoResolveDuplicate) {
-            // 后台处理场景：自动使用已存在的供应商/客户ID
-            if (foundByName.source === 'supplier') {
-              supplierId = targetId;
-              supplierCustomerId = undefined; // 清除 customerId，确保只关联 supplier
-            } else {
-              // foundByName.source === 'customer'
-              supplierCustomerId = targetId;
-              supplierId = undefined; // 清除 supplierId，确保只关联 customer
-            }
-            // 继续执行，不抛出异常
-            console.log(`供应商/客户名称已存在，自动使用已存在的ID: ${foundByName.source} ${targetId}`);
+            entityId = targetId;
+            console.log('关联方名称已存在，自动使用已存在的 entityId:', targetId);
           } else {
-            // UI 交互场景：已有关联，需要用户选择如何处理，抛出异常触发三选项弹窗
-            const code = foundByName.source === 'customer' ? ('CUSTOMER_NAME_EXISTS' as const) : ('SUPPLIER_NAME_EXISTS' as const);
-            throw Object.assign(new Error(foundByName.source === 'customer' ? '客户名称已存在' : '供应商名称已存在'), {
-              code,
-              duplicateName: trimmedSupplierName,
+            throw Object.assign(new Error('关联方名称已存在'), {
+              code: 'ENTITY_NAME_EXISTS' as const,
+              duplicateName: payeeName,
               targetId,
-              targetSource: foundByName.source,
             });
           }
         }
       }
-
-      // 未重复或与当前同一条：更新“最终指向”的那条名称
-      if (supplierCustomerId) {
+      if (entityId) {
         try {
-          const targetId = await resolveCustomerId(spaceId, supplierCustomerId);
-          await updateCustomer(targetId, { name: trimmedSupplierName });
+          const targetId = await resolveEntityId(spaceId, entityId);
+          await updateEntity(targetId, { name: payeeName });
         } catch (e) {
-          if (e instanceof Error && e.message === '客户名称已存在') {
-            // 如果 autoResolveDuplicate = true，静默处理，不抛出异常
-            if (autoResolveDuplicate) {
-              console.log('客户名称已存在，跳过名称更新（已自动使用已存在的ID）');
-            } else {
-              throw Object.assign(new Error(e.message), { code: 'CUSTOMER_NAME_EXISTS' as const, duplicateName: trimmedSupplierName });
-            }
+          if (e instanceof Error && e.message === '关联方名称已存在') {
+            if (!autoResolveDuplicate) throw Object.assign(new Error(e.message), { code: 'ENTITY_NAME_EXISTS' as const, duplicateName: payeeName });
           } else {
-            console.warn('Failed to update customer name:', e);
-          }
-        }
-      } else if (supplierId) {
-        try {
-          const targetId = await resolveSupplierId(spaceId, supplierId);
-          await updateSupplier(targetId, { name: trimmedSupplierName });
-        } catch (e) {
-          if (e instanceof Error && e.message === '供应商名称已存在') {
-            // 如果 autoResolveDuplicate = true，静默处理，不抛出异常
-            if (autoResolveDuplicate) {
-              console.log('供应商名称已存在，跳过名称更新（已自动使用已存在的ID）');
-            } else {
-              throw Object.assign(new Error(e.message), { code: 'SUPPLIER_NAME_EXISTS' as const, duplicateName: trimmedSupplierName });
-            }
-          } else {
-            console.warn('Failed to update supplier name:', e);
+            console.warn('Failed to update entity name:', e);
           }
         }
       }
     }
 
-    // 处理支付账户ID
     let accountId = receipt.accountId;
     if (!accountId && receipt.account) {
       const account = await findOrCreateAccount(receipt.account.name || receipt.account.id, true);
       accountId = account.id;
     }
 
-    // 更新小票主记录（名称以 ID 为准；更换 ID 由详情页在用户选“更换”后再次调用并传入新 supplierId/supplierCustomerId）
-    // 仅当有 truthy 的 supplierId/supplierCustomerId 或显式传 null 清空时才更新；否则保留现有 supplier（避免聊天窗确认时置空）
     const updateData: any = {};
-    if (supplierCustomerId) {
-      updateData.supplier_customer_id = supplierCustomerId;
-      updateData.supplier_id = null;
-    } else if (supplierId) {
-      updateData.supplier_id = supplierId;
-      updateData.supplier_customer_id = null;
-    } else if (receipt.supplierId === null && receipt.supplierCustomerId === null) {
-      updateData.supplier_id = null;
-      updateData.supplier_customer_id = null;
-    }
-    // 否则不写入 supplier 字段，保留库内原值
+    if (entityId !== undefined) updateData.entity_id = entityId ?? null;
     if (receipt.totalAmount !== undefined) updateData.total_amount = receipt.totalAmount;
     if (receipt.currency !== undefined) updateData.currency = receipt.currency;
     if (receipt.tax !== undefined) updateData.tax = receipt.tax;
@@ -430,16 +357,12 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
       }
     }
   } catch (error: any) {
-    // 如果 autoResolveDuplicate = true，不应该再抛出这些业务分支异常
-    // 如果 autoResolveDuplicate = false（UI 交互场景），抛出异常触发三选项弹窗
-    if (error?.code === 'SUPPLIER_NAME_EXISTS' || error?.code === 'CUSTOMER_NAME_EXISTS') {
+    if (error?.code === 'ENTITY_NAME_EXISTS') {
       if (autoResolveDuplicate) {
-        // 后台处理场景：不应该到达这里，但如果到达了，静默处理
         console.warn('Unexpected duplicate name error in auto-resolve mode, ignoring:', error);
-        return; // 静默返回，不抛出异常
-      } else {
-        throw error; // UI 交互场景：抛出异常触发三选项弹窗
+        return;
       }
+      throw error;
     }
     console.error('Error updating receipt:', error);
     throw error;
@@ -460,9 +383,8 @@ export async function getReceiptsForListFirstPaint(): Promise<Receipt[]> {
   const { data, error } = await supabase
     .from('receipts')
     .select(`
-      id, space_id, supplier_id, supplier_customer_id, total_amount, currency, tax, date, account_id, status, image_url, input_type, confidence, processed_by, created_at, updated_at, created_by,
-      suppliers (name),
-      customers!receipts_supplier_customer_id_fkey (name),
+      id, space_id, entity_id, total_amount, currency, tax, date, account_id, status, image_url, input_type, confidence, processed_by, created_at, updated_at, created_by,
+      entities (id, name),
       created_by_user:users!created_by (id, email, name, current_space_id)
     `)
     .eq('space_id', spaceId)
@@ -472,16 +394,14 @@ export async function getReceiptsForListFirstPaint(): Promise<Receipt[]> {
   if (error) throw error;
   const rows = data || [];
   return rows.map((row: any) => {
-    const supplierName = row.suppliers?.name || row.customers?.name || '';
+    const payeeName = row.entities?.name || '';
     return {
     id: row.id,
     spaceId: row.space_id,
-    supplierName,
-    storeName: supplierName,
-    supplierId: row.supplier_id ?? undefined,
-    supplierCustomerId: row.supplier_customer_id ?? undefined,
-    supplier: undefined,
-    supplierCustomer: undefined,
+    supplierName: payeeName,
+    storeName: payeeName,
+    entityId: row.entity_id ?? undefined,
+    entity: row.entities ? { id: row.entities.id, spaceId: row.space_id, name: row.entities.name, isAiRecognized: false } : undefined,
     totalAmount: row.total_amount,
     currency: row.currency,
     tax: row.tax,
@@ -521,9 +441,8 @@ export async function getAllReceiptsForList(): Promise<Receipt[]> {
       .from('receipts')
       .select(`
         *,
-        suppliers (*),
+        entities (*),
         accounts (*),
-        customers!receipts_supplier_customer_id_fkey (*),
         created_by_user:users!created_by (id, email, name, current_space_id)
       `)
       .eq('space_id', spaceId)
@@ -531,29 +450,18 @@ export async function getAllReceiptsForList(): Promise<Receipt[]> {
 
     if (error) throw error;
 
-    // merge maps 和 getById 解析（后加载阶段）
     const rows = data || [];
-    const [mergeMap, customerMergeMap, accountMergeMap] = await Promise.all([
-      getSupplierMergeMap(spaceId),
-      getCustomerMergeMap(spaceId),
+    const [entityMergeMap, accountMergeMap] = await Promise.all([
+      getEntityMergeMap(spaceId),
       getAccountMergeMap(spaceId),
     ]);
-    
-    const resolveSupplier = (sid: string) => {
-      let current = sid;
+
+    const resolveEntity = (eid: string) => {
+      let current = eid;
       const seen = new Set<string>();
-      while (mergeMap.has(current) && !seen.has(current)) {
+      while (entityMergeMap.has(current) && !seen.has(current)) {
         seen.add(current);
-        current = mergeMap.get(current)!;
-      }
-      return current;
-    };
-    const resolveCustomer = (cid: string) => {
-      let current = cid;
-      const seen = new Set<string>();
-      while (customerMergeMap.has(current) && !seen.has(current)) {
-        seen.add(current);
-        current = customerMergeMap.get(current)!;
+        current = entityMergeMap.get(current)!;
       }
       return current;
     };
@@ -568,102 +476,61 @@ export async function getAllReceiptsForList(): Promise<Receipt[]> {
     };
 
     // 优化：只查询 join 中缺失的数据
-    const needResolvedSupplier = new Set<string>();
-    const needResolvedCustomer = new Set<string>();
+    const needResolvedEntity = new Set<string>();
     const needResolvedAccount = new Set<string>();
     for (const row of rows) {
-      if (row.supplier_id) {
-        const resolvedId = resolveSupplier(row.supplier_id);
-        // 如果 join 的数据不存在或 ID 不匹配，才需要额外查询
-        if (!row.suppliers || row.suppliers.id !== resolvedId) {
-          needResolvedSupplier.add(resolvedId);
-        }
-      }
-      if (row.supplier_customer_id) {
-        const resolvedId = resolveCustomer(row.supplier_customer_id);
-        if (!row.customers || row.customers.id !== resolvedId) {
-          needResolvedCustomer.add(resolvedId);
-        }
+      if (row.entity_id) {
+        const resolvedId = resolveEntity(row.entity_id);
+        if (!row.entities || row.entities.id !== resolvedId) needResolvedEntity.add(resolvedId);
       }
       if (row.account_id) {
         const resolvedId = resolveAccount(row.account_id);
-        if (!row.accounts || row.accounts.id !== resolvedId) {
-          needResolvedAccount.add(resolvedId);
-        }
+        if (!row.accounts || row.accounts.id !== resolvedId) needResolvedAccount.add(resolvedId);
       }
     }
 
-    const [resolvedSupplierCache, resolvedCustomerCache, resolvedAccountCache] = await Promise.all([
-      needResolvedSupplier.size > 0 ? (async () => {
-        const m = new Map<string, Awaited<ReturnType<typeof getSupplierById>>>();
-        await Promise.all(
-          Array.from(needResolvedSupplier).map(async (id) => {
-            const s = await getSupplierById(id);
-            if (s) m.set(id, s);
-          })
-        );
-        return m;
-      })() : Promise.resolve(new Map()),
-      needResolvedCustomer.size > 0 ? (async () => {
-        const m = new Map<string, Awaited<ReturnType<typeof getCustomerById>>>();
-        await Promise.all(
-          Array.from(needResolvedCustomer).map(async (id) => {
-            const c = await getCustomerById(id);
-            if (c) m.set(id, c);
-          })
-        );
+    const [resolvedEntityCache, resolvedAccountCache] = await Promise.all([
+      needResolvedEntity.size > 0 ? (async () => {
+        const m = new Map<string, Awaited<ReturnType<typeof getEntityById>>>();
+        await Promise.all(Array.from(needResolvedEntity).map(async (id) => {
+          const e = await getEntityById(id);
+          if (e) m.set(id, e);
+        }));
         return m;
       })() : Promise.resolve(new Map()),
       needResolvedAccount.size > 0 ? (async () => {
         const m = new Map<string, Awaited<ReturnType<typeof getAccountById>>>();
-        await Promise.all(
-          Array.from(needResolvedAccount).map(async (id) => {
-            const a = await getAccountById(id);
-            if (a) m.set(id, a);
-          })
-        );
+        await Promise.all(Array.from(needResolvedAccount).map(async (id) => {
+          const a = await getAccountById(id);
+          if (a) m.set(id, a);
+        }));
         return m;
       })() : Promise.resolve(new Map()),
     ]);
 
     const mappedReceipts = rows.map((row: any) => {
-      const resolvedSupplierId = row.supplier_id ? resolveSupplier(row.supplier_id) : null;
-      const resolvedCustomerId = row.supplier_customer_id ? resolveCustomer(row.supplier_customer_id) : null;
+      const resolvedEntityId = row.entity_id ? resolveEntity(row.entity_id) : null;
       const resolvedAccountId = row.account_id ? resolveAccount(row.account_id) : null;
-      const supplierRow = (resolvedSupplierId ? resolvedSupplierCache.get(resolvedSupplierId) : null) ?? row.suppliers;
-      const customerRow = (resolvedCustomerId ? resolvedCustomerCache.get(resolvedCustomerId) : null) ?? row.customers;
+      const entityRow = (resolvedEntityId ? resolvedEntityCache.get(resolvedEntityId) : null) ?? row.entities;
       const accountRow = (resolvedAccountId ? resolvedAccountCache.get(resolvedAccountId) : null) ?? row.accounts;
-      const supplierName = supplierRow?.name || customerRow?.name || row.supplier_name;
+      const payeeName = entityRow?.name ?? '';
       return {
         id: row.id,
         spaceId: row.space_id,
-        supplierName,
-        storeName: supplierRow?.name ?? customerRow?.name ?? row.supplier_name,
-        supplierId: row.supplier_id ?? undefined,
-        supplierCustomerId: row.supplier_customer_id ?? undefined,
-        supplier: supplierRow ? {
-          id: supplierRow.id,
-          spaceId: supplierRow.space_id,
-          name: supplierRow.name,
-          taxNumber: supplierRow.tax_number,
-          phone: supplierRow.phone,
-          address: supplierRow.address,
-          isAiRecognized: supplierRow.is_ai_recognized,
-          isCustomer: (supplierRow as any).is_customer ?? false,
-          createdAt: supplierRow.created_at,
-          updatedAt: supplierRow.updated_at,
-        } : undefined,
-        supplierCustomer: customerRow ? {
-          id: customerRow.id,
-          spaceId: customerRow.space_id,
-          name: customerRow.name,
-          taxNumber: customerRow.tax_number,
-          phone: customerRow.phone,
-          address: customerRow.address,
-          isAiRecognized: customerRow.is_ai_recognized,
-          isSupplier: customerRow.is_supplier || false,
-          createdAt: customerRow.created_at,
-          updatedAt: customerRow.updated_at,
+        supplierName: payeeName,
+        storeName: payeeName,
+        entityId: row.entity_id ?? undefined,
+        entity: entityRow ? {
+          id: entityRow.id,
+          spaceId: entityRow.spaceId,
+          name: entityRow.name,
+          taxNumber: entityRow.taxNumber,
+          phone: entityRow.phone,
+          address: entityRow.address,
+          isAiRecognized: entityRow.isAiRecognized,
+          mergedIntoId: entityRow.mergedIntoId,
+          createdAt: entityRow.createdAt,
+          updatedAt: entityRow.updatedAt,
         } : undefined,
         totalAmount: row.total_amount,
         currency: row.currency,
@@ -718,9 +585,8 @@ export async function getAllReceipts(): Promise<Receipt[]> {
       .from('receipts')
       .select(`
         *,
-        suppliers (*),
+        entities (*),
         accounts (*),
-        customers!receipts_supplier_customer_id_fkey (*),
         created_by_user:users!created_by (
           id,
           email,
@@ -739,26 +605,16 @@ export async function getAllReceipts(): Promise<Receipt[]> {
 
     if (error) throw error;
 
-    const [mergeMap, customerMergeMap, accountMergeMap] = await Promise.all([
-      getSupplierMergeMap(spaceId),
-      getCustomerMergeMap(spaceId),
+    const [entityMergeMap, accountMergeMap] = await Promise.all([
+      getEntityMergeMap(spaceId),
       getAccountMergeMap(spaceId),
     ]);
-    const resolveSupplier = (sid: string) => {
-      let current = sid;
+    const resolveEntity = (eid: string) => {
+      let current = eid;
       const seen = new Set<string>();
-      while (mergeMap.has(current) && !seen.has(current)) {
+      while (entityMergeMap.has(current) && !seen.has(current)) {
         seen.add(current);
-        current = mergeMap.get(current)!;
-      }
-      return current;
-    };
-    const resolveCustomer = (cid: string) => {
-      let current = cid;
-      const seen = new Set<string>();
-      while (customerMergeMap.has(current) && !seen.has(current)) {
-        seen.add(current);
-        current = customerMergeMap.get(current)!;
+        current = entityMergeMap.get(current)!;
       }
       return current;
     };
@@ -773,100 +629,60 @@ export async function getAllReceipts(): Promise<Receipt[]> {
     };
 
     const rows = data || [];
-    const needResolvedSupplier = new Set<string>();
-    const needResolvedCustomer = new Set<string>();
+    const needResolvedEntity = new Set<string>();
     const needResolvedAccount = new Set<string>();
     for (const row of rows) {
-      if (row.supplier_id) {
-        const resolvedId = resolveSupplier(row.supplier_id);
-        if (!row.suppliers || row.suppliers.id !== resolvedId) {
-          needResolvedSupplier.add(resolvedId);
-        }
-      }
-      if (row.supplier_customer_id) {
-        const resolvedId = resolveCustomer(row.supplier_customer_id);
-        if (!row.customers || row.customers.id !== resolvedId) {
-          needResolvedCustomer.add(resolvedId);
-        }
+      if (row.entity_id) {
+        const resolvedId = resolveEntity(row.entity_id);
+        if (!row.entities || row.entities.id !== resolvedId) needResolvedEntity.add(resolvedId);
       }
       if (row.account_id) {
         const resolvedId = resolveAccount(row.account_id);
-        if (!row.accounts || row.accounts.id !== resolvedId) {
-          needResolvedAccount.add(resolvedId);
-        }
+        if (!row.accounts || row.accounts.id !== resolvedId) needResolvedAccount.add(resolvedId);
       }
     }
-    const [resolvedSupplierCache, resolvedCustomerCache, resolvedAccountCache] = await Promise.all([
-      needResolvedSupplier.size > 0 ? (async () => {
-        const m = new Map<string, Awaited<ReturnType<typeof getSupplierById>>>();
-        await Promise.all(
-          Array.from(needResolvedSupplier).map(async (id) => {
-            const s = await getSupplierById(id);
-            if (s) m.set(id, s);
-          })
-        );
-        return m;
-      })() : Promise.resolve(new Map()),
-      needResolvedCustomer.size > 0 ? (async () => {
-        const m = new Map<string, Awaited<ReturnType<typeof getCustomerById>>>();
-        await Promise.all(
-          Array.from(needResolvedCustomer).map(async (id) => {
-            const c = await getCustomerById(id);
-            if (c) m.set(id, c);
-          })
-        );
+    const [resolvedEntityCache, resolvedAccountCache] = await Promise.all([
+      needResolvedEntity.size > 0 ? (async () => {
+        const m = new Map<string, Awaited<ReturnType<typeof getEntityById>>>();
+        await Promise.all(Array.from(needResolvedEntity).map(async (id) => {
+          const e = await getEntityById(id);
+          if (e) m.set(id, e);
+        }));
         return m;
       })() : Promise.resolve(new Map()),
       needResolvedAccount.size > 0 ? (async () => {
         const m = new Map<string, Awaited<ReturnType<typeof getAccountById>>>();
-        await Promise.all(
-          Array.from(needResolvedAccount).map(async (id) => {
-            const a = await getAccountById(id);
-            if (a) m.set(id, a);
-          })
-        );
+        await Promise.all(Array.from(needResolvedAccount).map(async (id) => {
+          const a = await getAccountById(id);
+          if (a) m.set(id, a);
+        }));
         return m;
       })() : Promise.resolve(new Map()),
     ]);
 
     const mappedReceipts = rows.map((row: any) => {
-      const resolvedSupplierId = row.supplier_id ? resolveSupplier(row.supplier_id) : null;
-      const resolvedCustomerId = row.supplier_customer_id ? resolveCustomer(row.supplier_customer_id) : null;
+      const resolvedEntityId = row.entity_id ? resolveEntity(row.entity_id) : null;
       const resolvedAccountId = row.account_id ? resolveAccount(row.account_id) : null;
-      const supplierRow = (resolvedSupplierId ? resolvedSupplierCache.get(resolvedSupplierId) : null) ?? row.suppliers;
-      const customerRow = (resolvedCustomerId ? resolvedCustomerCache.get(resolvedCustomerId) : null) ?? row.customers;
+      const entityRow = (resolvedEntityId ? resolvedEntityCache.get(resolvedEntityId) : null) ?? row.entities;
       const accountRow = (resolvedAccountId ? resolvedAccountCache.get(resolvedAccountId) : null) ?? row.accounts;
-      const supplierName = supplierRow?.name || customerRow?.name || row.supplier_name;
+      const payeeName = entityRow?.name ?? '';
       return {
         id: row.id,
         spaceId: row.space_id,
-        supplierName,
-        storeName: supplierRow?.name ?? customerRow?.name ?? row.supplier_name,
-        supplierId: row.supplier_id ?? undefined,
-        supplierCustomerId: row.supplier_customer_id ?? undefined,
-        supplier: supplierRow ? {
-          id: supplierRow.id,
-          spaceId: supplierRow.space_id,
-          name: supplierRow.name,
-          taxNumber: supplierRow.tax_number,
-          phone: supplierRow.phone,
-          address: supplierRow.address,
-          isAiRecognized: supplierRow.is_ai_recognized,
-          isCustomer: (supplierRow as any).is_customer ?? false,
-          createdAt: supplierRow.created_at,
-          updatedAt: supplierRow.updated_at,
-        } : undefined,
-        supplierCustomer: customerRow ? {
-          id: customerRow.id,
-          spaceId: customerRow.space_id,
-          name: customerRow.name,
-          taxNumber: customerRow.tax_number,
-          phone: customerRow.phone,
-          address: customerRow.address,
-          isAiRecognized: customerRow.is_ai_recognized,
-          isSupplier: customerRow.is_supplier || false,
-          createdAt: customerRow.created_at,
-          updatedAt: customerRow.updated_at,
+        supplierName: payeeName,
+        storeName: payeeName,
+        entityId: row.entity_id ?? undefined,
+        entity: entityRow ? {
+          id: entityRow.id,
+          spaceId: entityRow.spaceId,
+          name: entityRow.name,
+          taxNumber: entityRow.taxNumber,
+          phone: entityRow.phone,
+          address: entityRow.address,
+          isAiRecognized: entityRow.isAiRecognized,
+          mergedIntoId: entityRow.mergedIntoId,
+          createdAt: entityRow.createdAt,
+          updatedAt: entityRow.updatedAt,
         } : undefined,
         totalAmount: row.total_amount,
         currency: row.currency,
@@ -1035,9 +851,8 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
       .from('receipts')
       .select(`
         *,
-        suppliers (*),
+        entities (*),
         accounts (*),
-        customers!receipts_supplier_customer_id_fkey (*),
         created_by_user:users!created_by (
           id,
           email,
@@ -1051,7 +866,7 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
         )
       `)
       .eq('id', receiptId)
-                .eq('space_id', spaceId)
+      .eq('space_id', spaceId)
       .order('created_at', { foreignTable: 'receipt_items', ascending: true })
       .single();
 
@@ -1061,35 +876,13 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
     }
     if (!data) return null;
 
-    // 有 supplier_id 时始终按 merge 解析到最终目标，再取目标行展示名称（避免合并后仍显示源名称）
-    let supplierRow: Awaited<ReturnType<typeof getSupplierById>> | undefined;
-    if (data.supplier_id) {
-      const mergeMap = await getSupplierMergeMap(spaceId);
-      let current = data.supplier_id;
-      const seen = new Set<string>();
-      while (mergeMap.has(current) && !seen.has(current)) {
-        seen.add(current);
-        current = mergeMap.get(current)!;
-      }
-      supplierRow = (await getSupplierById(current)) ?? undefined;
+    let entityRow: Awaited<ReturnType<typeof getEntityById>> | undefined;
+    if (data.entity_id) {
+      const resolvedId = await resolveEntityId(spaceId, data.entity_id);
+      entityRow = (await getEntityById(resolvedId)) ?? undefined;
     }
-    if (!supplierRow && data.suppliers) supplierRow = data.suppliers;
+    if (!entityRow && data.entities) entityRow = data.entities as any;
 
-    // 有 supplier_customer_id 时始终按 merge 解析到最终目标再展示名称
-    let customerRow: Awaited<ReturnType<typeof getCustomerById>> | undefined;
-    if (data.supplier_customer_id) {
-      const customerMergeMap = await getCustomerMergeMap(spaceId);
-      let current = data.supplier_customer_id;
-      const seen = new Set<string>();
-      while (customerMergeMap.has(current) && !seen.has(current)) {
-        seen.add(current);
-        current = customerMergeMap.get(current)!;
-      }
-      customerRow = (await getCustomerById(current)) ?? undefined;
-    }
-    if (!customerRow && data.customers) customerRow = data.customers;
-
-    // 有 account_id 时始终按 merge 解析到最终目标再展示名称
     let accountRow: Awaited<ReturnType<typeof getAccountById>> | undefined;
     if (data.account_id) {
       const accountMergeMap = await getAccountMergeMap(spaceId);
@@ -1103,36 +896,24 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
     }
     if (!accountRow && data.accounts) accountRow = data.accounts;
 
+    const payeeName = entityRow?.name ?? '';
     return {
       id: data.id,
       spaceId: data.space_id,
-      supplierName: supplierRow?.name ?? customerRow?.name ?? data.supplier_name,
-      storeName: supplierRow?.name ?? customerRow?.name ?? data.supplier_name,
-      supplierId: data.supplier_id ?? undefined,
-      supplierCustomerId: data.supplier_customer_id ?? undefined,
-      supplier: supplierRow ? {
-        id: supplierRow.id,
-        spaceId: supplierRow.space_id,
-        name: supplierRow.name,
-        taxNumber: supplierRow.tax_number,
-        phone: supplierRow.phone,
-        address: supplierRow.address,
-        isAiRecognized: supplierRow.is_ai_recognized,
-        isCustomer: (supplierRow as any).is_customer ?? false,
-        createdAt: supplierRow.created_at,
-        updatedAt: supplierRow.updated_at,
-      } : undefined,
-      supplierCustomer: customerRow ? {
-        id: customerRow.id,
-        spaceId: customerRow.space_id,
-        name: customerRow.name,
-        taxNumber: customerRow.tax_number,
-        phone: customerRow.phone,
-        address: customerRow.address,
-        isAiRecognized: customerRow.is_ai_recognized,
-        isSupplier: customerRow.is_supplier || false,
-        createdAt: customerRow.created_at,
-        updatedAt: customerRow.updated_at,
+      supplierName: payeeName,
+      storeName: payeeName,
+      entityId: data.entity_id ?? undefined,
+      entity: entityRow ? {
+        id: entityRow.id,
+        spaceId: (entityRow as any).space_id ?? entityRow.spaceId,
+        name: entityRow.name,
+        taxNumber: (entityRow as any).tax_number ?? entityRow.taxNumber,
+        phone: entityRow.phone,
+        address: entityRow.address,
+        isAiRecognized: (entityRow as any).is_ai_recognized ?? entityRow.isAiRecognized,
+        mergedIntoId: (entityRow as any).merged_into_id ?? entityRow.mergedIntoId,
+        createdAt: (entityRow as any).created_at ?? entityRow.createdAt,
+        updatedAt: (entityRow as any).updated_at ?? entityRow.updatedAt,
       } : undefined,
       totalAmount: data.total_amount,
       currency: data.currency,

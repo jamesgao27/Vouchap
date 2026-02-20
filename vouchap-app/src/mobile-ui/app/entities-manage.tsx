@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   TextInput,
-  Alert,
   ActivityIndicator,
   Modal,
   Platform,
@@ -18,33 +17,40 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { actionButtonStyles } from '@/lib/action-button-styles';
+import { confirmDestructive, confirmThen } from '@/lib/alertWeb';
 import {
-  getAccounts,
-  createAccount,
-  updateAccount,
-  deleteAccount,
-  mergeAccount,
-  unmergeAccount,
-  getAccountsForMergeHistory,
-  getAccountUsageCounts,
-  type AccountsMergeHistoryData,
-  type AccountUsageCounts,
-} from '@/lib/accounts';
-import { Account } from '@/types';
+  getEntities,
+  createEntity,
+  updateEntity,
+  deleteEntity,
+  mergeEntity,
+  unmergeEntity,
+  getEntitiesForMergeHistory,
+  getEntityUsageCounts,
+  type EntitiesMergeHistoryData,
+  type EntityUsageCounts,
+} from '@/lib/entities';
 import { GradientText } from '@/lib/GradientText';
+import type { Entity } from '@/types';
 
-export default function AccountsManageScreen() {
+export default function EntitiesManageScreen() {
   const router = useRouter();
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [list, setList] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
+  const [editTaxNumber, setEditTaxNumber] = useState('');
+  const [editPhone, setEditPhone] = useState('');
+  const [editAddress, setEditAddress] = useState('');
   const [showAddForm, setShowAddForm] = useState(false);
   const [newName, setNewName] = useState('');
+  const [newTaxNumber, setNewTaxNumber] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [newAddress, setNewAddress] = useState('');
   const [mergeMode, setMergeMode] = useState(false);
-  const [selectedAccountIds, setSelectedAccountIds] = useState<Set<string>>(new Set());
-  const [mergeHistoryData, setMergeHistoryData] = useState<AccountsMergeHistoryData | null>(null);
-  const [usageCounts, setUsageCounts] = useState<AccountUsageCounts | null>(null);
+  const [selectedEntityIds, setSelectedEntityIds] = useState<Set<string>>(new Set());
+  const [mergeHistoryData, setMergeHistoryData] = useState<EntitiesMergeHistoryData | null>(null);
+  const [usageCounts, setUsageCounts] = useState<EntityUsageCounts | null>(null);
   const [expandedRootIds, setExpandedRootIds] = useState<Set<string>>(new Set());
   const editNameInputRef = useRef<TextInput>(null);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -52,19 +58,13 @@ export default function AccountsManageScreen() {
   const scrollContentRef = useRef<View>(null);
   const addFormCardRef = useRef<View>(null);
   const HEADER_HEIGHT_PX = 88;
-  const KEYBOARD_SCROLL_OFFSET_PX = 304; // 账户页：略大一点，少滚一点，新建卡片更靠近键盘
   const [showDuplicateNameModal, setShowDuplicateNameModal] = useState(false);
-  const [duplicateNameModalPayload, setDuplicateNameModalPayload] = useState<{
-    duplicateName: string;
-    targetId: string;
-    editingId: string;
-  } | null>(null);
   const [showQuickCleanModal, setShowQuickCleanModal] = useState(false);
   const [showMergeTargetModal, setShowMergeTargetModal] = useState(false);
-  const [mergeTargetModalAccounts, setMergeTargetModalAccounts] = useState<Account[] | null>(null);
+  const [mergeTargetModalAccounts, setMergeTargetModalAccounts] = useState<Entity[] | null>(null);
   const [mergeTargetSelectedId, setMergeTargetSelectedId] = useState<string | null>(null);
   const [showDeleteSelectedModal, setShowDeleteSelectedModal] = useState(false);
-  const [deleteSelectedModalAccounts, setDeleteSelectedModalAccounts] = useState<Account[] | null>(null);
+  const [deleteSelectedModalAccounts, setDeleteSelectedModalAccounts] = useState<Entity[] | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const toastOpacity = useRef(new Animated.Value(0)).current;
@@ -72,24 +72,20 @@ export default function AccountsManageScreen() {
   const showToast = (message: string, duration: number = 1500) => {
     setToastMessage(message);
     Animated.sequence([
-      Animated.timing(toastOpacity, {
-        toValue: 1,
-        duration: 200,
-        useNativeDriver: true,
-      }),
+      Animated.timing(toastOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
       Animated.delay(duration),
-      Animated.timing(toastOpacity, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
-    ]).start(() => {
-      setToastMessage(null);
-    });
+      Animated.timing(toastOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start(() => setToastMessage(null));
   };
+  const [duplicateNameModalPayload, setDuplicateNameModalPayload] = useState<{
+    code: string;
+    duplicateName: string;
+    targetId?: string;
+    editingId: string;
+  } | null>(null);
 
   useEffect(() => {
-    loadAccounts();
+    loadList();
   }, []);
 
   useEffect(() => {
@@ -113,7 +109,7 @@ export default function AccountsManageScreen() {
           scrollContentRef.current as any,
           (_x: number, y: number) => {
             scrollViewRef.current?.scrollTo({
-              y: Math.max(0, y - KEYBOARD_SCROLL_OFFSET_PX),
+              y: Math.max(0, y - HEADER_HEIGHT_PX),
               animated: true,
             });
           }
@@ -127,75 +123,95 @@ export default function AccountsManageScreen() {
     };
   }, [showAddForm]);
 
-  const loadAccounts = async () => {
+  const totalUsage = (counts: EntityUsageCounts | null, id: string) =>
+    counts ? (counts.receiptCountByEntityId[id] ?? 0) + (counts.invoiceCountByEntityId[id] ?? 0) + (counts.inboundCountByEntityId[id] ?? 0) + (counts.outboundCountByEntityId[id] ?? 0) : 0;
+
+  const loadList = async () => {
     try {
       setLoading(true);
-      const data = await getAccounts();
-      setAccounts(data);
+      const [data, counts] = await Promise.all([
+        getEntities(),
+        getEntityUsageCounts(),
+      ]);
+      const sorted = [...data].sort((a, b) => {
+        const ua = totalUsage(counts, a.id);
+        const ub = totalUsage(counts, b.id);
+        if (ub !== ua) return ub - ua;
+        return a.name.localeCompare(b.name);
+      });
+      setList(sorted);
     } catch (error) {
-      console.error('Error loading accounts:', error);
-      showToast('Failed to load accounts');
+      console.error('Error loading entity list:', error);
+      showToast('Failed to load list');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAddAccount = async () => {
+
+  const handleAddEntity = async () => {
     if (!newName.trim()) {
-      showToast('Please enter account name');
+      showToast('Please enter name');
       return;
     }
-
     try {
-      const newAccount = await createAccount(newName.trim(), false);
-      // 乐观更新：直接添加到列表中，不需要重新加载所有账户
-      setAccounts(prev => [...prev, newAccount]);
+      const newEntity = await createEntity(
+        newName.trim(),
+        false,
+        newTaxNumber.trim() || undefined,
+        newPhone.trim() || undefined,
+        newAddress.trim() || undefined
+      );
+      setList(prev => [...prev, newEntity]);
       setNewName('');
+      setNewTaxNumber('');
+      setNewPhone('');
+      setNewAddress('');
       setShowAddForm(false);
-      showToast('Account created');
+      showToast('Entity created');
     } catch (error: any) {
-      console.error('Error creating account:', error);
-      showToast(error.message || 'Failed to create account');
-      // 如果失败，重新加载以确保数据一致
-      loadAccounts();
+      console.error('Error creating entity:', error);
+      showToast(error.message || 'Failed to create');
+      loadList();
     }
   };
 
-  const handleUpdateAccount = async (accountId: string) => {
+  const handleUpdate = async (id: string) => {
     if (!editName.trim()) {
-      showToast('Please enter account name');
+      showToast('Please enter name');
       return;
     }
-
     try {
-      await updateAccount(accountId, {
+      await updateEntity(id, {
         name: editName.trim(),
+        taxNumber: editTaxNumber.trim() || undefined,
+        phone: editPhone.trim() || undefined,
+        address: editAddress.trim() || undefined,
       });
-      // 乐观更新：直接更新列表中的账户，不需要重新加载所有账户
-      setAccounts(prev => prev.map(acc => 
-        acc.id === accountId 
-          ? { ...acc, name: editName.trim() }
-          : acc
-      ));
+      await loadList();
       setEditingId(null);
       setEditName('');
-      // 移除成功提示对话框
+      setEditTaxNumber('');
+      setEditPhone('');
+      setEditAddress('');
     } catch (error: any) {
-      if (error?.code === 'ACCOUNT_NAME_EXISTS') {
+      if (error?.code === 'ENTITY_NAME_EXISTS') {
         setDuplicateNameModalPayload({
+          code: 'ENTITY_NAME_EXISTS',
           duplicateName: (error?.duplicateName ?? editName) || '',
-          targetId: error?.targetId ?? '',
-          editingId: accountId,
+          targetId: error?.targetId,
+          editingId: id,
         });
         setShowDuplicateNameModal(true);
         return;
       }
-      console.error('Error updating account:', error);
-      showToast(error.message || 'Failed to update account');
-      loadAccounts();
+      console.error('Error updating:', error);
+      showToast(error.message || 'Failed to update');
+      loadList();
     }
   };
 
+  /** Close modal only; keep edited state (mask/back). */
   const handleDuplicateNameCloseOnly = () => {
     setShowDuplicateNameModal(false);
     setDuplicateNameModalPayload(null);
@@ -214,139 +230,214 @@ export default function AccountsManageScreen() {
     setDuplicateNameModalPayload(null);
     setEditingId(null);
     setEditName('');
+    setEditTaxNumber('');
+    setEditPhone('');
+    setEditAddress('');
   };
 
   const handleDuplicateNameMerge = async () => {
     const payload = duplicateNameModalPayload;
-    if (!payload?.targetId || !payload?.editingId) return;
+    if (!payload?.targetId) {
+      setShowDuplicateNameModal(false);
+      setDuplicateNameModalPayload(null);
+      showToast('Cannot merge: target not found.');
+      return;
+    }
     setShowDuplicateNameModal(false);
     setDuplicateNameModalPayload(null);
     try {
-      await mergeAccount([payload.editingId], payload.targetId);
+      await mergeEntity([payload.editingId], payload.targetId);
       setEditingId(null);
       setEditName('');
-      loadAccounts();
+      setEditTaxNumber('');
+      setEditPhone('');
+      setEditAddress('');
+      loadList();
     } catch (e: any) {
       showToast(e?.message ?? 'Merge failed');
-      loadAccounts();
+      loadList();
     }
   };
 
-  const handleDeleteAccount = async (account: Account) => {
-    Alert.alert(
-      'Delete Account',
-      `Are you sure you want to delete "${account.name}"?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await deleteAccount(account.id);
-              setAccounts(prev => prev.filter(acc => acc.id !== account.id));
-              showToast('Account deleted');
-            } catch (error: any) {
-              console.error('Error deleting account:', error);
-              showToast(error.message || 'Failed to delete account');
-              loadAccounts();
-            }
-          },
-        },
-      ]
-    );
+  const handleDelete = (item: Entity) => {
+    confirmDestructive('Delete Entity', `Delete "${item.name}"?`, async () => {
+      try {
+        await deleteEntity(item.id);
+        setList(prev => prev.filter(it => it.id !== item.id));
+        showToast('Entity deleted');
+      } catch (e: any) {
+        showToast(e.message || 'Failed to delete');
+        loadList();
+      }
+    }, { confirmLabel: 'Delete' });
   };
 
-  const startEdit = (account: Account) => {
-    setEditingId(account.id);
-    setEditName(account.name);
+  const startEdit = (item: Entity) => {
+    setEditingId(item.id);
+    setEditName(item.name);
+    setEditTaxNumber(item.taxNumber || '');
+    setEditPhone(item.phone || '');
+    setEditAddress(item.address || '');
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditName('');
+    setEditTaxNumber('');
+    setEditPhone('');
+    setEditAddress('');
   };
 
-  const toggleAccountSelection = (accountId: string) => {
-    const newSelected = new Set(selectedAccountIds);
-    if (newSelected.has(accountId)) {
-      newSelected.delete(accountId);
-    } else {
-      newSelected.add(accountId);
-    }
-    setSelectedAccountIds(newSelected);
+  const toggleEntitySelection = (entityId: string) => {
+    const newSelected = new Set(selectedEntityIds);
+    if (newSelected.has(entityId)) newSelected.delete(entityId);
+    else newSelected.add(entityId);
+    setSelectedEntityIds(newSelected);
   };
 
   const handleStartMerge = async () => {
     setMergeMode(true);
-    setSelectedAccountIds(new Set());
+    setSelectedEntityIds(new Set());
     setEditingId(null);
     setShowAddForm(false);
     setExpandedRootIds(new Set());
     try {
       const [historyData, counts] = await Promise.all([
-        getAccountsForMergeHistory(),
-        getAccountUsageCounts(),
+        getEntitiesForMergeHistory(),
+        getEntityUsageCounts(),
       ]);
       setMergeHistoryData(historyData);
       setUsageCounts(counts);
     } catch (e: any) {
-      console.error('Error loading merge history:', e);
+      console.error('Error loading merge data:', e);
       showToast(e?.message ?? 'Failed to load merge data');
     }
   };
 
   const handleCancelMerge = () => {
     setMergeMode(false);
-    setSelectedAccountIds(new Set());
+    setSelectedEntityIds(new Set());
     setMergeHistoryData(null);
     setUsageCounts(null);
     setExpandedRootIds(new Set());
   };
 
-  const handleConfirmMerge = () => {
-    if (selectedAccountIds.size < 2) {
-      showToast('Please select at least 2 accounts to merge');
+  const directCount = (id: string) => totalUsage(usageCounts, id);
+  const totalCount = (root: Entity, children: Entity[]) =>
+    directCount(root.id) + children.reduce((s, c) => s + directCount(c.id), 0);
+
+  const sortedMergeRoots = (() => {
+    if (!mergeHistoryData || !usageCounts) return [];
+    return [...mergeHistoryData.roots].sort((a, b) => {
+      const ua = directCount(a.id);
+      const ub = directCount(b.id);
+      if (ub !== ua) return ub - ua;
+      return a.name.localeCompare(b.name);
+    });
+  })();
+  /** merge 下先同步切 UI，无数据时用当前 list 当 roots，数据到达后刷新数字与展开 */
+  const mergeDisplayRoots = mergeHistoryData ? sortedMergeRoots : list;
+
+  const cleanableRoots = (() => {
+    if (!mergeHistoryData || !usageCounts) return [];
+    return mergeHistoryData.roots.filter((root) => {
+      const children = mergeHistoryData.childrenByRootId.get(root.id) ?? [];
+      const hasUsage = directCount(root.id) > 0;
+      const hasChildUsage = children.some((c) => directCount(c.id) > 0);
+      const hasChildren = children.length > 0;
+      return !hasUsage && !hasChildUsage && !hasChildren;
+    });
+  })();
+
+  const handleCleanEmpty = () => {
+    if (cleanableRoots.length === 0) {
+      showToast('No empty entities to clean.');
       return;
     }
-    const allAccountsInMergeMode = mergeHistoryData
-      ? [
-          ...mergeHistoryData.roots,
-          ...Array.from(mergeHistoryData.childrenByRootId.values()).flat(),
-        ]
-      : accounts;
-    const selectedAccounts = allAccountsInMergeMode.filter((acc) =>
-      selectedAccountIds.has(acc.id)
-    );
-    setMergeTargetModalAccounts(selectedAccounts);
-    setMergeTargetSelectedId(null);
-    setShowMergeTargetModal(true);
+    setShowQuickCleanModal(true);
   };
 
-  const setMergeTargetSelection = (accountId: string) => {
-    setMergeTargetSelectedId(accountId);
+  const doQuickCleanConfirm = async () => {
+    if (cleanableRoots.length === 0) return;
+    setShowQuickCleanModal(false);
+    try {
+      for (const root of cleanableRoots) {
+        await deleteEntity(root.id);
+      }
+      await loadList();
+      const [historyData, counts] = await Promise.all([
+        getEntitiesForMergeHistory(),
+        getEntityUsageCounts(),
+      ]);
+      setMergeHistoryData(historyData);
+      setUsageCounts(counts);
+      showToast(`Cleaned ${cleanableRoots.length} empty entity(s).`);
+    } catch (e: any) {
+      showToast(e?.message ?? 'Failed to clean');
+    }
   };
 
+  const setMergeTargetSelection = (entityId: string) => setMergeTargetSelectedId(entityId);
   const confirmMergeTarget = () => {
     if (!mergeTargetSelectedId) return;
-    const sourceIds = Array.from(selectedAccountIds).filter((id) => id !== mergeTargetSelectedId);
+    const sourceIds = Array.from(selectedEntityIds).filter((id) => id !== mergeTargetSelectedId);
     setShowMergeTargetModal(false);
     setMergeTargetModalAccounts(null);
     setMergeTargetSelectedId(null);
     performMerge(sourceIds, mergeTargetSelectedId);
   };
+  const chooseMergeTarget = (target: Entity) => {
+    setShowMergeTargetModal(false);
+    setMergeTargetModalAccounts(null);
+    setMergeTargetSelectedId(null);
+    const sourceIds = Array.from(selectedEntityIds).filter((id) => id !== target.id);
+    performMerge(sourceIds, target.id);
+  };
 
-  const handleUnmerge = async (childId: string) => {
+  const handleConfirmMerge = () => {
+    if (selectedEntityIds.size < 2) {
+      showToast('Please select at least 2 entities to merge');
+      return;
+    }
+    const allInMerge = mergeHistoryData
+      ? [...mergeHistoryData.roots, ...Array.from(mergeHistoryData.childrenByRootId.values()).flat()]
+      : [];
+    const selected = allInMerge.filter((e) => selectedEntityIds.has(e.id));
+    setMergeTargetModalAccounts(selected);
+    setMergeTargetSelectedId(null);
+    setShowMergeTargetModal(true);
+  };
+
+  const performMerge = async (sourceEntityIds: string[], targetEntityId: string) => {
     try {
-      await unmergeAccount(childId);
-      await loadAccounts();
+      await mergeEntity(sourceEntityIds, targetEntityId);
+      await loadList();
       const [historyData, counts] = await Promise.all([
-        getAccountsForMergeHistory(),
-        getAccountUsageCounts(),
+        getEntitiesForMergeHistory(),
+        getEntityUsageCounts(),
       ]);
       setMergeHistoryData(historyData);
       setUsageCounts(counts);
-      setSelectedAccountIds((prev) => {
+      setSelectedEntityIds(new Set());
+      setExpandedRootIds(new Set());
+      showToast('Entities merged successfully');
+    } catch (error: any) {
+      console.error('Error merging entities:', error);
+      showToast(error.message || 'Failed to merge');
+    }
+  };
+
+  const handleUnmerge = async (childId: string) => {
+    try {
+      await unmergeEntity(childId);
+      await loadList();
+      const [historyData, counts] = await Promise.all([
+        getEntitiesForMergeHistory(),
+        getEntityUsageCounts(),
+      ]);
+      setMergeHistoryData(historyData);
+      setUsageCounts(counts);
+      setSelectedEntityIds((prev) => {
         const next = new Set(prev);
         next.delete(childId);
         return next;
@@ -357,22 +448,36 @@ export default function AccountsManageScreen() {
     }
   };
 
-  const performMerge = async (sourceAccountIds: string[], targetAccountId: string) => {
+  const handleDeleteSelected = () => {
+    if (selectedEntityIds.size === 0) return;
+    const allInMerge = mergeHistoryData
+      ? [...mergeHistoryData.roots, ...Array.from(mergeHistoryData.childrenByRootId.values()).flat()]
+      : [];
+    const selected = allInMerge.filter((e) => selectedEntityIds.has(e.id));
+    setDeleteSelectedModalAccounts(selected);
+    setShowDeleteSelectedModal(true);
+  };
+
+  const doDeleteSelectedConfirm = async () => {
+    const selected = deleteSelectedModalAccounts;
+    setShowDeleteSelectedModal(false);
+    setDeleteSelectedModalAccounts(null);
+    if (!selected || selected.length === 0) return;
     try {
-      await mergeAccount(sourceAccountIds, targetAccountId);
-      await loadAccounts();
+      for (const e of selected) {
+        await deleteEntity(e.id);
+      }
+      await loadList();
       const [historyData, counts] = await Promise.all([
-        getAccountsForMergeHistory(),
-        getAccountUsageCounts(),
+        getEntitiesForMergeHistory(),
+        getEntityUsageCounts(),
       ]);
       setMergeHistoryData(historyData);
       setUsageCounts(counts);
-      setSelectedAccountIds(new Set());
-      setExpandedRootIds(new Set());
-      showToast('Accounts merged successfully');
-    } catch (error: any) {
-      console.error('Error merging accounts:', error);
-      showToast(error.message || 'Failed to merge accounts');
+      setSelectedEntityIds(new Set());
+      showToast(`Deleted ${selected.length} entity(s).`);
+    } catch (e: any) {
+      showToast(e?.message ?? 'Failed to delete');
     }
   };
 
@@ -384,96 +489,6 @@ export default function AccountsManageScreen() {
       return next;
     });
   };
-
-  const directReceipts = (id: string) => usageCounts?.receiptCountByAccountId[id] ?? 0;
-  const directInvoices = (id: string) => usageCounts?.invoiceCountByAccountId[id] ?? 0;
-
-  /** 可清理的账户：根账户、无关联数据、无子账户（未被合并且没有合并进自己的） */
-  const cleanableRoots = (() => {
-    if (!mergeHistoryData || !usageCounts) return [];
-    return mergeHistoryData.roots.filter((root) => {
-      const children = mergeHistoryData.childrenByRootId.get(root.id) ?? [];
-      const hasUsage = directReceipts(root.id) + directInvoices(root.id) > 0;
-      const hasChildUsage = children.some(
-        (c) => directReceipts(c.id) + directInvoices(c.id) > 0
-      );
-      const hasChildren = children.length > 0;
-      return !hasUsage && !hasChildUsage && !hasChildren;
-    });
-  })();
-
-  const handleCleanEmpty = () => {
-    if (cleanableRoots.length === 0) {
-      showToast('No empty accounts to clean.');
-      return;
-    }
-    setShowQuickCleanModal(true);
-  };
-
-  const doQuickCleanConfirm = async () => {
-    if (cleanableRoots.length === 0) return;
-    setShowQuickCleanModal(false);
-    try {
-      for (const root of cleanableRoots) {
-        await deleteAccount(root.id);
-      }
-      await loadAccounts();
-      const [historyData, counts] = await Promise.all([
-        getAccountsForMergeHistory(),
-        getAccountUsageCounts(),
-      ]);
-      setMergeHistoryData(historyData);
-      setUsageCounts(counts);
-      showToast(`Cleaned ${cleanableRoots.length} empty account(s).`);
-    } catch (e: any) {
-      showToast(e?.message ?? 'Failed to clean');
-    }
-  };
-
-  const handleDeleteSelected = () => {
-    if (selectedAccountIds.size === 0) return;
-    const allInMerge = mergeHistoryData
-      ? [
-          ...mergeHistoryData.roots,
-          ...Array.from(mergeHistoryData.childrenByRootId.values()).flat(),
-        ]
-      : [];
-    const selected = allInMerge.filter((a) => selectedAccountIds.has(a.id));
-    setDeleteSelectedModalAccounts(selected);
-    setShowDeleteSelectedModal(true);
-  };
-
-  const doDeleteSelectedConfirm = async () => {
-    const selected = deleteSelectedModalAccounts;
-    setShowDeleteSelectedModal(false);
-    setDeleteSelectedModalAccounts(null);
-    if (!selected || selected.length === 0) return;
-    try {
-      for (const acc of selected) {
-        await deleteAccount(acc.id);
-      }
-      await loadAccounts();
-      const [historyData, counts] = await Promise.all([
-        getAccountsForMergeHistory(),
-        getAccountUsageCounts(),
-      ]);
-      setMergeHistoryData(historyData);
-      setUsageCounts(counts);
-      setSelectedAccountIds(new Set());
-      showToast(`Deleted ${selected.length} account(s).`);
-    } catch (e: any) {
-      showToast(e?.message ?? 'Failed to delete');
-    }
-  };
-
-  const totalCount = (root: Account, children: Account[]) => {
-    return (
-      directReceipts(root.id) +
-      directInvoices(root.id) +
-      children.reduce((s, c) => s + directReceipts(c.id) + directInvoices(c.id), 0)
-    );
-  };
-  const directCount = (id: string) => directReceipts(id) + directInvoices(id);
 
   if (loading) {
     return (
@@ -503,8 +518,8 @@ export default function AccountsManageScreen() {
           <View style={styles.duplicateModalContentContainer} onStartShouldSetResponder={() => true}>
             <View style={styles.duplicateModalContent}>
               <View style={styles.duplicateModalHeader}>
-                <Ionicons name="wallet-outline" size={48} color="#6C5CE7" />
-                <Text style={styles.duplicateModalTitle}>Duplicate account name:</Text>
+                <Ionicons name="business-outline" size={48} color="#6C5CE7" />
+                <Text style={styles.duplicateModalTitle}>Duplicate entity name:</Text>
               </View>
               <View style={styles.duplicateModalMessageBlock}>
                 <View style={styles.duplicateModalNameContainer}>
@@ -530,7 +545,7 @@ export default function AccountsManageScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Quick Clean secondary float */}
+      {/* Quick Clean */}
       <Modal visible={showQuickCleanModal} transparent animationType="fade" onRequestClose={() => setShowQuickCleanModal(false)}>
         <TouchableOpacity style={styles.actionModalOverlay} activeOpacity={1} onPress={() => setShowQuickCleanModal(false)}>
           <View style={styles.actionModalContentContainer} onStartShouldSetResponder={() => true}>
@@ -541,7 +556,7 @@ export default function AccountsManageScreen() {
                 </View>
                 <Text style={styles.actionModalTitle}>Quick Clean</Text>
                 <Text style={styles.actionModalSubtitle}>
-                  Delete {cleanableRoots.length} empty account(s):
+                  Delete {cleanableRoots.length} empty entity(s):
                 </Text>
                 <Text style={styles.actionModalSubtitleLight}>(no linked data, not merged)</Text>
               </View>
@@ -565,7 +580,7 @@ export default function AccountsManageScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Merge: choose which account to keep, then confirm (secondary float) */}
+      {/* Merge: choose which supplier to keep */}
       <Modal visible={showMergeTargetModal} transparent animationType="fade" onRequestClose={() => { setShowMergeTargetModal(false); setMergeTargetModalAccounts(null); setMergeTargetSelectedId(null); }}>
         <TouchableOpacity style={styles.actionModalOverlay} activeOpacity={1} onPress={() => { setShowMergeTargetModal(false); setMergeTargetModalAccounts(null); setMergeTargetSelectedId(null); }}>
           <View style={styles.actionModalContentContainer} onStartShouldSetResponder={() => true}>
@@ -574,19 +589,19 @@ export default function AccountsManageScreen() {
                 <View style={styles.actionModalHeaderIconWrap}>
                   <Ionicons name="git-merge-outline" size={40} color="#6C5CE7" />
                 </View>
-                <Text style={styles.actionModalTitle}>Choose which account to keep,</Text>
+                <Text style={styles.actionModalTitle}>Choose which entity to keep,</Text>
                 <Text style={styles.actionModalSubtitle}>Others will be merged into it.</Text>
               </View>
               <ScrollView style={styles.actionModalList} contentContainerStyle={styles.actionModalListContent} nestedScrollEnabled showsVerticalScrollIndicator>
-                {(mergeTargetModalAccounts ?? []).map((acc) => (
+                {(mergeTargetModalAccounts ?? []).map((s) => (
                   <TouchableOpacity
-                    key={acc.id}
-                    style={[styles.actionModalRowTappable, mergeTargetSelectedId === acc.id && styles.actionModalRowSelected]}
-                    onPress={() => setMergeTargetSelection(acc.id)}
+                    key={s.id}
+                    style={[styles.actionModalRowTappable, mergeTargetSelectedId === s.id && styles.actionModalRowSelected]}
+                    onPress={() => setMergeTargetSelection(s.id)}
                     activeOpacity={0.7}
                   >
-                    <Text style={styles.actionModalRowText} numberOfLines={1}>{acc.name}</Text>
-                    {mergeTargetSelectedId === acc.id ? (
+                    <Text style={styles.actionModalRowText} numberOfLines={1}>{s.name}</Text>
+                    {mergeTargetSelectedId === s.id ? (
                       <Ionicons name="checkmark-circle" size={22} color="#6C5CE7" />
                     ) : (
                       <Ionicons name="ellipse-outline" size={22} color="#BDC3C7" />
@@ -607,7 +622,7 @@ export default function AccountsManageScreen() {
         </TouchableOpacity>
       </Modal>
 
-      {/* Delete selected (secondary float) */}
+      {/* Delete selected */}
       <Modal visible={showDeleteSelectedModal} transparent animationType="fade" onRequestClose={() => { setShowDeleteSelectedModal(false); setDeleteSelectedModalAccounts(null); }}>
         <TouchableOpacity style={styles.actionModalOverlay} activeOpacity={1} onPress={() => { setShowDeleteSelectedModal(false); setDeleteSelectedModalAccounts(null); }}>
           <View style={styles.actionModalContentContainer} onStartShouldSetResponder={() => true}>
@@ -617,13 +632,13 @@ export default function AccountsManageScreen() {
                   <Ionicons name="trash-outline" size={40} color="#E74C3C" />
                 </View>
                 <Text style={styles.actionModalSubtitle}>
-                  Delete {deleteSelectedModalAccounts?.length ?? 0} selected account(s)?
+                  Delete {deleteSelectedModalAccounts?.length ?? 0} selected entity(s)?
                 </Text>
               </View>
               <ScrollView style={styles.actionModalList} contentContainerStyle={styles.actionModalListContent} nestedScrollEnabled showsVerticalScrollIndicator>
-                {(deleteSelectedModalAccounts ?? []).map((acc) => (
-                  <View key={acc.id} style={styles.actionModalRow}>
-                    <Text style={styles.actionModalRowText} numberOfLines={1}>{acc.name}</Text>
+                {(deleteSelectedModalAccounts ?? []).map((s) => (
+                  <View key={s.id} style={styles.actionModalRow}>
+                    <Text style={styles.actionModalRowText} numberOfLines={1}>{s.name}</Text>
                   </View>
                 ))}
               </ScrollView>
@@ -651,15 +666,12 @@ export default function AccountsManageScreen() {
               containerStyle={styles.mergeHeaderGradientContainer}
             />
           </View>
-          {/* 表标题行：Account 右端紧跟 已选/总数 */}
           <View style={styles.headerTableRow}>
             <View style={styles.checkboxContainer} />
             <View style={styles.headerTableRowNameCell}>
-              <Text style={styles.tableHeaderNameLeft}>Account</Text>
+              <Text style={styles.tableHeaderNameLeft}>Entity</Text>
               <Text style={styles.headerSelectedCount}>
-                （{selectedAccountIds.size}/{mergeHistoryData
-                  ? mergeHistoryData.roots.length
-                  : accounts.length}）
+                （{selectedEntityIds.size}/{mergeHistoryData ? mergeHistoryData.roots.length : list.length}）
               </Text>
             </View>
             <View style={styles.countsCell}>
@@ -672,7 +684,7 @@ export default function AccountsManageScreen() {
         <View style={styles.header}>
           <View style={styles.headerTitleContainer}>
             <GradientText
-              text="Accounts for expenses & income, support merged accounts."
+              text={"Entity connects every flow.\nPayer or Payee, Sender or Receiver.\nKeep Collecting, Keep Connecting."}
               style={styles.headerTitle}
               containerStyle={styles.gradientTextContainer}
             />
@@ -681,89 +693,68 @@ export default function AccountsManageScreen() {
       )}
 
       <ScrollView ref={scrollViewRef} style={styles.scrollView} contentContainerStyle={[styles.scrollContent, styles.scrollContentTop, styles.scrollContentWithBottomBar, showAddForm && keyboardHeight > 0 && { paddingBottom: 88 + keyboardHeight + 6 }]} keyboardShouldPersistTaps="handled">
-        {/* Accounts List */}
-        <View ref={scrollContentRef} style={styles.accountsList}>
+        {/* Entities List */}
+        <View ref={scrollContentRef} style={styles.suppliersList}>
           {mergeMode ? (
-            // Merge Mode: 直接显示复选框列表，不闪现 icon/AI；展开 icon 放最右
-            accounts.map((account) => {
-              const children = mergeHistoryData?.childrenByRootId?.get(account.id) ?? [];
-              const expanded = expandedRootIds.has(account.id);
+            mergeDisplayRoots.map((root) => {
+              const children = mergeHistoryData?.childrenByRootId?.get(root.id) ?? [];
+              const expanded = expandedRootIds.has(root.id);
               const hasChildren = children.length > 0;
               return (
-                <View key={account.id} style={styles.accountCard}>
-                  <View
-                    style={[
-                      styles.accountRow,
-                      styles.accountRowCountsGap,
-                      selectedAccountIds.has(account.id) && styles.accountRowSelected,
-                    ]}
-                  >
+                <View key={root.id} style={styles.supplierCard}>
+                  <View style={[styles.mergeRowRoot, selectedEntityIds.has(root.id) && styles.supplierRowSelected]}>
                     <TouchableOpacity
                       style={styles.mergeRowSelectionArea}
-                      onPress={() => toggleAccountSelection(account.id)}
+                      onPress={() => toggleEntitySelection(root.id)}
                       activeOpacity={0.7}
                     >
                       <View style={styles.checkboxContainer}>
-                        {selectedAccountIds.has(account.id) ? (
+                        {selectedEntityIds.has(root.id) ? (
                           <Ionicons name="checkbox" size={24} color="#6C5CE7" />
                         ) : (
                           <Ionicons name="checkbox-outline" size={24} color="#BDC3C7" />
                         )}
                       </View>
-                      <Text style={styles.accountName} numberOfLines={1}>
-                        {account.name}
-                      </Text>
+                      <Text style={styles.supplierName} numberOfLines={1}>{root.name}</Text>
                       <View style={styles.countsCell}>
                         <Text style={styles.countText}>
-                          {expanded ? directCount(account.id) : totalCount(account, children)}
+                          {usageCounts ? (expanded ? directCount(root.id) : totalCount(root, children)) : '0'}
                         </Text>
                       </View>
                     </TouchableOpacity>
                     {hasChildren ? (
                       <TouchableOpacity
                         style={styles.expandButtonSmall}
-                        onPress={() => toggleExpand(account.id)}
+                        onPress={() => toggleExpand(root.id)}
                         hitSlop={{ left: 0, right: 48, top: 24, bottom: 24 }}
                         activeOpacity={0.7}
                       >
-                        <Ionicons
-                          name={expanded ? 'chevron-down' : 'chevron-forward'}
-                          size={14}
-                          color="#6C5CE7"
-                        />
+                        <Ionicons name={expanded ? 'chevron-down' : 'chevron-forward'} size={14} color="#6C5CE7" />
                       </TouchableOpacity>
                     ) : (
                       <View style={styles.expandPlaceholderSmall} />
                     )}
                   </View>
-                  {expanded &&
-                    children.map((child) => (
-                      <View
-                        key={child.id}
-                        style={[
-                          styles.childRow,
-                          selectedAccountIds.has(child.id) && styles.accountRowSelected,
-                        ]}
+                  {expanded && children.map((child) => (
+                    <View key={child.id} style={[styles.childRow, selectedEntityIds.has(child.id) && styles.supplierRowSelected]}>
+                      <TouchableOpacity
+                        style={styles.mergeRowSelectionArea}
+                        onPress={() => toggleEntitySelection(child.id)}
+                        activeOpacity={0.7}
                       >
-                        <TouchableOpacity
-                          style={styles.mergeRowSelectionArea}
-                          onPress={() => toggleAccountSelection(child.id)}
-                          activeOpacity={0.7}
-                        >
-                          <View style={styles.checkboxContainer}>
-                            {selectedAccountIds.has(child.id) ? (
-                              <Ionicons name="checkbox" size={24} color="#6C5CE7" />
-                            ) : (
-                              <Ionicons name="checkbox-outline" size={24} color="#BDC3C7" />
-                            )}
-                          </View>
-                          <Text style={styles.childName} numberOfLines={1}>
-                            {child.name}
-                          </Text>
-                          <View style={styles.countsCell}>
-                            <Text style={styles.countText}>{directCount(child.id)}</Text>
-                          </View>
-                        </TouchableOpacity>
+                        <View style={styles.checkboxContainer}>
+                          {selectedEntityIds.has(child.id) ? (
+                            <Ionicons name="checkbox" size={24} color="#6C5CE7" />
+                          ) : (
+                            <Ionicons name="checkbox-outline" size={24} color="#BDC3C7" />
+                          )}
+                        </View>
+                        <Text style={styles.childName} numberOfLines={1}>{child.name}</Text>
+                        <View style={styles.countsCell}>
+                          <Text style={styles.countText}>{usageCounts ? directCount(child.id) : '0'}</Text>
+                        </View>
+                      </TouchableOpacity>
+                      {mergeHistoryData && (
                         <TouchableOpacity
                           style={styles.childRowUnmergeButton}
                           onPress={() => handleUnmerge(child.id)}
@@ -771,92 +762,141 @@ export default function AccountsManageScreen() {
                         >
                           <Ionicons name="exit-outline" size={14} color="#6C5CE7" />
                         </TouchableOpacity>
-                      </View>
-                    ))}
+                      )}
+                    </View>
+                  ))}
                 </View>
               );
             })
           ) : (
-            // Normal Mode: Show regular account list
-            accounts.map((account) => (
-              <View key={account.id} style={styles.accountCard}>
-                {editingId === account.id ? (
-                  // Edit Mode
+            list.map((item) => (
+              <View key={`${item.source}-${item.id}`} style={styles.supplierCard}>
+                {editingId === item.id ? (
                   <View style={styles.editRow}>
-                    {/* 第一行：名称 */}
+                    <View style={styles.editFormTagRow}>
+                      <View style={styles.editFormTagLeft}>
+                        <Ionicons
+                          name="business-outline"
+                          size={18}
+                          color="#6C5CE7"
+                        />
+                        <Text style={styles.editFormTagText}>Entity</Text>
+                      </View>
+                    </View>
                     <TextInput
                       ref={editNameInputRef}
                       style={styles.editInputInline}
                       value={editName}
                       onChangeText={setEditName}
-                      placeholder="Account name"
+                      placeholder="Entity name *"
                       placeholderTextColor="#95A5A6"
                     />
-                    {/* 第二行：确认取消按钮 */}
+                    <TextInput
+                      style={styles.editInputInline}
+                      value={editTaxNumber}
+                      onChangeText={setEditTaxNumber}
+                      placeholder="Tax number (optional)"
+                      placeholderTextColor="#95A5A6"
+                    />
+                    <TextInput
+                      style={styles.editInputInline}
+                      value={editPhone}
+                      onChangeText={setEditPhone}
+                      placeholder="Phone (optional)"
+                      placeholderTextColor="#95A5A6"
+                      keyboardType="phone-pad"
+                    />
+                    <TextInput
+                      style={[styles.editInputInline, styles.multilineInput]}
+                      value={editAddress}
+                      onChangeText={setEditAddress}
+                      placeholder="Address (optional)"
+                      placeholderTextColor="#95A5A6"
+                      multiline
+                      numberOfLines={2}
+                    />
                     <View style={actionButtonStyles.editRowButtons}>
-                      <TouchableOpacity
-                        style={actionButtonStyles.editCancelButton}
-                        onPress={cancelEdit}
-                      >
+                      <TouchableOpacity style={actionButtonStyles.editCancelButton} onPress={cancelEdit}>
                         <Text style={actionButtonStyles.editCancelButtonText}>Cancel</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity
-                        style={actionButtonStyles.editConfirmButton}
-                        onPress={() => handleUpdateAccount(account.id)}
-                      >
+                      <TouchableOpacity style={actionButtonStyles.editConfirmButton} onPress={() => handleUpdate(item.id)}>
                         <Text style={actionButtonStyles.editConfirmButtonText}>Confirm</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
                 ) : (
-                  // Display Mode
-                  <TouchableOpacity
-                    style={styles.accountRow}
-                    onPress={() => {
-                      if (mergeMode) {
-                        toggleAccountSelection(account.id);
-                      }
-                    }}
-                    disabled={mergeMode}
-                  >
-                    <View style={styles.accountIndicator}>
-                      <Ionicons name="card-outline" size={16} color="#6C5CE7" />
-                      {account.isAiRecognized && (
+                  <TouchableOpacity style={styles.supplierRow} onPress={() => {}}>
+                    <View style={styles.supplierIndicator}>
+                      <Ionicons
+                        name="business-outline"
+                        size={16}
+                        color="#6C5CE7"
+                      />
+                      {'isAiRecognized' in item && item.isAiRecognized && (
                         <View style={styles.aiBadgeInIcon}>
                           <Text style={styles.aiBadgeTextInIcon}>AI</Text>
                         </View>
                       )}
                     </View>
-                    <Text style={styles.accountName} numberOfLines={1}>
-                      {account.name}
-                    </Text>
-                    {!mergeMode && (
-                      <View style={styles.accountActions}>
-                        <TouchableOpacity
-                          style={styles.iconButton}
-                          onPress={() => startEdit(account)}
-                        >
-                          <Ionicons name="create-outline" size={18} color="#6C5CE7" />
-                        </TouchableOpacity>
+                    <View style={styles.supplierInfo}>
+                      <View style={styles.supplierNameRow}>
+                        <View style={styles.supplierNameWrap}>
+                          <Text style={[styles.supplierName, styles.supplierNameTight]} numberOfLines={1}>{item.name}</Text>
+                        </View>
                       </View>
-                    )}
+                    </View>
+                    <View style={styles.supplierActions}>
+                      <TouchableOpacity style={styles.iconButton} onPress={() => startEdit(item)}>
+                        <Ionicons name="create-outline" size={18} color="#6C5CE7" />
+                      </TouchableOpacity>
+                    </View>
                   </TouchableOpacity>
                 )}
               </View>
             ))
           )}
 
-          {/* Add Account Form - 列表最下方，与编辑表单一致（editRow） */}
+          {/* Add Entity Form */}
           {showAddForm && (
             <View ref={addFormCardRef} style={styles.formCard}>
               <View style={styles.editRow}>
+                <View style={styles.editFormTagRow}>
+                  <View style={styles.editFormTagLeft}>
+                    <Ionicons name="business-outline" size={18} color="#6C5CE7" />
+                    <Text style={styles.editFormTagText}>Entity</Text>
+                  </View>
+                </View>
                 <TextInput
                   ref={newNameInputRef}
                   style={styles.editInputInline}
                   value={newName}
                   onChangeText={setNewName}
-                  placeholder="Account name"
+                  placeholder="Entity name *"
                   placeholderTextColor="#95A5A6"
+                />
+                <TextInput
+                  style={styles.editInputInline}
+                  value={newTaxNumber}
+                  onChangeText={setNewTaxNumber}
+                  placeholder="Tax number (optional)"
+                  placeholderTextColor="#95A5A6"
+                />
+                <TextInput
+                  style={styles.editInputInline}
+                  value={newPhone}
+                  onChangeText={setNewPhone}
+                  placeholder="Phone (optional)"
+                  placeholderTextColor="#95A5A6"
+                  keyboardType="phone-pad"
+                />
+                <TextInput
+                  style={[styles.editInputInline, styles.multilineInput]}
+                  value={newAddress}
+                  onChangeText={setNewAddress}
+                  placeholder="Address (optional)"
+                  placeholderTextColor="#95A5A6"
+                  multiline
+                  numberOfLines={2}
                 />
                 <View style={actionButtonStyles.editRowButtons}>
                 <TouchableOpacity
@@ -864,13 +904,17 @@ export default function AccountsManageScreen() {
                   onPress={() => {
                     setShowAddForm(false);
                     setNewName('');
+                    setNewTaxNumber('');
+                    setNewPhone('');
+                    setNewAddress('');
+                    setNewIsCustomer(false);
                   }}
                 >
                   <Text style={actionButtonStyles.editCancelButtonText}>Cancel</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={actionButtonStyles.editConfirmButton}
-                  onPress={handleAddAccount}
+                  onPress={handleAddEntity}
                 >
                   <Text style={actionButtonStyles.editConfirmButtonText}>Confirm</Text>
                 </TouchableOpacity>
@@ -879,10 +923,8 @@ export default function AccountsManageScreen() {
             </View>
           )}
         </View>
-
       </ScrollView>
 
-      {/* 底部浮动：Add + Merge 按钮 */}
       {!showAddForm && !mergeMode && (
         <View style={[actionButtonStyles.bar, actionButtonStyles.barMergeMode]}>
           <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={() => setShowAddForm(true)}>
@@ -896,10 +938,9 @@ export default function AccountsManageScreen() {
         </View>
       )}
 
-      {/* Organize mode: Cancel 靠左, Merge 居中, Delete 靠右 */}
       {mergeMode && (
         <View style={[actionButtonStyles.bar, actionButtonStyles.barMergeMode]}>
-          {selectedAccountIds.size === 0 && (
+          {selectedEntityIds.size === 0 && (
             <>
               <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
                 <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
@@ -910,7 +951,7 @@ export default function AccountsManageScreen() {
               </TouchableOpacity>
             </>
           )}
-          {selectedAccountIds.size === 1 && (
+          {selectedEntityIds.size === 1 && (
             <>
               <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
                 <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
@@ -921,7 +962,7 @@ export default function AccountsManageScreen() {
               </TouchableOpacity>
             </>
           )}
-          {selectedAccountIds.size >= 2 && (
+          {selectedEntityIds.size >= 2 && (
             <>
               <TouchableOpacity style={actionButtonStyles.barButtonSecondaryFlex} onPress={handleCancelMerge}>
                 <Text style={actionButtonStyles.barButtonSecondaryText} numberOfLines={1}>Cancel</Text>
@@ -987,11 +1028,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    paddingTop: 60,
+    paddingTop: 40,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
-    minHeight: 88,
   },
   headerMerge: {
     flexDirection: 'column',
@@ -1011,6 +1051,16 @@ const styles = StyleSheet.create({
     paddingTop: 0,
     minHeight: 56,
   },
+  mergeHeaderTextInHeader: {
+    fontSize: 17,
+    fontWeight: '600',
+    textAlign: 'left',
+  },
+  mergeHeaderGradientContainer: {
+    alignItems: 'flex-start',
+    alignSelf: 'stretch',
+    width: '100%',
+  },
   headerTableRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1023,8 +1073,29 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: '#E9ECEF',
   },
-  headerPlaceholder: {
-    height: 88,
+  headerTableRowNameCell: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  tableHeaderNameLeft: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#636E72',
+  },
+  headerSelectedCount: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#636E72',
+    marginLeft: 4,
+  },
+  tableHeaderCount: {
+    minWidth: 72,
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#636E72',
+    textAlign: 'right',
   },
   headerTitleContainer: {
     flex: 1,
@@ -1060,29 +1131,34 @@ const styles = StyleSheet.create({
     padding: 10,
     marginBottom: 12,
   },
-  accountsList: {
+  suppliersList: {
     gap: 6,
   },
-  accountCard: {
+  supplierCard: {
     backgroundColor: '#fff',
     borderRadius: 8,
     padding: 10,
     paddingRight: 4,
     minHeight: 40,
-    flex: 1,
+    ...(Platform.OS === 'web' && { flex: undefined, overflow: 'visible' as const }),
   },
-  /** 展开 icon 或占位，固定宽度保证数字列对齐 */
-  expandButtonSmall: {
-    width: 20,
+  mergeRowRoot: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    padding: 2,
+    gap: 2,
+    minHeight: 40,
   },
   mergeRowSelectionArea: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 2,
+  },
+  expandButtonSmall: {
+    width: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 2,
   },
   expandPlaceholderSmall: {
     width: 20,
@@ -1094,19 +1170,6 @@ const styles = StyleSheet.create({
   },
   countText: {
     fontSize: 13,
-    color: '#636E72',
-    textAlign: 'right',
-  },
-  tableHeaderName: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#636E72',
-  },
-  tableHeaderCount: {
-    minWidth: 72,
-    fontSize: 13,
-    fontWeight: '600',
     color: '#636E72',
     textAlign: 'right',
   },
@@ -1131,15 +1194,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  accountRow: {
+  mergeSupplierCard: {
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    padding: 10,
+    marginTop: 12,
+  },
+  supplierRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 2,
     minHeight: 40,
   },
-  /** merge 表行：数字列与右端 icon 间距缩小，数字列右移 */
-  accountRowCountsGap: { gap: 2 },
-  accountIndicator: {
+  supplierIndicator: {
     width: 32,
     height: 32,
     borderRadius: 16,
@@ -1166,29 +1233,53 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#6C5CE7',
   },
-  accountName: {
+  supplierInfo: {
+    flex: 1,
+  },
+  supplierName: {
     flex: 1,
     fontSize: 15,
-    fontWeight: '500',
+    fontWeight: '600',
     color: '#2D3436',
   },
-  accountActions: {
+  supplierNameWrap: {
+    flexShrink: 1,
+  },
+  supplierNameTight: {
+    flex: 0,
+  },
+  supplierNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  linkedBadgeAfterName: {
+    backgroundColor: '#E8F4FD',
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  supplierActions: {
     flexDirection: 'row',
     gap: 8,
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    paddingTop: 2,
   },
-  addAccountRow: {
+  addSupplierRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
   },
-  addAccountText: {
+  addSupplierText: {
     fontSize: 15,
     fontWeight: '600',
     color: '#6C5CE7',
   },
-  mergeAccountText: {
+  mergeSupplierText: {
     fontSize: 15,
     fontWeight: '600',
     color: '#FF9500',
@@ -1199,6 +1290,35 @@ const styles = StyleSheet.create({
   editRow: {
     flexDirection: 'column',
     gap: 8,
+  },
+  editFormTagRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  editFormTagLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  editFormTagText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6C5CE7',
+  },
+  editFormTagToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  editFormTagToggleText: {
+    fontSize: 12,
+    color: '#636E72',
+  },
+  editFormTagToggleTextActive: {
+    color: '#6C5CE7',
+    fontWeight: '600',
   },
   editInputInline: {
     width: '100%',
@@ -1211,38 +1331,55 @@ const styles = StyleSheet.create({
     borderColor: '#E9ECEF',
     marginBottom: 8,
   },
-  mergeHeaderTextInHeader: {
-    fontSize: 17,
-    fontWeight: '600',
-    textAlign: 'left',
+  multilineInput: {
+    minHeight: 60,
+    textAlignVertical: 'top',
   },
-  mergeHeaderGradientContainer: {
-    alignItems: 'flex-start',
-    alignSelf: 'stretch',
-    width: '100%',
-  },
-  headerTableRowNameCell: {
-    flex: 1,
+  toggleButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    backgroundColor: '#F8F9FA',
+    borderRadius: 6,
+    padding: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    gap: 8,
   },
-  tableHeaderNameLeft: {
-    fontSize: 13,
-    fontWeight: '600',
+  toggleButtonText: {
+    flex: 1,
+    fontSize: 14,
     color: '#636E72',
   },
-  headerSelectedCount: {
-    fontSize: 13,
+  toggleButtonTextActive: {
+    color: '#6C5CE7',
     fontWeight: '600',
-    color: '#636E72',
-    marginLeft: 4,
   },
-  mergeButtonsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 6,
-    flexShrink: 0,
+  toggleButtonDisabled: {
+    opacity: 0.85,
+  },
+  toggleButtonTextWrap: {
+    flex: 1,
+  },
+  toggleHint: {
+    fontSize: 11,
+    color: '#636E72',
+    marginTop: 2,
+  },
+  mergeHeaderCard: {
+    backgroundColor: '#E8F4FD',
+    borderRadius: 8,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#6C5CE7',
+  },
+  mergeHeaderText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2D3436',
+    marginBottom: 12,
+    textAlign: 'center',
   },
   mergeHeaderButtons: {
     flexDirection: 'row',
@@ -1254,10 +1391,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#E9ECEF',
     borderRadius: 8,
     paddingVertical: 10,
-    paddingHorizontal: 20,
     alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 50,
   },
   mergeCancelButtonText: {
     fontSize: 15,
@@ -1269,10 +1403,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#6C5CE7',
     borderRadius: 8,
     paddingVertical: 10,
-    paddingHorizontal: 20,
     alignItems: 'center',
-    justifyContent: 'center',
-    minHeight: 50,
   },
   mergeConfirmButtonDisabled: {
     backgroundColor: '#BDC3C7',
@@ -1290,27 +1421,96 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexShrink: 0,
   },
-  accountRowSelected: {
+  supplierRowSelected: {
     backgroundColor: '#E8F4FD',
   },
-  duplicateModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 24 },
-  duplicateModalContentContainer: { width: '100%', maxWidth: 400, alignItems: 'center' },
-  duplicateModalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '100%', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8 },
-  duplicateModalHeader: { alignItems: 'center', marginBottom: 16 },
-  duplicateModalTitle: { fontSize: 22, fontWeight: '600', color: '#2D3436', marginTop: 12, marginBottom: 0 },
-  duplicateModalMessageBlock: { marginBottom: 24, paddingHorizontal: 8, alignItems: 'center', width: '100%' },
-  duplicateModalNameContainer: { marginTop: 8, marginBottom: 20, alignSelf: 'stretch', borderBottomWidth: 1, borderBottomColor: '#E0E7FF', paddingBottom: 8 },
-  duplicateModalNameText: { fontSize: 18, fontWeight: '800', color: '#6C5CE7', textAlign: 'center', letterSpacing: 0.3 },
-  duplicateModalButtons: { flexDirection: 'column', width: '100%', gap: 10 },
-  duplicateModalButton: { width: '100%', paddingVertical: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', minHeight: 52, flexDirection: 'row' },
-  duplicateModalButtonReplace: { backgroundColor: '#27AE60', shadowColor: '#27AE60', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
-  duplicateModalButtonReplaceText: { fontSize: 17, fontWeight: '700', color: '#fff', letterSpacing: 0.5 },
-  duplicateModalButtonMerge: { backgroundColor: '#FFF5F5', borderWidth: 2, borderColor: '#E74C3C' },
-  duplicateModalButtonMergeText: { fontSize: 16, fontWeight: '600', color: '#E74C3C' },
-  duplicateModalButtonDontChange: { backgroundColor: '#F8F9FA', borderWidth: 1, borderColor: '#E9ECEF' },
-  duplicateModalButtonDontChangeText: { fontSize: 15, fontWeight: '500', color: '#95A5A6' },
-
-  // 二级选项浮窗（Quick Clean / Merge 选保留 / Delete 选中）- 可复用于其他可合并数据
+  linkedInfo: {
+    marginTop: 4,
+    paddingTop: 4,
+    borderTopWidth: 1,
+    borderTopColor: '#E9ECEF',
+  },
+  linkedInfoText: {
+    fontSize: 12,
+    color: '#6C5CE7',
+    fontStyle: 'italic',
+  },
+  pickerOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  pickerBottomSheet: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    paddingTop: 12,
+    paddingBottom: 32,
+    paddingHorizontal: 20,
+    maxHeight: '70%',
+  },
+  pickerHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#BDC3C7',
+    borderRadius: 2,
+    alignSelf: 'center',
+    marginBottom: 16,
+  },
+  pickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  pickerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2D3436',
+    flex: 1,
+  },
+  pickerCloseButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  pickerCloseText: {
+    fontSize: 16,
+    color: '#6C5CE7',
+    fontWeight: '600',
+  },
+  pickerScrollView: {
+    maxHeight: 400,
+  },
+  pickerOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: '#F8F9FA',
+    minHeight: 48,
+  },
+  pickerOptionSelected: {
+    backgroundColor: '#E8F4FD',
+  },
+  pickerOptionContent: {
+    flex: 1,
+  },
+  pickerOptionText: {
+    fontSize: 16,
+    color: '#2D3436',
+    fontWeight: '500',
+  },
+  pickerOptionTextSelected: {
+    color: '#6C5CE7',
+    fontWeight: '600',
+  },
+  pickerOptionSubtext: {
+    fontSize: 12,
+    color: '#636E72',
+    marginTop: 2,
+  },
   actionModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.45)',
@@ -1457,5 +1657,21 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#E74C3C',
   },
+  duplicateModalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'center', alignItems: 'center', padding: 24 },
+  duplicateModalContentContainer: { width: '100%', maxWidth: 400, alignItems: 'center' },
+  duplicateModalContent: { backgroundColor: '#fff', borderRadius: 16, padding: 24, width: '100%', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 12, elevation: 8 },
+  duplicateModalHeader: { alignItems: 'center', marginBottom: 16 },
+  duplicateModalTitle: { fontSize: 22, fontWeight: '600', color: '#2D3436', marginTop: 12, marginBottom: 0 },
+  duplicateModalMessageBlock: { marginBottom: 24, paddingHorizontal: 8, alignItems: 'center', width: '100%' },
+  duplicateModalNameContainer: { marginTop: 8, marginBottom: 20, alignSelf: 'stretch', borderBottomWidth: 1, borderBottomColor: '#E0E7FF', paddingBottom: 8 },
+  duplicateModalNameText: { fontSize: 18, fontWeight: '800', color: '#6C5CE7', textAlign: 'center', letterSpacing: 0.3 },
+  duplicateModalMessage: { fontSize: 15, color: '#636E72', textAlign: 'center', marginTop: 4 },
+  duplicateModalButtons: { flexDirection: 'column', width: '100%', gap: 10 },
+  duplicateModalButton: { width: '100%', paddingVertical: 16, borderRadius: 12, alignItems: 'center', justifyContent: 'center', minHeight: 52, flexDirection: 'row' },
+  duplicateModalButtonReplace: { backgroundColor: '#27AE60', shadowColor: '#27AE60', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 5 },
+  duplicateModalButtonReplaceText: { fontSize: 17, fontWeight: '700', color: '#fff', letterSpacing: 0.5 },
+  duplicateModalButtonMerge: { backgroundColor: '#FFF5F5', borderWidth: 2, borderColor: '#E74C3C' },
+  duplicateModalButtonMergeText: { fontSize: 16, fontWeight: '600', color: '#E74C3C' },
+  duplicateModalButtonDontChange: { backgroundColor: '#F8F9FA', borderWidth: 1, borderColor: '#E9ECEF' },
+  duplicateModalButtonDontChangeText: { fontSize: 15, fontWeight: '500', color: '#95A5A6' },
 });
-

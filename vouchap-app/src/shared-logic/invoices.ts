@@ -1,45 +1,35 @@
 import { supabase } from './supabase';
 import { Invoice, InvoiceItem } from '@/types';
 import { getCurrentUser } from './auth';
-import { findOrCreateCustomer, updateCustomer, getCustomerMergeMap, getCustomerById, resolveCustomerId } from './customers';
-import { updateSupplier, getSupplierMergeMap, getSupplierById, resolveSupplierId } from './suppliers';
+import { findOrCreateEntity, updateEntity, getEntityMergeMap, getEntityById, resolveEntityId } from './entities';
 import { getAccountMergeMap, getAccountById, getAccountOptionsForDuplicateCheck, resolveAccountId, normalizeAccountName } from './accounts';
-import { getCustomerOptions, getCustomerOptionsForDuplicateCheck } from './customer-supplier-list';
+import { getEntityOptions, getEntityOptionsForDuplicateCheck } from './entity-list';
 import { normalizeNameForCompare } from './name-utils';
 
+function mapEntityRow(e: any): Invoice['entity'] {
+  if (!e) return undefined;
+  return {
+    id: e.id,
+    spaceId: e.space_id ?? e.spaceId,
+    name: e.name,
+    taxNumber: e.tax_number ?? e.taxNumber,
+    phone: e.phone,
+    address: e.address,
+    isAiRecognized: e.is_ai_recognized ?? e.isAiRecognized,
+    mergedIntoId: e.merged_into_id ?? e.mergedIntoId,
+    createdAt: e.created_at ?? e.createdAt,
+    updatedAt: e.updated_at ?? e.updatedAt,
+  };
+}
+
 function rowToInvoice(row: any, items: InvoiceItem[] = []): Invoice {
-  const customerName =
-    row.customer_name || row.customers?.name || row.suppliers?.name;
+  const customerName = row.customer_name || row.entities?.name || '';
   return {
     id: row.id,
     spaceId: row.space_id,
     customerName,
-    customerId: row.customer_id ?? undefined,
-    customerSupplierId: row.customer_supplier_id ?? undefined,
-    customer: row.customers ? {
-      id: row.customers.id,
-      spaceId: row.customers.space_id,
-      name: row.customers.name,
-      taxNumber: row.customers.tax_number,
-      phone: row.customers.phone,
-      address: row.customers.address,
-      isAiRecognized: row.customers.is_ai_recognized,
-      isSupplier: row.customers.is_supplier || false,
-      createdAt: row.customers.created_at,
-      updatedAt: row.customers.updated_at,
-    } : undefined,
-    customerSupplier: row.suppliers ? {
-      id: row.suppliers.id,
-      spaceId: row.suppliers.space_id,
-      name: row.suppliers.name,
-      taxNumber: row.suppliers.tax_number,
-      phone: row.suppliers.phone,
-      address: row.suppliers.address,
-      isAiRecognized: row.suppliers.is_ai_recognized,
-      isCustomer: row.suppliers.is_customer || false,
-      createdAt: row.suppliers.created_at,
-      updatedAt: row.suppliers.updated_at,
-    } : undefined,
+    entityId: row.entity_id ?? undefined,
+    entity: mapEntityRow(row.entities),
     totalAmount: Number(row.total_amount),
     currency: row.currency ?? undefined,
     tax: row.tax != null ? Number(row.tax) : undefined,
@@ -83,9 +73,8 @@ export async function getInvoicesForListFirstPaint(): Promise<Invoice[]> {
   const { data, error } = await supabase
     .from('invoices')
     .select(`
-      id, space_id, customer_id, customer_supplier_id, customer_name, total_amount, currency, tax, date, account_id, status, image_url, input_type, confidence, processed_by, created_at, updated_at, created_by,
-      customers (name),
-      suppliers!invoices_customer_supplier_id_fkey (name),
+      id, space_id, entity_id, customer_name, total_amount, currency, tax, date, account_id, status, image_url, input_type, confidence, processed_by, created_at, updated_at, created_by,
+      entities (id, name),
       created_by_user:users!created_by (id, email, name, current_space_id)
     `)
     .eq('space_id', spaceId)
@@ -95,15 +84,13 @@ export async function getInvoicesForListFirstPaint(): Promise<Invoice[]> {
   if (error) throw error;
   const rows = data || [];
   return rows.map((r: any) => {
-    const customerName = r.customer_name || r.customers?.name || r.suppliers?.name || '';
+    const customerName = r.customer_name || r.entities?.name || '';
     return {
     id: r.id,
     spaceId: r.space_id,
     customerName,
-    customerId: r.customer_id ?? undefined,
-    customerSupplierId: r.customer_supplier_id ?? undefined,
-    customer: undefined,
-    customerSupplier: undefined,
+    entityId: r.entity_id ?? undefined,
+    entity: r.entities ? mapEntityRow(r.entities) : undefined,
     totalAmount: Number(r.total_amount),
     currency: r.currency ?? undefined,
     tax: r.tax != null ? Number(r.tax) : undefined,
@@ -140,8 +127,7 @@ export async function getAllInvoicesForList(): Promise<Invoice[]> {
     .from('invoices')
     .select(`
       *,
-      customers (*),
-      suppliers!invoices_customer_supplier_id_fkey (*),
+      entities (*),
       accounts (*),
       created_by_user:users!created_by (id, email, name, current_space_id)
     `)
@@ -150,9 +136,8 @@ export async function getAllInvoicesForList(): Promise<Invoice[]> {
 
   if (error) throw error;
   const rows = data || [];
-  const [customerMergeMap, supplierMergeMap, accountMergeMap] = await Promise.all([
-    getCustomerMergeMap(spaceId),
-    getSupplierMergeMap(spaceId),
+  const [entityMergeMap, accountMergeMap] = await Promise.all([
+    getEntityMergeMap(spaceId),
     getAccountMergeMap(spaceId),
   ]);
   const resolve = (map: Map<string, string>, id: string) => {
@@ -164,41 +149,24 @@ export async function getAllInvoicesForList(): Promise<Invoice[]> {
     }
     return current;
   };
-  
-  // 优化：只查询 join 中缺失的数据
-  const needCustomer = new Set<string>();
-  const needSupplier = new Set<string>();
+
+  const needEntity = new Set<string>();
   const needAccount = new Set<string>();
   for (const r of rows) {
-    if (r.customer_id) {
-      const resolvedId = resolve(customerMergeMap, r.customer_id);
-      if (!r.customers || r.customers.id !== resolvedId) {
-        needCustomer.add(resolvedId);
-      }
-    }
-    if (r.customer_supplier_id) {
-      const resolvedId = resolve(supplierMergeMap, r.customer_supplier_id);
-      if (!r.suppliers || r.suppliers.id !== resolvedId) {
-        needSupplier.add(resolvedId);
-      }
+    if (r.entity_id) {
+      const resolvedId = resolve(entityMergeMap, r.entity_id);
+      if (!r.entities || r.entities.id !== resolvedId) needEntity.add(resolvedId);
     }
     if (r.account_id) {
       const resolvedId = resolve(accountMergeMap, r.account_id);
-      if (!r.accounts || r.accounts.id !== resolvedId) {
-        needAccount.add(resolvedId);
-      }
+      if (!r.accounts || r.accounts.id !== resolvedId) needAccount.add(resolvedId);
     }
   }
-  
-  const [customerCache, supplierCache, accountCache] = await Promise.all([
-    needCustomer.size > 0 ? (async () => {
-      const m = new Map<string, Awaited<ReturnType<typeof getCustomerById>>>();
-      await Promise.all(Array.from(needCustomer).map(async (id) => { const c = await getCustomerById(id); if (c) m.set(id, c); }));
-      return m;
-    })() : Promise.resolve(new Map()),
-    needSupplier.size > 0 ? (async () => {
-      const m = new Map<string, Awaited<ReturnType<typeof getSupplierById>>>();
-      await Promise.all(Array.from(needSupplier).map(async (id) => { const s = await getSupplierById(id); if (s) m.set(id, s); }));
+
+  const [entityCache, accountCache] = await Promise.all([
+    needEntity.size > 0 ? (async () => {
+      const m = new Map<string, Awaited<ReturnType<typeof getEntityById>>>();
+      await Promise.all(Array.from(needEntity).map(async (id) => { const e = await getEntityById(id); if (e) m.set(id, e); }));
       return m;
     })() : Promise.resolve(new Map()),
     needAccount.size > 0 ? (async () => {
@@ -207,28 +175,21 @@ export async function getAllInvoicesForList(): Promise<Invoice[]> {
       return m;
     })() : Promise.resolve(new Map()),
   ]);
-  
+
   return rows.map((r: any) => {
     const rc = { ...r };
-    if (r.customer_id) {
-      const resolvedId = resolve(customerMergeMap, r.customer_id);
-      if (!r.customers || r.customers.id !== resolvedId) {
-        rc.customers = customerCache.get(resolvedId);
-      }
-    }
-    if (r.customer_supplier_id) {
-      const resolvedId = resolve(supplierMergeMap, r.customer_supplier_id);
-      if (!r.suppliers || r.suppliers.id !== resolvedId) {
-        rc.suppliers = supplierCache.get(resolvedId);
+    if (r.entity_id) {
+      const resolvedId = resolve(entityMergeMap, r.entity_id);
+      if (!r.entities || r.entities.id !== resolvedId) {
+        const e = entityCache.get(resolvedId);
+        rc.entities = e ? { id: e.id, space_id: e.spaceId, name: e.name, tax_number: e.taxNumber, phone: e.phone, address: e.address, is_ai_recognized: e.isAiRecognized, merged_into_id: e.mergedIntoId, created_at: e.createdAt, updated_at: e.updatedAt } : undefined;
       }
     }
     if (r.account_id) {
       const resolvedId = resolve(accountMergeMap, r.account_id);
-      if (!r.accounts || r.accounts.id !== resolvedId) {
-        rc.accounts = accountCache.get(resolvedId);
-      }
+      if (!r.accounts || r.accounts.id !== resolvedId) rc.accounts = accountCache.get(resolvedId);
     }
-    return rowToInvoice(rc, []); // 列表页不加载 items
+    return rowToInvoice(rc, []);
   });
 }
 
@@ -266,8 +227,7 @@ export async function getAllInvoices(): Promise<Invoice[]> {
     .from('invoices')
     .select(`
       *,
-      customers (*),
-      suppliers!invoices_customer_supplier_id_fkey (*),
+      entities (*),
       accounts (*),
       created_by_user:users!created_by (
         id,
@@ -281,9 +241,8 @@ export async function getAllInvoices(): Promise<Invoice[]> {
 
   if (error) throw error;
   const rows = data || [];
-  const [customerMergeMap, supplierMergeMap, accountMergeMap] = await Promise.all([
-    getCustomerMergeMap(spaceId),
-    getSupplierMergeMap(spaceId),
+  const [entityMergeMap, accountMergeMap] = await Promise.all([
+    getEntityMergeMap(spaceId),
     getAccountMergeMap(spaceId),
   ]);
   const resolve = (map: Map<string, string>, id: string) => {
@@ -295,38 +254,22 @@ export async function getAllInvoices(): Promise<Invoice[]> {
     }
     return current;
   };
-  const needCustomer = new Set<string>();
-  const needSupplier = new Set<string>();
+  const needEntity = new Set<string>();
   const needAccount = new Set<string>();
   for (const r of rows) {
-    if (r.customer_id) {
-      const resolvedId = resolve(customerMergeMap, r.customer_id);
-      if (!r.customers || r.customers.id !== resolvedId) {
-        needCustomer.add(resolvedId);
-      }
-    }
-    if (r.customer_supplier_id) {
-      const resolvedId = resolve(supplierMergeMap, r.customer_supplier_id);
-      if (!r.suppliers || r.suppliers.id !== resolvedId) {
-        needSupplier.add(resolvedId);
-      }
+    if (r.entity_id) {
+      const resolvedId = resolve(entityMergeMap, r.entity_id);
+      if (!r.entities || r.entities.id !== resolvedId) needEntity.add(resolvedId);
     }
     if (r.account_id) {
       const resolvedId = resolve(accountMergeMap, r.account_id);
-      if (!r.accounts || r.accounts.id !== resolvedId) {
-        needAccount.add(resolvedId);
-      }
+      if (!r.accounts || r.accounts.id !== resolvedId) needAccount.add(resolvedId);
     }
   }
-  const [customerCache, supplierCache, accountCache] = await Promise.all([
-    needCustomer.size > 0 ? (async () => {
-      const m = new Map<string, Awaited<ReturnType<typeof getCustomerById>>>();
-      await Promise.all(Array.from(needCustomer).map(async (id) => { const c = await getCustomerById(id); if (c) m.set(id, c); }));
-      return m;
-    })() : Promise.resolve(new Map()),
-    needSupplier.size > 0 ? (async () => {
-      const m = new Map<string, Awaited<ReturnType<typeof getSupplierById>>>();
-      await Promise.all(Array.from(needSupplier).map(async (id) => { const s = await getSupplierById(id); if (s) m.set(id, s); }));
+  const [entityCache, accountCache] = await Promise.all([
+    needEntity.size > 0 ? (async () => {
+      const m = new Map<string, Awaited<ReturnType<typeof getEntityById>>>();
+      await Promise.all(Array.from(needEntity).map(async (id) => { const e = await getEntityById(id); if (e) m.set(id, e); }));
       return m;
     })() : Promise.resolve(new Map()),
     needAccount.size > 0 ? (async () => {
@@ -337,23 +280,16 @@ export async function getAllInvoices(): Promise<Invoice[]> {
   ]);
   return rows.map((r: any) => {
     const rc = { ...r };
-    if (r.customer_id) {
-      const resolvedId = resolve(customerMergeMap, r.customer_id);
-      if (!r.customers || r.customers.id !== resolvedId) {
-        rc.customers = customerCache.get(resolvedId);
-      }
-    }
-    if (r.customer_supplier_id) {
-      const resolvedId = resolve(supplierMergeMap, r.customer_supplier_id);
-      if (!r.suppliers || r.suppliers.id !== resolvedId) {
-        rc.suppliers = supplierCache.get(resolvedId);
+    if (r.entity_id) {
+      const resolvedId = resolve(entityMergeMap, r.entity_id);
+      if (!r.entities || r.entities.id !== resolvedId) {
+        const e = entityCache.get(resolvedId);
+        rc.entities = e ? { id: e.id, space_id: e.spaceId, name: e.name, tax_number: e.taxNumber, phone: e.phone, address: e.address, is_ai_recognized: e.isAiRecognized, merged_into_id: e.mergedIntoId, created_at: e.createdAt, updated_at: e.updatedAt } : undefined;
       }
     }
     if (r.account_id) {
       const resolvedId = resolve(accountMergeMap, r.account_id);
-      if (!r.accounts || r.accounts.id !== resolvedId) {
-        rc.accounts = accountCache.get(resolvedId);
-      }
+      if (!r.accounts || r.accounts.id !== resolvedId) rc.accounts = accountCache.get(resolvedId);
     }
     return rowToInvoice(rc, []);
   });
@@ -365,8 +301,7 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
     .from('invoices')
     .select(`
       *,
-      customers (*),
-      suppliers!invoices_customer_supplier_id_fkey (*),
+      entities (*),
       accounts (*),
       created_by_user:users!created_by (
         id,
@@ -382,27 +317,13 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
   const user = await getCurrentUser();
   const spaceId = user?.currentSpaceId || user?.spaceId;
   if (spaceId) {
-    let customerRow = inv.customers;
-    if (inv.customer_id && !customerRow) {
-      const customerMergeMap = await getCustomerMergeMap(spaceId);
-      let current = inv.customer_id;
-      const seen = new Set<string>();
-      while (customerMergeMap.has(current) && !seen.has(current)) {
-        seen.add(current);
-        current = customerMergeMap.get(current)!;
-      }
-      customerRow = (await getCustomerById(current)) ?? undefined;
+    let entityRow = inv.entities;
+    if (inv.entity_id && !entityRow) {
+      const resolvedId = await resolveEntityId(spaceId, inv.entity_id);
+      entityRow = (await getEntityById(resolvedId)) ?? undefined;
     }
-    let supplierRow = inv.suppliers;
-    if (inv.customer_supplier_id && !supplierRow) {
-      const supplierMergeMap = await getSupplierMergeMap(spaceId);
-      let current = inv.customer_supplier_id;
-      const seen = new Set<string>();
-      while (supplierMergeMap.has(current) && !seen.has(current)) {
-        seen.add(current);
-        current = supplierMergeMap.get(current)!;
-      }
-      supplierRow = (await getSupplierById(current)) ?? undefined;
+    if (entityRow && typeof (entityRow as any).space_id === 'undefined' && (entityRow as any).spaceId) {
+      (entityRow as any).space_id = (entityRow as any).spaceId;
     }
     let accountRow = inv.accounts;
     if (inv.account_id && !accountRow) {
@@ -415,8 +336,7 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
       }
       accountRow = (await getAccountById(current)) ?? undefined;
     }
-    inv.customers = customerRow;
-    inv.suppliers = supplierRow;
+    inv.entities = entityRow;
     inv.accounts = accountRow;
   }
 
@@ -469,100 +389,53 @@ export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolea
   const spaceId = user.currentSpaceId || user.spaceId;
   if (!spaceId) throw new Error('No space selected');
 
-  // 客户：要么来自 customers 表（customer_id），要么来自“标记也是客户”的供应商（customer_supplier_id）
-  let customerSupplierId = invoice.customerSupplierId ?? invoice.customerSupplier?.id ?? null;
-  let customerId = invoice.customerId ?? invoice.customer?.id ?? null;
+  // 关联方 Payer（付款方）
+  let entityId = invoice.entityId ?? invoice.entity?.id ?? null;
   const customerName = invoice.customerName ?? '';
   const trimmedCustomerName = customerName.trim();
   const invalidNames = ['processing', 'processing...', 'pending', 'pending...', 'loading', 'loading...', '识别中', '处理中', '待处理'];
   const isValidName = trimmedCustomerName.length > 0 && !invalidNames.includes(trimmedCustomerName.toLowerCase());
 
   const isUpdate = !!invoice.id;
-  if (customerSupplierId) {
-    customerId = null; // 二选一
-  } else if (!customerId && invoice.customer) {
-    customerId = invoice.customer.id;
-  }
-  // 仅新建时根据名称查找/创建客户；更新时不再创建新客户
-  if (!isUpdate && !customerId && !customerSupplierId && isValidName) {
+  if (!entityId && invoice.entity) entityId = invoice.entity.id;
+  if (!isUpdate && !entityId && isValidName) {
     try {
-      const customer = await findOrCreateCustomer(trimmedCustomerName, true);
-      customerId = customer.id;
+      const entity = await findOrCreateEntity(trimmedCustomerName, true);
+      entityId = entity.id;
     } catch (error) {
-      console.warn('Failed to create or find customer:', error);
+      console.warn('Failed to create or find entity (Payer):', error);
     }
   }
 
   if (invoice.id && spaceId) {
     if (isValidName) {
-      const options = await getCustomerOptionsForDuplicateCheck();
+      const options = await getEntityOptionsForDuplicateCheck();
       const foundByName = options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(trimmedCustomerName));
-      const currentResolvedId = customerSupplierId
-        ? (await resolveSupplierId(spaceId, customerSupplierId))
-        : customerId
-          ? (await resolveCustomerId(spaceId, customerId))
-          : null;
-
+      const currentResolvedId = entityId ? await resolveEntityId(spaceId, entityId) : null;
       if (foundByName) {
-        const targetId = foundByName.source === 'supplier'
-          ? await resolveSupplierId(spaceId, foundByName.id)
-          : await resolveCustomerId(spaceId, foundByName.id);
+        const targetId = await resolveEntityId(spaceId, foundByName.id);
         if (targetId !== currentResolvedId) {
-          // 如果 autoResolveDuplicate = true（后台处理场景），自动使用已存在的ID
-          // 如果 autoResolveDuplicate = false（UI 交互场景），抛出异常触发三选项弹窗
           if (autoResolveDuplicate) {
-            // 后台处理场景：自动使用已存在的客户/供应商ID
-            if (foundByName.source === 'supplier') {
-              customerSupplierId = targetId as any;
-              customerId = undefined;
-            } else {
-              customerId = targetId;
-              customerSupplierId = undefined;
-            }
-            console.log(`客户/供应商名称已存在，自动使用已存在的ID: ${foundByName.source} ${targetId}`);
+            entityId = targetId;
+            console.log('关联方名称已存在，自动使用已存在的 entityId:', targetId);
           } else {
-            // UI 交互场景：已有关联，需要用户选择如何处理，抛出异常触发三选项弹窗
-            const code = foundByName.source === 'customer' ? ('CUSTOMER_NAME_EXISTS' as const) : ('SUPPLIER_NAME_EXISTS' as const);
-            throw Object.assign(new Error(foundByName.source === 'customer' ? '客户名称已存在' : '供应商名称已存在'), {
-              code,
+            throw Object.assign(new Error('关联方名称已存在'), {
+              code: 'ENTITY_NAME_EXISTS' as const,
               duplicateName: trimmedCustomerName,
               targetId,
-              targetSource: foundByName.source,
             });
           }
         }
       }
-
-      if (customerSupplierId) {
+      if (entityId) {
         try {
-          const targetId = await resolveSupplierId(spaceId, customerSupplierId);
-          await updateSupplier(targetId, { name: trimmedCustomerName });
+          const targetId = await resolveEntityId(spaceId, entityId);
+          await updateEntity(targetId, { name: trimmedCustomerName });
         } catch (e) {
-          if (e instanceof Error && e.message === '供应商名称已存在') {
-            // 如果 autoResolveDuplicate = true，静默处理，不抛出异常
-            if (autoResolveDuplicate) {
-              console.log('供应商名称已存在，跳过名称更新（已自动使用已存在的ID）');
-            } else {
-              throw Object.assign(new Error(e.message), { code: 'SUPPLIER_NAME_EXISTS' as const, duplicateName: trimmedCustomerName });
-            }
+          if (e instanceof Error && e.message === '关联方名称已存在') {
+            if (!autoResolveDuplicate) throw Object.assign(new Error(e.message), { code: 'ENTITY_NAME_EXISTS' as const, duplicateName: trimmedCustomerName });
           } else {
-            console.warn('Failed to update supplier name for invoice:', e);
-          }
-        }
-      } else if (customerId) {
-        try {
-          const targetId = await resolveCustomerId(spaceId, customerId);
-          await updateCustomer(targetId, { name: trimmedCustomerName });
-        } catch (e) {
-          if (e instanceof Error && e.message === '客户名称已存在') {
-            // 如果 autoResolveDuplicate = true，静默处理，不抛出异常
-            if (autoResolveDuplicate) {
-              console.log('客户名称已存在，跳过名称更新（已自动使用已存在的ID）');
-            } else {
-              throw Object.assign(new Error(e.message), { code: 'CUSTOMER_NAME_EXISTS' as const, duplicateName: trimmedCustomerName });
-            }
-          } else {
-            console.warn('Failed to update customer name for invoice:', e);
+            console.warn('Failed to update entity name for invoice:', e);
           }
         }
       }
@@ -600,8 +473,7 @@ export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolea
       .from('invoices')
       .update({
         customer_name: invoice.customerName,
-        customer_id: customerId ?? null,
-        customer_supplier_id: customerSupplierId ?? null,
+        entity_id: entityId ?? null,
         total_amount: invoice.totalAmount,
         currency: invoice.currency ?? null,
         tax: invoice.tax ?? null,
@@ -636,8 +508,7 @@ export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolea
     .insert({
       space_id: spaceId,
       customer_name: invoice.customerName,
-      customer_id: customerId ?? null,
-      customer_supplier_id: customerSupplierId ?? null,
+      entity_id: entityId ?? null,
       total_amount: invoice.totalAmount,
       currency: invoice.currency ?? null,
       tax: invoice.tax ?? null,

@@ -33,7 +33,7 @@ import { confirmThen, confirmDestructive } from '@/lib/alertWeb';
 import DataTable, { WEB_POPOVER } from '@/components/DataTable';
 import { getOutboundColumns } from '@/components/voucher-table-columns';
 
-type GroupByType = 'none' | 'month' | 'recordDate' | 'createdBy';
+type GroupByType = 'none' | 'month' | 'recordDate' | 'createdBy' | 'receiver';
 
 const statusColors: Record<VoucherStatus, string> = {
   pending: '#FF9500',
@@ -455,15 +455,44 @@ export default function OutboundScreen() {
       .sort((a, b) => b.monthKey.localeCompare(a.monthKey));
   }, []);
 
+  const groupByReceiver = useCallback((data: Outbound[]): SectionData[] => {
+    const grouped = new Map<string, Outbound[]>();
+    data.forEach(inv => {
+      const receiverName = (inv as any).entity?.name || inv.customerName || '—';
+      const receiverKey = `receiver-${(inv as any).entity?.id || inv.customerId || 'none'}`;
+      if (!grouped.has(receiverKey)) grouped.set(receiverKey, []);
+      grouped.get(receiverKey)!.push(inv);
+    });
+    return Array.from(grouped.entries())
+      .map(([receiverKey, sectionData]) => {
+        const receiverName = (sectionData[0] as any).entity?.name || sectionData[0].customerName || '—';
+        return {
+          title: receiverName,
+          monthKey: receiverKey,
+          data: sectionData.slice().sort((a, b) => {
+            const at = a.createdAt ? new Date(a.createdAt).getTime() : parseLocalDate(a.date).getTime();
+            const bt = b.createdAt ? new Date(b.createdAt).getTime() : parseLocalDate(b.date).getTime();
+            return bt - at;
+          }),
+        };
+      })
+      .sort((a, b) => {
+        if (a.title === '—') return 1;
+        if (b.title === '—') return -1;
+        return a.title.localeCompare(b.title);
+      });
+  }, []);
+
   const getGroupedList = useCallback((data: Outbound[]): SectionData[] => {
     if (groupBy === 'none') return [{ title: 'All', monthKey: 'all', data }];
     switch (groupBy) {
       case 'recordDate': return groupByRecordDate(data);
       case 'createdBy': return groupByCreatedBy(data);
+      case 'receiver': return groupByReceiver(data);
       case 'month':
       default: return groupByMonth(data);
     }
-  }, [groupBy, groupByMonth, groupByRecordDate, groupByCreatedBy]);
+  }, [groupBy, groupByMonth, groupByRecordDate, groupByCreatedBy, groupByReceiver]);
 
   const filteredList = useMemo(() => {
     let filtered = list;
@@ -677,6 +706,7 @@ export default function OutboundScreen() {
                   {groupBy === 'month' && <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
                   {groupBy === 'recordDate' && <Ionicons name="time-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
                   {groupBy === 'createdBy' && <Ionicons name="person-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'receiver' && <Ionicons name="storefront-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
                   <Text style={styles.sortText}>Group</Text>
                   <Ionicons name="chevron-down" size={16} color="#636E72" />
                 </TouchableOpacity>
@@ -775,7 +805,7 @@ export default function OutboundScreen() {
                 <View style={styles.receiptContent}>
                   <View style={styles.firstRow}>
                     <Text style={styles.storeName} numberOfLines={1}>
-                      {item.customerName || item.documentNo || 'Outbound'}
+                      {(item as any).entity?.name || item.customerName || item.documentNo || '—'}
                     </Text>
                     {item.status === 'confirmed' ? (
                       <View style={styles.confirmedStatusContainer}>
@@ -909,7 +939,7 @@ export default function OutboundScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
-              {(['none', 'month', 'recordDate', 'createdBy'] as const).map((key) => (
+              {(['none', 'month', 'recordDate', 'receiver', 'createdBy'] as const).map((key) => (
                 <TouchableOpacity
                   key={key}
                   style={[styles.pickerOption, groupBy === key && styles.pickerOptionSelected]}
@@ -918,11 +948,13 @@ export default function OutboundScreen() {
                   {key === 'none' && <Ionicons name="list-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   {key === 'month' && <Ionicons name="calendar-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   {key === 'recordDate' && <Ionicons name="time-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
+                  {key === 'receiver' && <Ionicons name="storefront-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   {key === 'createdBy' && <Ionicons name="person-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   <Text style={[styles.pickerOptionText, groupBy === key && styles.pickerOptionTextSelected, { flex: 1 }]}>
                     {key === 'none' && 'No group'}
                     {key === 'month' && 'Transaction Month'}
                     {key === 'recordDate' && 'Record Date'}
+                    {key === 'receiver' && 'Receiver'}
                     {key === 'createdBy' && 'Recorder'}
                   </Text>
                   {groupBy === key && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
@@ -1061,6 +1093,7 @@ export default function OutboundScreen() {
               { key: 'none' as const, label: 'No group', icon: 'list-outline' as const },
               { key: 'month' as const, label: 'Transaction Month', icon: 'calendar-outline' as const },
               { key: 'recordDate' as const, label: 'Record Date', icon: 'time-outline' as const },
+              { key: 'receiver' as const, label: 'Receiver', icon: 'storefront-outline' as const },
               { key: 'createdBy' as const, label: 'Recorder', icon: 'person-outline' as const },
             ].map(({ key, label, icon }) => (
               <TouchableOpacity

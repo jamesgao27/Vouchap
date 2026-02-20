@@ -24,15 +24,18 @@ export const GradientText: React.FC<GradientTextProps> = ({
 }) => {
   const [dimensions, setDimensions] = React.useState({ width: 0, height: 0 });
 
-  const parts = text.split(',');
-  const lines: string[] = [];
-  parts.forEach((part, index) => {
-    if (index === 0) {
-      lines.push(part.trim() + ',');
-    } else {
-      lines.push(part.trim());
-    }
-  });
+  // 若包含换行则按 \n 分行（保证每行单独渲染、不自动折行）；否则按逗号分行（兼容旧用法）
+  const lines: string[] = text.includes('\n')
+    ? text.split('\n').map((s) => s.trim()).filter(Boolean)
+    : (() => {
+        const parts = text.split(',');
+        const out: string[] = [];
+        parts.forEach((part, index) => {
+          if (index === 0) out.push(part.trim() + ',');
+          else out.push(part.trim());
+        });
+        return out;
+      })();
 
   const isAndroid = Platform.OS === 'android';
   const isWeb = Platform.OS === 'web';
@@ -46,6 +49,16 @@ export const GradientText: React.FC<GradientTextProps> = ({
     ...((isAndroid || isWeb) && { color: solidColor }),
   };
 
+  // 每行单独 Text，numberOfLines={1} + adjustsFontSizeToFit 保证窄屏也是固定行数、不折行
+  const lineProps = { numberOfLines: 1 as const, adjustsFontSizeToFit: true, minimumFontScale: 0.65 };
+
+  const renderLines = (lineStyle: TextStyle) =>
+    lines.map((line, i) => (
+      <Text key={i} style={lineStyle} {...lineProps}>
+        {line}
+      </Text>
+    ));
+
   const onLayout = (event: LayoutChangeEvent) => {
     const { width, height } = event.nativeEvent.layout;
     if (width > 0 && height > 0 && (dimensions.width !== width || dimensions.height !== height)) {
@@ -57,7 +70,7 @@ export const GradientText: React.FC<GradientTextProps> = ({
   if (isWeb || isAndroid) {
     return (
       <View style={[{ alignItems: 'center', justifyContent: 'center' }, containerStyle]}>
-        <Text style={textStyle}>{lines.join('\n')}</Text>
+        {renderLines(textStyle)}
       </View>
     );
   }
@@ -70,7 +83,7 @@ export const GradientText: React.FC<GradientTextProps> = ({
           style={{ width: dimensions.width, height: dimensions.height, alignItems: 'center', justifyContent: 'center' }}
           maskElement={
             <View style={{ width: dimensions.width, height: dimensions.height, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={textStyle}>{lines.join('\n')}</Text>
+              {renderLines(textStyle)}
             </View>
           }
         >
@@ -86,7 +99,7 @@ export const GradientText: React.FC<GradientTextProps> = ({
           onLayout={onLayout}
           style={{ width: '100%', alignItems: 'center', justifyContent: 'center' }}
         >
-          <Text style={textStyle}>{lines.join('\n')}</Text>
+          {renderLines(textStyle)}
         </View>
       )}
     </View>

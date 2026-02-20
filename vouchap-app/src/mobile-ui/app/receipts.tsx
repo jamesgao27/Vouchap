@@ -42,7 +42,7 @@ import { getReceiptColumns } from '@/components/voucher-table-columns';
 // - recordDate: 按记录时间（创建时间）的日期分组（按天）
 // - paymentAccount: 按支付账户分组
 // - createdBy: 按提交人分组
-// - supplier: 按供应商分组
+// - supplier: 按 Payee 分组
 type GroupByType = 'none' | 'month' | 'recordDate' | 'paymentAccount' | 'createdBy' | 'supplier';
 
 const statusColors: Record<ReceiptStatus, string> = {
@@ -760,34 +760,32 @@ export default function ReceiptsScreen() {
       .sort((a, b) => a.title.localeCompare(b.title));
   }, []);
 
-  // 按供应商分组小票
+  // 按 Payee 分组
   const groupReceiptsBySupplier = useCallback((receipts: Receipt[]): SectionData[] => {
     const grouped = new Map<string, Receipt[]>();
     
     receipts.forEach(receipt => {
-      const supplierName = receipt.supplier?.name || receipt.supplierName || 'Unknown Supplier';
-      const supplierKey = `supplier-${receipt.supplier?.id || receipt.supplierId || 'none'}`;
+      const payeeName = receipt.entity?.name || receipt.supplierName || '—';
+      const payeeKey = `supplier-${receipt.entity?.id || receipt.supplierId || 'none'}`;
       
-      if (!grouped.has(supplierKey)) {
-        grouped.set(supplierKey, []);
+      if (!grouped.has(payeeKey)) {
+        grouped.set(payeeKey, []);
       }
-      grouped.get(supplierKey)!.push(receipt);
+      grouped.get(payeeKey)!.push(receipt);
     });
 
-    // 转换为数组并按供应商名称排序
     return Array.from(grouped.entries())
-      .map(([supplierKey, data]) => {
-        const supplierName = data[0].supplier?.name || data[0].supplierName || 'Unknown Supplier';
+      .map(([payeeKey, data]) => {
+        const payeeName = data[0].entity?.name || data[0].supplierName || '—';
         return {
-          title: supplierName,
-          monthKey: supplierKey,
+          title: payeeName,
+          monthKey: payeeKey,
           data: data.sort((a, b) => parseLocalDate(b.date).getTime() - parseLocalDate(a.date).getTime()),
         };
       })
       .sort((a, b) => {
-        // Unknown Supplier 放在最后
-        if (a.title === 'Unknown Supplier') return 1;
-        if (b.title === 'Unknown Supplier') return -1;
+        if (a.title === '—') return 1;
+        if (b.title === '—') return -1;
         return a.title.localeCompare(b.title);
       });
   }, []);
@@ -942,9 +940,8 @@ export default function ReceiptsScreen() {
 
     const query = searchQuery.trim().toLowerCase();
     return filteredReceipts.filter(receipt => {
-      // 搜索供应商名称（优先使用 supplier.name，兼容旧数据的 supplierName）
-      const displaySupplierName = receipt.supplier?.name || receipt.supplierName || '';
-      const supplierNameMatch = displaySupplierName.toLowerCase().includes(query);
+      const displayPayeeName = receipt.entity?.name || receipt.supplierName || '';
+      const payeeNameMatch = displayPayeeName.toLowerCase().includes(query);
       
       // 搜索账户名称
       const accountNameMatch = receipt.account?.name?.toLowerCase().includes(query) || false;
@@ -958,7 +955,7 @@ export default function ReceiptsScreen() {
         item.name?.toLowerCase().includes(query)
       ) : false;
       
-      return supplierNameMatch || accountNameMatch || amountMatch || itemsMatch;
+      return payeeNameMatch || accountNameMatch || amountMatch || itemsMatch;
     });
   }, [filteredReceipts, searchQuery, fullDataLoaded]);
 
@@ -1249,7 +1246,7 @@ export default function ReceiptsScreen() {
             <View style={styles.receiptContent}>
                   <View style={styles.firstRow}>
               <Text style={styles.storeName} numberOfLines={1}>
-                {item.supplier?.name || item.supplierName || 'Unknown Supplier'}
+                {item.entity?.name || item.supplierName || '—'}
               </Text>
                 {item.status === 'confirmed' ? (
                   <View style={styles.confirmedStatusContainer}>
@@ -1572,7 +1569,7 @@ export default function ReceiptsScreen() {
                 )}
               </TouchableOpacity>
 
-              {/* 3. 供应商 */}
+              {/* 3. Payee */}
               <TouchableOpacity
                 style={[
                   styles.pickerOption,
@@ -1590,7 +1587,7 @@ export default function ReceiptsScreen() {
                     groupBy === 'supplier' && styles.pickerOptionTextSelected,
                   ]}
                 >
-                  Supplier
+                  Payee
                 </Text>
                 {groupBy === 'supplier' && (
                   <Ionicons name="checkmark" size={20} color="#6C5CE7" />
@@ -1663,7 +1660,7 @@ export default function ReceiptsScreen() {
               { key: 'none' as const, label: 'No group', icon: 'list-outline' as const },
               { key: 'month' as const, label: 'Transaction Month', icon: 'calendar-outline' as const },
               { key: 'paymentAccount' as const, label: 'Account', icon: 'wallet-outline' as const },
-              { key: 'supplier' as const, label: 'Supplier', icon: 'storefront-outline' as const },
+              { key: 'supplier' as const, label: 'Payee', icon: 'storefront-outline' as const },
               { key: 'createdBy' as const, label: 'Recorder', icon: 'person-outline' as const },
               { key: 'recordDate' as const, label: 'Record Date', icon: 'time-outline' as const },
             ].map(({ key, label, icon }) => (

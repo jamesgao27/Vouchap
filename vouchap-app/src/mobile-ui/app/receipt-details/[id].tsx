@@ -957,7 +957,7 @@ export default function ReceiptDetailsScreen() {
                       style={styles.storeNameInput}
                       value={editedReceipt?.supplierName ?? editedReceipt?.storeName ?? editedReceipt?.supplier?.name ?? editedReceipt?.supplierCustomer?.name ?? currentReceipt.supplierName ?? ''}
                       onChangeText={handleSupplierNameChange}
-                      placeholder="Supplier name"
+                      placeholder="Payee"
                       maxLength={100}
                     />
                     <TouchableOpacity
@@ -970,7 +970,7 @@ export default function ReceiptDetailsScreen() {
                   </View>
                 ) : (
                   <Text style={styles.storeName} numberOfLines={1}>
-                    {currentReceipt.supplier?.name || currentReceipt.supplierCustomer?.name || currentReceipt.supplierName || 'Unknown Supplier'}
+                    {currentReceipt.entity?.name || currentReceipt.supplier?.name || currentReceipt.supplierCustomer?.name || currentReceipt.supplierName || '—'}
                   </Text>
                 )}
                 <View style={styles.amountRow}>
