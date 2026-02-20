@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   View,
   Text,
@@ -25,8 +26,10 @@ import { getLocalDateString } from '@/lib/date-utils';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '@/lib/alertWeb';
 import WebChatFab from '@/components/WebChatFab';
+import DataTable, { WEB_POPOVER } from '@/components/DataTable';
+import { getInvoiceColumns } from '@/components/voucher-table-columns';
 
-type GroupByType = 'month' | 'recordDate' | 'paymentAccount' | 'createdBy' | 'customer';
+type GroupByType = 'none' | 'month' | 'recordDate' | 'paymentAccount' | 'createdBy' | 'customer';
 
 const statusColors: Record<VoucherStatus, string> = {
   pending: '#FF9500',
@@ -80,6 +83,8 @@ export default function InvoicesScreen() {
   const [groupBy, setGroupBy] = useState<GroupByType>('recordDate');
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [groupPopoverRect, setGroupPopoverRect] = useState<{ left: number; top: number } | null>(null);
+  const [filterPopoverRect, setFilterPopoverRect] = useState<{ left: number; top: number } | null>(null);
   const [selectedMonths, setSelectedMonths] = useState<Set<string>>(new Set());
   const [selectedRecordDates, setSelectedRecordDates] = useState<Set<string>>(new Set());
   const [selectedAccounts, setSelectedAccounts] = useState<Set<string>>(new Set());
@@ -359,6 +364,7 @@ export default function InvoicesScreen() {
   }, []);
 
   const getGroupedInvoices = useCallback((list: Invoice[]): SectionData[] => {
+    if (groupBy === 'none') return [{ title: 'All', monthKey: 'all', data: list }];
     switch (groupBy) {
       case 'recordDate': return groupByRecordDate(list);
       case 'paymentAccount': return groupByAccount(list);
@@ -448,6 +454,67 @@ export default function InvoicesScreen() {
 
   const sections = getGroupedInvoices(searchedInvoices);
 
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const invoiceColumns = useMemo(() => getInvoiceColumns({ formatDate, formatTimeAgo, statusLabels, statusColors }), [formatDate, formatTimeAgo, statusLabels, statusColors]);
+
+  const sortRowsByColumn = useCallback(<T,>(rows: T[], col: { getSortValue?: (row: T) => string | number | Date | null | undefined } | undefined, dir: 'asc' | 'desc'): T[] => {
+    if (!col?.getSortValue) return rows;
+    return [...rows].sort((a, b) => {
+      const va = col.getSortValue!(a);
+      const vb = col.getSortValue!(b);
+      const cmp = va === vb ? 0 : (va == null ? 1 : vb == null ? -1 : va < vb ? -1 : 1);
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }, []);
+
+  const tableSections = useMemo(() => {
+    const base = sections.map(s => {
+      const dataForStats = s.data;
+      const confirmed = dataForStats.filter((inv: Invoice) => inv.status === 'confirmed');
+      const currencies = confirmed.map((r: Invoice) => r.currency || 'USD');
+      const dominantCurrency = currencies.length > 0
+        ? (currencies.sort((a: string, b: string) =>
+            currencies.filter((v: string) => v === a).length - currencies.filter((v: string) => v === b).length
+          ).pop() as string)
+        : 'USD';
+      const totalAmount = exchangeRates
+        ? sumAmountsInCurrency(
+            confirmed.map((r: Invoice) => ({ amount: r.totalAmount, currency: r.currency || 'USD' })),
+            dominantCurrency || 'USD',
+            exchangeRates
+          )
+        : 0;
+      return {
+        title: s.title,
+        data: s.data,
+        count: confirmed.length,
+        countLabel: 'income',
+        totalAmount,
+        currency: dominantCurrency,
+        amountColor: '#D35400',
+      };
+    });
+    const col = sortKey ? invoiceColumns.find(c => c.id === sortKey) : null;
+    if (!col?.getSortValue) return base;
+    return base.map(sec => ({ ...sec, data: sortRowsByColumn(sec.data, col, sortDirection) }));
+  }, [sections, exchangeRates, sortKey, sortDirection, invoiceColumns, sortRowsByColumn]);
+
+  const sortedDataForTable = useMemo(() => {
+    if (groupBy !== 'none') return searchedInvoices;
+    const col = sortKey ? invoiceColumns.find(c => c.id === sortKey) : null;
+    return sortRowsByColumn(searchedInvoices, col, sortDirection);
+  }, [groupBy, searchedInvoices, sortKey, sortDirection, invoiceColumns, sortRowsByColumn]);
+
+  const tableEmptyMessage = useMemo(() => {
+    const isEmpty = sections.length === 0 || (refreshing && searchQuery.trim());
+    const loadInProgress = loading || refreshing || !fullDataLoaded;
+    if (loadInProgress && searchedInvoices.length === 0) return refreshing ? '' : 'Loading...';
+    if (invoices.length === 0) return 'No income yet';
+    if (searchedInvoices.length === 0) return 'No search result';
+    return 'No data';
+  }, [sections.length, refreshing, searchQuery, searchedInvoices.length, invoices.length, loading, fullDataLoaded]);
+
   const toggleSection = (monthKey: string) => {
     setCollapsedSections(prev => {
       const next = new Set(prev);
@@ -456,6 +523,58 @@ export default function InvoicesScreen() {
       return next;
     });
   };
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (showSortMenu) {
+      const measure = () => {
+        const el = document.getElementById('invoices-group-button');
+        if (el) {
+          const r = el.getBoundingClientRect();
+          setGroupPopoverRect({ left: r.left, top: r.bottom + 6 });
+        } else setGroupPopoverRect(null);
+      };
+      measure();
+      const t = requestAnimationFrame(measure);
+      return () => { cancelAnimationFrame(t); setGroupPopoverRect(null); };
+    }
+    setGroupPopoverRect(null);
+  }, [showSortMenu]);
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (showFilterMenu) {
+      const measure = () => {
+        const el = document.getElementById('invoices-filter-button');
+        if (el) {
+          const r = el.getBoundingClientRect();
+          setFilterPopoverRect({ left: r.left, top: r.bottom + 6 });
+        } else setFilterPopoverRect(null);
+      };
+      measure();
+      const t = requestAnimationFrame(measure);
+      return () => { cancelAnimationFrame(t); setFilterPopoverRect(null); };
+    }
+    setFilterPopoverRect(null);
+  }, [showFilterMenu]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const handler = (e: PointerEvent) => {
+      const target = e.target as Node;
+      const groupBtn = document.getElementById('invoices-group-button');
+      const groupPopover = document.getElementById('invoices-group-popover');
+      const filterBtn = document.getElementById('invoices-filter-button');
+      const filterPopover = document.getElementById('invoices-filter-popover');
+      if (showSortMenu && groupBtn && !groupBtn.contains(target) && groupPopover && !groupPopover.contains(target)) setShowSortMenu(false);
+      if (showFilterMenu && filterBtn && !filterBtn.contains(target) && filterPopover && !filterPopover.contains(target)) {
+        setShowFilterMenu(false);
+        setFilterSubMenu('main');
+      }
+    };
+    document.addEventListener('pointerdown', handler);
+    return () => document.removeEventListener('pointerdown', handler);
+  }, [showSortMenu, showFilterMenu]);
 
   return (
     <View style={styles.container}>
@@ -476,19 +595,23 @@ export default function InvoicesScreen() {
             </>
           ) : (
             <>
-              <TouchableOpacity style={styles.sortButton} onPress={() => setShowSortMenu(true)}>
-                {groupBy === 'month' && <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-                {groupBy === 'recordDate' && <Ionicons name="time-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-                {groupBy === 'paymentAccount' && <Ionicons name="wallet-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-                {groupBy === 'createdBy' && <Ionicons name="person-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-                {groupBy === 'customer' && <Ionicons name="people-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-                <Text style={styles.sortText}>Group</Text>
-                <Ionicons name="chevron-down" size={16} color="#636E72" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.filterButton}
-                onPress={() => { setShowFilterMenu(true); setFilterSubMenu('main'); }}
-              >
+              <View {...(Platform.OS === 'web' ? { nativeID: 'invoices-group-button' } : {})}>
+                <TouchableOpacity style={styles.sortButton} onPress={() => setShowSortMenu(true)}>
+                  {groupBy === 'none' && <Ionicons name="list-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'month' && <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'recordDate' && <Ionicons name="time-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'paymentAccount' && <Ionicons name="wallet-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'createdBy' && <Ionicons name="person-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'customer' && <Ionicons name="people-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  <Text style={styles.sortText}>Group</Text>
+                  <Ionicons name="chevron-down" size={16} color="#636E72" />
+                </TouchableOpacity>
+              </View>
+              <View {...(Platform.OS === 'web' ? { nativeID: 'invoices-filter-button' } : {})}>
+                <TouchableOpacity
+                  style={styles.filterButton}
+                  onPress={() => { setShowFilterMenu(true); setFilterSubMenu('main'); }}
+                >
                 <Text style={styles.filterText}>
                   Filter
                   {(selectedMonths.size + selectedRecordDates.size + selectedAccounts.size + selectedCreators.size) > 0 && (
@@ -496,7 +619,8 @@ export default function InvoicesScreen() {
                   )}
                 </Text>
                 <Ionicons name="chevron-down" size={16} color="#636E72" />
-              </TouchableOpacity>
+                </TouchableOpacity>
+              </View>
               <View style={styles.searchContainer}>
                 <Ionicons name="search" size={18} color="#636E72" style={styles.searchIcon} />
                 <TextInput
@@ -517,6 +641,32 @@ export default function InvoicesScreen() {
         </View>
       </View>
 
+      {Platform.OS === 'web' ? (
+        <ScrollView
+          style={{ flex: 1 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          contentContainerStyle={loading && invoices.length === 0 ? { flexGrow: 1 } : { flexGrow: 0 }}
+        >
+          {(loading && invoices.length === 0) ? (
+            <View style={styles.emptyContainer}>
+              <ActivityIndicator size="large" color="#6C5CE7" />
+              <Text style={styles.emptyText}>Loading...</Text>
+            </View>
+          ) : (
+            <DataTable<Invoice>
+              columns={invoiceColumns}
+              data={groupBy === 'none' && !(refreshing && searchQuery.trim()) ? sortedDataForTable : undefined}
+              sections={groupBy === 'none' || (refreshing && searchQuery.trim()) ? undefined : tableSections}
+              sortKey={sortKey}
+              sortDirection={sortDirection}
+              onSort={(key, dir) => { setSortKey(key); setSortDirection(dir); }}
+              keyExtractor={r => r.id || Math.random().toString()}
+              onRowPress={r => { if (r.id) router.push(`/invoice-details/${r.id}`); }}
+              emptyMessage={tableEmptyMessage}
+            />
+          )}
+        </ScrollView>
+      ) : (
       <SectionList
         sections={refreshing && searchQuery.trim() ? [] : sections.map(s => ({
           ...s,
@@ -583,6 +733,7 @@ export default function InvoicesScreen() {
           );
         }}
         renderSectionHeader={({ section }) => {
+          if (section.monthKey === 'all') return null;
           const isCollapsed = collapsedSections.has(section.monthKey);
           const dataForStats = section.originalData || section.data;
           const confirmed = dataForStats.filter((inv: Invoice) => inv.status === 'confirmed');
@@ -641,6 +792,7 @@ export default function InvoicesScreen() {
         contentContainerStyle={sections.length === 0 ? styles.emptyList : styles.listContent}
         stickySectionHeadersEnabled={false}
       />
+      )}
 
       {Platform.OS === 'web' ? (
         <View style={[styles.fabContainer, styles.fabContainerWeb]}>
@@ -670,7 +822,8 @@ export default function InvoicesScreen() {
         </View>
       )}
 
-      {/* Group By Modal */}
+      {/* Group By: 移动端 Modal，Web 浮窗 */}
+      {Platform.OS !== 'web' && (
       <Modal visible={showSortMenu} transparent animationType="slide" onRequestClose={() => setShowSortMenu(false)}>
         <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowSortMenu(false)}>
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
@@ -682,19 +835,21 @@ export default function InvoicesScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
-              {/* 统一顺序：交易月份、账户、供应商/客户、记录者、记录日期 */}
-              {(['month', 'paymentAccount', 'customer', 'createdBy', 'recordDate'] as const).map((key) => (
+              {/* 不分组 + 统一顺序：交易月份、账户、客户、记录者、记录日期 */}
+              {(['none', 'month', 'paymentAccount', 'customer', 'createdBy', 'recordDate'] as const).map((key) => (
                 <TouchableOpacity
                   key={key}
                   style={[styles.pickerOption, groupBy === key && styles.pickerOptionSelected]}
                   onPress={() => { setGroupBy(key); setShowSortMenu(false); }}
                 >
+                  {key === 'none' && <Ionicons name="list-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   {key === 'month' && <Ionicons name="calendar-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   {key === 'paymentAccount' && <Ionicons name="wallet-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   {key === 'customer' && <Ionicons name="people-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   {key === 'createdBy' && <Ionicons name="person-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   {key === 'recordDate' && <Ionicons name="time-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   <Text style={[styles.pickerOptionText, groupBy === key && styles.pickerOptionTextSelected, { flex: 1 }]}>
+                    {key === 'none' && 'No group'}
                     {key === 'month' && 'Transaction Month'}
                     {key === 'paymentAccount' && 'Account'}
                     {key === 'customer' && 'Customer'}
@@ -708,8 +863,48 @@ export default function InvoicesScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+      )}
 
-      {/* Filter Modal */}
+      {Platform.OS === 'web' && showSortMenu && groupPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
+        <div id="invoices-group-popover" style={{ ...WEB_POPOVER.container, left: groupPopoverRect.left, top: groupPopoverRect.top }}>
+          <Text style={{ fontSize: 13, fontWeight: '600', color: '#495057', marginBottom: 10 }}>Group By</Text>
+          <View style={{ gap: 2 }}>
+            {[
+              { key: 'none' as const, label: 'No group', icon: 'list-outline' as const },
+              { key: 'month' as const, label: 'Transaction Month', icon: 'calendar-outline' as const },
+              { key: 'paymentAccount' as const, label: 'Account', icon: 'wallet-outline' as const },
+              { key: 'customer' as const, label: 'Customer', icon: 'people-outline' as const },
+              { key: 'createdBy' as const, label: 'Recorder', icon: 'person-outline' as const },
+              { key: 'recordDate' as const, label: 'Record Date', icon: 'time-outline' as const },
+            ].map(({ key, label, icon }) => (
+              <TouchableOpacity
+                key={key}
+                onPress={() => { setGroupBy(key); setShowSortMenu(false); }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingTop: 10,
+                  paddingBottom: 10,
+                  paddingLeft: 12,
+                  paddingRight: 12,
+                  borderRadius: 8,
+                  backgroundColor: groupBy === key ? 'rgba(108, 92, 231, 0.1)' : 'transparent',
+                  minHeight: 40,
+                  lineHeight: 20,
+                }}
+              >
+                <Ionicons name={icon} size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 10 }} />
+                <Text style={{ flex: 1, fontSize: 13, color: groupBy === key ? '#6C5CE7' : '#2D3436', fontWeight: groupBy === key ? '600' : '500', lineHeight: 20 }}>{label}</Text>
+                {groupBy === key && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </div>,
+        document.body
+      )}
+
+      {/* Filter: 移动端 Modal，Web 浮窗 */}
+      {Platform.OS !== 'web' && (
       <Modal visible={showFilterMenu} transparent animationType="slide" onRequestClose={() => { setShowFilterMenu(false); setFilterSubMenu('main'); }}>
         <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => { setShowFilterMenu(false); setFilterSubMenu('main'); }}>
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
@@ -797,6 +992,80 @@ export default function InvoicesScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+      )}
+
+      {Platform.OS === 'web' && showFilterMenu && filterPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
+        <div id="invoices-filter-popover" style={{ ...WEB_POPOVER.container, ...WEB_POPOVER.containerWide, left: filterPopoverRect.left, top: filterPopoverRect.top }}>
+          <View style={{ marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            {filterSubMenu !== 'main' ? (
+              <>
+                <TouchableOpacity onPress={() => setFilterSubMenu('main')} style={{ padding: 4 }}><Ionicons name="chevron-back" size={20} color="#6C5CE7" /></TouchableOpacity>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#495057' }}>
+                  {filterSubMenu === 'month' && 'Transaction Month'}
+                  {filterSubMenu === 'recordDate' && 'Record Date'}
+                  {filterSubMenu === 'account' && 'Account'}
+                  {filterSubMenu === 'creator' && 'Recorder'}
+                </Text>
+                <TouchableOpacity onPress={() => { setShowFilterMenu(false); setFilterSubMenu('main'); }} style={{ padding: 4 }}><Text style={{ fontSize: 13, color: '#6C5CE7' }}>Done</Text></TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#495057' }}>Filter</Text>
+                {(selectedMonths.size > 0 || selectedRecordDates.size > 0 || selectedAccounts.size > 0 || selectedCreators.size > 0) && (
+                  <TouchableOpacity onPress={() => { setSelectedMonths(new Set()); setSelectedRecordDates(new Set()); setSelectedAccounts(new Set()); setSelectedCreators(new Set()); }} style={{ padding: 4 }}><Text style={{ fontSize: 13, color: '#6C5CE7' }}>Clear</Text></TouchableOpacity>
+                )}
+              </>
+            )}
+          </View>
+          <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+            {filterSubMenu === 'main' && (
+              <>
+                <TouchableOpacity style={[styles.filterMainOption, { marginBottom: 4, minHeight: 40, lineHeight: 20 }]} onPress={() => setFilterSubMenu('month')}><Text style={[styles.filterMainOptionText, { fontSize: 13, lineHeight: 20 }]}>Transaction Month</Text>{selectedMonths.size > 0 && <Text style={[styles.filterCountBadge, { fontSize: 12 }]}>{selectedMonths.size}</Text>}<Ionicons name="chevron-forward" size={20} color="#95A5A6" /></TouchableOpacity>
+                <TouchableOpacity style={[styles.filterMainOption, { marginBottom: 4, minHeight: 40, lineHeight: 20 }]} onPress={() => setFilterSubMenu('account')}><Text style={[styles.filterMainOptionText, { fontSize: 13, lineHeight: 20 }]}>Account</Text>{selectedAccounts.size > 0 && <Text style={[styles.filterCountBadge, { fontSize: 12 }]}>{selectedAccounts.size}</Text>}<Ionicons name="chevron-forward" size={20} color="#95A5A6" /></TouchableOpacity>
+                <TouchableOpacity style={[styles.filterMainOption, { marginBottom: 4, minHeight: 40, lineHeight: 20 }]} onPress={() => setFilterSubMenu('creator')}><Text style={[styles.filterMainOptionText, { fontSize: 13, lineHeight: 20 }]}>Recorder</Text>{selectedCreators.size > 0 && <Text style={[styles.filterCountBadge, { fontSize: 12 }]}>{selectedCreators.size}</Text>}<Ionicons name="chevron-forward" size={20} color="#95A5A6" /></TouchableOpacity>
+                <TouchableOpacity style={[styles.filterMainOption, { minHeight: 40, lineHeight: 20 }]} onPress={() => setFilterSubMenu('recordDate')}><Text style={[styles.filterMainOptionText, { fontSize: 13, lineHeight: 20 }]}>Record Date</Text>{selectedRecordDates.size > 0 && <Text style={[styles.filterCountBadge, { fontSize: 12 }]}>{selectedRecordDates.size}</Text>}<Ionicons name="chevron-forward" size={20} color="#95A5A6" /></TouchableOpacity>
+              </>
+            )}
+            {filterSubMenu === 'month' && filterOptions.months.map((m: { key: string; label: string }) => {
+              const isSelected = selectedMonths.has(m.key);
+              return (
+                <TouchableOpacity key={m.key} style={[styles.pickerOption, isSelected && styles.pickerOptionSelected, { minHeight: 40, lineHeight: 20 }]} onPress={() => setSelectedMonths(prev => { const s = new Set(prev); if (s.has(m.key)) s.delete(m.key); else s.add(m.key); return s; })}>
+                  <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected, { fontSize: 13, lineHeight: 20 }]}>{m.label}</Text>
+                  {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
+                </TouchableOpacity>
+              );
+            })}
+            {filterSubMenu === 'recordDate' && filterOptions.recordDates.map((d: { key: string; label: string }) => {
+              const isSelected = selectedRecordDates.has(d.key);
+              return (
+                <TouchableOpacity key={d.key} style={[styles.pickerOption, isSelected && styles.pickerOptionSelected, { minHeight: 40, lineHeight: 20 }]} onPress={() => setSelectedRecordDates(prev => { const s = new Set(prev); if (s.has(d.key)) s.delete(d.key); else s.add(d.key); return s; })}>
+                  <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected, { fontSize: 13, lineHeight: 20 }]}>{d.label}</Text>
+                  {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
+                </TouchableOpacity>
+              );
+            })}
+            {filterSubMenu === 'account' && filterOptions.accounts.map((a: { id: string; name: string }) => {
+              const isSelected = selectedAccounts.has(a.id);
+              return (
+                <TouchableOpacity key={a.id} style={[styles.pickerOption, isSelected && styles.pickerOptionSelected, { minHeight: 40, lineHeight: 20 }]} onPress={() => setSelectedAccounts(prev => { const s = new Set(prev); if (s.has(a.id)) s.delete(a.id); else s.add(a.id); return s; })}>
+                  <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected, { fontSize: 13, lineHeight: 20 }]}>{a.name}</Text>
+                  {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
+                </TouchableOpacity>
+              );
+            })}
+            {filterSubMenu === 'creator' && filterOptions.creators.map((c: { id: string; name: string }) => {
+              const isSelected = selectedCreators.has(c.id);
+              return (
+                <TouchableOpacity key={c.id} style={[styles.pickerOption, isSelected && styles.pickerOptionSelected, { minHeight: 40, lineHeight: 20 }]} onPress={() => setSelectedCreators(prev => { const s = new Set(prev); if (s.has(c.id)) s.delete(c.id); else s.add(c.id); return s; })}>
+                  <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected, { fontSize: 13, lineHeight: 20 }]}>{c.name}</Text>
+                  {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </div>,
+        document.body
+      )}
     </View>
   );
 }

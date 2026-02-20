@@ -97,7 +97,7 @@ export default function WebSidebar() {
         onPress={() => router.push('/management')}
         activeOpacity={0.7}
       >
-        <Ionicons name="document-text-outline" size={20} color="#6C5CE7" />
+        <Ionicons name="home-outline" size={20} color="#6C5CE7" />
         <Text style={styles.spaceText} numberOfLines={1}>
           {currentSpace?.name || 'Select space'}
         </Text>

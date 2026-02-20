@@ -1,4 +1,5 @@
-import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
+import { useState, useCallback, useMemo, useRef, useEffect, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   View,
   Text,
@@ -10,6 +11,7 @@ import {
   Modal,
   ScrollView,
   InteractionManager,
+  Platform,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,8 +30,10 @@ import { voucherListStyles as styles } from '../styles/voucher-list-styles';
 import { getLocalDateString } from '@/lib/date-utils';
 import { showToast } from '@/lib/toast';
 import { confirmThen, confirmDestructive } from '@/lib/alertWeb';
+import DataTable, { WEB_POPOVER } from '@/components/DataTable';
+import { getInboundColumns } from '@/components/voucher-table-columns';
 
-type GroupByType = 'month' | 'recordDate' | 'createdBy';
+type GroupByType = 'none' | 'month' | 'recordDate' | 'createdBy';
 
 const statusColors: Record<VoucherStatus, string> = {
   pending: '#FF9500',
@@ -87,6 +91,8 @@ export default function InboundScreen() {
   const [selectedRecordDates, setSelectedRecordDates] = useState<Set<string>>(new Set());
   const [selectedCreators, setSelectedCreators] = useState<Set<string>>(new Set());
   const [filterSubMenu, setFilterSubMenu] = useState<'main' | 'month' | 'recordDate' | 'creator'>('main');
+  const [groupPopoverRect, setGroupPopoverRect] = useState<{ left: number; top: number } | null>(null);
+  const [filterPopoverRect, setFilterPopoverRect] = useState<{ left: number; top: number } | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [lastInboundId, setLastInboundId] = useState<string | null>(null);
   const router = useRouter();
@@ -408,6 +414,7 @@ export default function InboundScreen() {
   }, []);
 
   const getGroupedList = useCallback((data: Inbound[]): SectionData[] => {
+    if (groupBy === 'none') return [{ title: 'All', monthKey: 'all', data }];
     switch (groupBy) {
       case 'recordDate': return groupByRecordDate(data);
       case 'createdBy': return groupByCreatedBy(data);
@@ -486,6 +493,60 @@ export default function InboundScreen() {
 
   const sections = getGroupedList(searchedList);
 
+  const [sortKey, setSortKey] = useState<string | null>(null);
+  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
+  const inboundColumns = useMemo(() => getInboundColumns({ formatDate, formatTimeAgo, statusLabels, statusColors }), [formatDate, formatTimeAgo, statusLabels, statusColors]);
+
+  const sortRowsByColumn = useCallback(<T,>(rows: T[], col: { getSortValue?: (row: T) => string | number | Date | null | undefined } | undefined, dir: 'asc' | 'desc'): T[] => {
+    if (!col?.getSortValue) return rows;
+    return [...rows].sort((a, b) => {
+      const va = col.getSortValue!(a);
+      const vb = col.getSortValue!(b);
+      const cmp = va === vb ? 0 : (va == null ? 1 : vb == null ? -1 : va < vb ? -1 : 1);
+      return dir === 'asc' ? cmp : -cmp;
+    });
+  }, []);
+
+  const tableSections = useMemo(() => {
+    const base = sections.map(s => {
+      const dataForStats = s.data;
+      const confirmed = dataForStats.filter((inv: Inbound) => inv.status === 'confirmed');
+      const currencies = confirmed.map((r: Inbound) => r.currency || 'USD');
+      const dominantCurrency = currencies.length > 0
+        ? (currencies.sort((a: string, b: string) =>
+            currencies.filter((v: string) => v === a).length - currencies.filter((v: string) => v === b).length
+          ).pop() as string)
+        : 'USD';
+      const totalAmount = confirmed.reduce((sum: number, r: Inbound) => sum + (r.totalAmount ?? 0), 0);
+      return {
+        title: s.title,
+        data: s.data,
+        count: confirmed.length,
+        countLabel: 'inbounds',
+        totalAmount,
+        currency: dominantCurrency,
+        amountColor: '#6C5CE7',
+      };
+    });
+    const col = sortKey ? inboundColumns.find(c => c.id === sortKey) : null;
+    if (!col?.getSortValue) return base;
+    return base.map(sec => ({ ...sec, data: sortRowsByColumn(sec.data, col, sortDirection) }));
+  }, [sections, sortKey, sortDirection, inboundColumns, sortRowsByColumn]);
+
+  const sortedDataForTable = useMemo(() => {
+    if (groupBy !== 'none') return searchedList;
+    const col = sortKey ? inboundColumns.find(c => c.id === sortKey) : null;
+    return sortRowsByColumn(searchedList, col, sortDirection);
+  }, [groupBy, searchedList, sortKey, sortDirection, inboundColumns, sortRowsByColumn]);
+
+  const tableEmptyMessage = useMemo(() => {
+    const loadInProgress = loading || refreshing || !fullDataLoaded;
+    if (loadInProgress && searchedList.length === 0) return refreshing ? '' : 'Loading...';
+    if (list.length === 0) return 'No inbounds yet';
+    if (searchedList.length === 0) return 'No search result';
+    return 'No data';
+  }, [loading, refreshing, fullDataLoaded, searchedList.length, list.length]);
+
   const toggleSection = (monthKey: string) => {
     setCollapsedSections(prev => {
       const next = new Set(prev);
@@ -494,6 +555,58 @@ export default function InboundScreen() {
       return next;
     });
   };
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (showSortMenu) {
+      const measure = () => {
+        const el = document.getElementById('inbound-group-button');
+        if (el) {
+          const r = el.getBoundingClientRect();
+          setGroupPopoverRect({ left: r.left, top: r.bottom + 6 });
+        } else setGroupPopoverRect(null);
+      };
+      measure();
+      const t = requestAnimationFrame(measure);
+      return () => { cancelAnimationFrame(t); setGroupPopoverRect(null); };
+    }
+    setGroupPopoverRect(null);
+  }, [showSortMenu]);
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (showFilterMenu) {
+      const measure = () => {
+        const el = document.getElementById('inbound-filter-button');
+        if (el) {
+          const r = el.getBoundingClientRect();
+          setFilterPopoverRect({ left: r.left, top: r.bottom + 6 });
+        } else setFilterPopoverRect(null);
+      };
+      measure();
+      const t = requestAnimationFrame(measure);
+      return () => { cancelAnimationFrame(t); setFilterPopoverRect(null); };
+    }
+    setFilterPopoverRect(null);
+  }, [showFilterMenu]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const handler = (e: PointerEvent) => {
+      const target = e.target as Node;
+      const groupBtn = document.getElementById('inbound-group-button');
+      const groupPopover = document.getElementById('inbound-group-popover');
+      const filterBtn = document.getElementById('inbound-filter-button');
+      const filterPopover = document.getElementById('inbound-filter-popover');
+      if (showSortMenu && groupBtn && !groupBtn.contains(target) && groupPopover && !groupPopover.contains(target)) setShowSortMenu(false);
+      if (showFilterMenu && filterBtn && !filterBtn.contains(target) && filterPopover && !filterPopover.contains(target)) {
+        setShowFilterMenu(false);
+        setFilterSubMenu('main');
+      }
+    };
+    document.addEventListener('pointerdown', handler);
+    return () => document.removeEventListener('pointerdown', handler);
+  }, [showSortMenu, showFilterMenu]);
 
   if (!showAiInventory) return null;
 
@@ -516,17 +629,21 @@ export default function InboundScreen() {
             </>
           ) : (
             <>
-              <TouchableOpacity style={styles.sortButton} onPress={() => setShowSortMenu(true)}>
-                {groupBy === 'month' && <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-                {groupBy === 'recordDate' && <Ionicons name="time-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-                {groupBy === 'createdBy' && <Ionicons name="person-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-                <Text style={styles.sortText}>Group</Text>
-                <Ionicons name="chevron-down" size={16} color="#636E72" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.filterButton}
-                onPress={() => { setShowFilterMenu(true); setFilterSubMenu('main'); }}
-              >
+              <View {...(Platform.OS === 'web' ? { nativeID: 'inbound-group-button' } : {})}>
+                <TouchableOpacity style={styles.sortButton} onPress={() => setShowSortMenu(true)}>
+                  {groupBy === 'none' && <Ionicons name="list-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'month' && <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'recordDate' && <Ionicons name="time-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'createdBy' && <Ionicons name="person-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  <Text style={styles.sortText}>Group</Text>
+                  <Ionicons name="chevron-down" size={16} color="#636E72" />
+                </TouchableOpacity>
+              </View>
+              <View {...(Platform.OS === 'web' ? { nativeID: 'inbound-filter-button' } : {})}>
+                <TouchableOpacity
+                  style={styles.filterButton}
+                  onPress={() => { setShowFilterMenu(true); setFilterSubMenu('main'); }}
+                >
                 <Text style={styles.filterText}>
                   Filter
                   {(selectedMonths.size + selectedRecordDates.size + selectedCreators.size) > 0 && (
@@ -534,7 +651,8 @@ export default function InboundScreen() {
                   )}
                 </Text>
                 <Ionicons name="chevron-down" size={16} color="#636E72" />
-              </TouchableOpacity>
+                </TouchableOpacity>
+              </View>
               <View style={styles.searchContainer}>
                 <Ionicons name="search" size={18} color="#636E72" style={styles.searchIcon} />
                 <TextInput
@@ -555,6 +673,32 @@ export default function InboundScreen() {
         </View>
       </View>
 
+      {Platform.OS === 'web' ? (
+        <ScrollView
+          style={{ flex: 1 }}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          contentContainerStyle={loading && list.length === 0 ? { flexGrow: 1 } : { flexGrow: 0 }}
+        >
+          {(loading && list.length === 0) ? (
+            <View style={styles.emptyContainer}>
+              <ActivityIndicator size="large" color="#6C5CE7" />
+              <Text style={styles.emptyText}>Loading...</Text>
+            </View>
+          ) : (
+            <DataTable<Inbound>
+              columns={inboundColumns}
+              data={groupBy === 'none' && !(refreshing && searchQuery.trim()) ? sortedDataForTable : undefined}
+              sections={groupBy === 'none' || (refreshing && searchQuery.trim()) ? undefined : tableSections}
+              sortKey={sortKey}
+              sortDirection={sortDirection}
+              onSort={(key, dir) => { setSortKey(key); setSortDirection(dir); }}
+              keyExtractor={r => r.id || Math.random().toString()}
+              onRowPress={r => { if (r.id) router.push(`/inbound-details/${r.id}`); }}
+              emptyMessage={tableEmptyMessage}
+            />
+          )}
+        </ScrollView>
+      ) : (
       <SectionList
         sections={refreshing && searchQuery.trim() ? [] : sections.map(s => ({
           ...s,
@@ -618,6 +762,7 @@ export default function InboundScreen() {
           );
         }}
         renderSectionHeader={({ section }) => {
+          if (section.monthKey === 'all') return null;
           const isCollapsed = collapsedSections.has(section.monthKey);
           const dataForStats = section.originalData || section.data;
           const confirmed = dataForStats.filter((inv: Inbound) => inv.status === 'confirmed');
@@ -675,6 +820,7 @@ export default function InboundScreen() {
         contentContainerStyle={sections.length === 0 ? styles.emptyList : styles.listContent}
         stickySectionHeadersEnabled={false}
       />
+      )}
 
       <Modal animationType="fade" transparent visible={showSuccessModal} onRequestClose={() => setShowSuccessModal(false)}>
         <View style={styles.successModalOverlay}>
@@ -709,6 +855,7 @@ export default function InboundScreen() {
         </View>
       </Modal>
 
+      {Platform.OS !== 'web' && (
       <Modal visible={showSortMenu} transparent animationType="slide" onRequestClose={() => setShowSortMenu(false)}>
         <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowSortMenu(false)}>
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
@@ -720,16 +867,18 @@ export default function InboundScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
-              {(['month', 'recordDate', 'createdBy'] as const).map((key) => (
+              {(['none', 'month', 'recordDate', 'createdBy'] as const).map((key) => (
                 <TouchableOpacity
                   key={key}
                   style={[styles.pickerOption, groupBy === key && styles.pickerOptionSelected]}
                   onPress={() => { setGroupBy(key); setShowSortMenu(false); }}
                 >
+                  {key === 'none' && <Ionicons name="list-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   {key === 'month' && <Ionicons name="calendar-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   {key === 'recordDate' && <Ionicons name="time-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   {key === 'createdBy' && <Ionicons name="person-outline" size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 12 }} />}
                   <Text style={[styles.pickerOptionText, groupBy === key && styles.pickerOptionTextSelected, { flex: 1 }]}>
+                    {key === 'none' && 'No group'}
                     {key === 'month' && 'Transaction Month'}
                     {key === 'recordDate' && 'Record Date'}
                     {key === 'createdBy' && 'Recorder'}
@@ -741,7 +890,9 @@ export default function InboundScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+      )}
 
+      {Platform.OS !== 'web' && (
       <Modal visible={showFilterMenu} transparent animationType="slide" onRequestClose={() => { setShowFilterMenu(false); setFilterSubMenu('main'); }}>
         <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => { setShowFilterMenu(false); setFilterSubMenu('main'); }}>
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
@@ -858,6 +1009,129 @@ export default function InboundScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+      )}
+
+      {Platform.OS === 'web' && showSortMenu && groupPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
+        <div id="inbound-group-popover" style={{ ...WEB_POPOVER.container, left: groupPopoverRect.left, top: groupPopoverRect.top }}>
+          <Text style={{ fontSize: 13, fontWeight: '600', color: '#495057', marginBottom: 10 }}>Group By</Text>
+          <View style={{ gap: 2 }}>
+            {[
+              { key: 'none' as const, label: 'No group', icon: 'list-outline' as const },
+              { key: 'month' as const, label: 'Transaction Month', icon: 'calendar-outline' as const },
+              { key: 'recordDate' as const, label: 'Record Date', icon: 'time-outline' as const },
+              { key: 'createdBy' as const, label: 'Recorder', icon: 'person-outline' as const },
+            ].map(({ key, label, icon }) => (
+              <TouchableOpacity
+                key={key}
+                onPress={() => { setGroupBy(key); setShowSortMenu(false); }}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  paddingTop: 10,
+                  paddingBottom: 10,
+                  paddingLeft: 12,
+                  paddingRight: 12,
+                  borderRadius: 8,
+                  backgroundColor: groupBy === key ? 'rgba(108, 92, 231, 0.1)' : 'transparent',
+                  minHeight: 40,
+                  lineHeight: 20,
+                }}
+              >
+                <Ionicons name={icon} size={20} color={groupBy === key ? '#6C5CE7' : '#636E72'} style={{ marginRight: 10 }} />
+                <Text style={{ flex: 1, fontSize: 13, color: groupBy === key ? '#6C5CE7' : '#2D3436', fontWeight: groupBy === key ? '600' : '500', lineHeight: 20 }}>{label}</Text>
+                {groupBy === key && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </div>,
+        document.body
+      )}
+
+      {Platform.OS === 'web' && showFilterMenu && filterPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
+        <div id="inbound-filter-popover" style={{ ...WEB_POPOVER.container, ...WEB_POPOVER.containerWide, left: filterPopoverRect.left, top: filterPopoverRect.top }}>
+          <View style={{ marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            {filterSubMenu !== 'main' ? (
+              <>
+                <TouchableOpacity onPress={() => setFilterSubMenu('main')} style={{ padding: 4 }}><Ionicons name="chevron-back" size={20} color="#6C5CE7" /></TouchableOpacity>
+                <Text style={{ fontSize: 13, fontWeight: '600', color: '#495057' }}>
+                  {filterSubMenu === 'month' && 'Transaction Month'}
+                  {filterSubMenu === 'recordDate' && 'Record Date'}
+                  {filterSubMenu === 'creator' && 'Recorder'}
+                </Text>
+              </>
+            ) : (
+              <Text style={{ fontSize: 13, fontWeight: '600', color: '#495057' }}>Filter</Text>
+            )}
+            {(selectedMonths.size > 0 || selectedRecordDates.size > 0 || selectedCreators.size > 0) && (
+              <TouchableOpacity onPress={() => { setSelectedMonths(new Set()); setSelectedRecordDates(new Set()); setSelectedCreators(new Set()); }} style={{ padding: 4 }}>
+                <Text style={{ fontSize: 13, color: '#6C5CE7' }}>Clear</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+          {filterSubMenu === 'main' && (
+            <>
+              <TouchableOpacity style={[styles.filterMainOption, { marginBottom: 6, minHeight: 40, lineHeight: 20 }]} onPress={() => setFilterSubMenu('month')}>
+                <View style={styles.filterMainOptionLeft}>
+                  <Ionicons name="calendar-outline" size={20} color="#636E72" />
+                  <Text style={[styles.filterMainOptionText, { fontSize: 13, lineHeight: 20 }]}>Transaction Month</Text>
+                </View>
+                <View style={styles.filterMainOptionRight}>
+                  {selectedMonths.size > 0 && <Text style={[styles.filterCountBadge, { fontSize: 12 }]}>{selectedMonths.size}</Text>}
+                  <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.filterMainOption, { marginBottom: 6, minHeight: 40, lineHeight: 20 }]} onPress={() => setFilterSubMenu('recordDate')}>
+                <View style={styles.filterMainOptionLeft}>
+                  <Ionicons name="time-outline" size={20} color="#636E72" />
+                  <Text style={[styles.filterMainOptionText, { fontSize: 13, lineHeight: 20 }]}>Record Date</Text>
+                </View>
+                <View style={styles.filterMainOptionRight}>
+                  {selectedRecordDates.size > 0 && <Text style={[styles.filterCountBadge, { fontSize: 12 }]}>{selectedRecordDates.size}</Text>}
+                  <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.filterMainOption, { marginBottom: 6, minHeight: 40, lineHeight: 20 }]} onPress={() => setFilterSubMenu('creator')}>
+                <View style={styles.filterMainOptionLeft}>
+                  <Ionicons name="person-outline" size={20} color="#636E72" />
+                  <Text style={[styles.filterMainOptionText, { fontSize: 13, lineHeight: 20 }]}>Recorder</Text>
+                </View>
+                <View style={styles.filterMainOptionRight}>
+                  {selectedCreators.size > 0 && <Text style={[styles.filterCountBadge, { fontSize: 12 }]}>{selectedCreators.size}</Text>}
+                  <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
+                </View>
+              </TouchableOpacity>
+            </>
+          )}
+          {filterSubMenu === 'month' && filterOptions.months.map((m) => {
+            const isSelected = selectedMonths.has(m.key);
+            return (
+              <TouchableOpacity key={m.key} style={[styles.pickerOption, isSelected && styles.pickerOptionSelected, { minHeight: 40, lineHeight: 20 }]} onPress={() => setSelectedMonths(prev => { const s = new Set(prev); if (s.has(m.key)) s.delete(m.key); else s.add(m.key); return s; })}>
+                <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected, { fontSize: 13, lineHeight: 20 }]}>{m.label}</Text>
+                {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
+              </TouchableOpacity>
+            );
+          })}
+          {filterSubMenu === 'recordDate' && filterOptions.recordDates.map((d) => {
+            const isSelected = selectedRecordDates.has(d.key);
+            return (
+              <TouchableOpacity key={d.key} style={[styles.pickerOption, isSelected && styles.pickerOptionSelected, { minHeight: 40, lineHeight: 20 }]} onPress={() => setSelectedRecordDates(prev => { const s = new Set(prev); if (s.has(d.key)) s.delete(d.key); else s.add(d.key); return s; })}>
+                <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected, { fontSize: 13, lineHeight: 20 }]}>{d.label}</Text>
+                {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
+              </TouchableOpacity>
+            );
+          })}
+          {filterSubMenu === 'creator' && filterOptions.creators.map((c) => {
+            const isSelected = selectedCreators.has(c.id);
+            return (
+              <TouchableOpacity key={c.id} style={[styles.pickerOption, isSelected && styles.pickerOptionSelected, { minHeight: 40, lineHeight: 20 }]} onPress={() => setSelectedCreators(prev => { const s = new Set(prev); if (s.has(c.id)) s.delete(c.id); else s.add(c.id); return s; })}>
+                <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected, { fontSize: 13, lineHeight: 20 }]}>{c.name}</Text>
+                {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
+              </TouchableOpacity>
+            );
+          })}
+        </div>,
+        document.body
+      )}
     </View>
   );
 }

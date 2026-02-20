@@ -325,6 +325,8 @@ export default function ManagementScreen() {
     { id: 'categories', title: 'Categories', icon: 'pricetags-outline', route: '/categories-manage', description: 'Manage expense categories' },
     { id: 'purposes', title: 'Purposes', icon: 'briefcase-outline', route: '/purposes-manage', description: 'Manage procurement purpose' },
     { id: 'accounts', title: 'Accounts', icon: 'wallet-outline', route: '/accounts-manage', description: 'Manage and merge accounts' },
+    { id: 'suppliers', title: 'Suppliers', icon: 'storefront-outline', route: '/suppliers-manage', description: 'Manage suppliers' },
+    { id: 'customers', title: 'Customers', icon: 'person-outline', route: '/customers-manage', description: 'Manage customers' },
   ];
 
   return (
