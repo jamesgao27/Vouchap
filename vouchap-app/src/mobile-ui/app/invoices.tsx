@@ -16,6 +16,8 @@ import {
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { getCurrentUser } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import { getInvoicesForListFirstPaint, getAllInvoicesWithItems, deleteInvoice, saveInvoice } from '@/lib/invoices';
 import { Invoice } from '@/types';
 import { format } from 'date-fns';
@@ -136,6 +138,50 @@ export default function InvoicesScreen() {
   useFocusEffect(useCallback(() => {
     if (invoices.length === 0) loadInvoices();
   }, [loadInvoices, invoices.length]));
+
+  // Supabase Realtime：后端数据变更时自动局部刷新列表（仅移动端；Web 端表格视图不启用）
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    let invoicesChannel: ReturnType<typeof supabase.channel> | null = null;
+    let invoiceItemsChannel: ReturnType<typeof supabase.channel> | null = null;
+    let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const setupRealtime = async () => {
+      try {
+        const user = await getCurrentUser();
+        if (!user) return;
+        const spaceId = user.currentSpaceId || user.spaceId;
+        if (!spaceId) return;
+
+        const debouncedRefresh = () => {
+          if (refreshTimeout) clearTimeout(refreshTimeout);
+          refreshTimeout = setTimeout(() => loadInvoices({ full: true }), 300);
+        };
+
+        invoicesChannel = supabase
+          .channel(`invoices-changes-${spaceId}`)
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'invoices', filter: `space_id=eq.${spaceId}` },
+            () => debouncedRefresh()
+          )
+          .subscribe();
+
+        invoiceItemsChannel = supabase
+          .channel(`invoice-items-changes-${spaceId}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'invoice_items' }, () => debouncedRefresh())
+          .subscribe();
+      } catch (e) {
+        console.warn('Invoices Realtime setup failed', e);
+      }
+    };
+    setupRealtime();
+    return () => {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      if (invoicesChannel) supabase.removeChannel(invoicesChannel);
+      if (invoiceItemsChannel) supabase.removeChannel(invoiceItemsChannel);
+    };
+  }, [loadInvoices]);
 
   const onRefresh = () => {
     setRefreshing(true);

@@ -18,6 +18,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
 import { showAiInventory } from '@/lib/feature-flags';
+import { getCurrentUser } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import { getOutboundForListFirstPaint, getAllOutbound, deleteOutbound, saveOutbound } from '@/lib/outbound';
 import { Outbound } from '@/types';
 import { format } from 'date-fns';
@@ -160,6 +162,50 @@ export default function OutboundScreen() {
       }
     }, [load, list.length])
   );
+
+  // Supabase Realtime：后端数据变更时自动局部刷新列表（仅移动端；Web 端表格视图不启用）
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    let outboundChannel: ReturnType<typeof supabase.channel> | null = null;
+    let outboundItemsChannel: ReturnType<typeof supabase.channel> | null = null;
+    let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const setupRealtime = async () => {
+      try {
+        const user = await getCurrentUser();
+        if (!user) return;
+        const spaceId = user.currentSpaceId || user.spaceId;
+        if (!spaceId) return;
+
+        const debouncedRefresh = () => {
+          if (refreshTimeout) clearTimeout(refreshTimeout);
+          refreshTimeout = setTimeout(() => load({ full: true }), 300);
+        };
+
+        outboundChannel = supabase
+          .channel(`outbound-changes-${spaceId}`)
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'outbound', filter: `space_id=eq.${spaceId}` },
+            () => debouncedRefresh()
+          )
+          .subscribe();
+
+        outboundItemsChannel = supabase
+          .channel(`outbound-items-changes-${spaceId}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'outbound_items' }, () => debouncedRefresh())
+          .subscribe();
+      } catch (e) {
+        console.warn('Outbound Realtime setup failed', e);
+      }
+    };
+    setupRealtime();
+    return () => {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      if (outboundChannel) supabase.removeChannel(outboundChannel);
+      if (outboundItemsChannel) supabase.removeChannel(outboundItemsChannel);
+    };
+  }, [load]);
 
   const onRefresh = () => {
     setRefreshing(true);

@@ -143,6 +143,7 @@ export default function DataTable<T>({
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
   const pickerWrapRef = useRef<View | null>(null);
+  const columnResizingRef = useRef(false);
 
   const toggleSection = useCallback((sectionIdx: number) => {
     setCollapsedSections(prev => {
@@ -646,7 +647,13 @@ export default function DataTable<T>({
                       userSelect: 'none',
                       position: 'relative' as const,
                     }}
-                    onClick={isSortable ? () => onSort(col.id, nextDir) : undefined}
+                    onClick={isSortable ? () => {
+                      if (columnResizingRef.current) {
+                        columnResizingRef.current = false;
+                        return;
+                      }
+                      onSort(col.id, nextDir);
+                    } : undefined}
                     role={isSortable ? 'button' : undefined}
                   >
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -674,9 +681,14 @@ export default function DataTable<T>({
                           borderRight: '1px solid rgba(173, 181, 189, 0.5)',
                           transition: 'background-color 0.15s ease',
                         }}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          e.preventDefault();
+                        }}
                         onMouseDown={(e) => {
                           e.preventDefault();
                           e.stopPropagation();
+                          columnResizingRef.current = true;
                           const th = e.currentTarget.parentElement as HTMLElement;
                           if (!th) return;
                           const startX = e.clientX;
@@ -703,6 +715,7 @@ export default function DataTable<T>({
                             document.removeEventListener('mouseup', handleMouseUp);
                             document.body.style.cursor = '';
                             document.body.style.userSelect = '';
+                            setTimeout(() => { columnResizingRef.current = false; }, 0);
                           };
                           document.addEventListener('mousemove', handleMouseMove);
                           document.addEventListener('mouseup', handleMouseUp);

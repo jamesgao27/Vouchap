@@ -8,7 +8,22 @@ import { ConfirmModalHost } from '@/components/ConfirmModalHost';
 import WebSidebar, { shouldShowWebSidebar } from '@/components/WebSidebar';
 import WebChatFab from '@/components/WebChatFab';
 import WebChatPanel from '@/components/WebChatPanel';
-import { ChatPanelProvider, useChatPanel } from '../contexts/ChatPanelContext';
+import { ChatPanelProvider, useChatPanel, type ChatPanelType } from '../contexts/ChatPanelContext';
+
+/** 基础数据设置页：这些页不显示 chat-to-log 气泡（已打开的右栏保留） */
+function isSettingsPage(pathname: string): boolean {
+  const base = pathname?.replace(/^\//, '').split('/')[0] || '';
+  return ['entities-manage', 'accounts-manage', 'categories-manage', 'purposes-manage', 'skus-manage', 'warehouse-manage', 'management', 'space-manage'].includes(base);
+}
+
+function chatTypeFromPathname(pathname: string | null): ChatPanelType | null {
+  if (!pathname) return null;
+  if (pathname === '/receipts' || pathname.startsWith('/receipts/')) return 'receipt';
+  if (pathname === '/invoices' || pathname.startsWith('/invoices/')) return 'invoice';
+  if (pathname === '/inbound' || pathname.startsWith('/inbound/')) return 'inbound';
+  if (pathname === '/outbound' || pathname.startsWith('/outbound/')) return 'outbound';
+  return null;
+}
 
 // Web 部署后 bundled 字体 URL 易 404，用 CDN 预加载保证图标显示（与 @expo/vector-icons 同源字体）
 const IONICONS_FONT_URL =
@@ -17,7 +32,14 @@ const IONICONS_FONT_URL =
 function LayoutContent() {
   const pathname = usePathname();
   const showSidebar = Platform.OS === 'web' && shouldShowWebSidebar(pathname ?? '/');
-  const { open: chatOpen } = useChatPanel();
+  const { open: chatOpen, setType: setChatType } = useChatPanel();
+
+  // Web：主区切换到不同列表时，chat-to-log 提交类别跟随切换
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const type = chatTypeFromPathname(pathname ?? null);
+    if (type) setChatType(type);
+  }, [pathname, setChatType]);
 
   // Web：等 Ionicons 字体从 CDN 加载后再渲染，避免图标全缺
   const [webFontReady, setWebFontReady] = React.useState(
@@ -271,8 +293,8 @@ function LayoutContent() {
       </Stack>
       </View>
       {showSidebar && chatOpen && <WebChatPanel />}
-      {showSidebar && !chatOpen && Platform.OS === 'web' && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && (
-        <WebChatFab type={pathname === '/inbound' ? 'inbound' : pathname === '/outbound' ? 'outbound' : 'receipt'} />
+      {showSidebar && !chatOpen && Platform.OS === 'web' && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && !isSettingsPage(pathname ?? '') && (
+        <WebChatFab type={chatTypeFromPathname(pathname ?? null) ?? 'receipt'} />
       )}
       <ToastHost />
       <ConfirmModalHost />

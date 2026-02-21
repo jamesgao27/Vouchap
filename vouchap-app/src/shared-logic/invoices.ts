@@ -406,6 +406,15 @@ export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolea
       console.warn('Failed to create or find entity (Payer):', error);
     }
   }
+  // 修改详情页时：原纪录未关联 entities 且录入名称未匹配现有 entities，则创建新 entity 并关联
+  if (isUpdate && !entityId && isValidName) {
+    try {
+      const entity = await findOrCreateEntity(trimmedCustomerName, false);
+      entityId = entity.id;
+    } catch (error) {
+      console.warn('saveInvoice (update): findOrCreateEntity failed', error);
+    }
+  }
 
   if (invoice.id && spaceId) {
     if (isValidName) {

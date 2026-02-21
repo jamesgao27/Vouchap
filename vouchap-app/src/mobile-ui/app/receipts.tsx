@@ -379,8 +379,9 @@ export default function ReceiptsScreen() {
     router.push('/chat-to-log');
   };
 
-  // 设置 Supabase Realtime 订阅监听所有相关表的变化
+  // 设置 Supabase Realtime 订阅（仅移动端；Web 端表格视图不启用，避免多人协作时页面抖动）
   useEffect(() => {
+    if (Platform.OS === 'web') return;
     let receiptsChannel: any = null;
     let receiptItemsChannel: any = null;
     let paymentAccountsChannel: any = null;

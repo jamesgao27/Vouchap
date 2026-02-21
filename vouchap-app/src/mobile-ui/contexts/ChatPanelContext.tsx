@@ -1,7 +1,9 @@
 /**
  * Web 聊天侧栏状态：由 FAB 打开，不切换路由；右栏打开即常驻并压缩主区（无 pin 切换）。
+ * Web 端默认右栏打开。
  */
 import React, { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
+import { Platform } from 'react-native';
 
 export type ChatPanelType = 'receipt' | 'invoice' | 'inbound' | 'outbound';
 
@@ -20,7 +22,7 @@ type ChatPanelContextValue = {
 const ChatPanelContext = createContext<ChatPanelContextValue | null>(null);
 
 export function ChatPanelProvider({ children }: { children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => Platform.OS === 'web');
   const [type, setType] = useState<ChatPanelType>('receipt');
   const [initialInput, setInitialInput] = useState<string | null>(null);
   const inputFocusRef = useRef<(() => void) | null>(null);

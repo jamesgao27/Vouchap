@@ -16,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import { getOutboundById, saveOutbound, deleteOutbound } from '@/lib/outbound';
-import { uploadOutboundImage } from '@/lib/supabase';
+import { supabase, uploadOutboundImage } from '@/lib/supabase';
 import { getCustomerOptions } from '@/lib/customer-supplier-list';
 import { mergeSupplier } from '@/lib/suppliers';
 import { mergeCustomer } from '@/lib/customers';
@@ -56,6 +56,26 @@ export default function OutboundDetailsScreen() {
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => loadOutbound());
     return () => task.cancel();
+  }, [id]);
+
+  // Realtime：当前出库单或明细被更新时自动重新加载
+  useEffect(() => {
+    if (!id) return;
+    let ch: ReturnType<typeof supabase.channel> | null = null;
+    let chItems: ReturnType<typeof supabase.channel> | null = null;
+    const refresh = () => loadOutbound();
+    ch = supabase
+      .channel(`outbound-detail-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'outbound', filter: `id=eq.${id}` }, refresh)
+      .subscribe();
+    chItems = supabase
+      .channel(`outbound-detail-items-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'outbound_items', filter: `outbound_id=eq.${id}` }, refresh)
+      .subscribe();
+    return () => {
+      if (ch) supabase.removeChannel(ch);
+      if (chItems) supabase.removeChannel(chItems);
+    };
   }, [id]);
 
   const loadOutbound = async () => {

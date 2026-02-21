@@ -274,6 +274,17 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
               targetId,
             });
           }
+        } else {
+          entityId = targetId;
+        }
+      }
+      // 原纪录未关联 entities 且录入名称未匹配现有 entities 时，创建新 entity 并关联
+      if (!entityId) {
+        try {
+          const entity = await findOrCreateEntity(payeeName, false);
+          entityId = entity.id;
+        } catch (e) {
+          console.warn('updateReceipt: findOrCreateEntity failed', e);
         }
       }
       if (entityId) {

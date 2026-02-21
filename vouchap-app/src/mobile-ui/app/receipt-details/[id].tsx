@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getReceiptById, updateReceipt, updateReceiptItem } from '@/lib/database';
-import { uploadReceiptImage } from '@/lib/supabase';
+import { supabase, uploadReceiptImage } from '@/lib/supabase';
 import { getCategories } from '@/lib/categories';
 import { getPurposes } from '@/lib/purposes';
 import { getAccounts, mergeAccount } from '@/lib/accounts';
@@ -81,6 +81,26 @@ export default function ReceiptDetailsScreen() {
       loadAccounts();
     });
     return () => task.cancel();
+  }, [id]);
+
+  // Realtime：当前小票或明细被更新时自动重新加载
+  useEffect(() => {
+    if (!id) return;
+    let ch: ReturnType<typeof supabase.channel> | null = null;
+    let chItems: ReturnType<typeof supabase.channel> | null = null;
+    const refresh = () => loadReceipt();
+    ch = supabase
+      .channel(`receipt-detail-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'receipts', filter: `id=eq.${id}` }, refresh)
+      .subscribe();
+    chItems = supabase
+      .channel(`receipt-detail-items-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'receipt_items', filter: `receipt_id=eq.${id}` }, refresh)
+      .subscribe();
+    return () => {
+      if (ch) supabase.removeChannel(ch);
+      if (chItems) supabase.removeChannel(chItems);
+    };
   }, [id]);
 
   // 当页面获得焦点时（从其他页面返回），只重新加载分类、用途和支付账户（因为这些可能在管理页面被修改）

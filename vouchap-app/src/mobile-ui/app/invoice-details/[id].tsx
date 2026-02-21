@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getInvoiceById, saveInvoice, updateInvoiceItem } from '@/lib/invoices';
-import { uploadInvoiceImage } from '@/lib/supabase';
+import { supabase, uploadInvoiceImage } from '@/lib/supabase';
 import { getCategories } from '@/lib/categories';
 import { getPurposes } from '@/lib/purposes';
 import { getAccounts, mergeAccount } from '@/lib/accounts';
@@ -77,6 +77,26 @@ export default function InvoiceDetailsScreen() {
       loadAccounts();
     });
     return () => task.cancel();
+  }, [id]);
+
+  // Realtime：当前发票或明细被更新时自动重新加载
+  useEffect(() => {
+    if (!id) return;
+    let ch: ReturnType<typeof supabase.channel> | null = null;
+    let chItems: ReturnType<typeof supabase.channel> | null = null;
+    const refresh = () => loadInvoice();
+    ch = supabase
+      .channel(`invoice-detail-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'invoices', filter: `id=eq.${id}` }, refresh)
+      .subscribe();
+    chItems = supabase
+      .channel(`invoice-detail-items-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'invoice_items', filter: `invoice_id=eq.${id}` }, refresh)
+      .subscribe();
+    return () => {
+      if (ch) supabase.removeChannel(ch);
+      if (chItems) supabase.removeChannel(chItems);
+    };
   }, [id]);
 
   useFocusEffect(

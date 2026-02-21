@@ -17,6 +17,8 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { actionButtonStyles } from '@/lib/action-button-styles';
+import { getCurrentUser } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import { confirmDestructive, confirmThen } from '@/lib/alertWeb';
 import {
   getEntities,
@@ -148,6 +150,45 @@ export default function EntitiesManageScreen() {
     }
   };
 
+  const loadListRef = useRef(loadList);
+  loadListRef.current = loadList;
+
+  // Supabase Realtime：entities 表变更时自动局部刷新列表（仅移动端；Web 端表格视图不启用）
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    let entitiesChannel: ReturnType<typeof supabase.channel> | null = null;
+    let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const setupRealtime = async () => {
+      try {
+        const user = await getCurrentUser();
+        if (!user) return;
+        const spaceId = user.currentSpaceId || user.spaceId;
+        if (!spaceId) return;
+
+        const debouncedRefresh = () => {
+          if (refreshTimeout) clearTimeout(refreshTimeout);
+          refreshTimeout = setTimeout(() => loadListRef.current(), 300);
+        };
+
+        entitiesChannel = supabase
+          .channel(`entities-changes-${spaceId}`)
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'entities', filter: `space_id=eq.${spaceId}` },
+            () => debouncedRefresh()
+          )
+          .subscribe();
+      } catch (e) {
+        console.warn('Entities Realtime setup failed', e);
+      }
+    };
+    setupRealtime();
+    return () => {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      if (entitiesChannel) supabase.removeChannel(entitiesChannel);
+    };
+  }, []);
 
   const handleAddEntity = async () => {
     if (!newName.trim()) {

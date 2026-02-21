@@ -2,6 +2,7 @@ import { supabase } from './supabase';
 import { Inbound, InboundItem, Sku } from '@/types';
 import { getCurrentUser } from './auth';
 import { getSkuById } from './skus';
+import { findOrCreateEntity } from './entities';
 
 function rowToInbound(row: any, items: InboundItem[] = []): Inbound {
   const entity = row.entities ? {
@@ -136,17 +137,31 @@ export async function getInboundById(inboundId: string): Promise<Inbound | null>
   return rowToInbound(row, items);
 }
 
-/** 保存入库单（新建或更新）— 占位实现 */
+const INVALID_ENTITY_NAMES = ['processing', 'processing...', 'pending', 'pending...', 'loading', 'loading...', '识别中', '处理中', '待处理'];
+
+/** 保存入库单（新建或更新）；原纪录未关联 entities 且录入名称未匹配现有 entities 时，创建新 entity 并关联 */
 export async function saveInbound(inbound: Inbound): Promise<string> {
   const user = await getCurrentUser();
   if (!user) throw new Error('Not logged in');
   const spaceId = user.currentSpaceId || user.spaceId;
   if (!spaceId) throw new Error('No space selected');
 
+  let entityId = inbound.entityId ?? inbound.entity?.id ?? null;
+  const supplierName = (inbound.supplierName ?? inbound.entity?.name ?? '').trim();
+  const isValidName = supplierName.length > 0 && !INVALID_ENTITY_NAMES.includes(supplierName.toLowerCase());
+  if (!entityId && isValidName) {
+    try {
+      const entity = await findOrCreateEntity(supplierName, false);
+      entityId = entity.id;
+    } catch (e) {
+      console.warn('saveInbound: findOrCreateEntity failed', e);
+    }
+  }
+
   const headerPayload = (isUpdate: boolean) => {
     const base: Record<string, unknown> = {
       document_no: inbound.documentNo ?? null,
-      entity_id: inbound.entityId ?? null,
+      entity_id: entityId ?? null,
       supplier_name: inbound.supplierName ?? inbound.entity?.name ?? null,
       warehouse_id: inbound.warehouseId ?? null,
       location_id: inbound.locationId ?? null,
