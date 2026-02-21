@@ -1,6 +1,7 @@
 import { Stack, usePathname } from 'expo-router';
-import { useEffect } from 'react';
-import { View, StyleSheet, Platform } from 'react-native';
+import React, { useEffect } from 'react';
+import { View, StyleSheet, Platform, Text } from 'react-native';
+import * as Font from 'expo-font';
 import { validateSupabaseConfig } from '@/lib/supabase';
 import { ToastHost } from '@/components/ToastHost';
 import { ConfirmModalHost } from '@/components/ConfirmModalHost';
@@ -9,10 +10,31 @@ import WebChatFab from '@/components/WebChatFab';
 import WebChatPanel from '@/components/WebChatPanel';
 import { ChatPanelProvider, useChatPanel } from '../contexts/ChatPanelContext';
 
+// Web 部署后 bundled 字体 URL 易 404，用 CDN 预加载保证图标显示（与 @expo/vector-icons 同源字体）
+const IONICONS_FONT_URL =
+  'https://cdn.jsdelivr.net/npm/@expo/vector-icons@15.0.3/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf';
+
 function LayoutContent() {
   const pathname = usePathname();
   const showSidebar = Platform.OS === 'web' && shouldShowWebSidebar(pathname ?? '/');
   const { open: chatOpen } = useChatPanel();
+
+  // Web：等 Ionicons 字体从 CDN 加载后再渲染，避免图标全缺
+  const [webFontReady, setWebFontReady] = React.useState(
+    () => Platform.OS !== 'web' || Font.isLoaded('ionicons')
+  );
+  useEffect(() => {
+    if (Platform.OS !== 'web' || Font.isLoaded('ionicons')) {
+      setWebFontReady(true);
+      return;
+    }
+    Font.loadAsync({ ionicons: IONICONS_FONT_URL })
+      .then(() => setWebFontReady(true))
+      .catch((e) => {
+        console.warn('Ionicons font load (CDN) failed:', e);
+        setWebFontReady(true);
+      });
+  }, []);
 
   useEffect(() => {
     const config = validateSupabaseConfig();
@@ -21,6 +43,14 @@ function LayoutContent() {
       console.warn('应用可能无法正常连接Supabase。请在构建时设置正确的环境变量。');
     }
   }, []);
+
+  if (!webFontReady) {
+    return (
+      <View style={[styles.root, styles.centered]}>
+        <Text style={styles.loadingText}>Loading…</Text>
+      </View>
+    );
+  }
 
   const mainAreaStyle = [
     styles.mainArea,
@@ -253,6 +283,14 @@ function LayoutContent() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
+  },
+  centered: {
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#666',
   },
   webRow: {
     flexDirection: 'row',

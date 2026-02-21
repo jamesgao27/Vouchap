@@ -2,14 +2,14 @@
   "extends": "expo/tsconfig.base",
   "compilerOptions": {
     "strict": true,
+    "baseUrl": ".",
     "paths": {
-      "@/*": [
-        "./*"
-      ]
+      "@/lib/*": ["./src/shared-logic/*"],
+      "@/components/*": ["./src/mobile-ui/components/*"],
+      "@/types": ["./src/shared-logic/types"],
+      "@/types/*": ["./src/shared-logic/types/*"],
+      "@/*": ["./*"]
     }
   },
-  "include": [
-    "**/*.ts",
-    "**/*.tsx"
-  ]
+  "include": ["**/*.ts", "**/*.tsx"]
 }

@@ -1225,12 +1225,17 @@ export async function resetPassword(email: string): Promise<{ error: Error | nul
     }
 
     // 构建重置密码的重定向 URL
-    // 使用 HTTPS Universal Links / App Links 以支持从邮件客户端打开
-    const isDev = Constants.expoConfig?.extra?.supabaseUrl?.includes('localhost') || 
-                  process.env.NODE_ENV === 'development';
-    const redirectUrl = isDev 
-      ? 'exp://localhost:8081/--/auth/confirm' // 开发环境
-      : 'https://vouchap.com/auth/confirm'; // 生产环境使用 HTTPS Universal/App Links
+    // Web：使用当前页面 origin，否则 Supabase 会拒绝未在白名单的 redirectTo
+    let redirectUrl: string;
+    if (typeof window !== 'undefined' && window.location?.origin) {
+      redirectUrl = `${window.location.origin}/auth/confirm`;
+    } else {
+      const isDev = Constants.expoConfig?.extra?.supabaseUrl?.includes('localhost') ||
+        process.env.NODE_ENV === 'development';
+      redirectUrl = isDev
+        ? 'exp://localhost:8081/--/auth/confirm'
+        : 'https://vouchap.com/auth/confirm';
+    }
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: redirectUrl,
@@ -1243,8 +1248,9 @@ export async function resetPassword(email: string): Promise<{ error: Error | nul
     return { error: null };
   } catch (error) {
     console.error('Error resetting password:', error);
+    const message = error instanceof Error ? error.message : String((error as any)?.message ?? '');
     return {
-      error: error instanceof Error ? error : new Error('发送密码重置邮件失败'),
+      error: error instanceof Error ? error : new Error(message || '发送密码重置邮件失败'),
     };
   }
 }

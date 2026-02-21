@@ -10,12 +10,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import { signIn, getCurrentUser, getCurrentSpace } from '@/lib/auth';
-import { initializeAuthCache } from '@/lib/auth-cache';
+import { signIn } from '@/lib/auth';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -27,26 +28,30 @@ export default function LoginScreen() {
   const passwordInputRef = useRef<TextInput>(null);
 
   useEffect(() => {
-    if (params.email) {
-      setEmail(params.email);
-    }
-    
-    // 检查是否已有登录session，如果有则自动跳转
+    if (params.email) setEmail(params.email);
     checkExistingSession();
   }, [params]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const style = document.createElement('style');
+    style.textContent = `
+      #login-form input:-webkit-autofill,
+      #login-form input:-webkit-autofill:hover,
+      #login-form input:-webkit-autofill:focus {
+        -webkit-box-shadow: 0 0 0 1000px #F8F9FA inset !important;
+        box-shadow: 0 0 0 1000px #F8F9FA inset !important;
+      }
+    `;
+    document.head.appendChild(style);
+    return () => { document.head.removeChild(style); };
+  }, []);
 
   const checkExistingSession = async () => {
     try {
       const { isAuthenticated } = await import('@/lib/auth');
-      const authenticated = await isAuthenticated();
-      if (authenticated) {
-        // 已有session，跳转到首页（首页会处理后续逻辑）
-        router.replace('/');
-      }
-    } catch (error) {
-      // 静默处理错误，不影响登录流程
-      console.log('Session check failed (non-blocking):', error);
-    }
+      if (await isAuthenticated()) router.replace('/');
+    } catch (_) {}
   };
 
   const handleLogin = async () => {
@@ -54,37 +59,131 @@ export default function LoginScreen() {
       Alert.alert('Error', 'Please enter email and password');
       return;
     }
-
     setLoading(true);
     const { error } = await signIn(email.trim(), password);
     setLoading(false);
-
     if (error) {
       Alert.alert('Login Failed', error.message);
-    } else {
-      // 登录成功后，首先检查邀请（处理邀请应在index之前）
-      // 流程：登录成功 -> 判断是否被邀请 -> 有邀请跳转到handle-invitations，无邀请跳转到index
-      try {
-        const { getPendingInvitationsForUser } = await import('@/lib/space-invitations');
-        const invitations = await getPendingInvitationsForUser();
-        
-        if (invitations.length > 0) {
-          // 有邀请，跳转到邀请处理页面（handle-invitations会处理后续流程）
-          console.log('Login: Found pending invitations, redirecting to handle-invitations');
-          router.replace('/handle-invitations');
-          return;
-        }
-      } catch (invError) {
-        // 邀请检查失败不影响登录流程，静默继续（getPendingInvitationsForUser 已处理错误）
-        console.log('Login: Invitation check failed (non-blocking):', invError);
-      }
-      
-      // 没有邀请，跳转到index（index会检查是否有空间，无空间跳转到setup-space，有空间进入应用）
-      console.log('Login: No invitations, redirecting to index');
-      router.replace('/');
+      return;
     }
+    try {
+      const { getPendingInvitationsForUser } = await import('@/lib/space-invitations');
+      if ((await getPendingInvitationsForUser()).length > 0) {
+        router.replace('/handle-invitations');
+        return;
+      }
+    } catch (_) {}
+    router.replace('/');
   };
 
+  if (Platform.OS !== 'web') {
+    return (
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+      >
+        <StatusBar style="dark" />
+        <ScrollView
+          contentContainerStyle={styles.scrollContentMobile}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.contentMobile}>
+            <View style={styles.headerMobile}>
+              <View style={styles.logoRowMobile}>
+                <Image
+                  source={require('../assets/icon.png')}
+                  style={styles.logoImgMobile}
+                  resizeMode="contain"
+                />
+                <Text style={styles.brandNameMobile}>Vouchap</Text>
+              </View>
+              <Text style={styles.sloganMobile}>
+                <Text style={styles.sloganLine1Mobile}>Voucher Snapping,</Text>
+                {'\n'}
+                <Text style={styles.sloganLine2Mobile}>Balance Clarity.</Text>
+              </Text>
+            </View>
+
+            <View style={styles.formMobile}>
+              <View style={styles.inputContainerMobile}>
+                <Ionicons name="mail-outline" size={20} color="#636E72" style={styles.inputIconMobile} />
+                <TextInput
+                  style={styles.inputMobile}
+                  placeholder="Email"
+                  placeholderTextColor="#95A5A6"
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  importantForAutofill="yes"
+                  returnKeyType="next"
+                  onSubmitEditing={() => passwordInputRef.current?.focus()}
+                  editable={!loading}
+                />
+              </View>
+
+              <View style={styles.inputContainerMobile}>
+                <Ionicons name="lock-closed-outline" size={20} color="#636E72" style={styles.inputIconMobile} />
+                <TextInput
+                  ref={passwordInputRef}
+                  style={styles.inputMobile}
+                  placeholder="Password"
+                  placeholderTextColor="#95A5A6"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoComplete="password"
+                  textContentType="password"
+                  importantForAutofill="yes"
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
+                  editable={!loading}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.eyeIconMobile}
+                  hitSlop={10}
+                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color="#636E72" />
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.buttonMobile, loading && styles.buttonDisabledMobile]}
+                onPress={handleLogin}
+                disabled={loading}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonTextMobile}>Sign In</Text>
+                )}
+              </TouchableOpacity>
+
+              <View style={styles.linksContainerMobile}>
+                <TouchableOpacity style={styles.linkButtonMobile} onPress={() => router.push('/reset-password')}>
+                  <Text style={styles.linkTextMobile}>
+                    Forgot password? <Text style={styles.linkTextBoldMobile}>Reset It</Text>
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.linkButtonMobile} onPress={() => router.push('/register')}>
+                  <Text style={styles.linkTextMobile}>
+                    Don't have an account? <Text style={styles.linkTextBoldMobile}>Sign Up</Text>
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
 
   return (
     <KeyboardAvoidingView
@@ -93,162 +192,175 @@ export default function LoginScreen() {
       keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
     >
       <StatusBar style="dark" />
+      <View style={styles.bg}>
+        {Platform.OS === 'web' && (
+          <>
+            <View style={styles.orb1Wrap}>
+              <LinearGradient
+                colors={['rgba(108, 92, 231, 0.2)', 'rgba(108, 92, 231, 0.06)', 'transparent']}
+                locations={[0, 0.5, 1]}
+                start={{ x: 0.5, y: 0.5 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.orb1}
+              />
+            </View>
+            <View style={styles.orb2Wrap}>
+              <LinearGradient
+                colors={['rgba(162, 155, 254, 0.15)', 'rgba(162, 155, 254, 0.04)', 'transparent']}
+                locations={[0, 0.5, 1]}
+                start={{ x: 0.5, y: 0.5 }}
+                end={{ x: 0, y: 0 }}
+                style={styles.orb2}
+              />
+            </View>
+          </>
+        )}
+      </View>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.content}>
+        <View style={styles.card}>
           <View style={styles.header}>
-            <View style={styles.iconContainer}>
-              <View style={styles.circle}>
-                <Ionicons name="receipt" size={60} color="#6C5CE7" />
-              </View>
+            <View style={styles.logoRow}>
+              <Image
+                source={require('../assets/icon.png')}
+                style={styles.logoImg}
+                resizeMode="contain"
+              />
+              <Text style={styles.brandName}>Vouchap</Text>
             </View>
-            <Text style={styles.title}>Welcome</Text>
-            <Text style={styles.subtitle}>Sign in to your account</Text>
+            <Text style={styles.slogan}>
+              <Text style={styles.sloganLine1}>Voucher Snapping,</Text>
+              {'\n'}
+              <Text style={styles.sloganLine2}>Balance Clarity.</Text>
+            </Text>
           </View>
 
-          <View style={styles.form}>
-            <View style={styles.inputContainer}>
-              <Ionicons name="mail-outline" size={20} color="#636E72" style={styles.inputIcon} />
-              <TextInput
-                style={styles.input}
-                placeholder="Email"
-                placeholderTextColor="#95A5A6"
-                value={email}
-                onChangeText={setEmail}
-                autoCapitalize="none"
-                keyboardType="email-address"
-                autoComplete="email"
-                textContentType="emailAddress"
-                importantForAutofill="yes"
-                autoCorrect={false}
-                returnKeyType="next"
-                onSubmitEditing={() => {
-                  passwordInputRef.current?.focus();
-                }}
-                accessibilityLabel="Email address"
-                editable={!loading}
-              />
+          <View style={styles.form} {...(Platform.OS === 'web' ? { nativeID: 'login-form' } : {})}>
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Email Address</Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons name="mail-outline" size={20} color="#636E72" style={styles.inputIcon} />
+                <TextInput
+                  style={styles.input}
+                  placeholder="name@company.com"
+                  underlineColorAndroid="transparent"
+                  placeholderTextColor="#95A5A6"
+                  value={email}
+                  onChangeText={setEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  returnKeyType="next"
+                  onSubmitEditing={() => passwordInputRef.current?.focus()}
+                  editable={!loading}
+                />
+              </View>
             </View>
 
-            <View style={styles.inputContainer}>
-              <Ionicons name="lock-closed-outline" size={20} color="#636E72" style={styles.inputIcon} />
-              <TextInput
-                ref={passwordInputRef}
-                style={styles.input}
-                placeholder="Password"
-                placeholderTextColor="#95A5A6"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry={!showPassword}
-                autoCapitalize="none"
-                autoComplete="password"
-                textContentType="password"
-                importantForAutofill="yes"
-                autoCorrect={false}
-                returnKeyType="done"
-                onSubmitEditing={handleLogin}
-                accessibilityLabel="Password"
-                editable={!loading}
-              />
-              <TouchableOpacity
-                onPress={() => setShowPassword(!showPassword)}
-                style={styles.eyeIcon}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                accessibilityLabel={showPassword ? "Hide password" : "Show password"}
-              >
-                <Ionicons
-                  name={showPassword ? 'eye-outline' : 'eye-off-outline'}
-                  size={20}
-                  color="#636E72"
+            <View style={styles.inputGroup}>
+              <Text style={styles.label}>Password</Text>
+              <View style={styles.inputWrapper}>
+                <Ionicons name="lock-closed-outline" size={20} color="#636E72" style={styles.inputIcon} />
+                <TextInput
+                  ref={passwordInputRef}
+                  style={styles.input}
+                  placeholder="••••••••"
+                  underlineColorAndroid="transparent"
+                  placeholderTextColor="#95A5A6"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                  autoCapitalize="none"
+                  autoComplete="password"
+                  textContentType="password"
+                  returnKeyType="done"
+                  onSubmitEditing={handleLogin}
+                  editable={!loading}
                 />
-              </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={styles.eyeIcon}
+                  hitSlop={10}
+                  accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  <Ionicons name={showPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color="#636E72" />
+                </TouchableOpacity>
+              </View>
             </View>
 
             <TouchableOpacity
-              style={[styles.button, loading && styles.buttonDisabled]}
+              style={[styles.btnWrap, loading && styles.btnDisabled]}
               onPress={handleLogin}
               disabled={loading}
+              activeOpacity={0.9}
             >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <>
-                  <Text style={styles.buttonText}>Sign In</Text>
-                </>
-              )}
+              <LinearGradient
+                colors={['#6C5CE7', '#A29BFE']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.loginBtn}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.loginBtnText}>Sign In</Text>
+                )}
+              </LinearGradient>
             </TouchableOpacity>
+          </View>
 
-            <View style={styles.linksContainer}>
-              <TouchableOpacity
-                style={styles.linkButton}
-                onPress={() => router.push('/reset-password')}
-              >
-                <Text style={styles.linkText}>
-                  Forgot password? <Text style={styles.linkTextBold}>Reset It</Text>
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.linkButton}
-                onPress={() => router.push('/register')}
-              >
-                <Text style={styles.linkText}>
-                  Don't have an account? <Text style={styles.linkTextBold}>Sign Up</Text>
-                </Text>
-              </TouchableOpacity>
-            </View>
+          <View style={styles.footer}>
+            <TouchableOpacity style={styles.footerLink} onPress={() => router.push('/reset-password')}>
+              <Text style={styles.footerLinkP}>Forgot password? <Text style={styles.footerLinkSpan}>Reset It</Text></Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.footerLink} onPress={() => router.push('/register')}>
+              <Text style={styles.footerLinkP}>Don't have an account? <Text style={styles.footerLinkSpan}>Sign Up</Text></Text>
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
-
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#F8F9FA',
-  },
-  content: {
+  container: { flex: 1 },
+  scrollContentMobile: { flexGrow: 1 },
+  contentMobile: {
     flex: 1,
     paddingHorizontal: 20,
     paddingTop: 80,
     paddingBottom: 40,
   },
-  header: {
+  headerMobile: { alignItems: 'center', marginBottom: 40 },
+  logoRowMobile: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 40,
-  },
-  iconContainer: {
+    justifyContent: 'center',
+    gap: 12,
     marginBottom: 24,
   },
-  circle: {
-    width: 120,
-    height: 120,
-    borderRadius: 60,
-    backgroundColor: '#E9ECEF',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: 'bold',
+  logoImgMobile: { width: 64, height: 64 },
+  brandNameMobile: {
+    fontSize: 32,
+    fontWeight: '800',
     color: '#2D3436',
-    marginBottom: 8,
+    letterSpacing: -0.5,
   },
-  subtitle: {
-    fontSize: 16,
-    color: '#636E72',
+  sloganMobile: {
+    fontSize: 24,
+    fontWeight: '800',
+    textAlign: 'center',
+    lineHeight: 32,
   },
-  form: {
-    flex: 1,
-    paddingBottom: 20,
-  },
-  inputContainer: {
+  sloganLine1Mobile: { color: '#2D3436' },
+  sloganLine2Mobile: { color: '#6C5CE7' },
+  formMobile: { flex: 1, paddingBottom: 20 },
+  inputContainerMobile: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#fff',
@@ -259,26 +371,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E9ECEF',
     minHeight: 56,
-    // 优化触摸响应
     justifyContent: 'flex-start',
   },
-  inputIcon: {
-    marginRight: 12,
-  },
-  input: {
+  inputIconMobile: { marginRight: 12 },
+  inputMobile: {
     flex: 1,
     fontSize: 16,
     color: '#2D3436',
     paddingVertical: 0,
     minHeight: 24,
-    // 优化输入响应性
     includeFontPadding: false,
     textAlignVertical: 'center',
   },
-  eyeIcon: {
-    padding: 4,
-  },
-  button: {
+  eyeIconMobile: { padding: 4 },
+  buttonMobile: {
     backgroundColor: '#6C5CE7',
     borderRadius: 12,
     paddingVertical: 16,
@@ -292,28 +398,173 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 5,
   },
-  buttonDisabled: {
-    opacity: 0.6,
+  buttonDisabledMobile: { opacity: 0.6 },
+  buttonTextMobile: { color: '#fff', fontSize: 18, fontWeight: '600' },
+  linksContainerMobile: { gap: 24 },
+  linkButtonMobile: { alignItems: 'center', paddingVertical: 8 },
+  linkTextMobile: { fontSize: 14, color: '#636E72' },
+  linkTextBoldMobile: { color: '#6C5CE7', fontWeight: '600' },
+  bg: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#F8F9FA',
+    overflow: 'visible',
   },
-  buttonText: {
-    color: '#fff',
-    fontSize: 18,
-    fontWeight: '600',
+  orb1Wrap: {
+    position: 'absolute',
+    width: 800,
+    height: 500,
+    top: -150,
+    left: '50%',
+    marginLeft: -400,
+    borderRadius: 400,
+    overflow: 'hidden',
   },
-  linksContainer: {
+  orb1: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 400,
+  },
+  orb2Wrap: {
+    position: 'absolute',
+    width: 600,
+    height: 480,
+    bottom: -80,
+    right: -100,
+    borderRadius: 300,
+    overflow: 'hidden',
+  },
+  orb2: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 300,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 440,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 32,
+    padding: 32,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: 28,
+  },
+  logoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+    marginBottom: 20,
+  },
+  logoImg: {
+    width: 64,
+    height: 64,
+  },
+  brandName: {
+    fontSize: 32,
+    fontWeight: '800',
+    color: '#2D3436',
+    letterSpacing: -0.5,
+  },
+  slogan: {
+    fontSize: 24,
+    fontWeight: '800',
+    textAlign: 'center',
+    lineHeight: 32,
+  },
+  sloganLine1: {
+    color: '#2D3436',
+  },
+  sloganLine2: {
+    color: '#6C5CE7',
+  },
+  form: {
     gap: 24,
   },
-  linkButton: {
-    alignItems: 'center',
-    paddingVertical: 8,
+  inputGroup: {
+    gap: 8,
   },
-  linkText: {
+  label: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#2D3436',
+    marginLeft: 4,
+  },
+  inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    minHeight: 52,
+  },
+  inputIcon: {
+    marginRight: 12,
+  },
+  input: {
+    flex: 1,
+    fontSize: 16,
+    color: '#2D3436',
+    paddingVertical: 0,
+    minHeight: 24,
+    includeFontPadding: false,
+    textAlignVertical: 'center',
+    backgroundColor: '#F8F9FA',
+    outlineStyle: 'none',
+  },
+  eyeIcon: {
+    padding: 4,
+  },
+  btnWrap: {
+    marginTop: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  btnDisabled: {
+    opacity: 0.7,
+  },
+  loginBtn: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 52,
+  },
+  loginBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  footer: {
+    marginTop: 28,
+    alignItems: 'center',
+    gap: 20,
+  },
+  footerLink: {
+    paddingVertical: 4,
+  },
+  footerLinkP: {
     fontSize: 14,
     color: '#636E72',
   },
-  linkTextBold: {
+  footerLinkSpan: {
     color: '#6C5CE7',
     fontWeight: '600',
   },
 });
-
