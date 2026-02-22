@@ -45,7 +45,7 @@ export default function ManualEntryScreen() {
   const handleSave = async () => {
     // 验证必填字段
     if (!supplierName.trim()) {
-      showToast('Please enter supplier name', 'error');
+      showToast('Please enter payee name', 'error');
       return;
     }
 
@@ -114,10 +114,10 @@ export default function ManualEntryScreen() {
       <ScrollView style={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.form}>
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Supplier Name *</Text>
+            <Text style={styles.label}>Payee *</Text>
             <TextInput
               style={styles.input}
-              placeholder="Enter supplier name"
+              placeholder="Enter payee name"
               placeholderTextColor="#95A5A6"
               value={supplierName}
               onChangeText={setSupplierName}

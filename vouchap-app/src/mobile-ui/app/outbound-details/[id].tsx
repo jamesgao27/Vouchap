@@ -195,11 +195,11 @@ export default function OutboundDetailsScreen() {
     const finalTargetId = payload.targetId;
     const finalTargetSource = payload.targetSource;
     if (!currentId || !finalTargetId) {
-      showToast('No linked customer to merge or target not found.', 'info');
+      showToast('No linked Receiver to merge or target not found.', 'info');
       return;
     }
     if (currentId === finalTargetId) {
-      showToast('Already linked to this customer.', 'info');
+      showToast('Already linked to this Receiver.', 'info');
       return;
     }
     if (finalTargetSource !== 'customer' && finalTargetSource !== 'supplier') {
@@ -756,7 +756,7 @@ export default function OutboundDetailsScreen() {
             <View style={styles.duplicateModalContent}>
               <View style={styles.duplicateModalHeader}>
                 <Ionicons name="person-outline" size={48} color="#6C5CE7" />
-                <Text style={styles.duplicateModalTitle}>Replace customer with:</Text>
+                <Text style={styles.duplicateModalTitle}>Replace Receiver with:</Text>
               </View>
               <View style={styles.duplicateModalMessageBlock}>
                 <View style={styles.duplicateModalNameContainer}>
@@ -815,7 +815,7 @@ export default function OutboundDetailsScreen() {
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
             <View style={styles.pickerHandle} />
             <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>Select customer</Text>
+              <Text style={styles.pickerTitle}>Select Receiver</Text>
               <TouchableOpacity onPress={() => setShowCustomerPicker(false)} style={styles.pickerCloseButton}>
                 <Text style={styles.pickerCloseText}>Cancel</Text>
               </TouchableOpacity>

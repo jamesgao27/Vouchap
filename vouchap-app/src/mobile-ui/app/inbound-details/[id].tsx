@@ -214,11 +214,11 @@ export default function InboundDetailsScreen() {
     const finalTargetId = payload.targetId;
     const finalTargetSource = payload.targetSource;
     if (!currentId || !finalTargetId) {
-      showToast('No linked supplier to merge or target not found.', 'info');
+      showToast('No linked Sender to merge or target not found.', 'info');
       return;
     }
     if (currentId === finalTargetId) {
-      showToast('Already linked to this supplier.', 'info');
+      showToast('Already linked to this Sender.', 'info');
       return;
     }
     if (finalTargetSource !== 'supplier' && finalTargetSource !== 'customer') {
@@ -811,7 +811,7 @@ export default function InboundDetailsScreen() {
             <View style={styles.duplicateModalContent}>
               <View style={styles.duplicateModalHeader}>
                 <Ionicons name="business-outline" size={48} color="#6C5CE7" />
-                <Text style={styles.duplicateModalTitle}>Replace supplier with:</Text>
+                <Text style={styles.duplicateModalTitle}>Replace Sender with:</Text>
               </View>
               <View style={styles.duplicateModalMessageBlock}>
                 <View style={styles.duplicateModalNameContainer}>
@@ -870,7 +870,7 @@ export default function InboundDetailsScreen() {
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
             <View style={styles.pickerHandle} />
             <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>Select supplier</Text>
+              <Text style={styles.pickerTitle}>Select Sender</Text>
               <TouchableOpacity
                 onPress={() => setShowSupplierPicker(false)}
                 style={styles.pickerCloseButton}

@@ -382,7 +382,7 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
 
 // 获取所有小票（当前家庭的）
 
-/** 首屏极速加载：仅 receipts 表、limit 15、无 join，用于立即渲染，合计后续更新 */
+/** 首屏极速加载：仅 receipts 表、limit 15、含 entity merge 解析，用于立即渲染为合并后名称，避免二次刷新 */
 const FIRST_PAINT_LIMIT = 15;
 
 export async function getReceiptsForListFirstPaint(): Promise<Receipt[]> {
@@ -404,15 +404,41 @@ export async function getReceiptsForListFirstPaint(): Promise<Receipt[]> {
 
   if (error) throw error;
   const rows = data || [];
+  const entityMergeMap = await getEntityMergeMap(spaceId);
+  const resolveEntity = (eid: string) => {
+    let current = eid;
+    const seen = new Set<string>();
+    while (entityMergeMap.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = entityMergeMap.get(current)!;
+    }
+    return current;
+  };
+  const needResolved = new Set<string>();
+  for (const row of rows) {
+    if (row.entity_id) {
+      const resolvedId = resolveEntity(row.entity_id);
+      if (!row.entities || row.entities.id !== resolvedId) needResolved.add(resolvedId);
+    }
+  }
+  const resolvedEntityCache = new Map<string, Awaited<ReturnType<typeof getEntityById>>>();
+  if (needResolved.size > 0) {
+    await Promise.all(Array.from(needResolved).map(async (id) => {
+      const e = await getEntityById(id);
+      if (e) resolvedEntityCache.set(id, e);
+    }));
+  }
   return rows.map((row: any) => {
-    const payeeName = row.entities?.name || '';
+    const resolvedEntityId = row.entity_id ? resolveEntity(row.entity_id) : null;
+    const entityRow = (resolvedEntityId ? resolvedEntityCache.get(resolvedEntityId) : null) ?? row.entities;
+    const payeeName = entityRow?.name || '';
     return {
     id: row.id,
     spaceId: row.space_id,
     supplierName: payeeName,
     storeName: payeeName,
     entityId: row.entity_id ?? undefined,
-    entity: row.entities ? { id: row.entities.id, spaceId: row.space_id, name: row.entities.name, isAiRecognized: false } : undefined,
+    entity: entityRow ? { id: entityRow.id, spaceId: row.space_id, name: entityRow.name, isAiRecognized: false } : undefined,
     totalAmount: row.total_amount,
     currency: row.currency,
     tax: row.tax,

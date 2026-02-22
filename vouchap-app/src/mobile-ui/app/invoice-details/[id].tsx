@@ -375,7 +375,7 @@ export default function InvoiceDetailsScreen() {
             showToast('Please select from the list', 'info');
             setShowCustomerPicker(true);
           } else {
-            showToast(`No customer found with name "${payload.duplicateName}". Please use the picker.`, 'info');
+            showToast(`No Payer found with name "${payload.duplicateName}". Please use the picker.`, 'info');
           }
           return;
         }
@@ -445,7 +445,7 @@ export default function InvoiceDetailsScreen() {
       const currentSource = invoice.customerId ? ('customer' as const) : invoice.customerSupplierId ? ('supplier' as const) : null;
       const currentId = invoice.customerId ?? invoice.customerSupplierId ?? null;
       if (!currentId || !currentSource) {
-        showToast('This income has no linked customer to merge.', 'info');
+        showToast('This income has no linked Payer to merge.', 'info');
         return;
       }
       let finalTargetId = payload.targetId;
@@ -455,14 +455,14 @@ export default function InvoiceDetailsScreen() {
         const nameToFindMerge = (payload.duplicateName || '').trim();
         const found = nameToFindMerge ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFindMerge)) : null;
         if (!found) {
-          showToast(nameToFindMerge ? `No customer found with name "${payload.duplicateName}".` : 'Please select from the list.', 'info');
+          showToast(nameToFindMerge ? `No Payer found with name "${payload.duplicateName}".` : 'Please select from the list.', 'info');
           return;
         }
         finalTargetId = found.id;
         finalTargetSource = found.source;
       }
       if (finalTargetId === currentId) {
-        showToast('Already linked to this customer.', 'info');
+        showToast('Already linked to this Payer.', 'info');
         return;
       }
       if (currentSource !== finalTargetSource) {
@@ -1107,7 +1107,7 @@ export default function InvoiceDetailsScreen() {
                   color="#6C5CE7"
                 />
                 <Text style={styles.duplicateModalTitle}>
-                  {duplicateNameModalPayload?.code === 'ACCOUNT_NAME_EXISTS' ? 'Replace account with:' : 'Replace customer with:'}
+                  {duplicateNameModalPayload?.code === 'ACCOUNT_NAME_EXISTS' ? 'Replace account with:' : 'Replace Payer with:'}
                 </Text>
               </View>
               <View style={styles.duplicateModalMessageBlock}>
@@ -1297,7 +1297,7 @@ export default function InvoiceDetailsScreen() {
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
             <View style={styles.pickerHandle} />
             <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>选择其他客户</Text>
+              <Text style={styles.pickerTitle}>Select Payer</Text>
               <TouchableOpacity onPress={() => setShowCustomerPicker(false)} style={styles.pickerCloseButton}>
                 <Text style={styles.pickerCloseText}>取消</Text>
               </TouchableOpacity>

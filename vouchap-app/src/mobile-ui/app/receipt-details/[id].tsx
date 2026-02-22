@@ -26,6 +26,7 @@ import { getSupplierOptions } from '@/lib/customer-supplier-list';
 import { normalizeNameForCompare } from '@/lib/name-utils';
 import { mergeSupplier } from '@/lib/suppliers';
 import { mergeCustomer } from '@/lib/customers';
+import { mergeEntity } from '@/lib/entities';
 import { getChatLogsByReceiptId } from '@/lib/chat-logs';
 import { getLocalDateString } from '@/lib/date-utils';
 import { playAudio, stopPlayback } from '@/lib/audio';
@@ -188,7 +189,23 @@ export default function ReceiptDetailsScreen() {
       setPendingDuplicatePayload(null);
       try {
         if (choice === 'replace') {
-          await updateReceipt(id, { ...editedReceipt, status: 'confirmed' as ReceiptStatus });
+          if (payload.code === 'ENTITY_NAME_EXISTS' && payload.targetId) {
+            const entityPayload = {
+              ...editedReceipt,
+              status: 'confirmed' as ReceiptStatus,
+              entityId: payload.targetId,
+              entity: { id: payload.targetId, name: payload.duplicateName, spaceId: '', isAiRecognized: false } as any,
+              supplierName: payload.duplicateName,
+              storeName: payload.duplicateName,
+            };
+            (entityPayload as any).supplierId = undefined;
+            (entityPayload as any).supplierCustomerId = undefined;
+            (entityPayload as any).supplier = undefined;
+            (entityPayload as any).supplierCustomer = undefined;
+            await updateReceipt(id, entityPayload, true);
+          } else {
+            await updateReceipt(id, { ...editedReceipt, status: 'confirmed' as ReceiptStatus }, true);
+          }
         } else if (choice === 'merge') {
           if (payload.code === 'ACCOUNT_NAME_EXISTS') {
             const currentAccountId = receipt.accountId;
@@ -197,6 +214,23 @@ export default function ReceiptDetailsScreen() {
               await mergeAccount([currentAccountId], targetId);
             }
             await updateReceipt(id, { ...editedReceipt, status: 'confirmed' as ReceiptStatus });
+          } else if (payload.code === 'ENTITY_NAME_EXISTS' && payload.targetId) {
+            const currentEntityId = receipt.entityId ?? receipt.entity?.id ?? null;
+            if (currentEntityId && currentEntityId !== payload.targetId) {
+              await mergeEntity([currentEntityId], payload.targetId);
+            }
+            await updateReceipt(
+              id,
+              {
+                ...editedReceipt,
+                status: 'confirmed' as ReceiptStatus,
+                entityId: payload.targetId,
+                entity: { id: payload.targetId, name: payload.duplicateName, spaceId: '', isAiRecognized: false } as any,
+                supplierName: payload.duplicateName,
+                storeName: payload.duplicateName,
+              },
+              true
+            );
           } else {
             const currentSource = receipt.supplierId ? ('supplier' as const) : receipt.supplierCustomerId ? ('customer' as const) : null;
             const currentId = receipt.supplierId ?? receipt.supplierCustomerId ?? null;
@@ -215,6 +249,17 @@ export default function ReceiptDetailsScreen() {
               status: 'confirmed' as ReceiptStatus,
               accountId: receipt.accountId,
               account: receipt.account,
+            };
+            await updateReceipt(id, reverted);
+          } else if (payload.code === 'ENTITY_NAME_EXISTS') {
+            const origName = receipt.entity?.name ?? receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
+            const reverted = {
+              ...editedReceipt,
+              status: 'confirmed' as ReceiptStatus,
+              entityId: receipt.entityId ?? receipt.entity?.id,
+              entity: receipt.entity,
+              supplierName: origName,
+              storeName: origName,
             };
             await updateReceipt(id, reverted);
           } else {
@@ -255,12 +300,12 @@ export default function ReceiptDetailsScreen() {
       const targetId = error?.targetId as string | undefined;
       const targetSource = error?.targetSource as 'supplier' | 'customer' | undefined;
 
-      if (code === 'SUPPLIER_NAME_EXISTS' || code === 'CUSTOMER_NAME_EXISTS') {
+      if (code === 'SUPPLIER_NAME_EXISTS' || code === 'CUSTOMER_NAME_EXISTS' || code === 'ENTITY_NAME_EXISTS') {
         setDuplicateNameModalPayload({
           code,
           duplicateName: duplicateName || '',
           targetId,
-          targetSource,
+          targetSource: code === 'ENTITY_NAME_EXISTS' ? undefined : targetSource,
           triggeredBy: 'save',
         });
         setShowDuplicateNameModal(true);
@@ -277,234 +322,75 @@ export default function ReceiptDetailsScreen() {
     setDuplicateNameModalPayload(null);
   };
 
-  /** 保留原来的：dropdown 立即恢复编辑态原值；save 则恢复并用原值直接 confirm。 */
-  const handleDuplicateNameDontChange = async () => {
+  const handleDuplicateNameDontChange = () => {
     const payload = duplicateNameModalPayload;
     setShowDuplicateNameModal(false);
     setDuplicateNameModalPayload(null);
-    if (payload?.triggeredBy === 'dropdown') {
-      if (!receipt) return;
-      if (payload?.code === 'ACCOUNT_NAME_EXISTS') {
-        const origAccount = receipt.account ?? (receipt.accountId ? accounts.find((a) => a.id === receipt.accountId) : undefined);
-        setEditedReceipt((prev) => prev ? { ...prev, accountId: receipt.accountId, account: origAccount } : prev);
-      } else {
-        const origName = receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
-        setEditedReceipt((prev) =>
-          prev
-            ? {
-                ...prev,
-                supplierName: origName,
-                storeName: origName,
-                supplierId: receipt.supplierId,
-                supplierCustomerId: receipt.supplierCustomerId,
-                supplier: receipt.supplier,
-                supplierCustomer: receipt.supplierCustomer,
-              }
-            : prev
-        );
-      }
-      return;
-    }
-    if (!receipt || !editedReceipt || !id) return;
+    if (!receipt) return;
     if (payload?.code === 'ACCOUNT_NAME_EXISTS') {
       const origAccount = receipt.account ?? (receipt.accountId ? accounts.find((a) => a.id === receipt.accountId) : undefined);
       setEditedReceipt((prev) => prev ? { ...prev, accountId: receipt.accountId, account: origAccount } : prev);
-      try {
-        const reverted = {
-          ...editedReceipt,
-          status: 'confirmed' as ReceiptStatus,
-          accountId: receipt.accountId,
-          account: origAccount,
-        };
-        await updateReceipt(id, reverted);
-        setEditing(false);
-        loadReceipt();
-      } catch (e: any) {
-        showToast(e?.message ?? 'Failed to save', 'error');
-      }
-      return;
-    }
-    const origName = receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
-    setEditedReceipt((prev) => prev ? { ...prev, supplierName: origName, storeName: origName } : prev);
-    try {
-      const reverted = {
-        ...editedReceipt,
-        status: 'confirmed' as ReceiptStatus,
-        supplierName: origName,
-        storeName: origName,
-        supplierId: receipt.supplierId,
-        supplierCustomerId: receipt.supplierCustomerId,
-        supplier: receipt.supplier,
-        supplierCustomer: receipt.supplierCustomer,
-      };
-      await updateReceipt(id, reverted);
-      setEditing(false);
-      loadReceipt();
-    } catch (e: any) {
-      showToast(e?.message ?? 'Failed to save', 'error');
+    } else if (payload?.code === 'ENTITY_NAME_EXISTS') {
+      const origName = receipt.entity?.name ?? receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
+      setEditedReceipt((prev) =>
+        prev
+          ? {
+              ...prev,
+              entityId: receipt.entityId ?? receipt.entity?.id,
+              entity: receipt.entity,
+              supplierName: origName,
+              storeName: origName,
+              supplierId: undefined,
+              supplierCustomerId: undefined,
+              supplier: undefined,
+              supplierCustomer: undefined,
+            }
+          : prev
+      );
+    } else {
+      const origName = receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
+      setEditedReceipt((prev) =>
+        prev
+          ? {
+              ...prev,
+              supplierName: origName,
+              storeName: origName,
+              supplierId: receipt.supplierId,
+              supplierCustomerId: receipt.supplierCustomerId,
+              supplier: receipt.supplier,
+              supplierCustomer: receipt.supplierCustomer,
+            }
+          : prev
+      );
     }
   };
 
-  const handleDuplicateNameReplace = async () => {
+  const handleDuplicateNameReplace = () => {
     const payload = duplicateNameModalPayload;
     if (!payload || !editedReceipt || !id) return;
-    if (payload.triggeredBy === 'dropdown') {
-      setPendingDuplicateChoice('replace');
-      setPendingDuplicatePayload({
-        code: payload.code,
-        duplicateName: payload.duplicateName,
-        targetId: payload.targetId,
-        targetSource: payload.targetSource,
-      });
-      setShowDuplicateNameModal(false);
-      setDuplicateNameModalPayload(null);
-      return;
-    }
+    setPendingDuplicateChoice('replace');
+    setPendingDuplicatePayload({
+      code: payload.code,
+      duplicateName: payload.duplicateName,
+      targetId: payload.targetId,
+      targetSource: payload.targetSource,
+    });
     setShowDuplicateNameModal(false);
     setDuplicateNameModalPayload(null);
-    try {
-      if (payload.code === 'ACCOUNT_NAME_EXISTS') {
-        const finalTargetId = payload.targetId;
-        if (!finalTargetId) {
-          showToast('Target account not found.', 'info');
-          return;
-        }
-        await updateReceipt(id, {
-          ...editedReceipt,
-          status: 'confirmed' as ReceiptStatus,
-          accountId: finalTargetId,
-          account: { id: finalTargetId, name: payload.duplicateName, spaceId: '', isAiRecognized: false } as Account,
-        });
-        setEditing(false);
-        loadReceipt();
-        return;
-      }
-      let finalTargetId = payload.targetId;
-      let finalTargetSource = payload.targetSource;
-      const label = payload.code === 'SUPPLIER_NAME_EXISTS' ? 'Supplier' : 'Customer';
-      if (finalTargetId == null || finalTargetSource == null) {
-        const options = await getSupplierOptions();
-        const nameToFind = (payload.duplicateName || '').trim();
-        const found = nameToFind ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFind)) : null;
-        if (!found) {
-          if (!nameToFind) {
-            showToast('Please select from the list', 'info');
-            setShowSupplierPicker(true);
-          } else {
-            showToast(`No ${label.toLowerCase()} found with name "${payload.duplicateName}". Please use the picker.`, 'info');
-          }
-          return;
-        }
-        finalTargetId = found.id;
-        finalTargetSource = found.source;
-      }
-      const updatePayload = {
-        ...editedReceipt,
-        status: 'confirmed' as ReceiptStatus,
-        supplierName: payload.duplicateName || editedReceipt.supplierName,
-        storeName: payload.duplicateName || editedReceipt.storeName,
-        supplierId: finalTargetSource === 'supplier' ? finalTargetId : undefined,
-        supplierCustomerId: finalTargetSource === 'customer' ? finalTargetId : undefined,
-        supplier: finalTargetSource === 'supplier' ? { id: finalTargetId, name: payload.duplicateName } : undefined,
-        supplierCustomer: finalTargetSource === 'customer' ? { id: finalTargetId, name: payload.duplicateName } : undefined,
-      };
-      if (finalTargetSource === 'supplier') {
-        (updatePayload as any).supplierCustomerId = undefined;
-        (updatePayload as any).supplierCustomer = undefined;
-      } else {
-        (updatePayload as any).supplierId = undefined;
-        (updatePayload as any).supplier = undefined;
-      }
-      await updateReceipt(id, updatePayload);
-      setEditing(false);
-      loadReceipt();
-    } catch (e) {
-      showToast('Failed to replace voucher', 'error');
-      console.error(e);
-    }
   };
 
-  const handleDuplicateNameMerge = async () => {
+  const handleDuplicateNameMerge = () => {
     const payload = duplicateNameModalPayload;
     if (!payload || !receipt) return;
-    if (payload.triggeredBy === 'dropdown') {
-      setPendingDuplicateChoice('merge');
-      setPendingDuplicatePayload({
-        code: payload.code,
-        duplicateName: payload.duplicateName,
-        targetId: payload.targetId,
-        targetSource: payload.targetSource,
-      });
-      setShowDuplicateNameModal(false);
-      setDuplicateNameModalPayload(null);
-      return;
-    }
-    if (payload.code === 'ACCOUNT_NAME_EXISTS') {
-      const currentAccountId = receipt.accountId;
-      const finalTargetId = payload.targetId;
-      setShowDuplicateNameModal(false);
-      setDuplicateNameModalPayload(null);
-      if (!currentAccountId || !finalTargetId) {
-        showToast('This receipt has no linked account or target not found.', 'info');
-        return;
-      }
-      if (currentAccountId === finalTargetId) {
-        showToast('Already linked to this account.', 'info');
-        return;
-      }
-      try {
-        await mergeAccount([currentAccountId], finalTargetId);
-        setEditing(false);
-        loadReceipt();
-      } catch (e: any) {
-        showToast(e?.message ?? String(e), 'error');
-      }
-      return;
-    }
-    const currentSource = receipt.supplierId ? ('supplier' as const) : receipt.supplierCustomerId ? ('customer' as const) : null;
-    const currentId = receipt.supplierId ?? receipt.supplierCustomerId ?? null;
-    if (!currentId || !currentSource) {
-      setShowDuplicateNameModal(false);
-      setDuplicateNameModalPayload(null);
-      showToast('This receipt has no linked supplier/customer to merge.', 'info');
-      return;
-    }
+    setPendingDuplicateChoice('merge');
+    setPendingDuplicatePayload({
+      code: payload.code,
+      duplicateName: payload.duplicateName,
+      targetId: payload.targetId,
+      targetSource: payload.targetSource,
+    });
     setShowDuplicateNameModal(false);
     setDuplicateNameModalPayload(null);
-    try {
-      let finalTargetId = payload.targetId;
-      let finalTargetSource = payload.targetSource;
-      const label = payload.code === 'SUPPLIER_NAME_EXISTS' ? 'Supplier' : 'Customer';
-      if (finalTargetId == null || finalTargetSource == null) {
-        const options = await getSupplierOptions();
-        const nameToFindMerge = (payload.duplicateName || '').trim();
-        const found = nameToFindMerge ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFindMerge)) : null;
-        if (!found) {
-          showToast(nameToFindMerge ? `No ${label.toLowerCase()} found with name "${payload.duplicateName}".` : 'Please select from the list.', 'info');
-          return;
-        }
-        finalTargetId = found.id;
-        finalTargetSource = found.source;
-      }
-      if (finalTargetId === currentId) {
-        showToast('Already linked to this supplier/customer.', 'info');
-        return;
-      }
-      if (currentSource !== finalTargetSource) {
-        showToast('Current link type differs from target. Use "Replace this voucher" instead.', 'info');
-        return;
-      }
-      if (currentSource === 'supplier') {
-        await mergeSupplier([currentId], finalTargetId);
-      } else {
-        await mergeCustomer([currentId], finalTargetId);
-      }
-      setEditing(false);
-      loadReceipt();
-    } catch (e: any) {
-      showToast(e?.message ?? String(e), 'error');
-      console.warn('Merge receipts supplier link failed:', e);
-    }
   };
 
   const handleConfirm = async () => {
@@ -661,8 +547,9 @@ export default function ReceiptDetailsScreen() {
         supplierCustomer: { id: option.id, name: option.name } as any,
       });
     }
-    // 从空改为选择时不弹三选项；仅当已有供应商/客户且换成另一个时弹窗
-    if ((currentSource !== option.source || currentId !== option.id) && (receipt?.supplierId ?? receipt?.supplierCustomerId)) {
+    // 从空改为选择时不弹三选项；仅当已有供应商/客户或关联方且换成另一个时弹窗（合并 entity 后 receipt 可能只有 entityId）
+    const hasExistingLink = !!(receipt?.supplierId ?? receipt?.supplierCustomerId ?? receipt?.entityId ?? receipt?.entity?.id);
+    if ((currentSource !== option.source || currentId !== option.id) && hasExistingLink) {
       setDuplicateNameModalPayload({
         code: option.source === 'supplier' ? 'SUPPLIER_NAME_EXISTS' : 'CUSTOMER_NAME_EXISTS',
         duplicateName: option.name,
@@ -1444,9 +1331,7 @@ export default function ReceiptDetailsScreen() {
                 <Text style={styles.duplicateModalTitle}>
                   {duplicateNameModalPayload?.code === 'ACCOUNT_NAME_EXISTS'
                     ? 'Replace account with:'
-                    : duplicateNameModalPayload?.code === 'SUPPLIER_NAME_EXISTS'
-                      ? 'Replace supplier with:'
-                      : 'Replace customer with:'}
+                    : 'Replace Payee with:'}
                 </Text>
               </View>
               <View style={styles.duplicateModalMessageBlock}>
@@ -1466,7 +1351,9 @@ export default function ReceiptDetailsScreen() {
                 {(() => {
                   const hasLinkedForMerge = duplicateNameModalPayload?.code === 'ACCOUNT_NAME_EXISTS'
                     ? !!receipt?.accountId
-                    : !!(receipt?.supplierId ?? receipt?.supplierCustomerId);
+                    : duplicateNameModalPayload?.code === 'ENTITY_NAME_EXISTS'
+                      ? !!(receipt?.entityId ?? receipt?.entity?.id) && (receipt?.entityId ?? receipt?.entity?.id) !== duplicateNameModalPayload?.targetId
+                      : !!(receipt?.supplierId ?? receipt?.supplierCustomerId);
                   return (
                     <TouchableOpacity
                       style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge, !hasLinkedForMerge && { opacity: 0.5 }]}
@@ -1814,7 +1701,7 @@ export default function ReceiptDetailsScreen() {
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
             <View style={styles.pickerHandle} />
             <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>Select supplier</Text>
+              <Text style={styles.pickerTitle}>Select Payee</Text>
               <TouchableOpacity
                 onPress={() => setShowSupplierPicker(false)}
                 style={styles.pickerCloseButton}
@@ -1838,7 +1725,7 @@ export default function ReceiptDetailsScreen() {
                       {opt.name}
                     </Text>
                     {opt.source === 'customer' && (
-                      <Text style={styles.pickerOptionSubtext}>Customer</Text>
+                      <Text style={styles.pickerOptionSubtext}>Payee</Text>
                     )}
                     {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
                   </TouchableOpacity>
