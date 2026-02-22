@@ -20,7 +20,7 @@ import { convertGeminiResultToInvoice } from '@/lib/receipt-helpers';
 import { runWithRecognitionRetry } from '@/lib/recognition-retry';
 import { showToast } from '@/lib/toast';
 import { showChoiceDialog } from '@/lib/confirmDialog';
-import WebReportView from '@/components/WebReportView';
+import WebDashboardView from '@/components/WebDashboardView';
 
 /** 首页是否显示「AI 进销存」入口：由 app.config.js extra.showAiInventory 控制，production 构建时 EXPO_PUBLIC_SHOW_AI_INVENTORY=false 则隐藏 */
 const SHOW_AI_INVENTORY_ENTRY = Constants.expoConfig?.extra?.showAiInventory !== false;
@@ -632,7 +632,7 @@ export default function HomeScreen() {
     return (
       <View style={styles.container}>
         <StatusBar style="dark" />
-        <WebReportView />
+        <WebDashboardView />
       </View>
     );
   }
