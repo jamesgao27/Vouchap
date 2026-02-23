@@ -24,6 +24,7 @@ export default function ResetPasswordScreen() {
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
+  const [emailSent, setEmailSent] = useState(false);
 
   const handleResetPassword = async () => {
     if (!email.trim()) {
@@ -44,10 +45,98 @@ export default function ResetPasswordScreen() {
     if (error) {
       showToast(error.message, 'error');
     } else {
-      showToast('Password reset link has been sent to your email. Please check your inbox.', 'success');
-      router.back();
+      setEmailSent(true);
     }
   };
+
+  // 发送成功后的提示与等待页
+  if (emailSent) {
+    if (isWeb) {
+      return (
+        <KeyboardAvoidingView style={stylesWeb.container} behavior={undefined}>
+          <StatusBar style="dark" />
+          <View style={stylesWeb.bg}>
+            <View style={stylesWeb.orb1Wrap}>
+              <LinearGradient
+                colors={['rgba(108, 92, 231, 0.2)', 'rgba(108, 92, 231, 0.06)', 'transparent']}
+                locations={[0, 0.5, 1]}
+                start={{ x: 0.5, y: 0.5 }}
+                end={{ x: 1, y: 1 }}
+                style={stylesWeb.orb1}
+              />
+            </View>
+            <View style={stylesWeb.orb2Wrap}>
+              <LinearGradient
+                colors={['rgba(162, 155, 254, 0.15)', 'rgba(162, 155, 254, 0.04)', 'transparent']}
+                locations={[0, 0.5, 1]}
+                start={{ x: 0.5, y: 0.5 }}
+                end={{ x: 0, y: 0 }}
+                style={stylesWeb.orb2}
+              />
+            </View>
+          </View>
+          <ScrollView contentContainerStyle={stylesWeb.scrollContent} showsVerticalScrollIndicator={false}>
+            <View style={stylesWeb.card}>
+              <View style={stylesWeb.header}>
+                <View style={stylesWeb.logoRow}>
+                  <Image source={require('../../../assets/icon.png')} style={stylesWeb.logoImg} resizeMode="contain" />
+                  <Text style={stylesWeb.brandName}>Vouchap</Text>
+                </View>
+                <View style={stylesWeb.successIconWrap}>
+                  <Ionicons name="mail-open-outline" size={48} color="#6C5CE7" />
+                </View>
+                <Text style={stylesWeb.title}>Check your email</Text>
+                <Text style={stylesWeb.subtitle}>
+                  We've sent a password reset link to{'\n'}
+                  <Text style={stylesWeb.emailHighlight}>{email.trim()}</Text>
+                </Text>
+                <Text style={stylesWeb.hint}>Please check your inbox and follow the link to set a new password.</Text>
+              </View>
+              <TouchableOpacity
+                style={stylesWeb.btnWrap}
+                onPress={() => router.back()}
+                activeOpacity={0.9}
+              >
+                <LinearGradient
+                  colors={['#6C5CE7', '#A29BFE']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={stylesWeb.mainBtn}
+                >
+                  <Text style={stylesWeb.mainBtnText}>Back to Sign In</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      );
+    }
+    return (
+      <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <StatusBar style="dark" />
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.content}>
+            <View style={styles.header}>
+              <View style={styles.iconContainer}>
+                <View style={[styles.circle, styles.successCircle]}>
+                  <Ionicons name="mail-open-outline" size={56} color="#6C5CE7" />
+                </View>
+              </View>
+              <Text style={styles.title}>Check your email</Text>
+              <Text style={styles.subtitle}>
+                We've sent a password reset link to{'\n'}
+                <Text style={styles.emailHighlight}>{email.trim()}</Text>
+              </Text>
+              <Text style={styles.hint}>Please check your inbox and follow the link to set a new password.</Text>
+            </View>
+            <TouchableOpacity style={styles.button} onPress={() => router.back()} activeOpacity={0.9}>
+              <Text style={styles.buttonText}>Back to Sign In</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
 
   if (isWeb) {
     return (
@@ -261,6 +350,9 @@ const stylesWeb = StyleSheet.create({
   brandName: { fontSize: 32, fontWeight: '800', color: '#2D3436', letterSpacing: -0.5 },
   title: { fontSize: 24, fontWeight: '800', color: '#2D3436', marginBottom: 8 },
   subtitle: { fontSize: 15, color: '#636E72', textAlign: 'center' },
+  successIconWrap: { marginBottom: 16 },
+  emailHighlight: { color: '#6C5CE7', fontWeight: '600' },
+  hint: { fontSize: 14, color: '#636E72', textAlign: 'center', marginTop: 8, lineHeight: 20 },
   form: { gap: 24 },
   label: { fontSize: 14, fontWeight: '500', color: '#2D3436', marginLeft: 4 },
   inputWrapper: {
@@ -312,6 +404,9 @@ const styles = StyleSheet.create({
   },
   title: { fontSize: 28, fontWeight: 'bold', color: '#2D3436', marginBottom: 8 },
   subtitle: { fontSize: 16, color: '#636E72', textAlign: 'center', paddingHorizontal: 20 },
+  successCircle: {},
+  emailHighlight: { color: '#6C5CE7', fontWeight: '600' },
+  hint: { fontSize: 15, color: '#636E72', textAlign: 'center', marginTop: 12, paddingHorizontal: 16, lineHeight: 22 },
   form: { flex: 1, paddingBottom: 20 },
   inputContainer: {
     flexDirection: 'row',
