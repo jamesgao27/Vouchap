@@ -83,14 +83,40 @@ export async function getInvoicesForListFirstPaint(): Promise<Invoice[]> {
 
   if (error) throw error;
   const rows = data || [];
+  const entityMergeMap = await getEntityMergeMap(spaceId);
+  const resolveEntity = (eid: string) => {
+    let current = eid;
+    const seen = new Set<string>();
+    while (entityMergeMap.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = entityMergeMap.get(current)!;
+    }
+    return current;
+  };
+  const needResolved = new Set<string>();
+  for (const r of rows) {
+    if (r.entity_id) {
+      const resolvedId = resolveEntity(r.entity_id);
+      if (!r.entities || r.entities.id !== resolvedId) needResolved.add(resolvedId);
+    }
+  }
+  const resolvedEntityCache = new Map<string, Awaited<ReturnType<typeof getEntityById>>>();
+  if (needResolved.size > 0) {
+    await Promise.all(Array.from(needResolved).map(async (id) => {
+      const e = await getEntityById(id);
+      if (e) resolvedEntityCache.set(id, e);
+    }));
+  }
   return rows.map((r: any) => {
-    const customerName = r.customer_name || r.entities?.name || '';
+    const resolvedEntityId = r.entity_id ? resolveEntity(r.entity_id) : null;
+    const entityRow = (resolvedEntityId ? resolvedEntityCache.get(resolvedEntityId) : null) ?? r.entities;
+    const customerName = r.customer_name || entityRow?.name || '';
     return {
     id: r.id,
     spaceId: r.space_id,
     customerName,
     entityId: r.entity_id ?? undefined,
-    entity: r.entities ? mapEntityRow(r.entities) : undefined,
+    entity: entityRow ? mapEntityRow(entityRow) : undefined,
     totalAmount: Number(r.total_amount),
     currency: r.currency ?? undefined,
     tax: r.tax != null ? Number(r.tax) : undefined,

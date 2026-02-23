@@ -1,6 +1,9 @@
 // 小票状态
 export type ReceiptStatus = 'pending' | 'processing' | 'confirmed' | 'needs_retake' | 'duplicate';
 
+// 收支范围：支出 / 收入，分类与用途可分别维护
+export type ExpenseIncomeScope = 'expense' | 'income';
+
 // 商品用途（用途主数据表 purposes）
 export interface Purpose {
   id: string;
@@ -8,6 +11,8 @@ export interface Purpose {
   name: string;
   color: string;
   isDefault: boolean;
+  /** 用于支出 expense 或收入 income，分别维护、分别提交模型 */
+  scope?: ExpenseIncomeScope;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -19,6 +24,8 @@ export interface Category {
   name: string;
   color: string;
   isDefault: boolean;
+  /** 用于支出 expense 或收入 income，分别维护、分别提交模型 */
+  scope?: ExpenseIncomeScope;
   createdAt?: string;
   updatedAt?: string;
 }

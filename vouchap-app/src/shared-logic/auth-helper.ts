@@ -1,36 +1,64 @@
 import { supabase } from './supabase';
+import {
+  DEFAULT_EXPENSE_CATEGORIES,
+  DEFAULT_INCOME_CATEGORIES,
+  DEFAULT_EXPENSE_PURPOSES,
+  DEFAULT_INCOME_PURPOSES,
+  DEFAULT_CATEGORY_COLOR,
+  DEFAULT_PURPOSE_COLOR,
+} from './category-purpose-presets';
 
-// 创建默认分类和支付账户的辅助函数
+// 创建默认分类与用途（支出+收入，带 scope 与预设颜色）+ 默认支付账户
 export async function createDefaultCategoriesAndAccounts(spaceId: string): Promise<void> {
-  // 创建默认分类
-  console.log('Creating default categories');
-  const { error: categoriesError } = await supabase.rpc('create_default_categories', {
+  // 优先调用 Supabase 种子函数（与迁移脚本一致：支出/收入分类+用途，颜色 #95A5A6）
+  console.log('Seeding default categories and purposes for new space');
+  const { error: seedError } = await supabase.rpc('seed_default_categories_purposes_for_space', {
     p_space_id: spaceId,
   });
 
-  if (categoriesError) {
-    console.warn('RPC创建默认分类失败，尝试手动创建:', categoriesError);
-    // 如果RPC失败，手动创建默认分类
-    const { error: manualCategoriesError } = await supabase.from('categories').insert([
-      { space_id: spaceId, name: 'Groceries', color: '#FF6B6B', is_default: true },
-      { space_id: spaceId, name: 'Dining Out', color: '#4ECDC4', is_default: true },
-      { space_id: spaceId, name: 'Transportation', color: '#FFA07A', is_default: true },
-      { space_id: spaceId, name: 'Personal Care', color: '#FFD93D', is_default: true },
-      { space_id: spaceId, name: 'Health', color: '#F7DC6F', is_default: true },
-      { space_id: spaceId, name: 'Entertainment', color: '#E17055', is_default: true },
-      { space_id: spaceId, name: 'Education', color: '#BB8FCE', is_default: true },
-      { space_id: spaceId, name: 'Housing', color: '#45B7D1', is_default: true },
-      { space_id: spaceId, name: 'Utilities', color: '#74B9FF', is_default: true },
-      { space_id: spaceId, name: 'Clothing', color: '#FD79A8', is_default: true },
-      { space_id: spaceId, name: 'Subscriptions', color: '#55A3FF', is_default: true },
-    ]);
-    
-    if (manualCategoriesError) {
-      console.error('手动创建默认分类也失败:', manualCategoriesError);
-      // 不抛出错误，允许继续，用户可以稍后手动创建
-    } else {
-      console.log('默认分类创建成功');
-    }
+  if (seedError) {
+    console.warn('RPC 种子预设失败，使用应用层预设回退:', seedError.message);
+    const colorCat = DEFAULT_CATEGORY_COLOR;
+    const colorPur = DEFAULT_PURPOSE_COLOR;
+    const categoryRows = [
+      ...DEFAULT_EXPENSE_CATEGORIES.map((name) => ({
+        space_id: spaceId,
+        name,
+        color: colorCat,
+        is_default: false,
+        scope: 'expense',
+      })),
+      ...DEFAULT_INCOME_CATEGORIES.map((name) => ({
+        space_id: spaceId,
+        name,
+        color: colorCat,
+        is_default: false,
+        scope: 'income',
+      })),
+    ];
+    const purposeRows = [
+      ...DEFAULT_EXPENSE_PURPOSES.map((name) => ({
+        space_id: spaceId,
+        name,
+        color: colorPur,
+        is_default: false,
+        scope: 'expense',
+      })),
+      ...DEFAULT_INCOME_PURPOSES.map((name) => ({
+        space_id: spaceId,
+        name,
+        color: colorPur,
+        is_default: false,
+        scope: 'income',
+      })),
+    ];
+    const { error: catErr } = await supabase.from('categories').insert(categoryRows);
+    if (catErr) console.warn('应用层回退创建分类失败:', catErr.message);
+    const { error: purErr } = await supabase.from('purposes').insert(purposeRows);
+    if (purErr) console.warn('应用层回退创建用途失败:', purErr.message);
+    if (!catErr && !purErr) console.log('默认分类与用途（含颜色）创建成功');
+  } else {
+    console.log('默认分类与用途已通过 RPC 写入');
   }
 
   // 创建默认账户（只创建 Cash）
@@ -48,29 +76,6 @@ export async function createDefaultCategoriesAndAccounts(spaceId: string): Promi
       console.error('手动创建默认账户也失败:', manualAccountsError);
     } else {
       console.log('默认账户（Cash）创建成功');
-    }
-  }
-
-  // 创建默认用途
-  console.log('Creating default purposes');
-  const { error: purposesError } = await supabase.rpc('create_default_purposes', {
-    p_space_id: spaceId,
-  });
-
-  if (purposesError) {
-    console.warn('RPC创建默认用途失败，尝试手动创建:', purposesError);
-    // 如果RPC失败，手动创建默认用途
-    const { error: manualPurposesError } = await supabase.from('purposes').insert([
-      { space_id: spaceId, name: 'Home', color: '#00B894', is_default: true },
-      { space_id: spaceId, name: 'Gifts', color: '#E84393', is_default: true },
-      { space_id: spaceId, name: 'Business', color: '#FF9500', is_default: true },
-    ]);
-    
-    if (manualPurposesError) {
-      console.error('手动创建默认用途也失败:', manualPurposesError);
-      // 不抛出错误，允许继续，用户可以稍后手动创建
-    } else {
-      console.log('默认用途创建成功');
     }
   }
 }

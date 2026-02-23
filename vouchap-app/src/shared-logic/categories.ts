@@ -1,49 +1,80 @@
 import { supabase } from './supabase';
-import { Category } from '@/types';
+import { Category, ExpenseIncomeScope } from '@/types';
 import { getCurrentUser } from './auth';
 
-// 获取当前空间的所有分类
-export async function getCategories(): Promise<Category[]> {
+function mapCategoryRow(row: any): Category {
+  return {
+    id: row.id,
+    spaceId: row.space_id,
+    name: row.name,
+    color: row.color,
+    isDefault: row.is_default,
+    scope: row.scope === 'income' ? 'income' : (row.scope === 'expense' ? 'expense' : undefined),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** 含 Other 的列表将 Other 排到最后 */
+function sortOtherLast<T extends { name: string }>(list: T[]): T[] {
+  return [...list].sort((a, b) => (a.name === 'Other' ? 1 : 0) - (b.name === 'Other' ? 1 : 0));
+}
+
+/** 获取当前空间的分类，可选 scope 仅返回支出或收入 */
+export async function getCategories(scope?: ExpenseIncomeScope): Promise<Category[]> {
   try {
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
 
-    // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('categories')
       .select('*')
-      .eq('space_id', spaceId)
+      .eq('space_id', spaceId);
+
+    if (scope === 'expense') {
+      query = query.or('scope.eq.expense,scope.is.null');
+    } else if (scope === 'income') {
+      query = query.eq('scope', 'income');
+    }
+
+    let result = await query
       .order('usage_count', { ascending: false, nullsFirst: false })
       .order('is_default', { ascending: false })
       .order('name', { ascending: true });
 
-    if (error) throw error;
+    if (result.error) {
+      if (result.error.message?.includes('scope') || result.error.code === '42703') {
+        const { data: all } = await supabase
+          .from('categories')
+          .select('*')
+          .eq('space_id', spaceId)
+          .order('usage_count', { ascending: false, nullsFirst: false })
+          .order('is_default', { ascending: false })
+          .order('name', { ascending: true });
+        const filtered = scope === 'income'
+          ? (all || []).filter((r: any) => r.scope === 'income')
+          : (all || []).filter((r: any) => r.scope === 'expense' || r.scope == null);
+        return sortOtherLast(filtered.map(mapCategoryRow));
+      }
+      throw result.error;
+    }
 
-    return (data || []).map((row: any) => ({
-      id: row.id,
-      spaceId: row.space_id,
-      name: row.name,
-      color: row.color,
-      isDefault: row.is_default,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
+    return sortOtherLast((result.data || []).map(mapCategoryRow));
   } catch (error) {
     console.error('Error fetching categories:', error);
     throw error;
   }
 }
 
-// 创建分类
-export async function createCategory(name: string, color: string = '#95A5A6'): Promise<Category> {
+// 创建分类，scope 必填以区分支出/收入
+export async function createCategory(name: string, color: string = '#95A5A6', scope: ExpenseIncomeScope = 'expense'): Promise<Category> {
   try {
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
 
-    // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
@@ -54,21 +85,24 @@ export async function createCategory(name: string, color: string = '#95A5A6'): P
         name: name.trim(),
         color: color,
         is_default: false,
+        scope: scope,
       })
       .select()
       .single();
 
-    if (error) throw error;
-
-    return {
-      id: data.id,
-      spaceId: data.space_id,
-      name: data.name,
-      color: data.color,
-      isDefault: data.is_default,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    };
+    if (error) {
+      if (error.message?.includes('scope') || error.code === '42703') {
+        const { data: fallback, error: err2 } = await supabase
+          .from('categories')
+          .insert({ space_id: spaceId, name: name.trim(), color, is_default: false })
+          .select()
+          .single();
+        if (err2) throw err2;
+        return mapCategoryRow(fallback);
+      }
+      throw error;
+    }
+    return mapCategoryRow(data!);
   } catch (error) {
     console.error('Error creating category:', error);
     throw error;
@@ -76,7 +110,7 @@ export async function createCategory(name: string, color: string = '#95A5A6'): P
 }
 
 // 更新分类
-export async function updateCategory(categoryId: string, updates: { name?: string; color?: string }): Promise<void> {
+export async function updateCategory(categoryId: string, updates: { name?: string; color?: string; scope?: ExpenseIncomeScope }): Promise<void> {
   try {
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
@@ -84,8 +118,8 @@ export async function updateCategory(categoryId: string, updates: { name?: strin
     const updateData: any = {};
     if (updates.name !== undefined) updateData.name = updates.name.trim();
     if (updates.color !== undefined) updateData.color = updates.color;
+    if (updates.scope !== undefined) updateData.scope = updates.scope;
 
-    // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
@@ -138,38 +172,43 @@ export async function deleteCategory(categoryId: string): Promise<void> {
   }
 }
 
-// 根据名称查找分类（用于AI识别后匹配）
-export async function findCategoryByName(name: string): Promise<Category | null> {
+// 根据名称查找分类（用于AI识别后匹配），scope 可选以限定支出/收入
+export async function findCategoryByName(name: string, scope?: ExpenseIncomeScope): Promise<Category | null> {
   try {
     const user = await getCurrentUser();
     if (!user) return null;
 
-    // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) return null;
 
-    const { data, error } = await supabase
+    let query = supabase
       .from('categories')
       .select('*')
       .eq('space_id', spaceId)
       .ilike('name', name.trim())
-      .limit(1)
-      .single();
+      .limit(1);
 
-    if (error) {
-      if (error.code === 'PGRST116') return null; // Not found
-      throw error;
+    if (scope === 'expense') query = query.or('scope.eq.expense,scope.is.null');
+    else if (scope === 'income') query = query.eq('scope', 'income');
+
+    let result = await query.single();
+
+    if (result.error) {
+      if (result.error.code === 'PGRST116') return null;
+      if (result.error.message?.includes('scope') || result.error.code === '42703') {
+        const { data: fallback } = await supabase
+          .from('categories')
+          .select('*')
+          .eq('space_id', spaceId)
+          .ilike('name', name.trim())
+          .limit(1)
+          .maybeSingle();
+        return fallback ? mapCategoryRow(fallback) : null;
+      }
+      throw result.error;
     }
 
-    return {
-      id: data.id,
-      spaceId: data.space_id,
-      name: data.name,
-      color: data.color,
-      isDefault: data.is_default,
-      createdAt: data.created_at,
-      updatedAt: data.updated_at,
-    };
+    return mapCategoryRow(result.data);
   } catch (error) {
     console.error('Error finding category:', error);
     return null;

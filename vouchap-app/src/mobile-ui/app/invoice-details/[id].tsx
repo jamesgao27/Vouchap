@@ -109,7 +109,7 @@ export default function InvoiceDetailsScreen() {
 
   const loadCategories = async () => {
     try {
-      const cats = await getCategories();
+      const cats = await getCategories('income');
       setCategories(cats);
     } catch (error) {
       console.error('Error loading categories:', error);
@@ -118,7 +118,7 @@ export default function InvoiceDetailsScreen() {
 
   const loadPurposes = async () => {
     try {
-      const purps = await getPurposes();
+      const purps = await getPurposes('income');
       setPurposes(purps);
     } catch (error) {
       console.error('Error loading purposes:', error);
@@ -1022,7 +1022,7 @@ export default function InvoiceDetailsScreen() {
                 <View style={styles.tagGroupCenter}>
                   <TouchableOpacity style={styles.tagTouchable} onPress={() => setShowPurposePicker(index)}>
                     <View style={[styles.tag, { backgroundColor: item.purpose?.color || purposes.find(p => p.id === item.purposeId)?.color || '#95A5A6' }]}>
-                      <Text style={styles.tagText} numberOfLines={1} ellipsizeMode="tail">{item.purpose?.name || purposes.find(p => p.id === item.purposeId)?.name || 'Purpose'}</Text>
+                      <Text style={styles.tagText} numberOfLines={1} ellipsizeMode="tail">{item.purpose?.name || purposes.find(p => p.id === item.purposeId)?.name || 'Source'}</Text>
                       <Ionicons name="chevron-down" size={12} color="#fff" style={styles.tagIcon} />
                     </View>
                   </TouchableOpacity>
@@ -1188,7 +1188,7 @@ export default function InvoiceDetailsScreen() {
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
             <View style={styles.pickerHandle} />
             <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>Select Purpose</Text>
+              <Text style={styles.pickerTitle}>Select Source</Text>
               <TouchableOpacity style={styles.pickerManageButton} onPress={() => { setShowPurposePicker(null); router.push('/purposes-manage'); }}>
                 <Ionicons name="settings-outline" size={20} color="#6C5CE7" />
                 <Text style={styles.pickerManageText}>Manage</Text>

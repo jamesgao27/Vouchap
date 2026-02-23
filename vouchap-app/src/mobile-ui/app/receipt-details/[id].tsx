@@ -116,7 +116,7 @@ export default function ReceiptDetailsScreen() {
 
   const loadCategories = async () => {
     try {
-      const cats = await getCategories();
+      const cats = await getCategories('expense');
       setCategories(cats);
     } catch (error) {
       console.error('Error loading categories:', error);
@@ -125,7 +125,7 @@ export default function ReceiptDetailsScreen() {
 
   const loadPurposes = async () => {
     try {
-      const purps = await getPurposes();
+      const purps = await getPurposes('expense');
       setPurposes(purps);
     } catch (error) {
       console.error('Error loading purposes:', error);
@@ -617,7 +617,7 @@ export default function ReceiptDetailsScreen() {
     if (!editedReceipt || categories.length === 0) return;
 
     // Use the first available category as default
-    const defaultCategory = categories.find(cat => cat.name === 'Shopping') || categories[0];
+    const defaultCategory = categories.find(cat => cat.name === 'Meal') || categories.find(cat => cat.name === 'Shopping') || categories[0];
     
     // Use the first available purpose as default, or null if no purposes
     const defaultPurpose = purposes.length > 0 ? purposes[0] : null;

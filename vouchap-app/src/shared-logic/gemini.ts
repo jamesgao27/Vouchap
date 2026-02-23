@@ -1,6 +1,12 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getCategories } from './categories';
 import { getPurposes } from './purposes';
+import {
+  DEFAULT_EXPENSE_CATEGORIES,
+  DEFAULT_EXPENSE_PURPOSES,
+  DEFAULT_INCOME_CATEGORIES,
+  DEFAULT_INCOME_PURPOSES,
+} from './category-purpose-presets';
 import { getAccountsForOptions } from './accounts';
 import { getEntityOptions } from './entity-list';
 import { getWarehousesForOptions, getLocationsByWarehouseForOptions } from './warehouse';
@@ -51,7 +57,7 @@ function clearModelCacheIfUnavailable(err: unknown) {
 
 /** 小票识别统一 JSON 输出规范：所有录入方式（图片/文字/语音）必须使用同一套字段，便于下游一致解析 */
 const RECEIPT_JSON_ITEMS_RULE = 'Each item MUST have: "name" (string), "categoryName" (string), "purposeName" (string), "price" (number). Do NOT use "description" or "amount".';
-const RECEIPT_JSON_ITEMS_EXAMPLE = { name: 'Item Name', categoryName: 'Food', purposeName: 'Home', price: 12.99 };
+const RECEIPT_JSON_ITEMS_EXAMPLE = { name: 'Item Name', categoryName: 'Food', purposeName: 'Personal', price: 12.99 };
 
 // 识别小票内容（使用图片 URL）
 export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptResult> {
@@ -104,37 +110,26 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
   // 如果找到了可用模型，优先使用它
   const modelsToTry = availableModelCache ? [availableModelCache, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
 
-  // 获取用户的分类列表
+  // 支出：获取支出分类与用途，分别提交模型
   let categoryNames: string[] = [];
   try {
-    const categories = await getCategories();
+    const categories = await getCategories('expense');
     categoryNames = categories.map(cat => cat.name);
   } catch (error) {
-    console.warn('Failed to fetch categories, using default list:', error);
-    // 如果获取失败，使用默认分类列表
-    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+    console.warn('Failed to fetch expense categories, using default list:', error);
+    categoryNames = [...DEFAULT_EXPENSE_CATEGORIES];
   }
+  if (categoryNames.length === 0) categoryNames = [...DEFAULT_EXPENSE_CATEGORIES];
 
-  // 如果分类列表为空，使用默认分类
-  if (categoryNames.length === 0) {
-    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
-  }
-
-  // 获取用户的用途列表
   let purposeNames: string[] = [];
   try {
-    const purposes = await getPurposes();
+    const purposes = await getPurposes('expense');
     purposeNames = purposes.map(p => p.name);
   } catch (error) {
-    console.warn('Failed to fetch purposes, using default list:', error);
-    // 如果获取失败，使用默认用途列表
-    purposeNames = ['Home', 'Gifts', 'Business'];
+    console.warn('Failed to fetch expense purposes, using default list:', error);
+    purposeNames = [...DEFAULT_EXPENSE_PURPOSES];
   }
-
-  // 如果用途列表为空，使用默认用途
-  if (purposeNames.length === 0) {
-    purposeNames = ['Home', 'Gifts', 'Business'];
-  }
+  if (purposeNames.length === 0) purposeNames = [...DEFAULT_EXPENSE_PURPOSES];
 
   // 获取用户已有的支付账户列表（按使用频率排序）
   let paymentAccountNames: string[] = [];
@@ -408,7 +403,7 @@ Please return strictly in JSON format without any extra text. JSON format as fol
       const parsedResult: GeminiReceiptResult = JSON.parse(jsonText);
 
       // 验证和规范化数据
-      const defaultCategory = categoryNames.length > 0 ? categoryNames[0] : 'Shopping';
+      const defaultCategory = categoryNames.length > 0 ? categoryNames[0] : 'Meal';
       // 兼容处理：支持 paymentAccount 和 paymentAccountName 两种字段名
       const paymentAccountName = parsedResult.paymentAccountName || (parsedResult as any).paymentAccount || undefined;
 
@@ -451,7 +446,7 @@ Please return strictly in JSON format without any extra text. JSON format as fol
           name: item.name ?? item.description ?? 'Unknown Item',
           categoryName: item.categoryName ?? item.category ?? defaultCategory,
           price: Number(item.price ?? item.amount ?? 0),
-          purposeName: item.purposeName ?? item.purpose ?? 'Home',
+          purposeName: item.purposeName ?? item.purpose ?? 'Personal',
           isAsset: item.isAsset !== undefined ? Boolean(item.isAsset) : false,
           confidence: item.confidence !== undefined ? Number(item.confidence) : 0.8,
         })),
@@ -740,37 +735,27 @@ export async function recognizeReceiptFromText(text: string): Promise<GeminiRece
   console.log('Starting receipt recognition with text...');
   console.log('Text input:', text);
 
-  // 获取用户的分类列表
+  // 支出：分类与用途
   let categoryNames: string[] = [];
   try {
-    const categories = await getCategories();
+    const categories = await getCategories('expense');
     categoryNames = categories.map(cat => cat.name);
   } catch (error) {
-    console.warn('Failed to fetch categories, using default list:', error);
-    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+    console.warn('Failed to fetch expense categories, using default list:', error);
+    categoryNames = [...DEFAULT_EXPENSE_CATEGORIES];
   }
+  if (categoryNames.length === 0) categoryNames = [...DEFAULT_EXPENSE_CATEGORIES];
 
-  if (categoryNames.length === 0) {
-    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
-  }
-
-  // 获取用户的用途列表
   let purposeNames: string[] = [];
   try {
-    const purposes = await getPurposes();
+    const purposes = await getPurposes('expense');
     purposeNames = purposes.map(p => p.name);
   } catch (error) {
-    console.warn('Failed to fetch purposes, using default list:', error);
-    // 如果获取失败，使用默认用途列表
-    purposeNames = ['Home', 'Gifts', 'Business'];
+    console.warn('Failed to fetch expense purposes, using default list:', error);
+    purposeNames = [...DEFAULT_EXPENSE_PURPOSES];
   }
+  if (purposeNames.length === 0) purposeNames = [...DEFAULT_EXPENSE_PURPOSES];
 
-  // 如果用途列表为空，使用默认用途
-  if (purposeNames.length === 0) {
-    purposeNames = ['Home', 'Gifts', 'Business'];
-  }
-
-  // 获取用户已有的支付账户列表（按使用频率排序）
   let paymentAccountNames: string[] = [];
   try {
     const accounts = await getAccountsForOptions();
@@ -779,7 +764,6 @@ export async function recognizeReceiptFromText(text: string): Promise<GeminiRece
     console.warn('Failed to fetch payment accounts:', error);
   }
 
-  // 获取用户历史小票中的币种列表（按使用频率排序）
   let userCurrencies: string[] = [];
   try {
     userCurrencies = await getCurrenciesByUsage();
@@ -808,7 +792,6 @@ export async function recognizeReceiptFromText(text: string): Promise<GeminiRece
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1; // 1-12
   const currentDay = now.getDate();
-  // 上周五：仅用本地年/月/日计算，避免 UTC 导致差一天
   const dow = now.getDay();
   const daysBack = dow === 5 ? 7 : dow < 5 ? dow + 2 : 1;
   const lastFridayStr = getLocalDateString(new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysBack));
@@ -889,8 +872,8 @@ User text:
           // 如果没有items，创建一个默认item
           parsedResult.items = [{
             name: 'General Purchase',
-            categoryName: categoryNames[0] || 'Shopping',
-            purpose: 'Home',
+            categoryName: categoryNames[0] || 'Meal',
+            purpose: 'Personal',
             price: parsedResult.totalAmount - (parsedResult.tax || 0),
           }];
         } else if (!Array.isArray(parsedResult.items)) {
@@ -910,7 +893,7 @@ User text:
         parsedResult.items = parsedResult.items.map((item: any) => {
           const name = item.name ?? item.description;
           const price = item.price !== undefined && item.price !== null ? Number(item.price) : Number(item.amount);
-          const purposeName = item.purposeName ?? item.purpose ?? 'Home';
+          const purposeName = item.purposeName ?? item.purpose ?? 'Personal';
           return { ...item, name, price, purposeName, categoryName: item.categoryName ?? item.category };
         }).filter((item: any) => {
           if (item.name == null || item.name === '' || (item.price === undefined || isNaN(item.price)) || !item.categoryName) {
@@ -925,8 +908,8 @@ User text:
           console.warn('All items were invalid, creating default item');
           parsedResult.items = [{
             name: 'General Purchase',
-            categoryName: categoryNames[0] || 'Shopping',
-            purpose: 'Home',
+            categoryName: categoryNames[0] || 'Meal',
+            purpose: 'Personal',
             price: parsedResult.totalAmount - (parsedResult.tax || 0),
           }];
         }
@@ -1021,32 +1004,24 @@ export async function recognizeReceiptFromAudio(audioUri: string): Promise<Gemin
   // 获取用户的分类列表
   let categoryNames: string[] = [];
   try {
-    const categories = await getCategories();
+    const categories = await getCategories('expense');
     categoryNames = categories.map(cat => cat.name);
   } catch (error) {
-    console.warn('Failed to fetch categories, using default list:', error);
-    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+    console.warn('Failed to fetch expense categories, using default list:', error);
+    categoryNames = [...DEFAULT_EXPENSE_CATEGORIES];
   }
+  if (categoryNames.length === 0) categoryNames = [...DEFAULT_EXPENSE_CATEGORIES];
 
-  if (categoryNames.length === 0) {
-    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
-  }
-
-  // 获取用户的用途列表
   let purposeNames: string[] = [];
   try {
-    const purposes = await getPurposes();
+    const purposes = await getPurposes('expense');
     purposeNames = purposes.map(p => p.name);
   } catch (error) {
-    console.warn('Failed to fetch purposes, using default list:', error);
-    purposeNames = ['Home', 'Gifts', 'Business'];
+    console.warn('Failed to fetch expense purposes, using default list:', error);
+    purposeNames = [...DEFAULT_EXPENSE_PURPOSES];
   }
+  if (purposeNames.length === 0) purposeNames = [...DEFAULT_EXPENSE_PURPOSES];
 
-  if (purposeNames.length === 0) {
-    purposeNames = ['Home', 'Gifts', 'Business'];
-  }
-
-  // 获取用户已有的支付账户列表（按使用频率排序）
   let paymentAccountNames: string[] = [];
   try {
     const accounts = await getAccountsForOptions();
@@ -1055,7 +1030,6 @@ export async function recognizeReceiptFromAudio(audioUri: string): Promise<Gemin
     console.warn('Failed to fetch payment accounts:', error);
   }
 
-  // 获取用户历史小票中的币种列表（按使用频率排序）
   let userCurrencies: string[] = [];
   try {
     userCurrencies = await getCurrenciesByUsage();
@@ -1160,7 +1134,7 @@ Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymen
           parsedResult.items = parsedResult.items.map((item: any) => {
             const name = item.name ?? item.description;
             const price = item.price !== undefined && item.price !== null ? Number(item.price) : Number(item.amount ?? 0);
-            const purposeName = item.purposeName ?? item.purpose ?? 'Home';
+            const purposeName = item.purposeName ?? item.purpose ?? 'Personal';
             return { ...item, name, price, purposeName, categoryName: item.categoryName ?? item.category };
           }).filter((item: any) => item.name != null && item.name !== '' && !isNaN(item.price) && item.categoryName);
         }
@@ -1229,23 +1203,24 @@ async function recognizeInvoiceFromText(text: string): Promise<GeminiVoucherResu
   }
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
 
+  // 收入：分类与用途
   let categoryNames: string[] = [];
   try {
-    const categories = await getCategories();
+    const categories = await getCategories('income');
     categoryNames = categories.map(cat => cat.name);
   } catch {
-    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+    categoryNames = [...DEFAULT_INCOME_CATEGORIES];
   }
-  if (categoryNames.length === 0) categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+  if (categoryNames.length === 0) categoryNames = [...DEFAULT_INCOME_CATEGORIES];
 
   let purposeNames: string[] = [];
   try {
-    const purposes = await getPurposes();
+    const purposes = await getPurposes('income');
     purposeNames = purposes.map(p => p.name);
   } catch {
-    purposeNames = ['Home', 'Gifts', 'Business'];
+    purposeNames = [...DEFAULT_INCOME_PURPOSES];
   }
-  if (purposeNames.length === 0) purposeNames = ['Home', 'Gifts', 'Business'];
+  if (purposeNames.length === 0) purposeNames = [...DEFAULT_INCOME_PURPOSES];
 
   let paymentAccountNames: string[] = [];
   try {
@@ -1305,13 +1280,13 @@ User input:
       if (!parsed.date) parsed.date = today;
       parsed.date = normalizeShortDate(parsed.date);
       if (parsed.totalAmount === undefined) parsed.totalAmount = 0;
-      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Sales', purpose: purposeNames[0] || 'Employer', price: parsed.totalAmount || 0 }];
       parsed.items = parsed.items.map((item: any) => ({
         ...item,
-        purpose: item.purpose || item.purposeName || purposeNames[0] || 'Home',
-        purposeName: item.purposeName || item.purpose || purposeNames[0] || 'Home',
+        purpose: item.purpose || item.purposeName || purposeNames[0] || 'Employer',
+        purposeName: item.purposeName || item.purpose || purposeNames[0] || 'Employer',
       })).filter((item: any) => item.name != null && item.price !== undefined && item.categoryName);
-      if (parsed.items.length === 0) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
+      if (parsed.items.length === 0) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Sales', purpose: purposeNames[0] || 'Employer', price: parsed.totalAmount || 0 }];
       if (!parsed.currency) parsed.currency = defaultCurrency;
       if (parsed.confidence === undefined) parsed.confidence = 0.8;
       if (!parsed.dataConsistency) parsed.dataConsistency = {};
@@ -1351,18 +1326,20 @@ async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVouche
 
   let categoryNames: string[] = [];
   try {
-    const categories = await getCategories();
+    const categories = await getCategories('income');
     categoryNames = categories.map(cat => cat.name);
   } catch {
-    categoryNames = ['Food', 'Dining Out', 'Home', 'Transportation', 'Shopping', 'Medical', 'Education'];
+    categoryNames = [...DEFAULT_INCOME_CATEGORIES];
   }
+  if (categoryNames.length === 0) categoryNames = [...DEFAULT_INCOME_CATEGORIES];
   let purposeNames: string[] = [];
   try {
-    const purposes = await getPurposes();
+    const purposes = await getPurposes('income');
     purposeNames = purposes.map(p => p.name);
   } catch {
-    purposeNames = ['Home', 'Gifts', 'Business'];
+    purposeNames = [...DEFAULT_INCOME_PURPOSES];
   }
+  if (purposeNames.length === 0) purposeNames = [...DEFAULT_INCOME_PURPOSES];
   let paymentAccountNames: string[] = [];
   try {
     const accounts = await getAccountsForOptions();
@@ -1416,13 +1393,13 @@ Data: today=${today}. Customers [${customerListAudio || 'None'}]. Currencies [${
       if (!parsed.date) parsed.date = today;
       parsed.date = normalizeShortDate(parsed.date);
       if (parsed.totalAmount === undefined) parsed.totalAmount = 0;
-      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Sales', purpose: purposeNames[0] || 'Employer', price: parsed.totalAmount || 0 }];
       parsed.items = parsed.items.map((item: any) => ({
         ...item,
-        purpose: item.purpose || item.purposeName || purposeNames[0] || 'Home',
-        purposeName: item.purposeName || item.purpose || purposeNames[0] || 'Home',
+        purpose: item.purpose || item.purposeName || purposeNames[0] || 'Employer',
+        purposeName: item.purposeName || item.purpose || purposeNames[0] || 'Employer',
       })).filter((item: any) => item.name != null && item.price !== undefined && item.categoryName);
-      if (parsed.items.length === 0) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Shopping', purpose: purposeNames[0] || 'Home', price: parsed.totalAmount || 0 }];
+      if (parsed.items.length === 0) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Sales', purpose: purposeNames[0] || 'Employer', price: parsed.totalAmount || 0 }];
       if (!parsed.currency) parsed.currency = defaultCurrency;
       if (parsed.confidence === undefined) parsed.confidence = 0.8;
       if (!parsed.dataConsistency) parsed.dataConsistency = {};

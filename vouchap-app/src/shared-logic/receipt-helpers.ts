@@ -12,9 +12,9 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
   const user = await getCurrentUser();
   if (!user) throw new Error('Not logged in');
 
-  // 获取所有分类和用途
-  const categories = await getCategories();
-  const purposes = await getPurposes();
+  // 支出：获取支出分类与用途
+  const categories = await getCategories('expense');
+  const purposes = await getPurposes('expense');
 
   // 处理关联方 Payee（排除无效名称）
   let entityId: string | undefined;
@@ -37,7 +37,7 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
         console.warn('Failed to create or find entity (Payee):', error);
       }
     } else {
-      console.warn(`Skipping invalid supplier name: "${trimmedSupplierName}"`);
+      console.warn(`Skipping invalid supplier name: "${trimmed}"`);
     }
   }
 
@@ -71,16 +71,13 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
 
       // 如果找不到，尝试使用 findCategoryByName（模糊匹配）
       if (!category) {
-        const foundCategory = await findCategoryByName(item.categoryName);
+        const foundCategory = await findCategoryByName(item.categoryName, 'expense');
         category = foundCategory || undefined;
       }
 
-      // 如果还是找不到，使用默认分类 "购物"
       if (!category) {
         console.warn(`分类 "${item.categoryName}" 未找到，尝试使用默认分类`);
-        
-        // 尝试按优先级查找默认分类
-        const defaultCategoryNames = ['购物', '食品', 'Other', 'Grocery'];
+        const defaultCategoryNames = ['Meal', 'Shopping', 'Food', '购物', '食品', 'Other', 'Grocery'];
         for (const defaultName of defaultCategoryNames) {
           category = categories.find((cat) => 
             cat.name === defaultName || cat.name.toLowerCase() === defaultName.toLowerCase()
@@ -115,7 +112,7 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
       const purposeName = item.purposeName ?? (item as { purpose?: string }).purpose;
       if (purposeName) {
         const purpose = purposes.find(p => p.name.toLowerCase() === purposeName.toLowerCase())
-          || await findPurposeByName(purposeName);
+          || await findPurposeByName(purposeName, 'expense');
         if (purpose) {
           purposeId = purpose.id;
         }
@@ -262,8 +259,8 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
   const user = await getCurrentUser();
   if (!user) throw new Error('Not logged in');
 
-  const categories = await getCategories();
-  const purposes = await getPurposes();
+  const categories = await getCategories('income');
+  const purposes = await getPurposes('income');
 
   let accountId: string | undefined;
   if (result.paymentAccountName) {
@@ -284,10 +281,10 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
     result.items.map(async (item) => {
       let category = categories.find((c) => c.name.toLowerCase() === (item.categoryName || '').toLowerCase());
       if (!category) {
-        category = await findCategoryByName(item.categoryName) || undefined;
+        category = await findCategoryByName(item.categoryName, 'income') || undefined;
       }
       if (!category) {
-        category = categories.find((c) => c.name === 'Shopping') || categories[0];
+        category = categories.find((c) => c.name === 'Sales') || categories[0];
       }
       if (!category) {
         throw new Error('No category available. Please create at least one category.');
@@ -296,16 +293,14 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
       let purposeId: string | null = null;
       const purposeName = item.purposeName || (item as any).purpose;
       if (purposeName) {
-        const purpose = purposes.find((p) => p.name.toLowerCase() === purposeName.toLowerCase()) || await findPurposeByName(purposeName);
+        const purpose = purposes.find((p) => p.name.toLowerCase() === purposeName.toLowerCase()) || await findPurposeByName(purposeName, 'income');
         if (purpose) purposeId = purpose.id;
       }
       if (!purposeId && purposes.length > 0) {
         purposeId = (purposes.find((p) => p.isDefault) || purposes[0]).id;
       }
 
-      // 兼容 API 返回 description 而非 name
       const itemName = item.name ?? (item as { description?: string }).description ?? 'Unknown Item';
-      // 兼容 API 返回 amount 而非 price
       const itemPrice = Number((item as { price?: number; amount?: number }).price ?? (item as { amount?: number }).amount ?? 0);
       return {
         name: itemName,

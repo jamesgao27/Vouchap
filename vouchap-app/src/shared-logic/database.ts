@@ -153,22 +153,19 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
           categoryId = item.category.id;
         }
 
-        // 如果还是没有，尝试通过名称查找（兼容旧代码）
+        // 如果还是没有，尝试通过名称查找（支出分类）
         if (!categoryId) {
-          const category = await findCategoryByName(item.name || 'Other');
+          const category = await findCategoryByName(item.name || 'Other', 'expense');
           categoryId = category?.id || null;
         }
 
         if (!categoryId) {
-          // 如果仍然找不到，尝试获取默认分类
           console.warn(`商品 "${item.name}" 的分类未找到，使用默认分类`);
-
-          // 尝试按优先级查找默认分类
-          const defaultCategoryNames = ['购物', '食品', 'Other', 'Grocery'];
+          const defaultCategoryNames = ['Meal', 'Shopping', 'Food', '购物', '食品', 'Other', 'Grocery'];
           let defaultCategory = null;
 
           for (const defaultName of defaultCategoryNames) {
-            defaultCategory = await findCategoryByName(defaultName);
+            defaultCategory = await findCategoryByName(defaultName, 'expense');
             if (defaultCategory) break;
           }
 

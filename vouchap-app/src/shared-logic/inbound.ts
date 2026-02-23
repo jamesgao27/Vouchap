@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import { Inbound, InboundItem, Sku } from '@/types';
 import { getCurrentUser } from './auth';
 import { getSkuById } from './skus';
-import { findOrCreateEntity } from './entities';
+import { findOrCreateEntity, getEntityMergeMap, getEntityById } from './entities';
 
 function rowToInbound(row: any, items: InboundItem[] = []): Inbound {
   const entity = row.entities ? {
@@ -51,7 +51,7 @@ function rowToInbound(row: any, items: InboundItem[] = []): Inbound {
 
 const FIRST_PAINT_LIMIT = 15;
 
-/** 首屏极速加载：limit 15，用于立即渲染 */
+/** 首屏极速加载：limit 15、含 entity merge 解析，用于立即渲染为合并后名称 */
 export async function getInboundForListFirstPaint(): Promise<Inbound[]> {
   const user = await getCurrentUser();
   if (!user) throw new Error('Not logged in');
@@ -59,15 +59,48 @@ export async function getInboundForListFirstPaint(): Promise<Inbound[]> {
   if (!spaceId) throw new Error('No space selected');
   const { data, error } = await supabase
     .from('inbound')
-    .select('*')
+    .select(`
+      *,
+      entities (id, name)
+    `)
     .eq('space_id', spaceId)
     .order('date', { ascending: false })
     .limit(FIRST_PAINT_LIMIT);
   if (error) throw error;
-  return (data || []).map((r: any) => rowToInbound(r, []));
+  const rows = data || [];
+  const entityMergeMap = await getEntityMergeMap(spaceId);
+  const resolveEntity = (eid: string) => {
+    let current = eid;
+    const seen = new Set<string>();
+    while (entityMergeMap.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = entityMergeMap.get(current)!;
+    }
+    return current;
+  };
+  const needResolved = new Set<string>();
+  for (const r of rows) {
+    if (r.entity_id) {
+      const resolvedId = resolveEntity(r.entity_id);
+      if (!r.entities || r.entities.id !== resolvedId) needResolved.add(resolvedId);
+    }
+  }
+  const resolvedEntityCache = new Map<string, Awaited<ReturnType<typeof getEntityById>>>();
+  if (needResolved.size > 0) {
+    await Promise.all(Array.from(needResolved).map(async (id) => {
+      const e = await getEntityById(id);
+      if (e) resolvedEntityCache.set(id, e);
+    }));
+  }
+  return rows.map((r: any) => {
+    const resolvedEntityId = r.entity_id ? resolveEntity(r.entity_id) : null;
+    const entityRow = (resolvedEntityId ? resolvedEntityCache.get(resolvedEntityId) : null) ?? r.entities;
+    const rc = { ...r, entities: entityRow, supplier_name: entityRow?.name ?? r.supplier_name };
+    return rowToInbound(rc, []);
+  });
 }
 
-/** 获取当前空间下所有入库单（列表用） */
+/** 获取当前空间下所有入库单（列表用，含 entity merge 解析） */
 export async function getAllInbound(): Promise<Inbound[]> {
   const user = await getCurrentUser();
   if (!user) throw new Error('Not logged in');
@@ -76,12 +109,45 @@ export async function getAllInbound(): Promise<Inbound[]> {
 
   const { data, error } = await supabase
     .from('inbound')
-    .select('*')
+    .select(`
+      *,
+      entities (*)
+    `)
     .eq('space_id', spaceId)
     .order('date', { ascending: false });
 
   if (error) throw error;
-  return (data || []).map((r: any) => rowToInbound(r, []));
+  const rows = data || [];
+  const entityMergeMap = await getEntityMergeMap(spaceId);
+  const resolveEntity = (eid: string) => {
+    let current = eid;
+    const seen = new Set<string>();
+    while (entityMergeMap.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = entityMergeMap.get(current)!;
+    }
+    return current;
+  };
+  const needResolved = new Set<string>();
+  for (const r of rows) {
+    if (r.entity_id) {
+      const resolvedId = resolveEntity(r.entity_id);
+      if (!r.entities || r.entities.id !== resolvedId) needResolved.add(resolvedId);
+    }
+  }
+  const resolvedEntityCache = new Map<string, Awaited<ReturnType<typeof getEntityById>>>();
+  if (needResolved.size > 0) {
+    await Promise.all(Array.from(needResolved).map(async (id) => {
+      const e = await getEntityById(id);
+      if (e) resolvedEntityCache.set(id, e);
+    }));
+  }
+  return rows.map((r: any) => {
+    const resolvedEntityId = r.entity_id ? resolveEntity(r.entity_id) : null;
+    const entityRow = (resolvedEntityId ? resolvedEntityCache.get(resolvedEntityId) : null) ?? r.entities;
+    const rc = { ...r, entities: entityRow, supplier_name: entityRow?.name ?? r.supplier_name };
+    return rowToInbound(rc, []);
+  });
 }
 
 /** 根据 ID 获取入库单（含明细） */
