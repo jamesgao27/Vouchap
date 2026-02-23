@@ -15,6 +15,7 @@
     "prebuild": "expo prebuild",
     "prebuild:clean": "expo prebuild --clean",
     "verify:android:permissions": "node scripts/verify-android-media-permissions.js",
+    "version:sync": "node scripts/sync-native-versions.js",
     "deploy:web": "npx expo export -p web && npx wrangler pages deploy dist"
   },
   "dependencies": {
