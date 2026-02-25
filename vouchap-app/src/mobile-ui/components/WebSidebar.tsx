@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getCurrentUser, getCurrentSpace } from '@/lib/auth';
 import { getPendingInvitationsForUser, subscribePendingInvitationsRealtime } from '@/lib/space-invitations';
 import { Space, User } from '@/types';
-import { showAiInventory } from '@/lib/feature-flags';
+import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
 
 const SIDEBAR_WIDTH = 240;
 const HIDE_SIDEBAR_ROUTES = [
@@ -119,39 +119,100 @@ export default function WebSidebar() {
         </Text>
       </TouchableOpacity>
 
-      {/* 主导航 */}
+      {/* 主导航：firm 仅展示 Dashboard + 四宫格；普通 space 展示 Dashboard / Income / Expenses / AI Inventory / 报税 */}
       <View style={styles.nav}>
-        {NAV_ITEMS.map((item) => {
-          const active = isActive(item);
-          return (
+        {currentSpace?.kind === 'firm' ? (
+          <>
             <TouchableOpacity
-              key={item.path}
-              style={[styles.navItem, active && styles.navItemActive]}
-              onPress={() => router.push(item.path as any)}
+              style={[styles.navItem, (pathname === '/' || pathname === '') && styles.navItemActive]}
+              onPress={() => router.push('/')}
               activeOpacity={0.7}
             >
-              <Ionicons
-                name={item.icon}
-                size={22}
-                color={active ? '#6C5CE7' : '#2D3436'}
-              />
-              <Text style={[styles.navText, active && styles.navTextActive]}>
-                {item.label}
+              <Ionicons name="grid-outline" size={22} color={pathname === '/' || pathname === '' ? '#6C5CE7' : '#2D3436'} />
+              <Text style={[styles.navText, (pathname === '/' || pathname === '') && styles.navTextActive]}>
+                Dashboard
               </Text>
             </TouchableOpacity>
-          );
-        })}
-        {showAiInventory && (
-          <TouchableOpacity
-            style={[styles.navItem, pathname.startsWith('/ai-inventory') && styles.navItemActive]}
-            onPress={() => router.push('/ai-inventory')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="cube-outline" size={22} color={pathname.startsWith('/ai-inventory') ? '#FF9500' : '#2D3436'} />
-            <Text style={[styles.navText, pathname.startsWith('/ai-inventory') && styles.navTextAlt]}>
-              AI Inventory
-            </Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.navItem, pathname.startsWith('/firm/clients') && styles.navItemActive]}
+              onPress={() => router.push('/firm/clients')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="people-outline" size={22} color={pathname.startsWith('/firm/clients') ? '#6C5CE7' : '#2D3436'} />
+              <Text style={[styles.navText, pathname.startsWith('/firm/clients') && styles.navTextActive]}>Client</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.navItem, pathname.startsWith('/firm/assignments') && styles.navItemActive]}
+              onPress={() => router.push('/firm/assignments')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="key-outline" size={22} color={pathname.startsWith('/firm/assignments') ? '#6C5CE7' : '#2D3436'} />
+              <Text style={[styles.navText, pathname.startsWith('/firm/assignments') && styles.navTextActive]}>Assignment</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.navItem, pathname.startsWith('/firm/orders') && styles.navItemActive]}
+              onPress={() => router.push('/firm/orders')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="checkbox-outline" size={22} color={pathname.startsWith('/firm/orders') ? '#6C5CE7' : '#2D3436'} />
+              <Text style={[styles.navText, pathname.startsWith('/firm/orders') && styles.navTextActive]}>Orders</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.navItem, pathname.startsWith('/firm/templates') && styles.navItemActive]}
+              onPress={() => router.push('/firm/templates')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="document-attach-outline" size={22} color={pathname.startsWith('/firm/templates') ? '#6C5CE7' : '#2D3436'} />
+              <Text style={[styles.navText, pathname.startsWith('/firm/templates') && styles.navTextActive]}>Service SKU</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <>
+            {NAV_ITEMS.map((item) => {
+              const active = isActive(item);
+              return (
+                <TouchableOpacity
+                  key={item.path}
+                  style={[styles.navItem, active && styles.navItemActive]}
+                  onPress={() => router.push(item.path as any)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={item.icon}
+                    size={22}
+                    color={active ? '#6C5CE7' : '#2D3436'}
+                  />
+                  <Text style={[styles.navText, active && styles.navTextActive]}>
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+            {showAiInventory && (
+              <TouchableOpacity
+                style={[styles.navItem, pathname.startsWith('/ai-inventory') && styles.navItemActive]}
+                onPress={() => router.push('/ai-inventory')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="cube-outline" size={22} color={pathname.startsWith('/ai-inventory') ? '#FF9500' : '#2D3436'} />
+                <Text style={[styles.navText, pathname.startsWith('/ai-inventory') && styles.navTextAlt]}>
+                  AI Inventory
+                </Text>
+              </TouchableOpacity>
+            )}
+            {showTaxFiling && (
+              <TouchableOpacity
+                style={[styles.navItem, pathname.startsWith('/tax-filing') && styles.navItemActive]}
+                onPress={() => router.push('/tax-filing')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="document-text-outline" size={22} color={pathname.startsWith('/tax-filing') ? '#0984e3' : '#2D3436'} />
+                <Text style={[styles.navText, pathname.startsWith('/tax-filing') && styles.navTextActive]}>
+                  报税
+                </Text>
+              </TouchableOpacity>
+            )}
+          </>
         )}
       </View>
 

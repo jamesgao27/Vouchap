@@ -327,6 +327,10 @@ export default function ManagementScreen() {
     { id: 'accounts', title: 'Accounts', icon: 'wallet-outline', route: '/accounts-manage', description: 'Manage and merge accounts' },
     { id: 'entities', title: 'Entities', icon: 'business-outline', route: '/entities-manage', description: 'Payee/Payer/Sender/Receiver' },
   ];
+  // firm 管理界面隐去分类、用途、账户、Entities，仅保留 Members
+  const visibleMenuItems = space?.kind === 'firm'
+    ? menuItems.filter((item) => item.id === 'members')
+    : menuItems;
 
   return (
     <View style={styles.container}>
@@ -497,7 +501,7 @@ export default function ManagementScreen() {
         </View>
 
         {/* Menu Items */}
-        {menuItems.map((item) => (
+        {visibleMenuItems.map((item) => (
           <TouchableOpacity
             key={item.id}
             style={styles.menuItem}

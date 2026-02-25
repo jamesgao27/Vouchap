@@ -143,11 +143,16 @@ export interface UserSpace {
   createdAt?: string;
 }
 
+// 空间类型：client 普通客户空间，firm 服务端/事务所空间
+export type SpaceKind = 'client' | 'firm';
+
 // 空间账户
 export interface Space {
   id: string;
   name: string;
   address?: string;
+  /** 空间类型，缺省为 client */
+  kind?: SpaceKind;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -423,6 +428,125 @@ export interface GeminiInboundOutboundResult {
   }>;
   confidence?: number;
 }
+
+// ---------- Firm 服务端 ----------
+
+// 客户表状态（仅 active/inactive，展示状态由 displayStatus 自动计算）
+export type FirmClientStatus = 'active' | 'inactive';
+
+// CRM 客户展示状态（报税年度服务，按条件自动计算，见 docs/CRM-CLIENT-STATUS.md）
+// Code values use English for clarity in code; UI labels can be localized.
+export type ClientDisplayStatus = 'new' | 'to_follow_up' | 'in_service' | 'to_revisit' | 'churned';
+
+// Firm 在服客户（关联 firm space 与 client space）
+export interface FirmClient {
+  id: string;
+  firmSpaceId: string;
+  clientSpaceId: string;
+  displayName?: string;
+  /** 客户表状态 */
+  status?: FirmClientStatus;
+  /** 负责人 user id（可选，列表负责人优先从 member_clients 取） */
+  assignedUserId?: string | null;
+  /** 最近跟进时间 */
+  lastFollowUpAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// 客户跟进记录
+export interface FirmClientFollowUp {
+  id: string;
+  firmSpaceId: string;
+  clientSpaceId: string;
+  content: string;
+  createdAt: string;
+  createdBy?: string | null;
+}
+
+// Firm 成员可管理的客户
+export interface FirmMemberClient {
+  id: string;
+  firmSpaceId: string;
+  userId: string;
+  clientSpaceId: string;
+  createdAt?: string;
+}
+
+// ---------- 订单 / SKU / 项目（见 docs/CRM-ORDERS-SKU-PROJECTS.md）----------
+// SKU 关联 sku_items；选 SKU 创建订单时由 sku_items 复制创建 projects；projects 进展状态 = order.status
+
+// SKU 关联的项（模板），创建订单时复制到 projects
+export interface FirmSkuItem {
+  id: string;
+  skuId: string;
+  type: 'client' | 'firm';
+  title: string;
+  description?: string | null;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// 服务 SKU（商品），关联一组 sku_items
+export interface FirmSku {
+  id: string;
+  firmSpaceId: string;
+  name: string;
+  description?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// 订单状态（= 该单 projects 的进展状态）
+export type FirmOrderStatus = 'pending' | 'submitted' | 'confirmed' | 'cancelled';
+
+// 订单，一单对应一 SKU
+export interface FirmOrder {
+  id: string;
+  firmSpaceId: string;
+  clientSpaceId: string;
+  skuId: string;
+  status: FirmOrderStatus;
+  dueAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  createdBy?: string | null;
+}
+
+// 项目（订单下的清单项，由 sku_items 复制；进展状态以 order.status 为准）
+export type FirmProjectType = 'client' | 'firm';
+export type FirmProjectStatus = 'pending' | 'submitted' | 'confirmed';
+
+export interface FirmProject {
+  id: string;
+  orderId: string;
+  type: FirmProjectType;
+  title: string;
+  description?: string | null;
+  status: FirmProjectStatus;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** 客户端「待办」展示：来自 project (type=client) + 订单 due_at，兼容原 FirmClientTodo 形态 */
+export interface FirmClientTodo {
+  id: string;
+  orderId: string;
+  firmSpaceId: string;
+  clientSpaceId: string;
+  title: string;
+  description?: string | null;
+  dueAt?: string | null;
+  status: FirmProjectStatus;
+  sortOrder: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// 兼容：原模板现为 SKU，items 来自 sku_items
+export type FirmTemplate = FirmSku & { items?: Array<{ title: string; description?: string }> };
 
 /** 统一凭证识别结果：receipt 用 supplierName，invoice 用 customerName，其余字段共用 */
 export interface GeminiVoucherResult {

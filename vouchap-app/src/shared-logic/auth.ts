@@ -235,6 +235,7 @@ export async function getCurrentSpace(forceRefresh: boolean = false): Promise<Sp
       id: data.id,
       name: data.name,
       address: data.address,
+      kind: (data.kind as 'client' | 'firm') || 'client',
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     };
@@ -294,6 +295,7 @@ export async function getUserSpaces(): Promise<UserSpace[]> {
         id: row.spaces.id,
         name: row.spaces.name,
         address: row.spaces.address,
+        kind: (row.spaces.kind as 'client' | 'firm') || 'client',
         createdAt: row.spaces.created_at,
         updatedAt: row.spaces.updated_at,
       } : undefined,
@@ -764,6 +766,7 @@ export async function createSpace(name: string, address?: string): Promise<{ spa
       id: spaceData.id,
       name: spaceData.name,
       address: spaceData.address,
+      kind: (spaceData.kind as 'client' | 'firm') || 'client',
       createdAt: spaceData.created_at,
       updatedAt: spaceData.updated_at,
     };

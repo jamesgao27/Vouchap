@@ -13,7 +13,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { getCurrentSpace, getCurrentUser } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
-import { Space } from '@/types';
+import { Space, SpaceKind } from '@/types';
 import { showToast } from '@/lib/toast';
 
 export default function SpaceManageScreen() {
@@ -23,6 +23,7 @@ export default function SpaceManageScreen() {
   const [editing, setEditing] = useState(false);
   const [spaceName, setSpaceName] = useState('');
   const [spaceAddress, setSpaceAddress] = useState('');
+  const [spaceKind, setSpaceKind] = useState<SpaceKind>('client');
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -37,6 +38,7 @@ export default function SpaceManageScreen() {
         setSpace(data);
         setSpaceName(data.name);
         setSpaceAddress(data.address || '');
+        setSpaceKind((data.kind as SpaceKind) || 'client');
       }
     } catch (error) {
       console.error('Error loading space:', error);
@@ -66,6 +68,7 @@ export default function SpaceManageScreen() {
         .update({ 
           name: spaceName.trim(),
           address: spaceAddress.trim() || null,
+          kind: spaceKind,
         })
         .eq('id', spaceId);
 
@@ -86,6 +89,7 @@ export default function SpaceManageScreen() {
     if (space) {
       setSpaceName(space.name);
       setSpaceAddress(space.address || '');
+      setSpaceKind((space.kind as SpaceKind) || 'client');
     }
     setEditing(false);
   };
@@ -169,6 +173,37 @@ export default function SpaceManageScreen() {
           ) : (
             <View style={styles.viewContainer}>
               <Text style={styles.spaceName} numberOfLines={5}>{space?.address || 'Not set'}</Text>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.card}>
+          <View style={styles.cardHeader}>
+            <Ionicons name="business-outline" size={18} color="#6C5CE7" />
+            <Text style={styles.cardTitle}>空间类型</Text>
+          </View>
+          {editing ? (
+            <View style={styles.kindRow}>
+              <TouchableOpacity
+                style={[styles.kindOption, spaceKind === 'client' && styles.kindOptionSelected]}
+                onPress={() => setSpaceKind('client')}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.kindOptionText, spaceKind === 'client' && styles.kindOptionTextSelected]}>Client</Text>
+                <Text style={styles.kindHint}>普通客户空间</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.kindOption, spaceKind === 'firm' && styles.kindOptionSelected]}
+                onPress={() => setSpaceKind('firm')}
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.kindOptionText, spaceKind === 'firm' && styles.kindOptionTextSelected]}>Firm</Text>
+                <Text style={styles.kindHint}>服务端/事务所空间</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <View style={styles.viewContainer}>
+              <Text style={styles.spaceName}>{spaceKind === 'firm' ? 'Firm（服务端）' : 'Client（普通客户）'}</Text>
             </View>
           )}
         </View>
@@ -332,6 +367,37 @@ const styles = StyleSheet.create({
   multilineInput: {
     minHeight: 80,
     textAlignVertical: 'top',
+  },
+  kindRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 4,
+  },
+  kindOption: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    borderWidth: 2,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#F8F9FA',
+  },
+  kindOptionSelected: {
+    borderColor: '#6C5CE7',
+    backgroundColor: '#F0F4FF',
+  },
+  kindOptionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#636E72',
+  },
+  kindOptionTextSelected: {
+    color: '#6C5CE7',
+  },
+  kindHint: {
+    fontSize: 12,
+    color: '#95A5A6',
+    marginTop: 4,
   },
   buttonRow: {
     flexDirection: 'row',

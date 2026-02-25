@@ -1088,83 +1088,65 @@ export default function ReceiptsScreen() {
   }, [showSortMenu, showFilterMenu]);
 
   // 先占位：始终渲染列表壳（header + SectionList），数据在后台加载
+  const hasSelection = selectedIds.size > 0;
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerRow}>
-          {selectedIds.size > 0 ? (
-            <>
-              <TouchableOpacity 
-                style={styles.cancelButton}
-                onPress={() => setSelectedIds(new Set())}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-          </TouchableOpacity>
-              <View style={styles.selectedCountContainer}>
-                <Text style={styles.selectedCountText}>{selectedIds.size} selected</Text>
-        </View>
-              <TouchableOpacity 
-                style={styles.deleteButton}
-                onPress={handleBatchDelete}
-              >
-                <Ionicons name="trash-outline" size={20} color="#E74C3C" />
-                <Text style={styles.deleteButtonText}>Delete</Text>
-              </TouchableOpacity>
-            </>
-          ) : (
-            <>
-          <View {...(Platform.OS === 'web' ? { nativeID: 'receipts-group-button' } : {})}>
-            <TouchableOpacity 
-              style={styles.sortButton}
-              onPress={() => setShowSortMenu(true)}
+      <View style={styles.toolbarSlot}>
+        {hasSelection ? (
+          <View style={styles.bulkBar}>
+            <Text style={styles.bulkText}>{selectedIds.size} selected</Text>
+            <TouchableOpacity
+              style={styles.bulkBtn}
+              onPress={handleBatchDelete}
             >
-              {groupBy === 'none' && <Ionicons name="list-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-              {groupBy === 'month' && <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-              {groupBy === 'recordDate' && <Ionicons name="time-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-              {groupBy === 'paymentAccount' && <Ionicons name="wallet-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-              {groupBy === 'createdBy' && <Ionicons name="person-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-              {groupBy === 'supplier' && <Ionicons name="storefront-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-              <Text style={styles.sortText}>Group</Text>
-              <Ionicons name="chevron-down" size={16} color="#636E72" />
+              <Ionicons name="trash-outline" size={18} color="#fff" />
+              <Text style={styles.bulkBtnText}>Delete</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.bulkBtnClear}
+              onPress={() => setSelectedIds(new Set())}
+            >
+              <Text style={styles.bulkBtnClearText}>Clear</Text>
             </TouchableOpacity>
           </View>
-          <View {...(Platform.OS === 'web' ? { nativeID: 'receipts-filter-button' } : {})}>
-            <TouchableOpacity 
-              style={styles.filterButton}
-              onPress={() => {
-                setShowFilterMenu(true);
-                setFilterSubMenu('main');
-              }}
-            >
-            <Text style={styles.filterText}>
-              Filter
-              {(selectedMonths.size > 0 || selectedRecordDates.size > 0 || selectedAccounts.size > 0 || selectedCreators.size > 0) && (
-                <Text style={styles.filterBadge}>
-                  {' '}({selectedMonths.size + selectedRecordDates.size + selectedAccounts.size + selectedCreators.size})
-                </Text>
-              )}
-            </Text>
-            <Ionicons name="chevron-down" size={16} color="#636E72" />
-            </TouchableOpacity>
-          </View>
+        ) : (
+          <View style={styles.header}>
+            <View style={styles.headerRow}>
+              <View {...(Platform.OS === 'web' ? { nativeID: 'receipts-group-button' } : {})}>
+                <TouchableOpacity style={styles.sortButton} onPress={() => setShowSortMenu(true)}>
+                  {groupBy === 'none' && <Ionicons name="list-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'month' && <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'recordDate' && <Ionicons name="time-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'paymentAccount' && <Ionicons name="wallet-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'createdBy' && <Ionicons name="person-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'supplier' && <Ionicons name="storefront-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  <Text style={styles.sortText}>Group</Text>
+                  <Ionicons name="chevron-down" size={16} color="#636E72" />
+                </TouchableOpacity>
+              </View>
+              <View {...(Platform.OS === 'web' ? { nativeID: 'receipts-filter-button' } : {})}>
+                <TouchableOpacity style={styles.filterButton} onPress={() => { setShowFilterMenu(true); setFilterSubMenu('main'); }}>
+                  <Text style={styles.filterText}>
+                    Filter
+                    {(selectedMonths.size > 0 || selectedRecordDates.size > 0 || selectedAccounts.size > 0 || selectedCreators.size > 0) && (
+                      <Text style={styles.filterBadge}> ({selectedMonths.size + selectedRecordDates.size + selectedAccounts.size + selectedCreators.size})</Text>
+                    )}
+                  </Text>
+                  <Ionicons name="chevron-down" size={16} color="#636E72" />
+                </TouchableOpacity>
+              </View>
               <View style={styles.searchContainer}>
                 <Ionicons name="search" size={18} color="#636E72" style={styles.searchIcon} />
-                <TextInput
-                  style={styles.searchInput}
-                  placeholder="Search"
-                  placeholderTextColor="#95A5A6"
-                  value={searchQuery}
-                  onChangeText={setSearchQuery}
-                />
+                <TextInput style={styles.searchInput} placeholder="Search" placeholderTextColor="#95A5A6" value={searchQuery} onChangeText={setSearchQuery} />
                 {searchQuery.trim() ? (
                   <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.searchClear}>
                     <Ionicons name="close-circle" size={20} color="#95A5A6" />
                   </TouchableOpacity>
                 ) : null}
               </View>
-            </>
-          )}
-        </View>
+            </View>
+          </View>
+        )}
       </View>
 
       {Platform.OS === 'web' ? (
@@ -1189,6 +1171,11 @@ export default function ReceiptsScreen() {
               keyExtractor={r => r.id || Math.random().toString()}
               onRowPress={r => { if (r.id) router.push(`/receipt-details/${r.id}`); }}
               emptyMessage={tableEmptyMessage}
+              storageKey="receipts-table"
+              selectable
+              selectableRevealOnHover
+              selectedIds={Array.from(selectedIds)}
+              onSelectedIdsChange={(ids) => setSelectedIds(new Set(ids))}
             />
           )}
         </ScrollView>
@@ -2156,14 +2143,42 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#ECEFF1',
   },
-  header: {
+  toolbarSlot: {
+    height: 52,
     backgroundColor: '#fff',
-    paddingTop: 10,
-    paddingBottom: 10,
-    paddingHorizontal: 16,
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
+    justifyContent: 'center',
   },
+  header: {
+    height: 52,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: 'transparent',
+  },
+  bulkBar: {
+    height: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: '#E8E0F7',
+  },
+  bulkText: { fontSize: 14, color: '#2D3436', fontWeight: '500', marginRight: 8 },
+  bulkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#6C5CE7',
+    borderRadius: 8,
+  },
+  bulkBtnText: { fontSize: 14, color: '#fff', fontWeight: '600' },
+  bulkBtnClear: { paddingVertical: 8, paddingHorizontal: 12 },
+  bulkBtnClearText: { fontSize: 14, color: '#636E72', fontWeight: '500' },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',

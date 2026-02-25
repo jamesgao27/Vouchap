@@ -104,6 +104,29 @@ function LayoutContent() {
           }} 
         />
         <Stack.Screen 
+          name="tax-filing/index" 
+          options={{ 
+            title: '报税',
+            headerBackTitle: 'Home'
+          }} 
+        />
+        <Stack.Screen 
+          name="firm/clients" 
+          options={{ title: 'Client', headerBackTitle: 'Back' }} 
+        />
+        <Stack.Screen 
+          name="firm/assignments" 
+          options={{ title: 'Assignment', headerBackTitle: 'Back' }} 
+        />
+        <Stack.Screen 
+          name="firm/orders" 
+          options={{ title: 'Orders', headerBackTitle: 'Back' }} 
+        />
+        <Stack.Screen 
+          name="firm/templates" 
+          options={{ title: 'Service SKU', headerBackTitle: 'Back' }} 
+        />
+        <Stack.Screen 
           name="invoices" 
           options={{ 
             title: 'Income',

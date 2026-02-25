@@ -48,6 +48,14 @@ export interface DataTableProps<T> {
   onSort?: (columnId: string, direction: 'asc' | 'desc') => void;
   storageKey?: string;
   emptyMessage?: string;
+  /** 是否启用行多选（Web） */
+  selectable?: boolean;
+  /** 受控：选中行的 key 列表（不传则由内部管理） */
+  selectedIds?: string[];
+  /** 选中行变化时回调（与 selectedIds 搭配使用） */
+  onSelectedIdsChange?: (ids: string[]) => void;
+  /** 为 true 时：未选中任何行时多选列不常显，仅悬停行显示该行复选框；选中至少一行后整列显示 */
+  selectableRevealOnHover?: boolean;
 }
 
 const TABLE_HEADER_BG = '#F1F3F5';
@@ -108,6 +116,8 @@ function TableGlobalStyles() {
       'table.data-table-body tbody tr { height: 40px !important; }',
       'table.data-table-body tbody td { height: 40px !important; max-height: 40px !important; box-sizing: border-box !important; overflow: hidden !important; vertical-align: middle !important; }',
       'table.data-table-body tbody td > div { max-height: 40px !important; min-height: 0 !important; overflow: hidden !important; }',
+      '.data-table-checkbox-reveal-on-hover tbody tr td:first-child input[type=checkbox] { opacity: 0; transition: opacity 0.15s ease; }',
+      '.data-table-checkbox-reveal-on-hover tbody tr:hover td:first-child input[type=checkbox] { opacity: 1; }',
     ].join('\n');
     document.head.appendChild(el);
     return () => {
@@ -128,6 +138,10 @@ export default function DataTable<T>({
   onSort,
   storageKey,
   emptyMessage = 'No data',
+   selectable = false,
+   selectedIds,
+   onSelectedIdsChange,
+   selectableRevealOnHover = false,
 }: DataTableProps<T>) {
   const hasSections = sectionsProp != null && sectionsProp.length > 0;
   const data = hasSections ? sectionsProp!.flatMap(s => s.data) : (dataProp ?? []);
@@ -144,6 +158,24 @@ export default function DataTable<T>({
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
   const pickerWrapRef = useRef<View | null>(null);
   const columnResizingRef = useRef(false);
+
+  // 多选：内部维护选中行，若父组件提供受控 selectedIds 则以外部为准
+  const [internalSelected, setInternalSelected] = useState<Set<string>>(new Set());
+  const selectedSet = useMemo(() => {
+    if (Array.isArray(selectedIds)) return new Set(selectedIds);
+    return internalSelected;
+  }, [selectedIds, internalSelected]);
+
+  const setSelected = useCallback(
+    (ids: string[]) => {
+      if (onSelectedIdsChange) {
+        onSelectedIdsChange(ids);
+      } else {
+        setInternalSelected(new Set(ids));
+      }
+    },
+    [onSelectedIdsChange]
+  );
 
   const toggleSection = useCallback((sectionIdx: number) => {
     setCollapsedSections(prev => {
@@ -208,6 +240,13 @@ export default function DataTable<T>({
     arr.splice(dropTargetIndex, 0, orderIds[draggedIndex]);
     return arr;
   }, [orderIds, draggedIndex, dropTargetIndex]);
+
+  // 计算「全选」状态（所有行都被选中）
+  const allSelectableKeys = useMemo(() => data.map(row => keyExtractor(row)), [data, keyExtractor]);
+  const allSelected = useMemo(
+    () => selectable && allSelectableKeys.length > 0 && allSelectableKeys.every(k => selectedSet.has(k)),
+    [selectable, allSelectableKeys, selectedSet]
+  );
 
   useLayoutEffect(() => {
     if (Platform.OS !== 'web' || !showColumnPicker) {
@@ -508,7 +547,11 @@ export default function DataTable<T>({
         contentContainerStyle={styles.scrollContent}
         nativeID="data-table-scroll-container"
       >
-        <table style={tableStyle} className="data-table-body" id="data-table-body">
+        <table
+          style={tableStyle}
+          className={'data-table-body' + (selectable && selectableRevealOnHover && selectedSet.size === 0 ? ' data-table-checkbox-reveal-on-hover' : '')}
+          id="data-table-body"
+        >
           <thead
             style={{
               position: 'sticky' as const,
@@ -520,116 +563,147 @@ export default function DataTable<T>({
           >
             <tr>
               <th style={{ ...thStyle, width: 40, minWidth: 40, padding: '8px' }}>
-                <View
-                  ref={pickerWrapRef}
-                  style={styles.columnPickerWrap}
-                  nativeID="data-table-column-picker-wrap"
-                >
-                  <TouchableOpacity
-                    onPress={() => setShowColumnPicker(v => !v)}
-                    style={styles.columnPickerBtn}
-                    activeOpacity={0.7}
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end' }}>
+                  {selectable && (
+                    <View
+                      style={{
+                        width: 20,
+                        height: 16,
+                        marginRight: 4,
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        flexShrink: 0,
+                      }}
+                    >
+                      {(!selectableRevealOnHover || selectedSet.size > 0) && (
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            if (!selectable) return;
+                            if (allSelected) {
+                              setSelected([]);
+                            } else {
+                              setSelected(allSelectableKeys);
+                            }
+                          }}
+                          style={{ cursor: 'pointer', width: 16, height: 16 }}
+                        />
+                      )}
+                    </View>
+                  )}
+                  <View
+                    ref={pickerWrapRef}
+                    style={styles.columnPickerWrap}
+                    nativeID="data-table-column-picker-wrap"
                   >
-                    <Ionicons name="options-outline" size={18} color="#636E72" />
-                  </TouchableOpacity>
-                  {showColumnPicker && dropdownRect && typeof document !== 'undefined' && document.body &&
-                    createPortal(
-                      <div
-                        id="data-table-column-picker-dropdown"
-                        style={{
-                          ...WEB_POPOVER.container,
-                          left: dropdownRect.left,
-                          top: dropdownRect.top,
-                        }}
-                      >
-                        <View style={styles.columnPickerHeader}>
-                          <Text style={[WEB_POPOVER.title, { marginBottom: 4, lineHeight: 20 }]}>Columns</Text>
-                          <Text style={[WEB_POPOVER.hint, { lineHeight: 18 }]}>Drag to reorder. Toggle to show/hide.</Text>
-                        </View>
-                        <ScrollView style={styles.columnPickerScroll}>
-                          {displayOrder.map((id, idx) => {
-                            const col = idToColumn.get(id);
-                            if (!col) return null;
-                            const isVisible = visibleIds.has(id);
-                            const originalIndex = orderIds.indexOf(id);
-                            const isDragging = draggedIndex !== null && orderIds[draggedIndex] === id;
-                            const rowContent = (
-                              <View style={styles.columnPickerCheckRow}>
-                                <View style={styles.columnPickerDragHandle}>
-                                  <Ionicons name="reorder-three" size={16} color="#95A5A6" />
-                                </View>
-                                <TouchableOpacity
-                                  onPress={() => toggleColumn(id)}
-                                  style={styles.columnPickerCheckRow}
-                                  activeOpacity={0.7}
-                                >
-                                  <View style={[styles.columnPickerCheck, isVisible && styles.columnPickerCheckOn]}>
-                                    {isVisible && <Ionicons name="checkmark" size={14} color="#fff" />}
+                    <TouchableOpacity
+                      onPress={() => setShowColumnPicker(v => !v)}
+                      style={styles.columnPickerBtn}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="options-outline" size={18} color="#636E72" />
+                    </TouchableOpacity>
+                    {showColumnPicker && dropdownRect && typeof document !== 'undefined' && document.body &&
+                      createPortal(
+                        <div
+                          id="data-table-column-picker-dropdown"
+                          style={{
+                            ...WEB_POPOVER.container,
+                            left: dropdownRect.left,
+                            top: dropdownRect.top,
+                          }}
+                        >
+                          <View style={styles.columnPickerHeader}>
+                            <Text style={[WEB_POPOVER.title, { marginBottom: 4, lineHeight: 20 }]}>Columns</Text>
+                            <Text style={[WEB_POPOVER.hint, { lineHeight: 18 }]}>Drag to reorder. Toggle to show/hide.</Text>
+                          </View>
+                          <ScrollView style={styles.columnPickerScroll}>
+                            {displayOrder.map((id, idx) => {
+                              const col = idToColumn.get(id);
+                              if (!col) return null;
+                              const isVisible = visibleIds.has(id);
+                              const originalIndex = orderIds.indexOf(id);
+                              const isDragging = draggedIndex !== null && orderIds[draggedIndex] === id;
+                              const rowContent = (
+                                <View style={styles.columnPickerCheckRow}>
+                                  <View style={styles.columnPickerDragHandle}>
+                                    <Ionicons name="reorder-three" size={16} color="#95A5A6" />
                                   </View>
-                                  <Text style={styles.columnPickerLabel}>{col.label}</Text>
-                                </TouchableOpacity>
-                              </View>
-                            );
-                            return Platform.OS === 'web' ? (
-                              <div
-                                key={id}
-                                draggable
-                                data-drop-index={idx}
-                                onDragStart={(e: React.DragEvent) => {
-                                  setDraggedIndex(originalIndex);
-                                  setDropTargetIndex(null);
-                                  if (e.dataTransfer) {
-                                    e.dataTransfer.effectAllowed = 'move';
-                                    e.dataTransfer.setData('text/plain', id);
-                                  }
-                                }}
-                                onDragOver={(e: React.DragEvent) => {
-                                  e.preventDefault();
-                                  e.dataTransfer && (e.dataTransfer.dropEffect = 'move');
-                                  setDropTargetIndex(idx);
-                                }}
-                                onDrop={(e: React.DragEvent) => {
-                                  e.preventDefault();
-                                  const toIndex = parseInt(
-                                    (e.currentTarget?.getAttribute?.('data-drop-index') ?? '') || '-1',
-                                    10
-                                  );
-                                  if (draggedIndex != null && toIndex >= 0 && draggedIndex !== toIndex) {
-                                    reorderColumns(draggedIndex, toIndex);
-                                  }
-                                  setDraggedIndex(null);
-                                  setDropTargetIndex(null);
-                                }}
-                                onDragEnd={() => {
-                                  setDraggedIndex(null);
-                                  setDropTargetIndex(null);
-                                }}
-                                style={{
-                                  display: 'flex',
-                                  flexDirection: 'row',
-                                  alignItems: 'center',
-                                  paddingTop: 10,
-                                  paddingBottom: 10,
-                                  paddingLeft: 12,
-                                  paddingRight: 12,
-                                  opacity: isDragging ? 0.6 : 1,
-                                  cursor: 'grab',
-                                  backgroundColor: dropTargetIndex === idx ? WEB_POPOVER.optionBgSelected : 'transparent',
-                                  borderRadius: 8,
-                                }}
-                              >
-                                {rowContent}
-                              </div>
-                            ) : (
-                              <View key={id} style={[styles.columnPickerRow, isDragging && styles.columnPickerRowDragging]}>
-                                {rowContent}
-                              </View>
-                            );
-                          })}
-                        </ScrollView>
-                      </div>,
-                      document.body
-                    )}
+                                  <TouchableOpacity
+                                    onPress={() => toggleColumn(id)}
+                                    style={styles.columnPickerCheckRow}
+                                    activeOpacity={0.7}
+                                  >
+                                    <View style={[styles.columnPickerCheck, isVisible && styles.columnPickerCheckOn]}>
+                                      {isVisible && <Ionicons name="checkmark" size={14} color="#fff" />}
+                                    </View>
+                                    <Text style={styles.columnPickerLabel}>{col.label}</Text>
+                                  </TouchableOpacity>
+                                </View>
+                              );
+                              return Platform.OS === 'web' ? (
+                                <div
+                                  key={id}
+                                  draggable
+                                  data-drop-index={idx}
+                                  onDragStart={(e: React.DragEvent) => {
+                                    setDraggedIndex(originalIndex);
+                                    setDropTargetIndex(null);
+                                    if (e.dataTransfer) {
+                                      e.dataTransfer.effectAllowed = 'move';
+                                      e.dataTransfer.setData('text/plain', id);
+                                    }
+                                  }}
+                                  onDragOver={(e: React.DragEvent) => {
+                                    e.preventDefault();
+                                    e.dataTransfer && (e.dataTransfer.dropEffect = 'move');
+                                    setDropTargetIndex(idx);
+                                  }}
+                                  onDrop={(e: React.DragEvent) => {
+                                    e.preventDefault();
+                                    const toIndex = parseInt(
+                                      (e.currentTarget?.getAttribute?.('data-drop-index') ?? '') || '-1',
+                                      10
+                                    );
+                                    if (draggedIndex != null && toIndex >= 0 && draggedIndex !== toIndex) {
+                                      reorderColumns(draggedIndex, toIndex);
+                                    }
+                                    setDraggedIndex(null);
+                                    setDropTargetIndex(null);
+                                  }}
+                                  onDragEnd={() => {
+                                    setDraggedIndex(null);
+                                    setDropTargetIndex(null);
+                                  }}
+                                  style={{
+                                    display: 'flex',
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    paddingTop: 10,
+                                    paddingBottom: 10,
+                                    paddingLeft: 12,
+                                    paddingRight: 12,
+                                    opacity: isDragging ? 0.6 : 1,
+                                    cursor: 'grab',
+                                    backgroundColor: dropTargetIndex === idx ? WEB_POPOVER.optionBgSelected : 'transparent',
+                                    borderRadius: 8,
+                                  }}
+                                >
+                                  {rowContent}
+                                </div>
+                              ) : (
+                                <View key={id} style={[styles.columnPickerRow, isDragging && styles.columnPickerRowDragging]}>
+                                  {rowContent}
+                                </View>
+                              );
+                            })}
+                          </ScrollView>
+                        </div>,
+                        document.body
+                      )}
+                  </View>
                 </View>
               </th>
               {orderedVisibleColumns.map((col, colIdx) => {
@@ -753,6 +827,8 @@ export default function DataTable<T>({
             ) : sections ? (
               sections.map((section, sectionIdx) => {
                 const isCollapsed = collapsedSections.has(sectionIdx);
+                const sectionRowKeys = section.data.map(row => keyExtractor(row));
+                const sectionAllSelected = selectable && sectionRowKeys.length > 0 && sectionRowKeys.every(k => selectedSet.has(k));
                 return (
                   <React.Fragment key={`section-${sectionIdx}`}>
                     <tr
@@ -763,7 +839,27 @@ export default function DataTable<T>({
                       tabIndex={0}
                       onKeyDown={(e: any) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleSection(sectionIdx); } }}
                     >
-                      <td colSpan={orderedVisibleColumns.length + 1} style={sectionHeaderStyle}>
+                      <td style={{ ...tdStyle, width: 40, minWidth: 40, padding: '0 8px' }}>
+                        {selectable && (
+                          <input
+                            type="checkbox"
+                            checked={sectionAllSelected}
+                            onChange={(e) => {
+                              e.stopPropagation();
+                              const next = new Set(selectedSet);
+                              if (sectionAllSelected) {
+                                sectionRowKeys.forEach(k => next.delete(k));
+                              } else {
+                                sectionRowKeys.forEach(k => next.add(k));
+                              }
+                              setSelected(Array.from(next));
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            style={{ cursor: 'pointer', width: 16, height: 16 }}
+                          />
+                        )}
+                      </td>
+                      <td colSpan={orderedVisibleColumns.length} style={sectionHeaderStyle}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
                           <Ionicons name={isCollapsed ? 'chevron-forward' : 'chevron-down'} size={18} color="#636E72" />
                           <Text style={{ fontSize: 13, fontWeight: '600', color: '#495057', marginRight: 8 }}>{section.title}</Text>
@@ -793,7 +889,23 @@ export default function DataTable<T>({
                           } as any}
                           className={`data-table-data-row ${onRowPress ? 'data-table-row-hover' : ''}`}
                         >
-                          <td style={{ ...tdStyle, width: 40, minWidth: 40 }} />
+                          <td style={{ ...tdStyle, width: 40, minWidth: 40, padding: '0 8px' }}>
+                            {selectable && (
+                              <input
+                                type="checkbox"
+                                checked={selectedSet.has(key)}
+                                onChange={(e) => {
+                                  e.stopPropagation();
+                                  const next = new Set(selectedSet);
+                                  if (next.has(key)) next.delete(key);
+                                  else next.add(key);
+                                  setSelected(Array.from(next));
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                style={{ cursor: 'pointer', width: 16, height: 16 }}
+                              />
+                            )}
+                          </td>
                           {orderedVisibleColumns.map(col => (
                             <td key={col.id} style={tdStyle}>
                               {col.getValue(row)}
@@ -819,7 +931,23 @@ export default function DataTable<T>({
                     } as any}
                     className={`data-table-data-row ${onRowPress ? 'data-table-row-hover' : ''}`}
                   >
-                    <td style={{ ...tdStyle, width: 40, minWidth: 40 }} />
+                    <td style={{ ...tdStyle, width: 40, minWidth: 40, padding: '0 8px' }}>
+                      {selectable && (
+                        <input
+                          type="checkbox"
+                          checked={selectedSet.has(key)}
+                          onChange={(e) => {
+                            e.stopPropagation();
+                            const next = new Set(selectedSet);
+                            if (next.has(key)) next.delete(key);
+                            else next.add(key);
+                            setSelected(Array.from(next));
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          style={{ cursor: 'pointer', width: 16, height: 16 }}
+                        />
+                      )}
+                    </td>
                     {orderedVisibleColumns.map(col => (
                       <td key={col.id} style={tdStyle}>
                         {col.getValue(row)}

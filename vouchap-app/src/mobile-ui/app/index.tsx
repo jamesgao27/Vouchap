@@ -21,8 +21,10 @@ import { runWithRecognitionRetry } from '@/lib/recognition-retry';
 import { showToast } from '@/lib/toast';
 import { showChoiceDialog } from '@/lib/confirmDialog';
 import WebDashboardView from '@/components/WebDashboardView';
+import CrmDashboardView from '@/components/CrmDashboardView';
+import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
 
-/** 首页是否显示「AI 进销存」入口：由 app.config.js extra.showAiInventory 控制，production 构建时 EXPO_PUBLIC_SHOW_AI_INVENTORY=false 则隐藏 */
+/** 首页是否显示「AI 进销存」入口：由 app.config.js extra.showAiInventory 控制 */
 const SHOW_AI_INVENTORY_ENTRY = Constants.expoConfig?.extra?.showAiInventory !== false;
 
 export default function HomeScreen() {
@@ -627,12 +629,164 @@ export default function HomeScreen() {
     return null; // 会跳转到登录页或设置家庭页面
   }
 
-  // Web 端：左侧栏由 _layout 提供，首页只展示报表落地页；拍照提交隐去，Chat 在侧栏用两个按钮
+  // Web 端：左侧栏由 _layout 提供；firm 展示 CRM-Dashboard（前端为 Dashboard），否则展示报表落地页
   if (Platform.OS === 'web') {
     return (
       <View style={styles.container}>
         <StatusBar style="dark" />
-        <WebDashboardView />
+        {currentSpace?.kind === 'firm' ? <CrmDashboardView /> : <WebDashboardView />}
+      </View>
+    );
+  }
+
+  // Firm 移动端：仅展示 CRM-Dashboard（Dashboard 标题 + 四宫格），隐藏拍照/Income/Expenses/AI Inventory
+  if (currentSpace?.kind === 'firm') {
+    return (
+      <View style={styles.container}>
+        <StatusBar style="dark" />
+        <View style={styles.topBar}>
+          <View style={styles.topBarLeft}>
+            {pendingInvitationsCount > 0 && (
+              <TouchableOpacity
+                style={styles.invitationsBadgeButton}
+                onPress={() => router.push('/handle-invitations')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="mail-outline" size={24} color="#6C5CE7" />
+                <View style={styles.invitationsBadge}>
+                  <Text style={styles.invitationsBadgeText}>
+                    {pendingInvitationsCount > 99 ? '99+' : pendingInvitationsCount}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+          </View>
+          <TouchableOpacity
+            style={styles.householdNameContainer}
+            onPress={openSpaceSwitch}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.householdName} numberOfLines={1}>
+              {currentSpace?.name || 'Loading...'}
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.managementButton}
+            onPress={() => router.push('/management')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="settings-outline" size={24} color="#2D3436" />
+          </TouchableOpacity>
+        </View>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Text style={[styles.title, { marginTop: 24, marginBottom: 8 }]}>Dashboard</Text>
+          <Text style={[styles.subtitle, { marginBottom: 20 }]}>CRM · Clients & tax filing</Text>
+          <View style={styles.buttonsRow}>
+            <TouchableOpacity
+              style={[styles.secondaryButton, styles.halfWidthButton]}
+              onPress={() => router.push('/firm/clients')}
+            >
+              <Ionicons name="people-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
+              <Text style={styles.secondaryButtonText}>Client</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.secondaryButton, styles.halfWidthButton]}
+              onPress={() => router.push('/firm/assignments')}
+            >
+              <Ionicons name="key-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
+              <Text style={styles.secondaryButtonText}>Assignment</Text>
+            </TouchableOpacity>
+          </View>
+          <View style={[styles.buttonsRow, { marginTop: 8 }]}>
+            <TouchableOpacity
+              style={[styles.secondaryButton, styles.halfWidthButton]}
+              onPress={() => router.push('/firm/orders')}
+            >
+              <Ionicons name="checkbox-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
+              <Text style={styles.secondaryButtonText}>Orders</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.secondaryButton, styles.halfWidthButton]}
+              onPress={() => router.push('/firm/templates')}
+            >
+              <Ionicons name="document-attach-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
+              <Text style={styles.secondaryButtonText}>Service SKU</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+        <Modal
+          animationType="slide"
+          transparent={true}
+          visible={showSpaceSwitch}
+          onRequestClose={() => setShowSpaceSwitch(false)}
+        >
+          <TouchableOpacity
+            style={styles.pickerOverlay}
+            activeOpacity={1}
+            onPress={() => setShowSpaceSwitch(false)}
+          >
+            <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
+              <View style={styles.pickerHandle} />
+              <View style={[styles.pickerHeader, styles.pickerHeaderCenter]}>
+                <Text style={[styles.pickerTitle, switching && styles.pickerTitleHidden]}>Switch Space</Text>
+                {switching && (
+                  <View style={styles.pickerHeaderSpinnerWrap}>
+                    <ActivityIndicator size="small" color="#6C5CE7" />
+                  </View>
+                )}
+              </View>
+              <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
+                {spaces.map((userSpace) => (
+                  <TouchableOpacity
+                    key={userSpace.spaceId}
+                    style={[
+                      styles.pickerOption,
+                      currentSpace?.id === userSpace.spaceId && styles.pickerOptionSelected
+                    ]}
+                    onPress={() => handleSwitchSpace(userSpace.spaceId)}
+                    disabled={switching || currentSpace?.id === userSpace.spaceId}
+                  >
+                    <Ionicons
+                      name="home"
+                      size={20}
+                      color={currentSpace?.id === userSpace.spaceId ? '#6C5CE7' : '#636E72'}
+                    />
+                    <View style={styles.householdOptionContent}>
+                      <Text
+                        style={[
+                          styles.pickerOptionText,
+                          currentSpace?.id === userSpace.spaceId && styles.pickerOptionTextSelected
+                        ]}
+                      >
+                        {userSpace.space?.name || 'Unnamed Space'}
+                      </Text>
+                      {userSpace.space?.address && (
+                        <Text style={styles.householdOptionAddress} numberOfLines={1}>
+                          {userSpace.space.address}
+                        </Text>
+                      )}
+                    </View>
+                    {currentSpace?.id === userSpace.spaceId && (
+                      <Ionicons name="checkmark" size={20} color="#6C5CE7" />
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+              <View style={styles.modalFooter}>
+                <TouchableOpacity
+                  style={styles.pickerCancelButton}
+                  onPress={() => setShowSpaceSwitch(false)}
+                >
+                  <Text style={styles.pickerCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </Modal>
       </View>
     );
   }
@@ -774,6 +928,53 @@ export default function HomeScreen() {
           >
             <Ionicons name="cube-outline" size={20} color="#FF9500" style={styles.buttonIcon} />
             <Text style={styles.secondaryButtonAltText}>AI Inventory</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {showTaxFiling && currentSpace?.kind !== 'firm' && (
+        <View style={[styles.buttonsRow, { marginTop: 12 }]}>
+          <TouchableOpacity 
+            style={[styles.secondaryButtonAlt, styles.halfWidthButton]}
+            onPress={() => router.push('/tax-filing')}
+          >
+            <Ionicons name="document-text-outline" size={20} color="#0984e3" style={styles.buttonIcon} />
+            <Text style={styles.secondaryButtonAltText}>报税</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {currentSpace?.kind === 'firm' && (
+        <View style={[styles.buttonsRow, { marginTop: 12 }]}>
+          <TouchableOpacity 
+            style={[styles.secondaryButton, styles.halfWidthButton]}
+            onPress={() => router.push('/firm/clients')}
+          >
+            <Ionicons name="people-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
+            <Text style={styles.secondaryButtonText}>Client</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.secondaryButton, styles.halfWidthButton]}
+            onPress={() => router.push('/firm/member-clients')}
+          >
+            <Ionicons name="key-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
+            <Text style={styles.secondaryButtonText}>Member–Client Assignment</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+      {currentSpace?.kind === 'firm' && (
+        <View style={[styles.buttonsRow, { marginTop: 8 }]}>
+          <TouchableOpacity 
+            style={[styles.secondaryButton, styles.halfWidthButton]}
+            onPress={() => router.push('/firm/todos')}
+          >
+            <Ionicons name="checkbox-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
+            <Text style={styles.secondaryButtonText}>Orders</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={[styles.secondaryButton, styles.halfWidthButton]}
+            onPress={() => router.push('/firm/templates')}
+          >
+            <Ionicons name="document-attach-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
+            <Text style={styles.secondaryButtonText}>Service SKU</Text>
           </TouchableOpacity>
         </View>
       )}
