@@ -421,6 +421,34 @@ export async function getPendingInvitationsForUser(): Promise<SpaceInvitation[]>
   }
 }
 
+/** Realtime 订阅：当前用户待处理邀请数量变化时触发 onCountChange（仅用于 Web 端角标等） */
+export function subscribePendingInvitationsRealtime(
+  userEmail: string,
+  onCountChange: () => void
+): () => void {
+  const normalizedEmail = (userEmail || '').toLowerCase();
+  if (!normalizedEmail) return () => {};
+
+  const channel = supabase
+    .channel(`space-invitations-for-${normalizedEmail.replace(/[^a-z0-9]/g, '-')}`)
+    .on(
+      'postgres_changes',
+      { event: '*', schema: 'public', table: 'space_invitations' },
+      (payload) => {
+        const record = (payload.new ?? payload.old) as { invitee_email?: string } | undefined;
+        const email = (record?.invitee_email ?? '').toLowerCase();
+        if (email === normalizedEmail) {
+          onCountChange();
+        }
+      }
+    )
+    .subscribe();
+
+  return () => {
+    supabase.removeChannel(channel);
+  };
+}
+
 // 接受邀请（加入家庭）
 export async function acceptInvitation(invitationId: string): Promise<{ error: Error | null }> {
   try {

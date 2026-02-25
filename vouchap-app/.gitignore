@@ -24,6 +24,9 @@ web-build/
 .DS_Store
 **/.DS_Store
 
+# Android Gradle 缓存（非 CNG 时避免提交）
+android/.gradle
+
 # 测试文件
 test-*.js
 

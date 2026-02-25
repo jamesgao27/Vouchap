@@ -15,6 +15,7 @@ import { initializeAuthCache } from '@/lib/auth-cache';
 import { getPendingInvitationsForUser, acceptInvitation, declineInvitation } from '@/lib/space-invitations';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
+import { confirmDestructive } from '@/lib/alertWeb';
 
 export default function HandleInvitationsScreen() {
   const router = useRouter();
@@ -560,10 +561,17 @@ export default function HandleInvitationsScreen() {
                   )}
                 </TouchableOpacity>
                 
-                {/* 第二个按钮：拒绝 - 次要操作按钮，红色边框，危险操作 */}
+                {/* 第二个按钮：拒绝 - 二次确认用统一样式浮窗，再执行拒绝 */}
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalButtonDecline]}
-                  onPress={handleDeclineInvitation}
+                  onPress={() => {
+                    confirmDestructive(
+                      'Decline Invitation',
+                      `Are you sure you want to decline the invitation to join ${spaceName && spaceName !== 'Unknown Space' ? spaceName : 'this space'}?`,
+                      () => { handleDeclineInvitation(); },
+                      { confirmLabel: 'Decline' }
+                    );
+                  }}
                   disabled={acceptingInvite}
                   activeOpacity={0.8}
                 >

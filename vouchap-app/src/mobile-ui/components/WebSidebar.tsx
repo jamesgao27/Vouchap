@@ -15,6 +15,7 @@ import {
 import { useRouter, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getCurrentUser, getCurrentSpace } from '@/lib/auth';
+import { getPendingInvitationsForUser, subscribePendingInvitationsRealtime } from '@/lib/space-invitations';
 import { Space, User } from '@/types';
 import { showAiInventory } from '@/lib/feature-flags';
 
@@ -55,15 +56,18 @@ export default function WebSidebar() {
   const pathname = usePathname() ?? '/';
   const [currentSpace, setCurrentSpaceState] = useState<Space | null>(null);
   const [user, setUser] = useState<User | null>(null);
+  const [pendingInvitationsCount, setPendingInvitationsCount] = useState(0);
 
   const loadData = useCallback(async (forceRefresh = false) => {
     try {
-      const [spaceData, userData] = await Promise.all([
+      const [spaceData, userData, invitations] = await Promise.all([
         getCurrentSpace(forceRefresh),
         getCurrentUser(forceRefresh),
+        getPendingInvitationsForUser().catch(() => []),
       ]);
       setCurrentSpaceState(spaceData ?? null);
       setUser(userData ?? null);
+      setPendingInvitationsCount(invitations?.length ?? 0);
     } catch (e) {
       console.error('WebSidebar loadData:', e);
     }
@@ -73,6 +77,18 @@ export default function WebSidebar() {
   useEffect(() => {
     loadData(true);
   }, [loadData, pathname]);
+
+  // Web 端：Supabase Realtime 订阅，邀请数据变化时刷新角标
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !user?.email) return;
+    const refreshCount = () => {
+      getPendingInvitationsForUser()
+        .then((inv) => setPendingInvitationsCount(inv.length))
+        .catch(() => {});
+    };
+    const unsubscribe = subscribePendingInvitationsRealtime(user.email, refreshCount);
+    return unsubscribe;
+  }, [Platform.OS, user?.email]);
 
   const isActive = (item: NavItem) => {
     if (item.match) return item.match(pathname);
@@ -139,26 +155,42 @@ export default function WebSidebar() {
         )}
       </View>
 
-      {/* 用户信息：点击进入管理 */}
-      <TouchableOpacity
-        style={styles.userCard}
-        onPress={() => router.push('/management')}
-        activeOpacity={0.7}
-      >
-        <View style={styles.userAvatar}>
-          <Text style={styles.userInitial}>
-            {user?.name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || '?'}
-          </Text>
-        </View>
-        <View style={styles.userInfo}>
-          <Text style={styles.userName} numberOfLines={1}>
-            {user?.name || 'User'}
-          </Text>
-          <Text style={styles.userEmail} numberOfLines={1}>
-            {user?.email || ''}
-          </Text>
-        </View>
-      </TouchableOpacity>
+      {/* 用户信息：邀请通知 icon+角标 浮在卡片右上角 */}
+      <View style={styles.userCardWrap}>
+        <TouchableOpacity
+          style={styles.userCard}
+          onPress={() => router.push('/management')}
+          activeOpacity={0.7}
+        >
+          <View style={styles.userAvatar}>
+            <Text style={styles.userInitial}>
+              {user?.name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || '?'}
+            </Text>
+          </View>
+          <View style={styles.userInfo}>
+            <Text style={styles.userName} numberOfLines={1}>
+              {user?.name || 'User'}
+            </Text>
+            <Text style={styles.userEmail} numberOfLines={1}>
+              {user?.email || ''}
+            </Text>
+          </View>
+        </TouchableOpacity>
+        {pendingInvitationsCount > 0 && (
+          <TouchableOpacity
+            style={styles.invitationsFloating}
+            onPress={() => router.push('/handle-invitations')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="mail-outline" size={24} color="#6C5CE7" />
+            <View style={styles.invitationsBadge}>
+              <Text style={styles.invitationsBadgeText}>
+                {pendingInvitationsCount > 99 ? '99+' : pendingInvitationsCount}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        )}
+      </View>
     </View>
   );
 }
@@ -235,6 +267,9 @@ const styles = StyleSheet.create({
     color: '#FF9500',
     fontWeight: '600',
   },
+  userCardWrap: {
+    position: 'relative',
+  },
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -250,6 +285,33 @@ const styles = StyleSheet.create({
     backgroundColor: '#6C5CE7',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  invitationsFloating: {
+    position: 'absolute',
+    top: -6,
+    right: -6,
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  invitationsBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: '#E74C3C',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  invitationsBadgeText: {
+    color: '#fff',
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
   },
   userInitial: {
     fontSize: 16,

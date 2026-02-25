@@ -13,10 +13,11 @@ import {
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import { getUserSpaces, setCurrentSpace, createSpace, getCurrentUser, getCurrentSpace, isAuthenticated } from '@/lib/auth';
+import { getUserSpaces, setCurrentSpace, createSpace, getCurrentUser, getCurrentSpace, isAuthenticated, signOut } from '@/lib/auth';
 import { UserSpace } from '@/types';
 import { initializeAuthCache } from '@/lib/auth-cache';
 import { showToast } from '@/lib/toast';
+import { confirmDestructive } from '@/lib/alertWeb';
 
 export default function SpaceSelectScreen() {
   const router = useRouter();
@@ -233,10 +234,20 @@ export default function SpaceSelectScreen() {
 
         <TouchableOpacity
           style={styles.signOutButton}
-          onPress={async () => {
-            const { signOut } = await import('@/lib/auth');
-            await signOut();
-            router.replace('/login');
+          onPress={() => {
+            confirmDestructive(
+              'Sign Out',
+              'Are you sure you want to sign out?',
+              async () => {
+                const { error } = await signOut();
+                if (error) {
+                  showToast(error.message || 'Failed to sign out', 'error');
+                  return;
+                }
+                router.replace('/login');
+              },
+              { confirmLabel: 'Sign Out' }
+            );
           }}
           activeOpacity={0.7}
         >

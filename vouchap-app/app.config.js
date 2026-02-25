@@ -84,7 +84,7 @@ export default {
     ...(process.env.EXPO_PUBLIC_WEB_BASE_PATH
       ? { experiments: { baseUrl: process.env.EXPO_PUBLIC_WEB_BASE_PATH } }
       : {}),
-    // 这里通过扩展运算符引入 app.json 中的 projectId，保持同步
+    // EAS projectId（原 app.json 已合并到本文件）
     // showAiInventory: production 默认隐藏；仅 develop 或显式 EXPO_PUBLIC_SHOW_AI_INVENTORY=true 时显示
     // geminiApiKey: 构建时从 EAS Secrets 的 EXPO_PUBLIC_GEMINI_API_KEY 写入，确保 production 也能拿到 key
     extra: {

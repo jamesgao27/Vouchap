@@ -2,7 +2,17 @@ import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// 仅在非 Web 且原生模块可用时加载 AsyncStorage，避免 Expo Go / 未 link 时崩溃
+function getAuthStorage(): undefined | { getItem: (key: string) => Promise<string | null>; setItem: (key: string, value: string) => Promise<void>; removeItem: (key: string) => Promise<void> } {
+  if (Platform.OS === 'web') return undefined;
+  try {
+    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+    return AsyncStorage;
+  } catch {
+    return undefined;
+  }
+}
 
 // 安全获取环境变量，避免启动时崩溃
 const supabaseUrl = Constants.expoConfig?.extra?.supabaseUrl || process.env.EXPO_PUBLIC_SUPABASE_URL || '';
@@ -26,7 +36,7 @@ export const supabase = createClient(
   supabaseAnonKey || 'placeholder-key',
   {
     auth: {
-      storage: Platform.OS === 'web' ? undefined : AsyncStorage,
+      storage: getAuthStorage(),
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
