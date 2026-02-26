@@ -1,12 +1,14 @@
 /**
  * Firm - Client: associated clients. Web: DataTable (columns, search, filter, group, sort). Mobile: card list.
  */
-import { useEffect, useState, useMemo, useCallback } from 'react';
+import { useEffect, useState, useMemo, useCallback, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   View,
   Text,
   StyleSheet,
   ScrollView,
+  SectionList,
   ActivityIndicator,
   TextInput,
   TouchableOpacity,
@@ -15,10 +17,12 @@ import {
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { format } from 'date-fns';
 import { getCurrentSpace } from '@/lib/auth';
-import { getFirmClientsWithDetails, deleteFirmClients } from '@/lib/firm';
+import { getFirmClientsWithDetails, getFirmOrders, deleteFirmClients } from '@/lib/firm';
 import type { FirmClientWithDetails } from '@/lib/firm';
-import DataTable, { type DataTableColumn } from '@/components/DataTable';
+import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
+import DataTable, { type DataTableColumn, WEB_POPOVER } from '@/components/DataTable';
 
 function formatServiceStart(iso: string | null): string {
   if (!iso) return '—';
@@ -34,19 +38,11 @@ function formatLastFollowUp(iso: string | null): string {
   if (!iso) return '—';
   try {
     const d = new Date(iso);
-    return d.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' });
+    return format(d, 'MMM dd, yyyy');
   } catch {
     return '—';
   }
 }
-
-const DISPLAY_STATUS_LABEL: Record<string, string> = {
-  new: 'New',
-  to_follow_up: 'To follow up',
-  in_service: 'In service',
-  to_revisit: 'To revisit',
-  churned: 'Churned',
-};
 
 const DISPLAY_STATUS_COLOR: Record<string, string> = {
   new: '#0984E3',
@@ -67,7 +63,8 @@ function matchQuery(q: string, client: FirmClientWithDetails): boolean {
   return name.includes(lower) || contact.includes(lower) || email.includes(lower) || status.includes(lower) || assignee.includes(lower);
 }
 
-type GroupByType = 'none' | 'byName';
+type GroupByType = 'none' | 'byName' | 'byStatus';
+type FilterStatus = 'all' | 'new' | 'to_follow_up' | 'in_service' | 'to_revisit' | 'churned';
 
 function getClientColumns(): DataTableColumn<FirmClientWithDetails>[] {
   return [
@@ -98,7 +95,7 @@ function getClientColumns(): DataTableColumn<FirmClientWithDetails>[] {
       minWidth: 100,
       getValue: (r) => {
         const raw = r.displayStatus ?? '';
-        const label = DISPLAY_STATUS_LABEL[raw] ?? raw ?? '—';
+        const label = CLIENT_DISPLAY_STATUS_LABELS[raw as keyof typeof CLIENT_DISPLAY_STATUS_LABELS] ?? raw ?? '—';
         const color = DISPLAY_STATUS_COLOR[raw] ?? '#636E72';
         return (
           <View style={{ flexDirection: 'row', alignSelf: 'flex-start' }}>
@@ -145,7 +142,11 @@ export default function FirmClientsScreen() {
   const [clients, setClients] = useState<FirmClientWithDetails[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [groupBy, setGroupBy] = useState<GroupByType>('none');
+  const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [showGroupMenu, setShowGroupMenu] = useState(false);
+  const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [orderCountByClient, setOrderCountByClient] = useState<Record<string, number>>({});
+  const [groupPopoverRect, setGroupPopoverRect] = useState<{ left: number; top: number } | null>(null);
   const [sortKey, setSortKey] = useState<string | null>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
@@ -153,19 +154,48 @@ export default function FirmClientsScreen() {
 
   const clientColumns = useMemo(() => getClientColumns(), []);
 
-  // Close group dropdown on outside click (Web)
+  // Web: 根据分组按钮位置计算浮窗位置（同 receipts 列表页规范）
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (showGroupMenu) {
+      const measure = () => {
+        const el = document.getElementById('firm-clients-group-button');
+        if (el) {
+          const r = el.getBoundingClientRect();
+          setGroupPopoverRect({ left: r.left, top: r.bottom + 6 });
+        } else {
+          setGroupPopoverRect(null);
+        }
+      };
+      measure();
+      const t = requestAnimationFrame(measure);
+      return () => {
+        cancelAnimationFrame(t);
+        setGroupPopoverRect(null);
+      };
+    }
+    setGroupPopoverRect(null);
+  }, [showGroupMenu]);
+
+  // Web: 点击浮窗外关闭（按钮 + 浮窗均不包含点击目标时）
   useEffect(() => {
-    if (Platform.OS !== 'web' || !showGroupMenu) return;
+    if (Platform.OS !== 'web') return;
     const handler = (e: PointerEvent) => {
-      const wrap = document.getElementById('firm-clients-group-wrap');
       const target = e.target as Node;
-      if (wrap && !wrap.contains(target)) setShowGroupMenu(false);
+      const groupBtn = document.getElementById('firm-clients-group-button');
+      const groupPopover = document.getElementById('firm-clients-group-popover');
+      if (
+        showGroupMenu &&
+        groupBtn &&
+        !groupBtn.contains(target) &&
+        groupPopover &&
+        !groupPopover.contains(target)
+      ) {
+        setShowGroupMenu(false);
+      }
     };
-    const t = setTimeout(() => document.addEventListener('pointerdown', handler), 0);
-    return () => {
-      clearTimeout(t);
-      document.removeEventListener('pointerdown', handler);
-    };
+    document.addEventListener('pointerdown', handler);
+    return () => document.removeEventListener('pointerdown', handler);
   }, [showGroupMenu]);
 
   const loadData = useCallback(async (forceRefresh = false) => {
@@ -174,8 +204,16 @@ export default function FirmClientsScreen() {
       router.replace('/');
       return;
     }
-    const list = await getFirmClientsWithDetails(space.id);
+    const [list, orders] = await Promise.all([
+      getFirmClientsWithDetails(space.id),
+      getFirmOrders(space.id),
+    ]);
     setClients(list);
+    const counts: Record<string, number> = {};
+    orders.forEach((o) => {
+      counts[o.clientSpaceId] = (counts[o.clientSpaceId] ?? 0) + 1;
+    });
+    setOrderCountByClient(counts);
   }, [router]);
 
   useEffect(() => {
@@ -192,9 +230,14 @@ export default function FirmClientsScreen() {
     setRefreshing(false);
   }, [loadData]);
 
+  const filteredClients = useMemo(() => {
+    if (filterStatus === 'all') return clients;
+    return clients.filter((c) => (c.displayStatus ?? '') === filterStatus);
+  }, [clients, filterStatus]);
+
   const searchedClients = useMemo(
-    () => clients.filter((c) => matchQuery(searchQuery, c)),
-    [clients, searchQuery]
+    () => filteredClients.filter((c) => matchQuery(searchQuery, c)),
+    [filteredClients, searchQuery]
   );
 
   const sortRowsByColumn = useCallback(
@@ -211,16 +254,33 @@ export default function FirmClientsScreen() {
   );
 
   const groupedSections = useMemo(() => {
-    if (groupBy !== 'byName') return [{ title: 'All', data: searchedClients }];
-    const byLetter: Record<string, FirmClientWithDetails[]> = {};
-    searchedClients.forEach((c) => {
-      const first = (c.name || '').trim().charAt(0).toUpperCase();
-      const key = /[A-Z]/.test(first) ? first : '#';
-      if (!byLetter[key]) byLetter[key] = [];
-      byLetter[key].push(c);
-    });
-    const keys = Object.keys(byLetter).sort((a, b) => (a === '#' ? 1 : b === '#' ? -1 : a.localeCompare(b)));
-    return keys.map((k) => ({ title: k, data: byLetter[k] }));
+    if (groupBy === 'none') return [{ title: 'All', monthKey: 'all', data: searchedClients }];
+    if (groupBy === 'byName') {
+      const byLetter: Record<string, FirmClientWithDetails[]> = {};
+      searchedClients.forEach((c) => {
+        const first = (c.name || '').trim().charAt(0).toUpperCase();
+        const key = /[A-Z]/.test(first) ? first : '#';
+        if (!byLetter[key]) byLetter[key] = [];
+        byLetter[key].push(c);
+      });
+      const keys = Object.keys(byLetter).sort((a, b) => (a === '#' ? 1 : b === '#' ? -1 : a.localeCompare(b)));
+      return keys.map((k) => ({ title: k, monthKey: k, data: byLetter[k] }));
+    }
+    if (groupBy === 'byStatus') {
+      const order = ['new', 'to_follow_up', 'in_service', 'to_revisit', 'churned'];
+      const byStatus: Record<string, FirmClientWithDetails[]> = {};
+      searchedClients.forEach((c) => {
+        const key = c.displayStatus ?? 'new';
+        if (!byStatus[key]) byStatus[key] = [];
+        byStatus[key].push(c);
+      });
+      return order.filter((k) => (byStatus[k]?.length ?? 0) > 0).map((k) => ({
+        title: CLIENT_DISPLAY_STATUS_LABELS[k as keyof typeof CLIENT_DISPLAY_STATUS_LABELS] ?? k,
+        monthKey: k,
+        data: byStatus[k] ?? [],
+      }));
+    }
+    return [{ title: 'All', monthKey: 'all', data: searchedClients }];
   }, [groupBy, searchedClients]);
 
   const tableSections = useMemo(() => {
@@ -263,70 +323,124 @@ export default function FirmClientsScreen() {
     if (typeof window !== 'undefined') window.alert('Assign assignee: coming soon. Will open member picker.');
   }, []);
 
-  // Mobile: card list (DataTable returns null on non-web)
+  // Mobile: receipt-style list (Group, Filter, Search + firstRow/secondRow)
+  const clientSections = useMemo(() => {
+    const col = sortKey ? clientColumns.find((c) => c.id === sortKey) : undefined;
+    return groupedSections.map((sec) => ({
+      title: sec.title,
+      monthKey: (sec as { monthKey?: string }).monthKey ?? sec.title,
+      data: sortRowsByColumn(sec.data, col, sortDirection),
+    }));
+  }, [groupedSections, sortKey, sortDirection, clientColumns, sortRowsByColumn]);
+
   const renderMobileList = () => (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-    >
-      <View style={styles.searchWrap}>
-        <Ionicons name="search" size={18} color="#636E72" style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search"
-          placeholderTextColor="#95A5A6"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-        {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.searchClear}>
-            <Ionicons name="close-circle" size={20} color="#95A5A6" />
-          </TouchableOpacity>
+    <View style={styles.container}>
+      <View style={styles.toolbarSlot}>
+        <View style={styles.header}>
+          <View style={styles.headerRow}>
+            <TouchableOpacity style={styles.sortButton} onPress={() => setShowGroupMenu(!showGroupMenu)}>
+              {groupBy === 'none' && <Ionicons name="list-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+              {groupBy === 'byName' && <Ionicons name="albums-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+              {groupBy === 'byStatus' && <Ionicons name="flag-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+              <Text style={styles.sortText}>Group</Text>
+              <Ionicons name="chevron-down" size={16} color="#636E72" />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.filterButton} onPress={() => setShowFilterMenu(!showFilterMenu)}>
+              <Text style={styles.filterText}>
+                Filter
+                {filterStatus !== 'all' && <Text style={styles.filterBadge}> (1)</Text>}
+              </Text>
+              <Ionicons name="chevron-down" size={16} color="#636E72" />
+            </TouchableOpacity>
+            <View style={styles.searchContainer}>
+              <Ionicons name="search" size={18} color="#636E72" style={styles.searchIcon} />
+              <TextInput style={styles.searchInput} placeholder="Search" placeholderTextColor="#95A5A6" value={searchQuery} onChangeText={setSearchQuery} />
+              {searchQuery.trim() ? (
+                <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.searchClear}>
+                  <Ionicons name="close-circle" size={20} color="#95A5A6" />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          </View>
+        </View>
+        {showGroupMenu && (
+          <View style={styles.groupDropdown}>
+            <TouchableOpacity style={[styles.groupOption, groupBy === 'none' && styles.groupOptionSelected]} onPress={() => { setGroupBy('none'); setShowGroupMenu(false); }}>
+              <Text style={[styles.groupOptionText, groupBy === 'none' && styles.groupOptionTextSelected]}>None</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.groupOption, groupBy === 'byName' && styles.groupOptionSelected]} onPress={() => { setGroupBy('byName'); setShowGroupMenu(false); }}>
+              <Text style={[styles.groupOptionText, groupBy === 'byName' && styles.groupOptionTextSelected]}>By name</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.groupOption, groupBy === 'byStatus' && styles.groupOptionSelected]} onPress={() => { setGroupBy('byStatus'); setShowGroupMenu(false); }}>
+              <Text style={[styles.groupOptionText, groupBy === 'byStatus' && styles.groupOptionTextSelected]}>By status</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        {showFilterMenu && (
+          <View style={styles.groupDropdown}>
+            {(['all', 'new', 'to_follow_up', 'in_service', 'to_revisit', 'churned'] as FilterStatus[]).map((key) => (
+              <TouchableOpacity key={key} style={[styles.groupOption, filterStatus === key && styles.groupOptionSelected]} onPress={() => { setFilterStatus(key); setShowFilterMenu(false); }}>
+                <Text style={[styles.groupOptionText, filterStatus === key && styles.groupOptionTextSelected]}>{key === 'all' ? 'All' : CLIENT_DISPLAY_STATUS_LABELS[key as keyof typeof CLIENT_DISPLAY_STATUS_LABELS]}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
         )}
       </View>
-      {loading ? (
-        <ActivityIndicator size="large" color="#6C5CE7" style={styles.loader} />
-      ) : searchedClients.length === 0 ? (
-        <View style={styles.empty}>
-          <Text style={styles.emptyText}>{tableEmptyMessage}</Text>
+      {loading && clients.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <ActivityIndicator size="large" color="#6C5CE7" />
+          <Text style={styles.emptyText}>Loading...</Text>
         </View>
       ) : (
-        <View style={styles.list}>
-          {searchedClients.map((c) => (
-            <View key={c.id} style={styles.card}>
-              <Text style={styles.cardTitle}>{c.name}</Text>
-              <View style={styles.cardRow}>
-                <Text style={styles.label}>Contact</Text>
-                <Text style={styles.value}>{c.contactName ?? '—'}</Text>
+        <SectionList
+          sections={clientSections}
+          keyExtractor={(c) => c.id}
+          renderItem={({ item: c }) => {
+            const orderCount = orderCountByClient[c.clientSpaceId] ?? 0;
+            const statusLabel = CLIENT_DISPLAY_STATUS_LABELS[c.displayStatus ?? ''] ?? c.displayStatus ?? '—';
+            return (
+              <TouchableOpacity
+                style={styles.receiptItem}
+                onPress={() => router.push(`/firm/client/${c.clientSpaceId}`)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.receiptContent}>
+                  <View style={styles.firstRow}>
+                    <Text style={styles.storeName} numberOfLines={1}>{c.name || '—'}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: DISPLAY_STATUS_COLOR[c.displayStatus ?? ''] ?? '#636E72' }]}>
+                      <Text style={styles.statusText}>{statusLabel}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.secondRow}>
+                    <Text style={styles.amount}>{orderCount} orders</Text>
+                    <Text style={styles.createdDate}>{formatLastFollowUp(c.lastFollowUpAt ?? null)}</Text>
+                  </View>
+                </View>
+              </TouchableOpacity>
+            );
+          }}
+          renderSectionHeader={({ section }) => {
+            if (section.monthKey === 'all' || section.data.length === 0) return null;
+            return (
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>{section.title}</Text>
+                <View style={styles.sectionHeaderRight}>
+                  <Text style={styles.sectionCount}>{section.data.length} clients</Text>
+                </View>
               </View>
-              <View style={styles.cardRow}>
-                <Text style={styles.label}>Contact email</Text>
-                <Text style={styles.value}>{c.contactEmail ?? '—'}</Text>
-              </View>
-              <View style={styles.cardRow}>
-                <Text style={styles.label}>Status</Text>
-                <Text style={styles.value}>{DISPLAY_STATUS_LABEL[c.displayStatus ?? ''] ?? c.displayStatus ?? '—'}</Text>
-              </View>
-              <View style={styles.cardRow}>
-                <Text style={styles.label}>Assignee</Text>
-                <Text style={styles.value}>{c.assigneeName ?? c.assigneeEmail ?? '—'}</Text>
-              </View>
-              <View style={styles.cardRow}>
-                <Text style={styles.label}>Last follow-up</Text>
-                <Text style={styles.value}>{formatLastFollowUp(c.lastFollowUpAt ?? null)}</Text>
-              </View>
-              <View style={styles.cardRow}>
-                <Text style={styles.label}>Service start</Text>
-                <Text style={styles.value}>{formatServiceStart(c.serviceStartAt)}</Text>
-              </View>
+            );
+          }}
+          stickySectionHeadersEnabled={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          contentContainerStyle={clientSections.every((s) => s.data.length === 0) ? styles.emptyList : styles.listContent}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>{tableEmptyMessage}</Text>
             </View>
-          ))}
-        </View>
+          }
+        />
       )}
-    </ScrollView>
+    </View>
   );
 
   if (Platform.OS !== 'web') {
@@ -365,30 +479,73 @@ export default function FirmClientsScreen() {
         ) : (
           <View style={styles.header}>
             <View style={styles.headerRow}>
-              <View style={styles.groupWrap} nativeID="firm-clients-group-wrap">
+              <View
+                style={styles.groupWrap}
+                {...(Platform.OS === 'web' ? { nativeID: 'firm-clients-group-button' } : {})}
+              >
                 <TouchableOpacity
                   style={styles.sortButton}
-                  onPress={() => setShowGroupMenu(!showGroupMenu)}
+                  onPress={() => setShowGroupMenu(true)}
                   activeOpacity={0.7}
                 >
-                  {groupBy === 'none' && <Ionicons name="list-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-                  {groupBy === 'byName' && <Ionicons name="albums-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+                  {groupBy === 'none' && (
+                    <Ionicons
+                      name="list-outline"
+                      size={18}
+                      color="#6C5CE7"
+                      style={{ marginRight: 4 }}
+                    />
+                  )}
+                  {groupBy === 'byName' && (
+                    <Ionicons
+                      name="albums-outline"
+                      size={18}
+                      color="#6C5CE7"
+                      style={{ marginRight: 4 }}
+                    />
+                  )}
                   <Text style={styles.sortText}>Group</Text>
                   <Ionicons name="chevron-down" size={16} color="#636E72" />
                 </TouchableOpacity>
-                {showGroupMenu && (
+                {showGroupMenu && Platform.OS !== 'web' && (
                   <View style={styles.groupDropdown}>
                     <TouchableOpacity
-                      style={[styles.groupOption, groupBy === 'none' && styles.groupOptionSelected]}
-                      onPress={() => { setGroupBy('none'); setShowGroupMenu(false); }}
+                      style={[
+                        styles.groupOption,
+                        groupBy === 'none' && styles.groupOptionSelected,
+                      ]}
+                      onPress={() => {
+                        setGroupBy('none');
+                        setShowGroupMenu(false);
+                      }}
                     >
-                      <Text style={[styles.groupOptionText, groupBy === 'none' && styles.groupOptionTextSelected]}>None</Text>
+                      <Text
+                        style={[
+                          styles.groupOptionText,
+                          groupBy === 'none' && styles.groupOptionTextSelected,
+                        ]}
+                      >
+                        None
+                      </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={[styles.groupOption, groupBy === 'byName' && styles.groupOptionSelected]}
-                      onPress={() => { setGroupBy('byName'); setShowGroupMenu(false); }}
+                      style={[
+                        styles.groupOption,
+                        groupBy === 'byName' && styles.groupOptionSelected,
+                      ]}
+                      onPress={() => {
+                        setGroupBy('byName');
+                        setShowGroupMenu(false);
+                      }}
                     >
-                      <Text style={[styles.groupOptionText, groupBy === 'byName' && styles.groupOptionTextSelected]}>By name</Text>
+                      <Text
+                        style={[
+                          styles.groupOptionText,
+                          groupBy === 'byName' && styles.groupOptionTextSelected,
+                        ]}
+                      >
+                        By name
+                      </Text>
                     </TouchableOpacity>
                   </View>
                 )}
@@ -444,6 +601,54 @@ export default function FirmClientsScreen() {
           />
         </ScrollView>
       )}
+      {Platform.OS === 'web' &&
+        showGroupMenu &&
+        groupPopoverRect &&
+        typeof document !== 'undefined' &&
+        document.body &&
+        createPortal(
+          <div
+            id="firm-clients-group-popover"
+            style={{ ...WEB_POPOVER.container, left: groupPopoverRect.left, top: groupPopoverRect.top }}
+          >
+            <Text style={WEB_POPOVER.title}>Group</Text>
+            <View>
+              {[
+                { key: 'none' as GroupByType, label: 'None', icon: 'list-outline' as const },
+                { key: 'byName' as GroupByType, label: 'By name', icon: 'albums-outline' as const },
+              ].map(({ key, label, icon }) => (
+                <TouchableOpacity
+                  key={key}
+                  onPress={() => {
+                    setGroupBy(key);
+                    setShowGroupMenu(false);
+                  }}
+                  style={WEB_POPOVER.optionRow}
+                >
+                  <Ionicons
+                    name={icon}
+                    size={18}
+                    color={groupBy === key ? '#6C5CE7' : '#636E72'}
+                    style={{ marginRight: 8 }}
+                  />
+                  <Text
+                    style={
+                      groupBy === key
+                        ? { ...WEB_POPOVER.optionText, ...WEB_POPOVER.optionTextSelected }
+                        : WEB_POPOVER.optionText
+                    }
+                  >
+                    {label}
+                  </Text>
+                  {groupBy === key && (
+                    <Ionicons name="checkmark" size={18} color="#6C5CE7" style={{ marginLeft: 4 }} />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          </div>,
+          document.body
+        )}
     </View>
   );
 }
@@ -459,19 +664,22 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
     justifyContent: 'center',
+    overflow: 'visible' as const,
   },
   header: {
     height: 52,
     justifyContent: 'center',
     paddingHorizontal: 16,
     paddingVertical: 10,
+    overflow: 'visible' as const,
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    overflow: 'visible' as const,
   },
-  groupWrap: { position: 'relative' },
+  groupWrap: { position: 'relative' as const, overflow: 'visible' as const },
   sortButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -495,12 +703,12 @@ const styles = StyleSheet.create({
     borderColor: '#E9ECEF',
     paddingVertical: 8,
     minWidth: 140,
-    zIndex: 100,
+    zIndex: 99999,
+    elevation: 99999,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
-    elevation: 8,
   },
   groupOption: { paddingVertical: 10, paddingHorizontal: 14 },
   groupOptionSelected: { backgroundColor: 'rgba(108, 92, 231, 0.1)' },
@@ -520,6 +728,41 @@ const styles = StyleSheet.create({
   searchIcon: { marginRight: 8 },
   searchInput: { flex: 1, fontSize: 14, color: '#2D3436', padding: 0 },
   searchClear: { marginLeft: 4 },
+  filterButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 },
+  filterText: { fontSize: 14, color: '#636E72', marginRight: 4, fontWeight: '500' },
+  filterBadge: { fontSize: 14, color: '#6C5CE7', fontWeight: '600' },
+  receiptItem: {
+    backgroundColor: '#fff',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingLeft: 24,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9ECEF',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  receiptContent: { flex: 1 },
+  firstRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
+  storeName: { flex: 1, fontSize: 16, fontWeight: '600', color: '#2D3436', marginRight: 12 },
+  statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
+  statusText: { color: '#fff', fontSize: 12, fontWeight: '600' },
+  confirmedByText: { fontSize: 12, color: '#636E72', fontWeight: '500' },
+  secondRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  amount: { fontSize: 16, fontWeight: '600', color: '#6C5CE7' },
+  date: { fontSize: 14, color: '#636E72' },
+  createdDate: { fontSize: 14, color: '#636E72', marginLeft: 'auto' },
+  listContent: { paddingHorizontal: 4, paddingTop: 0, paddingBottom: 100 },
+  emptyList: { flexGrow: 1 },
+  sectionHeader: {
+    backgroundColor: '#E9ECEF',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#DEE2E6',
+  },
+  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#2D3436' },
+  sectionHeaderRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  sectionCount: { fontSize: 14, color: '#636E72' },
   bulkBar: {
     height: 52,
     flexDirection: 'row',

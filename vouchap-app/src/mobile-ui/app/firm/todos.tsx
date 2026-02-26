@@ -1,5 +1,5 @@
 /**
- * Firm - Orders (deprecated route): kept for backward compatibility, logic moved to app/firm/orders.tsx.
+ * Firm - Orders (deprecated route): kept for backward compatibility, logic moved to app/firm/engagements.tsx.
  */
 import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
@@ -52,7 +52,7 @@ export default function FirmOrdersScreen() {
         <ActivityIndicator size="large" color="#6C5CE7" style={styles.loader} />
       ) : orders.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>No orders yet. Create orders from Service SKU for clients.</Text>
+          <Text style={styles.emptyText}>No engagements yet. Create from Service Catalog for clients.</Text>
         </View>
       ) : (
         <View style={styles.list}>
@@ -64,7 +64,7 @@ export default function FirmOrdersScreen() {
                   key={o.id}
                   style={styles.card}
                   activeOpacity={0.7}
-                  onPress={() => router.push(`/firm/order/${o.id}`)}
+                  onPress={() => router.push(`/firm/engagement/${o.id}`)}
                 >
                   <View style={styles.cardHeader}>
                     <Text style={styles.cardTitle}>{formatOrderTitle(o)}</Text>
@@ -72,7 +72,7 @@ export default function FirmOrdersScreen() {
                   </View>
                   {o.dueAt ? <Text style={styles.dueAt}>Due: {o.dueAt}</Text> : null}
                   <View style={styles.cardFooter}>
-                    <Text style={styles.metaText}>Order ID: {o.id.slice(0, 8)}…</Text>
+                    <Text style={styles.metaText}>Engagement ID: {o.id.slice(0, 8)}…</Text>
                     <Ionicons name="chevron-forward" size={16} color="#636E72" />
                   </View>
                 </TouchableOpacity>

@@ -47,8 +47,8 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { path: '/', label: 'Dashboard', icon: 'grid-outline', match: (p) => p === '/' || p === '' },
-  { path: '/invoices', label: 'Income', icon: 'arrow-up-circle-outline', match: (p) => p.startsWith('/invoices') || p.startsWith('/invoice-details') },
   { path: '/receipts', label: 'Expenses', icon: 'document-text-outline', match: (p) => p.startsWith('/receipts') || p.startsWith('/receipt-details') },
+  { path: '/invoices', label: 'Income', icon: 'arrow-up-circle-outline', match: (p) => p.startsWith('/invoices') || p.startsWith('/invoice-details') },
 ];
 
 export default function WebSidebar() {
@@ -57,6 +57,7 @@ export default function WebSidebar() {
   const [currentSpace, setCurrentSpaceState] = useState<Space | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [pendingInvitationsCount, setPendingInvitationsCount] = useState(0);
+  const [spaceLoaded, setSpaceLoaded] = useState(false);
 
   const loadData = useCallback(async (forceRefresh = false) => {
     try {
@@ -70,6 +71,8 @@ export default function WebSidebar() {
       setPendingInvitationsCount(invitations?.length ?? 0);
     } catch (e) {
       console.error('WebSidebar loadData:', e);
+    } finally {
+      setSpaceLoaded(true);
     }
   }, []);
 
@@ -119,9 +122,9 @@ export default function WebSidebar() {
         </Text>
       </TouchableOpacity>
 
-      {/* 主导航：firm 仅展示 Dashboard + 四宫格；普通 space 展示 Dashboard / Income / Expenses / AI Inventory / 报税 */}
+      {/* 主导航：firm 仅展示 Dashboard + 四宫格；普通 space 展示 Dashboard / Expenses / Income / AI Inventory / 报税 */}
       <View style={styles.nav}>
-        {currentSpace?.kind === 'firm' ? (
+        {!spaceLoaded ? null : currentSpace?.kind === 'firm' ? (
           <>
             <TouchableOpacity
               style={[styles.navItem, (pathname === '/' || pathname === '') && styles.navItemActive]}
@@ -130,7 +133,7 @@ export default function WebSidebar() {
             >
               <Ionicons name="grid-outline" size={22} color={pathname === '/' || pathname === '' ? '#6C5CE7' : '#2D3436'} />
               <Text style={[styles.navText, (pathname === '/' || pathname === '') && styles.navTextActive]}>
-                Dashboard
+                Insights
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -139,31 +142,23 @@ export default function WebSidebar() {
               activeOpacity={0.7}
             >
               <Ionicons name="people-outline" size={22} color={pathname.startsWith('/firm/clients') ? '#6C5CE7' : '#2D3436'} />
-              <Text style={[styles.navText, pathname.startsWith('/firm/clients') && styles.navTextActive]}>Client</Text>
+              <Text style={[styles.navText, pathname.startsWith('/firm/clients') && styles.navTextActive]}>Clients</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.navItem, pathname.startsWith('/firm/assignments') && styles.navItemActive]}
-              onPress={() => router.push('/firm/assignments')}
+              style={[styles.navItem, pathname.startsWith('/firm/engagements') && styles.navItemActive]}
+              onPress={() => router.push('/firm/engagements')}
               activeOpacity={0.7}
             >
-              <Ionicons name="key-outline" size={22} color={pathname.startsWith('/firm/assignments') ? '#6C5CE7' : '#2D3436'} />
-              <Text style={[styles.navText, pathname.startsWith('/firm/assignments') && styles.navTextActive]}>Assignment</Text>
+              <Ionicons name="checkbox-outline" size={22} color={pathname.startsWith('/firm/engagements') ? '#6C5CE7' : '#2D3436'} />
+              <Text style={[styles.navText, pathname.startsWith('/firm/engagements') && styles.navTextActive]}>Engagements</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.navItem, pathname.startsWith('/firm/orders') && styles.navItemActive]}
-              onPress={() => router.push('/firm/orders')}
+              style={[styles.navItem, pathname.startsWith('/firm/service-catalog') && styles.navItemActive]}
+              onPress={() => router.push('/firm/service-catalog')}
               activeOpacity={0.7}
             >
-              <Ionicons name="checkbox-outline" size={22} color={pathname.startsWith('/firm/orders') ? '#6C5CE7' : '#2D3436'} />
-              <Text style={[styles.navText, pathname.startsWith('/firm/orders') && styles.navTextActive]}>Orders</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.navItem, pathname.startsWith('/firm/templates') && styles.navItemActive]}
-              onPress={() => router.push('/firm/templates')}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="document-attach-outline" size={22} color={pathname.startsWith('/firm/templates') ? '#6C5CE7' : '#2D3436'} />
-              <Text style={[styles.navText, pathname.startsWith('/firm/templates') && styles.navTextActive]}>Service SKU</Text>
+              <Ionicons name="document-attach-outline" size={22} color={pathname.startsWith('/firm/service-catalog') ? '#6C5CE7' : '#2D3436'} />
+              <Text style={[styles.navText, pathname.startsWith('/firm/service-catalog') && styles.navTextActive]}>Service Catalog</Text>
             </TouchableOpacity>
           </>
         ) : (

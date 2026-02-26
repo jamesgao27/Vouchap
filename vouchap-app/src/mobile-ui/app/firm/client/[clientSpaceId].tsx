@@ -22,6 +22,7 @@ import {
   createFirmOrder,
 } from '@/lib/firm';
 import type { FirmClientWithDetails, FirmOrder, FirmClientFollowUp, FirmSku, FirmSkuItem } from '@/lib/firm';
+import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
 import DataTable, { type DataTableColumn } from '@/components/DataTable';
 
 export default function FirmClientDetailScreen() {
@@ -178,7 +179,7 @@ export default function FirmClientDetailScreen() {
         </View>
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Status</Text>
-          <Text style={styles.infoValue}>{client.displayStatus}</Text>
+          <Text style={styles.infoValue}>{CLIENT_DISPLAY_STATUS_LABELS[client.displayStatus ?? ''] ?? client.displayStatus ?? '—'}</Text>
         </View>
         <View style={styles.infoRow}>
           <Text style={styles.infoLabel}>Assignee</Text>

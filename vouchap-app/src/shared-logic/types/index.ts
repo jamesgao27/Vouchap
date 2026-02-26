@@ -434,9 +434,18 @@ export interface GeminiInboundOutboundResult {
 // 客户表状态（仅 active/inactive，展示状态由 displayStatus 自动计算）
 export type FirmClientStatus = 'active' | 'inactive';
 
-// CRM 客户展示状态（报税年度服务，按条件自动计算，见 docs/CRM-CLIENT-STATUS.md）
-// Code values use English for clarity in code; UI labels can be localized.
+// CRM client display status (tax-year service, computed by logic; see docs/CRM-CLIENT-STATUS.md).
+// Code and UI labels use English.
 export type ClientDisplayStatus = 'new' | 'to_follow_up' | 'in_service' | 'to_revisit' | 'churned';
+
+/** English labels for ClientDisplayStatus */
+export const CLIENT_DISPLAY_STATUS_LABELS: Record<ClientDisplayStatus, string> = {
+  new: 'New',
+  to_follow_up: 'To Follow Up',
+  in_service: 'In Service',
+  to_revisit: 'To Revisit',
+  churned: 'Churned',
+};
 
 // Firm 在服客户（关联 firm space 与 client space）
 export interface FirmClient {
@@ -476,10 +485,17 @@ export interface FirmMemberClient {
 // ---------- 订单 / SKU / 项目（见 docs/CRM-ORDERS-SKU-PROJECTS.md）----------
 // SKU 关联 sku_items；选 SKU 创建订单时由 sku_items 复制创建 projects；projects 进展状态 = order.status
 
-// SKU 关联的项（模板），创建订单时复制到 projects
+/** L2=phase, L3=section, L4=task；仅 task 会复制到 project_todos */
+export type FirmSkuItemKind = 'phase' | 'section' | 'task';
+
+// SKU 关联的项（模板），支持层级：phase(L2) -> section(L3) -> task(L4)；创建订单时仅复制 task 到 project_todos
 export interface FirmSkuItem {
   id: string;
   skuId: string;
+  /** 父节点 id；null 表示 Phase(L2) */
+  parentId?: string | null;
+  /** phase=阶段, section=分类, task=可执行任务；仅 task 复制到 project_todos */
+  itemKind: FirmSkuItemKind;
   type: 'client' | 'firm';
   title: string;
   description?: string | null;
@@ -488,12 +504,16 @@ export interface FirmSkuItem {
   updatedAt?: string;
 }
 
-// 服务 SKU（商品），关联一组 sku_items
+// 服务 SKU（商品），关联一组 sku_items；支持封面图与介绍（海报样式）
 export interface FirmSku {
   id: string;
   firmSpaceId: string;
   name: string;
   description?: string;
+  /** 封面图 URL（Storage 公共链接） */
+  imageUrl?: string | null;
+  /** 是否发布（客户可见） */
+  isPublished?: boolean;
   createdAt?: string;
   updatedAt?: string;
 }

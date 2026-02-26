@@ -112,19 +112,23 @@ function LayoutContent() {
         />
         <Stack.Screen 
           name="firm/clients" 
-          options={{ title: 'Client', headerBackTitle: 'Back' }} 
+          options={{ title: 'Clients', headerBackTitle: 'Back' }} 
         />
         <Stack.Screen 
           name="firm/assignments" 
           options={{ title: 'Assignment', headerBackTitle: 'Back' }} 
         />
         <Stack.Screen 
-          name="firm/orders" 
-          options={{ title: 'Orders', headerBackTitle: 'Back' }} 
+          name="firm/engagements" 
+          options={{ title: 'Engagements', headerBackTitle: 'Back' }} 
         />
         <Stack.Screen 
-          name="firm/templates" 
-          options={{ title: 'Service SKU', headerBackTitle: 'Back' }} 
+          name="firm/engagement/[id]" 
+          options={{ title: 'Engagement', headerBackTitle: 'Back' }} 
+        />
+        <Stack.Screen 
+          name="firm/service-catalog" 
+          options={{ title: 'Service Catalog', headerBackTitle: 'Back' }} 
         />
         <Stack.Screen 
           name="invoices" 

@@ -54,6 +54,8 @@ export const supabase = createClient(
 
 // Storage Bucket 名称配置
 const STORAGE_BUCKET = 'receipts';
+/** SKU 封面等服务市场资源 */
+const MARKETPLACE_BUCKET = 'marketplace';
 
 // 上传图片到Supabase Storage（临时文件名，用于识别前上传）
 export async function uploadReceiptImageTemp(fileUri: string, tempFileName: string): Promise<string> {
@@ -171,6 +173,30 @@ export async function uploadInvoiceImage(fileUri: string, invoiceId: string): Pr
     console.error('Error uploading invoice image:', error);
     throw error;
   }
+}
+
+/** 上传 Firm SKU 封面图到 marketplace bucket，路径 sku/{skuId}.{ext}；Web 支持 blob/data URI */
+export async function uploadFirmSkuImage(fileUri: string, skuId: string): Promise<string> {
+  let arrayBuffer: ArrayBuffer;
+  const isBlobOrData = fileUri.startsWith('blob:') || fileUri.startsWith('data:');
+  if (Platform.OS === 'web' || isBlobOrData) {
+    const res = await fetch(fileUri);
+    if (!res.ok) throw new Error(`Failed to read image: ${res.status}`);
+    arrayBuffer = await res.arrayBuffer();
+  } else {
+    const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+    arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0)).buffer;
+  }
+  const fileExt = fileUri.split('.').pop()?.toLowerCase()?.replace(/\?.*$/, '') || 'jpg';
+  const filePath = `sku/${skuId}.${fileExt}`;
+  const mimeType = `image/${fileExt === 'jpg' ? 'jpeg' : fileExt}`;
+  const { error } = await supabase.storage.from(MARKETPLACE_BUCKET).upload(filePath, arrayBuffer, { contentType: mimeType, upsert: true });
+  if (error) {
+    console.error('Storage upload error:', error);
+    throw new Error(error.message || 'Upload failed');
+  }
+  const { data: { publicUrl } } = supabase.storage.from(MARKETPLACE_BUCKET).getPublicUrl(filePath);
+  return publicUrl;
 }
 
 /** 上传入库单图片（临时），路径 inbound/temp-{tempFileName}.{ext} */

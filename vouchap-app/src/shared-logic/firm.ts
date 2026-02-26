@@ -18,6 +18,30 @@ import type {
   FirmTemplate,
 } from '@/types';
 
+/** sort_order 为「同 parent 兄弟排序」时，按树深度优先得到展示顺序（用于列表与复制到 project_todos） */
+function sortSkuItemsDepthFirst<
+  T extends { id: string; parentId?: string | null; sortOrder: number }
+>(items: T[]): T[] {
+  if (items.length === 0) return [];
+  const byParent = new Map<string | null, T[]>();
+  for (const item of items) {
+    const key = item.parentId ?? null;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key)!.push(item);
+  }
+  for (const list of byParent.values()) list.sort((a, b) => a.sortOrder - b.sortOrder);
+  const result: T[] = [];
+  function dfs(parentKey: string | null) {
+    const list = byParent.get(parentKey) ?? [];
+    for (const item of list) {
+      result.push(item);
+      dfs(item.id);
+    }
+  }
+  dfs(null);
+  return result;
+}
+
 /** 报税季配置：开始/结束月日（1-based），用于计算「报税季已来临」「报税季已过」 */
 const TAX_SEASON_START_MONTH = 1;
 const TAX_SEASON_START_DAY = 1;
@@ -306,6 +330,62 @@ export async function getFirmOrders(
   }));
 }
 
+/** 列表项：订单含客户名、SKU 名、来源、负责人（创建人） */
+export interface FirmOrderWithDetails extends FirmOrder {
+  clientName: string;
+  skuName: string;
+  /** 来源：如 Manual、Invite 等，暂无 DB 字段时默认 Manual */
+  source: string;
+  /** 负责人：创建人姓名或 email，无则 — */
+  assigneeName: string | null;
+}
+
+/** Firm 空间：获取订单列表（含客户名、SKU 名、来源、负责人），用于表格展示 */
+export async function getFirmOrdersWithDetails(
+  firmSpaceId: string,
+  clientSpaceId?: string
+): Promise<FirmOrderWithDetails[]> {
+  const orders = await getFirmOrders(firmSpaceId, clientSpaceId);
+  if (orders.length === 0) return [];
+
+  const clientSpaceIds = [...new Set(orders.map((o) => o.clientSpaceId))];
+  const skuIds = [...new Set(orders.map((o) => o.skuId))];
+  const createdByIds = [...new Set(orders.map((o) => o.createdBy).filter(Boolean))] as string[];
+
+  const [spacesRes, skusRes, usersRes] = await Promise.all([
+    supabase.from('spaces').select('id, name').in('id', clientSpaceIds),
+    supabase.schema('firm').from('skus').select('id, name').in('id', skuIds),
+    createdByIds.length > 0
+      ? supabase.from('users').select('id, name, email').in('id', createdByIds)
+      : Promise.resolve({ data: [] as any[] }),
+  ]);
+
+  const spaceMap: Record<string, string> = {};
+  (spacesRes.data || []).forEach((s: any) => {
+    spaceMap[s.id] = s.name || s.id;
+  });
+  const skuMap: Record<string, string> = {};
+  (skusRes.data || []).forEach((s: any) => {
+    skuMap[s.id] = s.name || s.id;
+  });
+  const userMap: Record<string, { name: string | null; email: string }> = {};
+  (usersRes.data || []).forEach((u: any) => {
+    userMap[u.id] = { name: u.name ?? null, email: u.email || '' };
+  });
+
+  return orders.map((o) => {
+    const creator = o.createdBy ? userMap[o.createdBy] : null;
+    const assigneeName = creator ? (creator.name || creator.email || null) : null;
+    return {
+      ...o,
+      clientName: spaceMap[o.clientSpaceId] ?? o.clientSpaceId,
+      skuName: skuMap[o.skuId] ?? o.skuId,
+      source: 'Manual',
+      assigneeName,
+    };
+  });
+}
+
 /** Firm 空间：创建订单（初始为 pending，仅记录 SKU，projects 需待客户确认后再创建） */
 export async function createFirmOrder(
   firmSpaceId: string,
@@ -353,26 +433,32 @@ export async function confirmOrderAndCreateProjectTodos(
     .schema('firm')
     .from('sku_items')
     .select('*')
-    .eq('sku_id', order.sku_id)
-    .order('sort_order', { ascending: true });
+    .eq('sku_id', order.sku_id);
 
   if (itemsErr) {
     return { error: new Error(itemsErr.message) };
   }
 
   if (!items || items.length === 0) {
-    // 没有模板项时，只更新订单状态
     const { error } = await updateOrderStatus(orderId, 'confirmed');
     return { error };
   }
 
-  const payload = items.map((row: any) => ({
+  const ordered = sortSkuItemsDepthFirst(
+    items.map((row: any) => ({
+      ...row,
+      parentId: row.parent_id ?? null,
+      sortOrder: row.sort_order ?? 0,
+    }))
+  );
+  const taskItems = ordered.filter((row: any) => (row.item_kind ?? 'task') === 'task');
+  const payload = taskItems.map((row: any, index: number) => ({
     order_id: order.id,
     type: row.type,
     title: row.title,
     description: row.description ?? null,
     status: 'pending' as FirmProjectStatus,
-    sort_order: row.sort_order ?? 0,
+    sort_order: index + 1,
   }));
 
   const { error: insertErr } = await supabase
@@ -482,27 +568,68 @@ export async function getFirmSkus(firmSpaceId: string): Promise<FirmSku[]> {
     firmSpaceId: row.firm_space_id,
     name: row.name,
     description: row.description ?? undefined,
+    imageUrl: row.image_url ?? null,
+    isPublished: row.is_published ?? false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
 }
 
-/** Firm 空间：获取 SKU 关联的 sku_items（创建订单时复制到 projects） */
+/** Firm 空间：更新 SKU（名称、介绍、封面图） */
+export async function updateFirmSku(
+  skuId: string,
+  payload: { name?: string; description?: string | null; imageUrl?: string | null; isPublished?: boolean }
+): Promise<{ error: Error | null }> {
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (payload.name !== undefined) updates.name = payload.name;
+  if (payload.description !== undefined) updates.description = payload.description;
+  if (payload.imageUrl !== undefined) updates.image_url = payload.imageUrl;
+  if (payload.isPublished !== undefined) updates.is_published = payload.isPublished;
+  const { error } = await supabase
+    .schema('firm')
+    .from('skus')
+    .update(updates)
+    .eq('id', skuId);
+  if (error) {
+    console.error('updateFirmSku:', error);
+    return { error: error as Error };
+  }
+  return { error: null };
+}
+
+/** 将预设 SKU（preset_skus + preset_sku_items）复制到指定 firm 空间；仅该空间成员可调用。locale 可选：'zh' | 'en'，默认 'zh' */
+export async function applyPresetSkusToFirm(
+  firmSpaceId: string,
+  locale: 'zh' | 'en' = 'zh'
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase.rpc('apply_preset_skus_to_firm', {
+    p_firm_space_id: firmSpaceId,
+    p_locale: locale,
+  });
+  if (error) {
+    console.error('applyPresetSkusToFirm:', error);
+    return { error: error as Error };
+  }
+  return { error: null };
+}
+
+/** Firm 空间：获取 SKU 关联的 sku_items（按树深度优先排序；sort_order 为同 parent 兄弟序） */
 export async function getSkuItems(skuId: string): Promise<FirmSkuItem[]> {
   const { data, error } = await supabase
     .schema('firm')
     .from('sku_items')
     .select('*')
-    .eq('sku_id', skuId)
-    .order('sort_order', { ascending: true });
+    .eq('sku_id', skuId);
 
   if (error) {
     console.error('getSkuItems:', error);
     return [];
   }
-  return (data || []).map((row: any) => ({
+  const mapped = (data || []).map((row: any) => ({
     id: row.id,
     skuId: row.sku_id,
+    parentId: row.parent_id ?? null,
+    itemKind: (row.item_kind ?? 'task') as 'phase' | 'section' | 'task',
     type: row.type,
     title: row.title,
     description: row.description ?? null,
@@ -510,6 +637,7 @@ export async function getSkuItems(skuId: string): Promise<FirmSkuItem[]> {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
+  return sortSkuItemsDepthFirst(mapped);
 }
 
 /** Firm 空间：获取「模板」列表（兼容：即 SKU 列表，带 items 来自 sku_items） */
@@ -521,15 +649,26 @@ export async function getFirmTemplates(firmSpaceId: string): Promise<FirmTemplat
   const { data: itemsData } = await supabase
     .schema('firm')
     .from('sku_items')
-    .select('sku_id, title, description')
-    .in('sku_id', skuIds)
-    .order('sort_order', { ascending: true });
+    .select('id, sku_id, parent_id, sort_order, title, description')
+    .in('sku_id', skuIds);
 
   const itemsBySku: Record<string, Array<{ title: string; description?: string }>> = {};
-  (itemsData || []).forEach((row: any) => {
-    if (!itemsBySku[row.sku_id]) itemsBySku[row.sku_id] = [];
-    itemsBySku[row.sku_id].push({ title: row.title ?? '', description: row.description ?? undefined });
-  });
+  for (const skuId of skuIds) {
+    const rows = (itemsData || []).filter((r: any) => r.sku_id === skuId);
+    const ordered = sortSkuItemsDepthFirst(
+      rows.map((row: any) => ({
+        id: row.id,
+        parentId: row.parent_id ?? null,
+        sortOrder: row.sort_order ?? 0,
+        title: row.title,
+        description: row.description,
+      }))
+    );
+    itemsBySku[skuId] = ordered.map((r: any) => ({
+      title: r.title ?? '',
+      description: r.description ?? undefined,
+    }));
+  }
 
   return skus.map((s) => ({
     ...s,
