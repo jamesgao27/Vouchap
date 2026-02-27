@@ -9,7 +9,6 @@ import {
   ScrollView,
   ActivityIndicator,
   TouchableOpacity,
-  Modal,
   TextInput,
   Image,
   Platform,
@@ -22,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getCurrentSpace } from '@/lib/auth';
 import { getFirmTemplates, updateFirmSku } from '@/lib/firm';
 import { uploadFirmSkuImage } from '@/lib/supabase';
+import RightSidePanel from '@/components/RightSidePanel';
 import type { FirmTemplate } from '@/types';
 
 const CARD_MIN_WIDTH = 240;   // 160 * 1.5
@@ -190,76 +190,64 @@ export default function FirmServiceCatalogScreen() {
         </View>
       )}
 
-      <Modal
+      <RightSidePanel
         visible={!!editingSku}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setEditingSku(null)}
+        title="Edit Service Catalog"
+        onClose={() => setEditingSku(null)}
       >
-        <View style={styles.modalOverlay}>
-          <TouchableOpacity style={styles.modalBackdrop} activeOpacity={1} onPress={() => setEditingSku(null)} />
-          <View style={styles.modalSheet}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Edit Service Catalog</Text>
-              <TouchableOpacity onPress={() => setEditingSku(null)} hitSlop={12}>
-                <Ionicons name="close" size={24} color="#636E72" />
-              </TouchableOpacity>
-            </View>
-            {editingSku && (
-              <ScrollView style={styles.modalBody} contentContainerStyle={styles.modalBodyContent} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-                <TouchableOpacity style={styles.editImageWrap} onPress={pickImage} activeOpacity={0.8}>
-                  {editImageUri ? (
-                    <Image source={{ uri: editImageUri }} style={styles.editImage} resizeMode="cover" />
-                  ) : editingSku.imageUrl ? (
-                    <Image
-                      source={{ uri: editingSku.imageUrl }}
-                      style={styles.editImage}
-                      resizeMode="cover"
-                    />
-                  ) : (
-                    <View style={styles.editImagePlaceholder}>
-                      <Ionicons name="image-outline" size={48} color="#B2BEC3" />
-                      <Text style={styles.editImagePlaceholderText}>Tap to add cover</Text>
-                    </View>
-                  )}
-                </TouchableOpacity>
-                <Text style={styles.editLabel}>Name</Text>
-                <TextInput
-                  style={styles.editInput}
-                  value={editName}
-                  onChangeText={setEditName}
-                  placeholder="Service catalog name"
-                  placeholderTextColor="#95A5A6"
+        {editingSku && (
+          <>
+            <TouchableOpacity style={styles.editImageWrap} onPress={pickImage} activeOpacity={0.8}>
+              {editImageUri ? (
+                <Image source={{ uri: editImageUri }} style={styles.editImage} resizeMode="cover" />
+              ) : editingSku.imageUrl ? (
+                <Image
+                  source={{ uri: editingSku.imageUrl }}
+                  style={styles.editImage}
+                  resizeMode="cover"
                 />
-                <Text style={styles.editLabel}>Intro / Description</Text>
-                <TextInput
-                  style={[styles.editInput, styles.editInputMultiline]}
-                  value={editDescription}
-                  onChangeText={setEditDescription}
-                  placeholder="Short intro or description"
-                  placeholderTextColor="#95A5A6"
-                  multiline
-                  numberOfLines={3}
-                />
-                <TouchableOpacity
-                  style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
-                  onPress={saveEdit}
-                  disabled={saving}
-                >
-                  {saving ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <Ionicons name="checkmark" size={20} color="#fff" />
-                      <Text style={styles.saveBtnText}>Save</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </ScrollView>
-            )}
-          </View>
-        </View>
-      </Modal>
+              ) : (
+                <View style={styles.editImagePlaceholder}>
+                  <Ionicons name="image-outline" size={48} color="#B2BEC3" />
+                  <Text style={styles.editImagePlaceholderText}>Tap to add cover</Text>
+                </View>
+              )}
+            </TouchableOpacity>
+            <Text style={styles.editLabel}>Name</Text>
+            <TextInput
+              style={styles.editInput}
+              value={editName}
+              onChangeText={setEditName}
+              placeholder="Service catalog name"
+              placeholderTextColor="#95A5A6"
+            />
+            <Text style={styles.editLabel}>Intro / Description</Text>
+            <TextInput
+              style={[styles.editInput, styles.editInputMultiline]}
+              value={editDescription}
+              onChangeText={setEditDescription}
+              placeholder="Short intro or description"
+              placeholderTextColor="#95A5A6"
+              multiline
+              numberOfLines={3}
+            />
+            <TouchableOpacity
+              style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
+              onPress={saveEdit}
+              disabled={saving}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark" size={20} color="#fff" />
+                  <Text style={styles.saveBtnText}>Save</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </>
+        )}
+      </RightSidePanel>
     </ScrollView>
   );
 }

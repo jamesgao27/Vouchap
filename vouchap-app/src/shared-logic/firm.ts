@@ -202,8 +202,9 @@ export async function getFirmClients(firmSpaceId: string): Promise<FirmClient[]>
     clientSpaceId: row.client_space_id,
     displayName: row.display_name,
     status: row.status ?? 'active',
-    assignedUserId: row.assigned_user_id ?? null,
-    lastFollowUpAt: row.last_follow_up_at ?? null,
+    // assignee 与最近跟进时间不再由 clients 表字段维护，由 member_clients / client_follow_ups 计算
+    assignedUserId: null,
+    lastFollowUpAt: null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -235,11 +236,16 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
   const spaceIds = [...new Set(clients.map((c) => c.clientSpaceId))];
   const ctx = getTaxSeasonContext();
 
-  const [spacesRes, userSpacesRes, ordersRes, memberClientsRes] = await Promise.all([
+  const [spacesRes, userSpacesRes, ordersRes, memberClientsRes, followUpsRes] = await Promise.all([
     supabase.from('spaces').select('id, name').in('id', spaceIds),
     supabase.from('user_spaces').select('space_id, user_id').in('space_id', spaceIds).eq('is_admin', true),
     supabase.schema('firm').from('orders').select('client_space_id, status, due_at, created_at').eq('firm_space_id', firmSpaceId),
     supabase.schema('firm').from('member_clients').select('client_space_id, user_id').eq('firm_space_id', firmSpaceId),
+    supabase
+      .schema('firm')
+      .from('client_follow_ups')
+      .select('client_space_id, firm_space_id, created_at')
+      .eq('firm_space_id', firmSpaceId),
   ]);
 
   const spaceMap: Record<string, { name: string }> = {};
@@ -267,6 +273,18 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     }
   });
 
+  // 每个 client_space 的最近一次跟进时间（max created_at）
+  const clientSpaceToLastFollowUp: Record<string, string> = {};
+  (followUpsRes.data || []).forEach((fu: any) => {
+    const csId = fu.client_space_id;
+    const createdAt: string | null = fu.created_at ?? null;
+    if (!createdAt) return;
+    const prev = clientSpaceToLastFollowUp[csId];
+    if (!prev || new Date(createdAt) > new Date(prev)) {
+      clientSpaceToLastFollowUp[csId] = createdAt;
+    }
+  });
+
   const contactUserIds = [...new Set(Object.values(spaceToUserId))];
   const assigneeUserIds = [...new Set((memberClientsRes.data || []).map((mc: any) => mc.user_id))];
   const allUserIds = [...new Set([...contactUserIds, ...assigneeUserIds])];
@@ -289,6 +307,8 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     const displayStatus = computeClientDisplayStatus(c.clientSpaceId, orders, ctx);
     return {
       ...c,
+      assignedUserId: assigneeIds[0] ?? null,
+      lastFollowUpAt: clientSpaceToLastFollowUp[c.clientSpaceId] ?? null,
       name: c.displayName?.trim() || space?.name || c.clientSpaceId,
       contactName: contactUser?.name ?? null,
       contactEmail: contactUser?.email ?? null,
@@ -563,13 +583,38 @@ export async function getFirmSkus(firmSpaceId: string): Promise<FirmSku[]> {
     console.error('getFirmSkus:', error);
     return [];
   }
-  return (data || []).map((row: any) => ({
+  const rows = data || [];
+
+  // 统计每个 SKU 关联的 sku_items 数量（用于在 UI 中展示 items 数）
+  let itemsCountMap: Record<string, number> = {};
+  const skuIds = rows.map((r: any) => r.id).filter(Boolean);
+  if (skuIds.length > 0) {
+    const { data: items, error: itemsErr } = await supabase
+      .schema('firm')
+      .from('sku_items')
+      .select('sku_id')
+      .in('sku_id', skuIds);
+
+    if (itemsErr) {
+      console.error('getFirmSkus sku_items:', itemsErr);
+    } else {
+      itemsCountMap = {};
+      (items || []).forEach((row: any) => {
+        const id = row.sku_id;
+        if (!id) return;
+        itemsCountMap[id] = (itemsCountMap[id] ?? 0) + 1;
+      });
+    }
+  }
+
+  return rows.map((row: any) => ({
     id: row.id,
     firmSpaceId: row.firm_space_id,
     name: row.name,
     description: row.description ?? undefined,
     imageUrl: row.image_url ?? null,
     isPublished: row.is_published ?? false,
+    itemsCount: itemsCountMap[row.id] ?? 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -744,12 +789,51 @@ export async function updateFirmClientAssignee(
   clientId: string,
   assignedUserId: string | null
 ): Promise<{ error: Error | null }> {
-  const { error } = await supabase
+  // 先查出 client 对应的 firm_space_id / client_space_id
+  const { data: clientRow, error: clientErr } = await supabase
     .schema('firm')
     .from('clients')
-    .update({ assigned_user_id: assignedUserId, updated_at: new Date().toISOString() })
-    .eq('id', clientId);
-  return { error: error ? new Error(error.message) : null };
+    .select('firm_space_id, client_space_id')
+    .eq('id', clientId)
+    .maybeSingle();
+
+  if (clientErr || !clientRow) {
+    return { error: clientErr ? new Error(clientErr.message) : new Error('Client not found') };
+  }
+
+  const firmSpaceId: string = (clientRow as any).firm_space_id;
+  const clientSpaceId: string = (clientRow as any).client_space_id;
+
+  // 清空该 client 当前的所有 assignee
+  const { error: delErr } = await supabase
+    .schema('firm')
+    .from('member_clients')
+    .delete()
+    .eq('firm_space_id', firmSpaceId)
+    .eq('client_space_id', clientSpaceId);
+
+  if (delErr) {
+    return { error: new Error(delErr.message) };
+  }
+
+  // 若指定了新的负责人，则插入一条 member_clients 记录
+  if (assignedUserId) {
+    const { error: insErr } = await supabase
+      .schema('firm')
+      .from('member_clients')
+      .insert({
+        firm_space_id: firmSpaceId,
+        user_id: assignedUserId,
+        client_space_id: clientSpaceId,
+        created_at: new Date().toISOString(),
+      });
+
+    if (insErr) {
+      return { error: new Error(insErr.message) };
+    }
+  }
+
+  return { error: null };
 }
 
 /** 批量删除客户（firm.clients） */

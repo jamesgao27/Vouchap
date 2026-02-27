@@ -514,6 +514,8 @@ export interface FirmSku {
   imageUrl?: string | null;
   /** 是否发布（客户可见） */
   isPublished?: boolean;
+  /** 关联的 sku_items 数量（统计字段） */
+  itemsCount?: number;
   createdAt?: string;
   updatedAt?: string;
 }

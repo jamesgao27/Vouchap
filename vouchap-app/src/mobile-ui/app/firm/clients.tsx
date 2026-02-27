@@ -1,8 +1,7 @@
 /**
  * Firm - Client: associated clients. Web: DataTable (columns, search, filter, group, sort). Mobile: card list.
  */
-import { useEffect, useState, useMemo, useCallback, useLayoutEffect } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useState, useMemo, useCallback, useLayoutEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -19,10 +18,19 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { getCurrentSpace } from '@/lib/auth';
-import { getFirmClientsWithDetails, getFirmOrders, deleteFirmClients } from '@/lib/firm';
-import type { FirmClientWithDetails } from '@/lib/firm';
+import { getFirmClientsWithDetails, getFirmOrders, deleteFirmClients, getFirmSkus } from '@/lib/firm';
+import type { FirmClientWithDetails, FirmSku } from '@/lib/firm';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
 import DataTable, { type DataTableColumn, WEB_POPOVER } from '@/components/DataTable';
+import QRCode from 'react-native-qrcode-svg';
+import {
+  buildFirmClientInviteUrl,
+  createFirmClientInviteToken,
+  getFirmClientInviteHistory,
+  setFirmClientInviteActive,
+  type FirmClientInviteToken,
+} from '@/lib/firm-clients';
+import CenterModal from '@/components/CenterModal';
 
 function formatServiceStart(iso: string | null): string {
   if (!iso) return '—';
@@ -139,6 +147,7 @@ export default function FirmClientsScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [firmSpaceId, setFirmSpaceId] = useState<string | null>(null);
   const [clients, setClients] = useState<FirmClientWithDetails[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [groupBy, setGroupBy] = useState<GroupByType>('none');
@@ -151,6 +160,20 @@ export default function FirmClientsScreen() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [inviteSkus, setInviteSkus] = useState<FirmSku[]>([]);
+  const [inviteSkuId, setInviteSkuId] = useState<string | null>(null);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteLoading, setInviteLoading] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteExpiresInDays, setInviteExpiresInDays] = useState<number | null>(7);
+  const [showInvitePanel, setShowInvitePanel] = useState(false);
+  const [showInviteHistory, setShowInviteHistory] = useState(false);
+  const [inviteHistory, setInviteHistory] = useState<FirmClientInviteToken[]>([]);
+  const [inviteHistoryLoading, setInviteHistoryLoading] = useState(false);
+  const [inviteHistoryError, setInviteHistoryError] = useState<string | null>(null);
+  const [updatingInviteId, setUpdatingInviteId] = useState<string | null>(null);
+  const [inviteFromHistory, setInviteFromHistory] = useState(false);
+  const qrRef = useRef<any | null>(null);
 
   const clientColumns = useMemo(() => getClientColumns(), []);
 
@@ -177,7 +200,7 @@ export default function FirmClientsScreen() {
     setGroupPopoverRect(null);
   }, [showGroupMenu]);
 
-  // Web: 点击浮窗外关闭（按钮 + 浮窗均不包含点击目标时）
+  // Web: 点击浮窗外关闭（仅分组下拉；邀请使用 CenterModal 自带遮罩）
   useEffect(() => {
     if (Platform.OS !== 'web') return;
     const handler = (e: PointerEvent) => {
@@ -203,6 +226,9 @@ export default function FirmClientsScreen() {
     if (!space?.id || space.kind !== 'firm') {
       router.replace('/');
       return;
+    }
+    if (!firmSpaceId) {
+      setFirmSpaceId(space.id);
     }
     const [list, orders] = await Promise.all([
       getFirmClientsWithDetails(space.id),
@@ -323,6 +349,144 @@ export default function FirmClientsScreen() {
     if (typeof window !== 'undefined') window.alert('Assign assignee: coming soon. Will open member picker.');
   }, []);
 
+  const handleCopyInviteLink = useCallback(async () => {
+    if (!inviteLink) return;
+    if (typeof window !== 'undefined' && (navigator as any)?.clipboard) {
+      try {
+        await (navigator as any).clipboard.writeText(inviteLink);
+      } catch {
+        // ignore clipboard errors
+      }
+    }
+  }, [inviteLink]);
+
+  const handleDownloadInviteQr = useCallback(() => {
+    if (!inviteLink || !qrRef.current) return;
+    // 目前仅在 Web 提供下载，移动端建议截图保存
+    if (Platform.OS !== 'web') {
+      if (typeof window !== 'undefined') {
+        window.alert('请在桌面浏览器中下载二维码，或在移动端通过截图保存。');
+      }
+      return;
+    }
+    try {
+      qrRef.current.toDataURL((data: string) => {
+        const a = document.createElement('a');
+        a.href = `data:image/png;base64,${data}`;
+        a.download = 'vouchap-client-invite-qr.png';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      });
+    } catch {
+      // ignore
+    }
+  }, [inviteLink]);
+
+  const handleToggleInviteActive = useCallback(
+    async (row: FirmClientInviteToken) => {
+      const newActive = !row.isActive;
+      setUpdatingInviteId(row.id);
+      setInviteHistoryError(null);
+      // 乐观更新本地状态
+      setInviteHistory((prev) =>
+        prev.map((it) => (it.id === row.id ? { ...it, isActive: newActive } : it))
+      );
+      const { error } = await setFirmClientInviteActive(row.id, newActive);
+      setUpdatingInviteId(null);
+      if (error) {
+        // 还原状态并提示错误
+        setInviteHistory((prev) =>
+          prev.map((it) => (it.id === row.id ? { ...it, isActive: row.isActive } : it))
+        );
+        setInviteHistoryError(error.message);
+      }
+    },
+    []
+  );
+
+  const handleOpenInviteFromHistory = useCallback(
+    (row: FirmClientInviteToken) => {
+      if (!row) return;
+      const url = buildFirmClientInviteUrl(row.token);
+      setInviteLink(url);
+      setInviteSkuId(row.skuId);
+      setShowInviteHistory(false);
+      setInviteFromHistory(true);
+      setShowInvitePanel(true);
+    },
+    []
+  );
+
+  const handleToggleInvitePanel = useCallback(async () => {
+    if (showInvitePanel) {
+      setShowInvitePanel(false);
+      setInviteFromHistory(false);
+      return;
+    }
+    setShowInvitePanel(true);
+    setInviteFromHistory(false);
+    setInviteError(null);
+    setInviteLink(null);
+    setInviteExpiresInDays(7);
+    if (!firmSpaceId) return;
+    if (inviteSkus.length === 0) {
+      const skus = await getFirmSkus(firmSpaceId);
+      setInviteSkus(skus);
+      if (skus.length > 0) {
+        setInviteSkuId((prev) => prev ?? skus[0].id);
+      }
+    }
+  }, [showInvitePanel, firmSpaceId, inviteSkus.length]);
+
+  const handleOpenInviteHistory = useCallback(async () => {
+    if (!firmSpaceId) return;
+    setShowInviteHistory(true);
+    setInviteHistoryLoading(true);
+    setInviteHistoryError(null);
+
+    const [historyRes, skus] = await Promise.all([
+      getFirmClientInviteHistory(firmSpaceId),
+      inviteSkus.length === 0 ? getFirmSkus(firmSpaceId) : Promise.resolve(null),
+    ]);
+
+    setInviteHistoryLoading(false);
+
+    if (historyRes.error) {
+      setInviteHistoryError(historyRes.error.message);
+    } else {
+      setInviteHistory(historyRes.invites);
+    }
+
+    if (skus && Array.isArray(skus)) {
+      setInviteSkus(skus);
+    }
+  }, [firmSpaceId, inviteSkus.length]);
+
+  const handleCreateInvite = useCallback(async () => {
+    if (!firmSpaceId || !inviteSkuId) return;
+    setInviteLoading(true);
+    setInviteError(null);
+    const { token, url, error } = await createFirmClientInviteToken(
+      firmSpaceId,
+      inviteSkuId,
+      inviteExpiresInDays ?? undefined
+    );
+    setInviteLoading(false);
+    if (error || !token || !url) {
+      setInviteError(error?.message || 'Failed to create invite. Please try again.');
+      return;
+    }
+    setInviteLink(url);
+    if (typeof window !== 'undefined' && (navigator as any)?.clipboard) {
+      try {
+        await (navigator as any).clipboard.writeText(url);
+      } catch {
+        // ignore clipboard errors
+      }
+    }
+  }, [firmSpaceId, inviteSkuId, inviteExpiresInDays]);
+
   // Mobile: receipt-style list (Group, Filter, Search + firstRow/secondRow)
   const clientSections = useMemo(() => {
     const col = sortKey ? clientColumns.find((c) => c.id === sortKey) : undefined;
@@ -332,6 +496,14 @@ export default function FirmClientsScreen() {
       data: sortRowsByColumn(sec.data, col, sortDirection),
     }));
   }, [groupedSections, sortKey, sortDirection, clientColumns, sortRowsByColumn]);
+
+  const handleCloseInvitePanel = useCallback(() => {
+    setShowInvitePanel(false);
+    if (inviteFromHistory) {
+      setShowInviteHistory(true);
+      setInviteFromHistory(false);
+    }
+  }, [inviteFromHistory]);
 
   const renderMobileList = () => (
     <View style={styles.container}>
@@ -360,6 +532,23 @@ export default function FirmClientsScreen() {
                   <Ionicons name="close-circle" size={20} color="#95A5A6" />
                 </TouchableOpacity>
               ) : null}
+            </View>
+            {/* Mobile: 邀请与历史入口，放在工具栏右侧 */}
+            <View style={styles.mobileInviteActions}>
+              <TouchableOpacity
+                style={styles.mobileIconButton}
+                onPress={handleToggleInvitePanel}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="share-outline" size={18} color="#6C5CE7" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.mobileIconButton}
+                onPress={handleOpenInviteHistory}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="time-outline" size={18} color="#636E72" />
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -479,6 +668,22 @@ export default function FirmClientsScreen() {
         ) : (
           <View style={styles.header}>
             <View style={styles.headerRow}>
+              <TouchableOpacity
+                style={styles.inviteButton}
+                onPress={handleToggleInvitePanel}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="share-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
+                <Text style={styles.inviteButtonText}>Invite clients</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.inviteHistoryButton}
+                onPress={handleOpenInviteHistory}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="time-outline" size={18} color="#636E72" style={{ marginRight: 4 }} />
+                <Text style={styles.inviteHistoryButtonText}>History</Text>
+              </TouchableOpacity>
               <View
                 style={styles.groupWrap}
                 {...(Platform.OS === 'web' ? { nativeID: 'firm-clients-group-button' } : {})}
@@ -601,6 +806,302 @@ export default function FirmClientsScreen() {
           />
         </ScrollView>
       )}
+      <CenterModal
+        visible={showInvitePanel}
+        title="Invite new clients"
+        onClose={handleCloseInvitePanel}
+        maxWidth={900}
+      >
+        <View style={styles.inviteHeader}>
+          <Text style={styles.inviteSubtitle}>
+            Step 1: choose a Service catalog for this engagement.{'\n'}Step 2: configure invite expiry and share the link / QR code.
+          </Text>
+        </View>
+        <View style={styles.inviteBodyRow}>
+          <View style={styles.inviteLeftColumn}>
+            <Text style={styles.inviteSectionTitle}>Step 1 · Select Service catalog</Text>
+            <View style={styles.inviteSkuTable}>
+              <View style={styles.inviteSkuHeaderRow}>
+                <Text style={[styles.inviteSkuHeaderText, { flex: 1.6 }]}>Service catalog</Text>
+                <Text style={[styles.inviteSkuHeaderText, { flex: 2 }]}>Description</Text>
+                <Text style={[styles.inviteSkuHeaderText, { width: 60, textAlign: 'right' }]}>Items</Text>
+              </View>
+              <ScrollView
+                style={styles.inviteSkuList}
+                contentContainerStyle={styles.inviteSkuListContent}
+              >
+                {inviteSkus.map((sku, index) => (
+                  <TouchableOpacity
+                    key={sku.id}
+                    style={[
+                      styles.inviteSkuRow,
+                      inviteSkuId === sku.id && styles.inviteSkuRowSelected,
+                      index === inviteSkus.length - 1 && { borderBottomWidth: 0 },
+                    ]}
+                    onPress={() => setInviteSkuId(sku.id)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.inviteSkuRowMain}>
+                      <View style={{ flex: 1.6, paddingRight: 8 }}>
+                        <Text
+                          style={[
+                            styles.inviteSkuName,
+                            inviteSkuId === sku.id && styles.inviteSkuNameSelected,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {sku.name}
+                        </Text>
+                      </View>
+                      <View style={{ flex: 2, paddingRight: 8 }}>
+                        {sku.description ? (
+                          <Text style={styles.inviteSkuDesc} numberOfLines={2}>
+                            {sku.description}
+                          </Text>
+                        ) : (
+                          <Text style={styles.inviteSkuDesc} numberOfLines={1}>
+                            —
+                          </Text>
+                        )}
+                      </View>
+                      <View style={{ width: 60, alignItems: 'flex-end' }}>
+                        <Text style={styles.inviteSkuCode}>
+                          {(sku as any).itemsCount ?? 0}
+                        </Text>
+                      </View>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+                {inviteSkus.length === 0 && (
+                  <Text style={styles.inviteHintText}>Please configure Service catalog in the Firm module first.</Text>
+                )}
+              </ScrollView>
+            </View>
+          </View>
+          <View style={styles.inviteRightColumn}>
+            <Text style={styles.inviteSectionTitle}>Step 2 · Invite settings</Text>
+            <View style={styles.inviteSettingsRow}>
+              <View style={styles.inviteSettingsLeft}>
+                <View style={styles.inviteConfigRow}>
+                  <Text style={styles.inviteConfigLabel}>Expiry</Text>
+                  <View style={styles.invitePillRow}>
+                    {[
+                      { label: '7 days', value: 7 },
+                      { label: '30 days', value: 30 },
+                      { label: 'No expiry', value: null },
+                    ].map((opt) => (
+                      <TouchableOpacity
+                        key={String(opt.value ?? 'forever')}
+                        style={[
+                          styles.invitePill,
+                          inviteExpiresInDays === opt.value && styles.invitePillSelected,
+                        ]}
+                        onPress={() => setInviteExpiresInDays(opt.value)}
+                      >
+                        <Text
+                          style={[
+                            styles.invitePillText,
+                            inviteExpiresInDays === opt.value && styles.invitePillTextSelected,
+                          ]}
+                        >
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+                <View style={styles.inviteActionsRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.invitePrimaryBtn,
+                      (!inviteSkuId || inviteLoading) && styles.invitePrimaryBtnDisabled,
+                    ]}
+                    onPress={handleCreateInvite}
+                    disabled={!inviteSkuId || inviteLoading}
+                    activeOpacity={0.8}
+                  >
+                    {inviteLoading ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Ionicons name="link-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
+                    )}
+                    <Text style={styles.invitePrimaryBtnText}>
+                      {inviteLoading ? 'Generating...' : 'Generate invite link'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+                {inviteError && <Text style={styles.inviteErrorText}>{inviteError}</Text>}
+              </View>
+              {inviteLink && (
+                <View style={styles.inviteSettingsRight}>
+                  <View style={styles.inviteResultRow}>
+                    <View style={styles.inviteQrColumn}>
+                      <View style={styles.inviteQrBox}>
+                        {inviteLink ? (
+                          <QRCode
+                            value={inviteLink}
+                            size={112}
+                            getRef={(c) => {
+                              qrRef.current = c;
+                            }}
+                          />
+                        ) : null}
+                      </View>
+                      {Platform.OS === 'web' && (
+                        <TouchableOpacity
+                          style={styles.inviteSecondaryBtn}
+                          onPress={handleDownloadInviteQr}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="download-outline" size={16} color="#6C5CE7" style={{ marginRight: 4 }} />
+                          <Text style={styles.inviteSecondaryBtnText}>Download QR</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    <View style={styles.inviteResultLeft}>
+                      <Text style={styles.inviteLinkLabel}>Invite link</Text>
+                      <Text style={styles.inviteLinkValue} numberOfLines={2}>
+                        {inviteLink}
+                      </Text>
+                      <View style={styles.inviteLinkButtonsRow}>
+                        <TouchableOpacity
+                          style={styles.inviteSecondaryBtn}
+                          onPress={handleCopyInviteLink}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="copy-outline" size={16} color="#6C5CE7" style={{ marginRight: 4 }} />
+                          <Text style={styles.inviteSecondaryBtnText}>Copy link</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+      </CenterModal>
+      <CenterModal
+        visible={showInviteHistory}
+        title="Invite history"
+        onClose={() => setShowInviteHistory(false)}
+        maxWidth={900}
+      >
+        <View style={styles.inviteHeader}>
+          <Text style={styles.inviteSubtitle}>
+            Review all open invites sent by this firm, including initiator, Service catalog, expiry and how many client spaces joined.
+          </Text>
+        </View>
+        {inviteHistoryLoading ? (
+          <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+            <ActivityIndicator size="small" color="#6C5CE7" />
+          </View>
+        ) : (
+          <ScrollView style={styles.inviteHistoryScroll}>
+            <View style={styles.inviteHistoryHeaderRow}>
+              <View style={styles.inviteHistoryColService}>
+                <Text style={styles.inviteHistoryHeaderText}>Service catalog</Text>
+              </View>
+              <View style={styles.inviteHistoryColExpiry}>
+                <Text style={styles.inviteHistoryHeaderText}>Expiry</Text>
+              </View>
+              <View style={styles.inviteHistoryColActive}>
+                <Text style={[styles.inviteHistoryHeaderText, { textAlign: 'center' }]}>Active</Text>
+              </View>
+              <View style={styles.inviteHistoryColJoined}>
+                <Text style={[styles.inviteHistoryHeaderText, { textAlign: 'right' }]}>Joined</Text>
+              </View>
+              <View style={styles.inviteHistoryColInitiator}>
+                <Text style={[styles.inviteHistoryHeaderText, { textAlign: 'right' }]}>Initiator</Text>
+              </View>
+              <View style={styles.inviteHistoryColCreated}>
+                <Text style={[styles.inviteHistoryHeaderText, { textAlign: 'right' }]}>Created at</Text>
+              </View>
+            </View>
+            {inviteHistory.map((row) => {
+              const createdAt = row.createdAt ? new Date(row.createdAt) : null;
+              const expiresAt = row.expiresAt ? new Date(row.expiresAt) : null;
+              const now = new Date();
+              const expired = !!expiresAt && expiresAt <= now;
+              const reachedMax =
+                row.maxClients !== null && row.maxClients !== undefined && row.currentClients >= row.maxClients;
+              const isValid = row.isActive && !expired && !reachedMax;
+              const inviterDisplay =
+                row.inviterName?.trim() ||
+                row.inviterEmail ||
+                (row.inviterUserId ? `${row.inviterUserId.slice(0, 6)}…` : '—');
+              const sku = inviteSkus.find((s) => s.id === row.skuId);
+              const skuName = sku?.name ?? '—';
+              return (
+                <TouchableOpacity
+                  key={row.id}
+                  style={styles.inviteHistoryRow}
+                  activeOpacity={0.7}
+                  onPress={() => handleOpenInviteFromHistory(row)}
+                >
+                  <View style={styles.inviteHistoryColService}>
+                    <Text style={styles.inviteHistoryCellText} numberOfLines={1}>
+                      {skuName}
+                    </Text>
+                  </View>
+                  <View style={styles.inviteHistoryColExpiry}>
+                    <Text style={styles.inviteHistoryCellText} numberOfLines={1}>
+                      {expiresAt ? format(expiresAt, 'MMM dd, yyyy') : 'No expiry'}
+                    </Text>
+                  </View>
+                  <View style={styles.inviteHistoryColActive}>
+                    <TouchableOpacity
+                      style={[
+                        styles.inviteHistoryActivePill,
+                        !isValid && styles.inviteHistoryActivePillInactive,
+                      ]}
+                      activeOpacity={0.7}
+                      onPress={() => handleToggleInviteActive(row)}
+                    >
+                      <Text style={styles.inviteHistoryActiveText}>
+                        {isValid ? 'Active' : 'Inactive'}
+                      </Text>
+                      {updatingInviteId === row.id && (
+                        <View style={styles.inviteHistoryActiveSpinner}>
+                          <ActivityIndicator size="small" color="#fff" />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                  <View style={styles.inviteHistoryColJoined}>
+                    <Text
+                      style={[styles.inviteHistoryCellText, { textAlign: 'right' }]}
+                      numberOfLines={1}
+                    >
+                      {row.currentClients}
+                      {row.maxClients ? ` / ${row.maxClients}` : ''}
+                    </Text>
+                  </View>
+                  <View style={styles.inviteHistoryColInitiator}>
+                    <Text style={[styles.inviteHistoryCellText, styles.inviteHistoryCellTextRight]} numberOfLines={1}>
+                      {inviterDisplay}
+                    </Text>
+                  </View>
+                  <View style={styles.inviteHistoryColCreated}>
+                    <Text
+                      style={[styles.inviteHistoryCellText, { textAlign: 'right' }]}
+                      numberOfLines={1}
+                    >
+                      {createdAt ? format(createdAt, 'MMM dd, yyyy') : '—'}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+            {!inviteHistoryLoading && inviteHistory.length === 0 && !inviteHistoryError && (
+              <Text style={[styles.inviteHintText, { marginTop: 12 }]}>No invite history yet.</Text>
+            )}
+            {inviteHistoryError && (
+              <Text style={styles.inviteErrorText}>{inviteHistoryError}</Text>
+            )}
+          </ScrollView>
+        )}
+      </CenterModal>
       {Platform.OS === 'web' &&
         showGroupMenu &&
         groupPopoverRect &&
@@ -728,6 +1229,20 @@ const styles = StyleSheet.create({
   searchIcon: { marginRight: 8 },
   searchInput: { flex: 1, fontSize: 14, color: '#2D3436', padding: 0 },
   searchClear: { marginLeft: 4 },
+  mobileInviteActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginLeft: 8,
+  },
+  mobileIconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ECECFF',
+  },
   filterButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 },
   filterText: { fontSize: 14, color: '#636E72', marginRight: 4, fontWeight: '500' },
   filterBadge: { fontSize: 14, color: '#6C5CE7', fontWeight: '600' },
@@ -819,4 +1334,373 @@ const styles = StyleSheet.create({
   cardRow: { flexDirection: 'row', marginBottom: 6 },
   label: { fontSize: 13, color: '#636E72', width: 110 },
   value: { flex: 1, fontSize: 14, color: '#2D3436' },
+  inviteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#EAEAFF',
+  },
+  inviteButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6C5CE7',
+  },
+  inviteHistoryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#F1F3F5',
+  },
+  inviteHistoryButtonText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: '#636E72',
+  },
+  inviteHeader: {
+    marginBottom: 16,
+    gap: 6,
+  },
+  inviteTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2D3436',
+  },
+  inviteSubtitle: {
+    fontSize: 12,
+    color: '#636E72',
+  },
+  inviteBodyRow: {
+    flexDirection: 'column',
+    gap: 24,
+  },
+  inviteLeftColumn: {
+    width: '100%',
+    minWidth: 0,
+  },
+  inviteRightColumn: {
+    width: '100%',
+    minWidth: 0,
+    marginTop: 4,
+  },
+  inviteSettingsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginTop: 4,
+    gap: 24,
+  },
+  inviteSettingsLeft: {
+    flex: 1.4,
+  },
+  inviteSettingsRight: {
+    flex: 1,
+  },
+  inviteSectionTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2D3436',
+    marginBottom: 8,
+  },
+  inviteSkuTable: {
+    maxHeight: 320,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    borderRadius: 10,
+    backgroundColor: '#FFF',
+    overflow: 'hidden',
+  },
+  inviteSkuList: {
+    maxHeight: 320,
+  },
+  inviteSkuListContent: {
+    paddingVertical: 0,
+  },
+  inviteSkuHeaderRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#E9ECEF',
+  },
+  inviteSkuHeaderText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#636E72',
+  },
+  inviteSkuRow: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F2F5',
+  },
+  inviteSkuRowSelected: {
+    backgroundColor: 'rgba(108, 92, 231, 0.06)',
+  },
+  inviteSkuRowMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  inviteSkuName: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#2D3436',
+    flexShrink: 1,
+    marginRight: 8,
+  },
+  inviteSkuNameSelected: {
+    color: '#6C5CE7',
+  },
+  inviteSkuCode: {
+    fontSize: 12,
+    color: '#636E72',
+  },
+  inviteSkuDesc: {
+    fontSize: 12,
+    color: '#7F8C8D',
+  },
+  inviteConfigRow: {
+    marginBottom: 12,
+  },
+  inviteConfigLabel: {
+    fontSize: 13,
+    color: '#636E72',
+    marginBottom: 6,
+  },
+  invitePillRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  invitePill: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#FFF',
+  },
+  invitePillSelected: {
+    borderColor: '#6C5CE7',
+    backgroundColor: 'rgba(108, 92, 231, 0.08)',
+  },
+  invitePillText: {
+    fontSize: 13,
+    color: '#636E72',
+  },
+  invitePillTextSelected: {
+    color: '#6C5CE7',
+    fontWeight: '600',
+  },
+  inviteResultRow: {
+    flexDirection: 'row',
+    marginTop: 12,
+    gap: 12,
+    alignItems: 'stretch',
+  },
+  inviteResultLeft: {
+    flex: 1,
+  },
+  inviteQrColumn: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  inviteQrBox: {
+    width: 120,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  inviteHintText: {
+    fontSize: 12,
+    color: '#B2BEC3',
+  },
+  inviteActionsRow: {
+    marginTop: 16,
+  },
+  invitePrimaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: '#6C5CE7',
+  },
+  invitePrimaryBtnDisabled: {
+    opacity: 0.5,
+  },
+  invitePrimaryBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  inviteLinkBox: {
+    marginTop: 8,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#FFF',
+    borderWidth: 1,
+    borderColor: '#E1E4FF',
+  },
+  inviteLinkLabel: {
+    fontSize: 11,
+    color: '#95A5A6',
+    marginBottom: 4,
+  },
+  inviteLinkValue: {
+    fontSize: 12,
+    color: '#2D3436',
+  },
+  inviteLinkButtonsRow: {
+    flexDirection: 'row',
+    marginTop: 6,
+    gap: 8,
+  },
+  inviteSecondaryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#EAEAFF',
+  },
+  inviteSecondaryBtnText: {
+    fontSize: 11,
+    color: '#6C5CE7',
+    fontWeight: '500',
+  },
+  inviteQrPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#D1D8E0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F5F6FA',
+  },
+  inviteQrPlaceholderText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#A4B0BE',
+  },
+  inviteErrorText: {
+    marginTop: 6,
+    fontSize: 12,
+    color: '#E17055',
+  },
+  inviteHistoryScroll: {
+    maxHeight: 360,
+  },
+  inviteHistoryHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9ECEF',
+  },
+  inviteHistoryHeaderText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#636E72',
+  },
+  inviteHistoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F3F5',
+  },
+  inviteHistoryCellText: {
+    fontSize: 12,
+    color: '#2D3436',
+    marginRight: 4,
+  },
+  inviteHistoryStatusText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  inviteHistoryStatusActive: {
+    color: '#00B894',
+  },
+  inviteHistoryStatusInactive: {
+    color: '#E17055',
+  },
+  inviteHistoryActivePill: {
+    width: 80,
+    minHeight: 26,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#00B894',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+  },
+  inviteHistoryActivePillInactive: {
+    backgroundColor: '#E17055',
+  },
+  inviteHistoryActiveSpinner: {
+    width: 14,
+    height: 14,
+    marginLeft: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  inviteHistoryActiveText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  inviteHistoryColService: {
+    flex: 1.6,
+    minWidth: 0,
+    paddingRight: 6,
+    marginRight: 10,
+  },
+  inviteHistoryColExpiry: {
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 6,
+    marginRight: 10,
+  },
+  inviteHistoryColActive: {
+    width: 80,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 2,
+    marginRight: 10,
+  },
+  inviteHistoryColJoined: {
+    width: 68,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    paddingRight: 6,
+    marginRight: 14,
+  },
+  inviteHistoryColInitiator: {
+    flex: 1.3,
+    minWidth: 0,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    paddingLeft: 6,
+    paddingRight: 6,
+    marginRight: 10,
+  },
+  inviteHistoryColCreated: {
+    width: 112,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    paddingLeft: 4,
+  },
+  inviteHistoryCellTextRight: {
+    textAlign: 'right',
+  },
 });
