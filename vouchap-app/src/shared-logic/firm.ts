@@ -250,8 +250,10 @@ export async function getClientOrdersForClientSpace(clientSpaceId: string): Prom
   const projectIds = projectsList.map((p: any) => p.id);
   let todoCountByProjectId: Record<string, { total: number; completed: number }> = {};
   if (projectIds.length > 0) {
-    const { data: todosData } = await supabase.from('project_todos').select('project_id, status').in('project_id', projectIds);
+    const { data: todosData } = await supabase.from('project_todos').select('project_id, status, item_kind').in('project_id', projectIds);
     (todosData || []).forEach((t: any) => {
+      const isTask = (t.item_kind ?? 'task') === 'task';
+      if (!isTask) return;
       if (!todoCountByProjectId[t.project_id]) todoCountByProjectId[t.project_id] = { total: 0, completed: 0 };
       todoCountByProjectId[t.project_id].total += 1;
       if (t.status === 'success') todoCountByProjectId[t.project_id].completed += 1;
@@ -618,26 +620,14 @@ export async function confirmOrderAndCreateProjectTodos(
         description: row.description ?? null,
       }))
     );
-    // 每个 task 的「父任务」：沿 parent 上溯直到 item_kind=task
-    const idToParentTaskId = new Map<string, string | null>();
-    const idToItem = new Map<string, (typeof ordered)[0]>();
-    ordered.forEach((it) => idToItem.set(it.id, it));
-    function getParentTaskId(itemId: string): string | null {
-      const item = idToItem.get(itemId);
-      if (!item || !item.parentId) return null;
-      let cur = idToItem.get(item.parentId);
-      while (cur) {
-        if ((cur as any).item_kind === 'task') return cur.id;
-        cur = cur.parentId ? idToItem.get(cur.parentId) : undefined;
-      }
-      return null;
-    }
-    const taskItems = ordered.filter((row: any) => (row.item_kind ?? 'task') === 'task');
+    // 完整复制树形结构：phase、section、task 全部复制，parent_id 为直接父节点新 id
     const oldIdToNewId = new Map<string, string>();
-    for (let i = 0; i < taskItems.length; i++) {
-      const row = taskItems[i];
-      const parentTaskOldId = getParentTaskId(row.id);
-      const parent_id = parentTaskOldId ? oldIdToNewId.get(parentTaskOldId) ?? null : null;
+    for (let i = 0; i < ordered.length; i++) {
+      const row = ordered[i];
+      const parent_id = row.parentId ? oldIdToNewId.get(row.parentId) ?? null : null;
+      const isTask = (row.item_kind ?? 'task') === 'task';
+      const status: ProjectTodoStatus = isTask ? 'action_required' : 'success';
+      const itemKind = (row.item_kind ?? 'task') as 'phase' | 'section' | 'task';
       const { data: inserted, error: insertErr } = await supabase
         .from('project_todos')
         .insert({
@@ -646,8 +636,9 @@ export async function confirmOrderAndCreateProjectTodos(
           type: row.type,
           title: row.title,
           description: row.description ?? null,
-          status: 'action_required' as ProjectTodoStatus,
+          status,
           sort_order: i + 1,
+          item_kind: itemKind,
         })
         .select('id')
         .single();
@@ -728,6 +719,7 @@ export async function getOrderProjects(orderId: string): Promise<FirmProject[]> 
     status: row.status,
     sortOrder: row.sort_order ?? 0,
     parentId: row.parent_id ?? null,
+    itemKind: row.item_kind ?? 'task',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -843,7 +835,7 @@ export async function getFirmProjects(
   const projectIds = (projects as any[]).map((p) => p.id);
   const orders = await getFirmOrders(firmSpaceId, filters?.clientSpaceId);
   const [todosRes, clientsRes] = await Promise.all([
-    supabase.from('project_todos').select('project_id, status').in('project_id', projectIds),
+    supabase.from('project_todos').select('project_id, status, item_kind').in('project_id', projectIds),
     supabase.schema('firm').from('clients').select('client_space_id, display_name').eq('firm_space_id', firmSpaceId),
   ]);
   const orderMap = new Map(orders.map((o) => [o.id, o]));
@@ -855,6 +847,7 @@ export async function getFirmProjects(
   (clientsRes.data || []).forEach((c: any) => { clientNameBySpace[c.client_space_id] = c.display_name ?? ''; });
   const todoCountByProject: Record<string, { total: number; completed: number }> = {};
   (todosRes.data || []).forEach((t: any) => {
+    if ((t.item_kind ?? 'task') !== 'task') return;
     if (!todoCountByProject[t.project_id]) todoCountByProject[t.project_id] = { total: 0, completed: 0 };
     todoCountByProject[t.project_id].total += 1;
     if (t.status === 'success') todoCountByProject[t.project_id].completed += 1;
@@ -901,8 +894,9 @@ export async function getProjectDetail(orderId: string): Promise<{
     getOrderProjects(orderId),
   ]);
   if (!order) return null;
-  const taskTotal = todos.length;
-  const taskCompleted = todos.filter((t) => t.status === 'success').length;
+  const taskTodos = todos.filter((t: any) => (t.itemKind ?? t.item_kind ?? 'task') === 'task');
+  const taskTotal = taskTodos.length;
+  const taskCompleted = taskTodos.filter((t) => t.status === 'success').length;
   let clientName: string | undefined;
   let skuName: string | undefined;
   if (order.clientSpaceId) {
