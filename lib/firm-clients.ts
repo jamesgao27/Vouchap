@@ -37,11 +37,16 @@ const CLIENT_JOIN_BASE_URL =
   process.env.EXPO_PUBLIC_CLIENT_JOIN_URL ||
   'https://vouchap.com/client-join';
 
-/** 根据 token 构造发给 Client 的邀请链接（website 落地页） */
-export function buildFirmClientInviteUrl(token: string): string {
+/** 根据 token 构造发给 Client 的邀请链接（website 落地页）。firmName 为 firm space 名称，落地页将直接展示 */
+export function buildFirmClientInviteUrl(token: string, firmName?: string | null): string {
   const base = (CLIENT_JOIN_BASE_URL || '').replace(/\/$/, '');
   if (!token) return base || '';
-  return `${base}?token=${encodeURIComponent(token)}`;
+  const params = new URLSearchParams();
+  params.set('token', token);
+  if (firmName != null && String(firmName).trim()) {
+    params.set('firmName', String(firmName).trim());
+  }
+  return `${base}?${params.toString()}`;
 }
 
 function generateClientInviteToken(): string {
@@ -102,7 +107,10 @@ export async function createFirmClientInviteToken(
     }
 
     const finalToken = (data as any)?.token ?? token;
-    const url = buildFirmClientInviteUrl(finalToken);
+    // 每条邀请都对应 firm space，查 space 名称并写入链接供落地页展示
+    const { data: spaceRow } = await supabase.from('spaces').select('name').eq('id', firmSpaceId).maybeSingle();
+    const firmName = (spaceRow as { name?: string } | null)?.name ?? null;
+    const url = buildFirmClientInviteUrl(finalToken, firmName);
     return { token: finalToken, url, error: null };
   } catch (e) {
     return {

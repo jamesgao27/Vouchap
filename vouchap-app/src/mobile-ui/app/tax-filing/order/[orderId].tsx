@@ -1,8 +1,6 @@
 /**
- * Firm - Engagement 详情页（订单/项目详情，与 SKU 详情同一套 UI）
- * 路由：/firm/engagement/[id]，id = orderId。
- * 已确认订单：展示 project 信息 + project_todos 表格；
- * 待确认订单：展示 SKU 信息 + sku_items 树形 WBS 表格。
+ * Client - 订单/项目详情（与 Firm 项目详情同一套 UI）
+ * 路由：/tax-filing/order/[orderId]。已确认展示 project + checklist；待确认展示 SKU + WBS 预览。
  */
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
@@ -24,8 +22,8 @@ import {
   type TodoRow,
 } from '@/components/ProjectSkuDetail';
 
-export default function FirmEngagementDetailScreen() {
-  const { id: orderId } = useLocalSearchParams<{ id: string }>();
+export default function TaxFilingOrderDetailScreen() {
+  const { orderId } = useLocalSearchParams<{ orderId: string }>();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

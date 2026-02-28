@@ -23,7 +23,7 @@ const isWeb = Platform.OS === 'web';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ inviteId?: string; email?: string }>();
+  const params = useLocalSearchParams<{ inviteId?: string; email?: string; redirect?: string; token?: string }>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -104,7 +104,14 @@ export default function RegisterScreen() {
 
       setLoading(false);
       showToast('Your account has been created. Please sign in to continue.', 'success');
-      router.replace('/login');
+      if (params.redirect === '/auth/setup' && params.token) {
+        router.replace({ pathname: '/auth/setup', params: { token: params.token } });
+      } else {
+        router.replace({
+          pathname: '/login',
+          params: params.redirect && params.token ? { redirect: params.redirect, token: params.token } : {},
+        });
+      }
     } catch (err) {
       setLoading(false);
       console.error('Registration exception:', err);
@@ -119,7 +126,14 @@ export default function RegisterScreen() {
       animationType="fade"
       onRequestClose={() => {
         setShowEmailConfirmationModal(false);
-        router.replace('/login');
+        if (params.redirect === '/auth/setup' && params.token) {
+          router.replace({ pathname: '/auth/setup', params: { token: params.token } });
+        } else {
+          router.replace({
+            pathname: '/login',
+            params: params.redirect && params.token ? { redirect: params.redirect, token: params.token } : {},
+          });
+        }
       }}
     >
       <View style={styles.modalOverlay}>
@@ -140,7 +154,14 @@ export default function RegisterScreen() {
             style={styles.modalButton}
             onPress={() => {
               setShowEmailConfirmationModal(false);
-              router.replace('/login');
+              if (params.redirect === '/auth/setup' && params.token) {
+                router.replace({ pathname: '/auth/setup', params: { token: params.token } });
+              } else {
+                router.replace({
+                  pathname: '/login',
+                  params: params.redirect && params.token ? { redirect: params.redirect, token: params.token } : {},
+                });
+              }
             }}
           >
             <Text style={styles.modalButtonText}>Got it</Text>
@@ -279,7 +300,19 @@ export default function RegisterScreen() {
                   )}
                 </LinearGradient>
               </TouchableOpacity>
-              <TouchableOpacity style={stylesWeb.footerLink} onPress={() => router.push('/login')}>
+              <TouchableOpacity
+                style={stylesWeb.footerLink}
+                onPress={() =>
+                  router.push({
+                    pathname: '/login',
+                    params: {
+                      ...(params.redirect ? { redirect: params.redirect } : {}),
+                      ...(params.token ? { token: params.token } : {}),
+                      ...(params.email ? { email: params.email } : {}),
+                    },
+                  })
+                }
+              >
                 <Text style={stylesWeb.footerLinkP}>
                   Already have an account? <Text style={stylesWeb.footerLinkSpan}>Sign In</Text>
                 </Text>
@@ -448,7 +481,16 @@ export default function RegisterScreen() {
 
           <TouchableOpacity
             style={styles.linkButton}
-            onPress={() => router.push('/login')}
+            onPress={() =>
+              router.push({
+                pathname: '/login',
+                params: {
+                  ...(params.redirect ? { redirect: params.redirect } : {}),
+                  ...(params.token ? { token: params.token } : {}),
+                  ...(params.email ? { email: params.email } : {}),
+                },
+              })
+            }
           >
             <Text style={styles.linkText}>
               Already have an account? <Text style={styles.linkTextBold}>Sign In</Text>

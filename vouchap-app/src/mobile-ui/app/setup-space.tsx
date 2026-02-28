@@ -22,7 +22,7 @@ import { confirmDestructive, confirmThen } from '@/lib/alertWeb';
 
 export default function SetupHouseholdScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ inviteId?: string }>();
+  const params = useLocalSearchParams<{ inviteId?: string; redirect?: string; token?: string }>();
   const [loading, setLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
   const [pendingInvitations, setPendingInvitations] = useState<SpaceInvitation[]>([]);
@@ -34,19 +34,23 @@ export default function SetupHouseholdScreen() {
   const [newSpaceAddress, setNewSpaceAddress] = useState('');
   const [mode, setMode] = useState<'invite' | 'create'>('invite'); // 'invite' 显示邀请，'create' 显示创建表单
 
-  // 认证检查：未登录时重定向到登录页
+  // 认证检查：未登录时重定向到登录页（若带 redirect+token 则传给 login 以便登录后回到 auth/setup）
   useEffect(() => {
     const checkAuth = async () => {
       const authed = await isAuthenticated();
       if (!authed) {
-        router.replace('/login');
+        if (params.redirect === '/auth/setup' && params.token) {
+          router.replace({ pathname: '/login', params: { redirect: '/auth/setup', token: params.token } });
+        } else {
+          router.replace('/login');
+        }
         return;
       }
       setIsAuthed(true);
       loadInvitations();
     };
     checkAuth();
-  }, []);
+  }, [params.redirect, params.token]);
 
   useEffect(() => {
     if (params.inviteId && pendingInvitations.length > 0) {
@@ -210,9 +214,13 @@ export default function SetupHouseholdScreen() {
         const updatedUser = await getCurrentUser(); // 不强制刷新，使用缓存或快速查询
         await initializeAuthCache(updatedUser, space);
         
-        // 创建空间后直接跳转，不显示 Alert（更流畅的体验）
+        // 若从 auth/setup 过来创建空间，创建完成后带回 token 继续设置
         setCreating(false);
-        router.replace('/');
+        if (params.redirect === '/auth/setup' && params.token) {
+          router.replace({ pathname: '/auth/setup', params: { token: params.token } });
+        } else {
+          router.replace('/');
+        }
       }
     } catch (error) {
       console.error('Error creating space:', error);

@@ -148,6 +148,7 @@ export default function FirmClientsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [firmSpaceId, setFirmSpaceId] = useState<string | null>(null);
+  const [firmSpaceName, setFirmSpaceName] = useState<string>('');
   const [clients, setClients] = useState<FirmClientWithDetails[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [groupBy, setGroupBy] = useState<GroupByType>('none');
@@ -227,9 +228,8 @@ export default function FirmClientsScreen() {
       router.replace('/');
       return;
     }
-    if (!firmSpaceId) {
-      setFirmSpaceId(space.id);
-    }
+    setFirmSpaceId(space.id);
+    setFirmSpaceName(space.name ?? '');
     const [list, orders] = await Promise.all([
       getFirmClientsWithDetails(space.id),
       getFirmOrders(space.id),
@@ -408,14 +408,14 @@ export default function FirmClientsScreen() {
   const handleOpenInviteFromHistory = useCallback(
     (row: FirmClientInviteToken) => {
       if (!row) return;
-      const url = buildFirmClientInviteUrl(row.token);
+      const url = buildFirmClientInviteUrl(row.token, firmSpaceName);
       setInviteLink(url);
       setInviteSkuId(row.skuId);
       setShowInviteHistory(false);
       setInviteFromHistory(true);
       setShowInvitePanel(true);
     },
-    []
+    [firmSpaceName]
   );
 
   const handleToggleInvitePanel = useCallback(async () => {
@@ -473,19 +473,21 @@ export default function FirmClientsScreen() {
       inviteExpiresInDays ?? undefined
     );
     setInviteLoading(false);
-    if (error || !token || !url) {
+    if (error || !token) {
       setInviteError(error?.message || 'Failed to create invite. Please try again.');
       return;
     }
-    setInviteLink(url);
+    // API 返回的 url 已含 firm 名称（createFirmClientInviteToken 内查 space 名称写入）
+    const linkUrl = url || buildFirmClientInviteUrl(token, firmSpaceName);
+    setInviteLink(linkUrl);
     if (typeof window !== 'undefined' && (navigator as any)?.clipboard) {
       try {
-        await (navigator as any).clipboard.writeText(url);
+        await (navigator as any).clipboard.writeText(linkUrl);
       } catch {
         // ignore clipboard errors
       }
     }
-  }, [firmSpaceId, inviteSkuId, inviteExpiresInDays]);
+  }, [firmSpaceId, inviteSkuId, inviteExpiresInDays, firmSpaceName]);
 
   // Mobile: receipt-style list (Group, Filter, Search + firstRow/secondRow)
   const clientSections = useMemo(() => {
@@ -986,39 +988,42 @@ export default function FirmClientsScreen() {
         title="Invite history"
         onClose={() => setShowInviteHistory(false)}
         maxWidth={900}
+        contentFillsHeight
       >
-        <View style={styles.inviteHeader}>
-          <Text style={styles.inviteSubtitle}>
-            Review all open invites sent by this firm, including initiator, Service catalog, expiry and how many client spaces joined.
-          </Text>
-        </View>
-        {inviteHistoryLoading ? (
-          <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-            <ActivityIndicator size="small" color="#6C5CE7" />
+        <View style={styles.inviteHistoryContainer}>
+          <View style={styles.inviteHeader}>
+            <Text style={styles.inviteSubtitle}>
+              Review all open invites sent by this firm, including initiator, Service catalog, expiry and how many client spaces joined.
+            </Text>
           </View>
-        ) : (
-          <ScrollView style={styles.inviteHistoryScroll}>
-            <View style={styles.inviteHistoryHeaderRow}>
-              <View style={styles.inviteHistoryColService}>
-                <Text style={styles.inviteHistoryHeaderText}>Service catalog</Text>
-              </View>
-              <View style={styles.inviteHistoryColExpiry}>
-                <Text style={styles.inviteHistoryHeaderText}>Expiry</Text>
-              </View>
-              <View style={styles.inviteHistoryColActive}>
-                <Text style={[styles.inviteHistoryHeaderText, { textAlign: 'center' }]}>Active</Text>
-              </View>
-              <View style={styles.inviteHistoryColJoined}>
-                <Text style={[styles.inviteHistoryHeaderText, { textAlign: 'right' }]}>Joined</Text>
-              </View>
-              <View style={styles.inviteHistoryColInitiator}>
-                <Text style={[styles.inviteHistoryHeaderText, { textAlign: 'right' }]}>Initiator</Text>
-              </View>
-              <View style={styles.inviteHistoryColCreated}>
-                <Text style={[styles.inviteHistoryHeaderText, { textAlign: 'right' }]}>Created at</Text>
-              </View>
+          {inviteHistoryLoading ? (
+            <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color="#6C5CE7" />
             </View>
-            {inviteHistory.map((row) => {
+          ) : (
+            <ScrollView style={styles.inviteHistoryScroll} contentContainerStyle={styles.inviteHistoryScrollContent}>
+              <View style={styles.inviteHistoryTable}>
+                <View style={[styles.inviteSkuHeaderRow, styles.inviteHistoryHeaderRow]}>
+                  <View style={styles.inviteHistoryColService}>
+                    <Text style={styles.inviteSkuHeaderText}>Service catalog</Text>
+                  </View>
+                  <View style={styles.inviteHistoryColExpiry}>
+                    <Text style={styles.inviteSkuHeaderText}>Expiry</Text>
+                  </View>
+                  <View style={styles.inviteHistoryColActive}>
+                    <Text style={[styles.inviteSkuHeaderText, { textAlign: 'center' }]}>Active</Text>
+                  </View>
+                  <View style={styles.inviteHistoryColJoined}>
+                    <Text style={[styles.inviteSkuHeaderText, { textAlign: 'right' }]}>Joined</Text>
+                  </View>
+                  <View style={styles.inviteHistoryColInitiator}>
+                    <Text style={[styles.inviteSkuHeaderText, { textAlign: 'right' }]}>Initiator</Text>
+                  </View>
+                  <View style={styles.inviteHistoryColCreated}>
+                    <Text style={[styles.inviteSkuHeaderText, { textAlign: 'right' }]}>Created at</Text>
+                  </View>
+                </View>
+                {inviteHistory.map((row, index) => {
               const createdAt = row.createdAt ? new Date(row.createdAt) : null;
               const expiresAt = row.expiresAt ? new Date(row.expiresAt) : null;
               const now = new Date();
@@ -1035,7 +1040,11 @@ export default function FirmClientsScreen() {
               return (
                 <TouchableOpacity
                   key={row.id}
-                  style={styles.inviteHistoryRow}
+                  style={[
+                    styles.inviteSkuRow,
+                    styles.inviteHistoryRow,
+                    index === inviteHistory.length - 1 && { borderBottomWidth: 0 },
+                  ]}
                   activeOpacity={0.7}
                   onPress={() => handleOpenInviteFromHistory(row)}
                 >
@@ -1093,14 +1102,16 @@ export default function FirmClientsScreen() {
                 </TouchableOpacity>
               );
             })}
-            {!inviteHistoryLoading && inviteHistory.length === 0 && !inviteHistoryError && (
-              <Text style={[styles.inviteHintText, { marginTop: 12 }]}>No invite history yet.</Text>
-            )}
-            {inviteHistoryError && (
-              <Text style={styles.inviteErrorText}>{inviteHistoryError}</Text>
-            )}
-          </ScrollView>
-        )}
+                {!inviteHistoryLoading && inviteHistory.length === 0 && !inviteHistoryError && (
+                  <Text style={[styles.inviteHintText, { marginTop: 12, marginHorizontal: 12 }]}>No invite history yet.</Text>
+                )}
+                {inviteHistoryError && (
+                  <Text style={[styles.inviteErrorText, { marginHorizontal: 12 }]}>{inviteHistoryError}</Text>
+                )}
+              </View>
+            </ScrollView>
+          )}
+        </View>
       </CenterModal>
       {Platform.OS === 'web' &&
         showGroupMenu &&
@@ -1594,29 +1605,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#E17055',
   },
+  inviteHistoryContainer: {
+    flex: 1,
+    minHeight: 200,
+  },
   inviteHistoryScroll: {
-    maxHeight: 360,
+    flex: 1,
+  },
+  inviteHistoryScrollContent: {
+    flexGrow: 1,
+  },
+  inviteHistoryTable: {
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    borderRadius: 10,
+    backgroundColor: '#FFF',
+    overflow: 'hidden',
   },
   inviteHistoryHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9ECEF',
-  },
-  inviteHistoryHeaderText: {
-    fontSize: 11,
-    fontWeight: '600',
-    color: '#636E72',
   },
   inviteHistoryRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F3F5',
   },
   inviteHistoryCellText: {
     fontSize: 12,

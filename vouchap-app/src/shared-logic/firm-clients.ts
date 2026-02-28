@@ -36,10 +36,16 @@ const CLIENT_JOIN_BASE_URL =
   process.env.EXPO_PUBLIC_CLIENT_JOIN_URL ||
   'https://vouchap.com/client-join';
 
-export function buildFirmClientInviteUrl(token: string): string {
+/** 根据 token 构造发给 Client 的邀请链接。firmName 为 firm space 名称，落地页将直接展示 */
+export function buildFirmClientInviteUrl(token: string, firmName?: string | null): string {
   const base = (CLIENT_JOIN_BASE_URL || '').replace(/\/$/, '');
   if (!token) return base || '';
-  return `${base}?token=${encodeURIComponent(token)}`;
+  const params = new URLSearchParams();
+  params.set('token', token);
+  if (firmName != null && String(firmName).trim()) {
+    params.set('firmName', String(firmName).trim());
+  }
+  return `${base}?${params.toString()}`;
 }
 
 function generateClientInviteToken(): string {
@@ -100,7 +106,10 @@ export async function createFirmClientInviteToken(
     }
 
     const finalToken = (data as any)?.token ?? token;
-    const url = buildFirmClientInviteUrl(finalToken);
+    // 每条邀请都对应 firm space，查 space 名称并写入链接供落地页展示
+    const { data: spaceRow } = await supabase.from('spaces').select('name').eq('id', firmSpaceId).maybeSingle();
+    const firmName = (spaceRow as { name?: string } | null)?.name ?? null;
+    const url = buildFirmClientInviteUrl(finalToken, firmName);
     return { token: finalToken, url, error: null };
   } catch (e) {
     return {
@@ -220,18 +229,20 @@ export async function getFirmClientInviteInfo(
       return { info: null, error: new Error(error.message || 'Failed to load invite info') };
     }
 
-    if (!data) {
+    // RPC 返回 SETOF 时为数组，取首行
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row) {
       return { info: null, error: null };
     }
 
     // 约定 RPC 返回字段名：firm_space_id, firm_name, inviter_user_id, sku_id, token_id
     return {
       info: {
-        firmSpaceId: data.firm_space_id,
-        firmName: data.firm_name ?? undefined,
-        inviterUserId: data.inviter_user_id,
-        skuId: data.sku_id,
-        tokenId: data.token_id ?? data.id ?? '',
+        firmSpaceId: row.firm_space_id,
+        firmName: row.firm_name ?? undefined,
+        inviterUserId: row.inviter_user_id,
+        skuId: row.sku_id,
+        tokenId: row.token_id ?? row.id ?? '',
       },
       error: null,
     };
@@ -261,7 +272,11 @@ export async function acceptFirmClientInvite(
     });
 
     if (error) {
-      return { result: null, error: new Error(error.message || 'Failed to accept firm client invite') };
+      const msg = [error.message, (error as any).details, (error as any).hint].filter(Boolean).join(' ');
+      if (process.env.NODE_ENV !== 'production') {
+        console.error('[acceptFirmClientInvite] RPC error:', error);
+      }
+      return { result: null, error: new Error(msg || 'Failed to accept firm client invite') };
     }
 
     if (!data || !Array.isArray(data) || data.length === 0) {

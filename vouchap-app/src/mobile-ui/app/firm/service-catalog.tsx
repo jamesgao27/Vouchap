@@ -177,11 +177,23 @@ export default function FirmServiceCatalogScreen() {
                   </View>
                   <View style={styles.itemRow}>
                     <Text style={styles.itemCount}>Items: {t.items?.length ?? 0}</Text>
-                    <Ionicons
-                      name={t.isPublished ? 'eye' : 'eye-off-outline'}
-                      size={18}
-                      color={t.isPublished ? '#27AE60' : '#95A5A6'}
-                    />
+                    <View style={styles.itemRowRight}>
+                      <TouchableOpacity
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                        onPress={(e) => {
+                          e?.stopPropagation?.();
+                          router.push(`/firm/sku/${t.id}`);
+                        }}
+                        style={styles.viewWbsLink}
+                      >
+                        <Text style={styles.viewWbsLinkText}>View WBS</Text>
+                      </TouchableOpacity>
+                      <Ionicons
+                        name={t.isPublished ? 'eye' : 'eye-off-outline'}
+                        size={18}
+                        color={t.isPublished ? '#27AE60' : '#95A5A6'}
+                      />
+                    </View>
                   </View>
                 </View>
               </TouchableOpacity>
@@ -303,7 +315,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginTop: 8,
   },
+  itemRowRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   itemCount: { fontSize: 11, color: '#95A5A6' },
+  viewWbsLink: { paddingVertical: 4, paddingHorizontal: 0 },
+  viewWbsLinkText: { fontSize: 12, color: '#6C5CE7', fontWeight: '500' },
   modalOverlay: {
     flex: 1,
     flexDirection: 'row',

@@ -300,6 +300,12 @@ function LayoutContent() {
           }} 
         />
         <Stack.Screen 
+          name="auth/setup" 
+          options={{ 
+            headerShown: false
+          }} 
+        />
+        <Stack.Screen 
           name="invite/[id]" 
           options={{ 
             headerShown: false

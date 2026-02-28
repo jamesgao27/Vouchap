@@ -139,8 +139,71 @@ export async function getClientTodosForClientSpace(clientSpaceId: string): Promi
   });
 }
 
-/** 客户端空间：获取本空间的所有订单（用于报税模块显示），附带 sku 名称 */
-export async function getClientOrdersForClientSpace(clientSpaceId: string): Promise<Array<FirmOrder & { skuName?: string }>> {
+/** 客户端订单列表项：确认前用 SKU 展示，确认后用 project 展示 */
+export interface FirmOrderForClient extends FirmOrder {
+  skuName?: string;
+  skuDescription?: string | null;
+  skuImageUrl?: string | null;
+  projectName?: string;
+  projectDescription?: string | null;
+  projectImageUrl?: string | null;
+}
+
+/** 单笔订单（用于详情页） */
+export interface FirmOrderById {
+  id: string;
+  firmSpaceId: string;
+  clientSpaceId: string;
+  skuId: string;
+  status: string;
+  dueAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** 根据 orderId 获取订单（用于 engagement 详情） */
+export async function getOrderById(orderId: string): Promise<FirmOrderById | null> {
+  const { data, error } = await supabase
+    .schema('firm')
+    .from('orders')
+    .select('id, firm_space_id, client_space_id, sku_id, status, due_at, created_at, updated_at')
+    .eq('id', orderId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  const row = data as any;
+  return {
+    id: row.id,
+    firmSpaceId: row.firm_space_id,
+    clientSpaceId: row.client_space_id,
+    skuId: row.sku_id,
+    status: row.status ?? 'pending',
+    dueAt: row.due_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+/** 根据 skuId 获取 SKU 基本信息（名称、说明、封面），用于详情展示 */
+export async function getSkuById(skuId: string): Promise<{ name: string; description?: string | null; imageUrl?: string | null } | null> {
+  const { data, error } = await supabase
+    .schema('firm')
+    .from('skus')
+    .select('name, description, image_url')
+    .eq('id', skuId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  const row = data as any;
+  return {
+    name: row.name ?? '',
+    description: row.description ?? null,
+    imageUrl: row.image_url ?? null,
+  };
+}
+
+/** 客户端空间：获取本空间的所有订单；附带 sku 与 project（确认后有 project）用于展示 */
+export async function getClientOrdersForClientSpace(clientSpaceId: string): Promise<FirmOrderForClient[]> {
   const { data: ordersData, error: ordersErr } = await supabase
     .schema('firm')
     .from('orders')
@@ -153,34 +216,44 @@ export async function getClientOrdersForClientSpace(clientSpaceId: string): Prom
     return [];
   }
 
+  const orderIds = ordersData.map((o: any) => o.id);
   const skuIds = Array.from(new Set(ordersData.map((o: any) => o.sku_id)));
-  const { data: skusData, error: skusErr } = await supabase
-    .schema('firm')
-    .from('skus')
-    .select('id, name')
-    .in('id', skuIds);
 
-  if (skusErr) {
-    console.error('getClientOrdersForClientSpace skus:', skusErr);
-  }
+  const [skusRes, projectsRes] = await Promise.all([
+    supabase.schema('firm').from('skus').select('id, name, description, image_url').in('id', skuIds),
+    supabase.schema('firm').from('projects').select('order_id, name, description, image_url').in('order_id', orderIds),
+  ]);
 
-  const skuMap: Record<string, string> = {};
-  (skusData || []).forEach((s: any) => {
-    skuMap[s.id] = s.name || '';
+  const skuMap: Record<string, { name: string; description?: string | null; image_url?: string | null }> = {};
+  (skusRes.data || []).forEach((s: any) => {
+    skuMap[s.id] = { name: s.name || '', description: s.description ?? null, image_url: s.image_url ?? null };
+  });
+  const projectByOrderId: Record<string, { name: string; description?: string | null; image_url?: string | null }> = {};
+  (projectsRes.data || []).forEach((p: any) => {
+    projectByOrderId[p.order_id] = { name: p.name || '', description: p.description ?? null, image_url: p.image_url ?? null };
   });
 
-  return (ordersData || []).map((row: any) => ({
-    id: row.id,
-    firmSpaceId: row.firm_space_id,
-    clientSpaceId: row.client_space_id,
-    skuId: row.sku_id,
-    status: row.status,
-    dueAt: row.due_at ?? null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    createdBy: row.created_by ?? null,
-    skuName: skuMap[row.sku_id] ?? undefined,
-  }));
+  return (ordersData || []).map((row: any) => {
+    const sku = skuMap[row.sku_id];
+    const project = projectByOrderId[row.id];
+    return {
+      id: row.id,
+      firmSpaceId: row.firm_space_id,
+      clientSpaceId: row.client_space_id,
+      skuId: row.sku_id,
+      status: row.status,
+      dueAt: row.due_at ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      createdBy: row.created_by ?? null,
+      skuName: sku?.name ?? undefined,
+      skuDescription: sku?.description ?? undefined,
+      skuImageUrl: sku?.image_url ?? undefined,
+      projectName: project?.name ?? undefined,
+      projectDescription: project?.description ?? undefined,
+      projectImageUrl: project?.image_url ?? undefined,
+    };
+  });
 }
 
 /** Firm 空间：获取在服客户列表 */
@@ -434,7 +507,7 @@ export async function createFirmOrder(
   return { id: (data as any)?.id ?? null, error: null };
 }
 
-/** 客户端确认订单：根据 SKU items 创建 project_todos，并将订单标记为 confirmed */
+/** 客户端确认订单：复制 sku -> project，复制 sku_items -> project_todos，并将订单标记为 confirmed */
 export async function confirmOrderAndCreateProjectTodos(
   orderId: string
 ): Promise<{ error: Error | null }> {
@@ -449,6 +522,32 @@ export async function confirmOrderAndCreateProjectTodos(
     return { error: orderErr ? new Error(orderErr.message) : new Error('Order not found') };
   }
 
+  const { data: sku, error: skuErr } = await supabase
+    .schema('firm')
+    .from('skus')
+    .select('id, name, description, image_url')
+    .eq('id', order.sku_id)
+    .single();
+
+  if (skuErr || !sku) {
+    return { error: skuErr ? new Error(skuErr.message) : new Error('SKU not found') };
+  }
+
+  const { error: projectErr } = await supabase.schema('firm').from('projects').insert({
+    order_id: order.id,
+    name: (sku as any).name ?? 'Project',
+    description: (sku as any).description ?? null,
+    image_url: (sku as any).image_url ?? null,
+  });
+
+  if (projectErr) {
+    if (projectErr.code === '23505') {
+      // unique_violation: project already exists for this order (e.g. double-tap), continue
+    } else {
+      return { error: new Error(projectErr.message) };
+    }
+  }
+
   const { data: items, error: itemsErr } = await supabase
     .schema('firm')
     .from('sku_items')
@@ -459,42 +558,71 @@ export async function confirmOrderAndCreateProjectTodos(
     return { error: new Error(itemsErr.message) };
   }
 
-  if (!items || items.length === 0) {
-    const { error } = await updateOrderStatus(orderId, 'confirmed');
-    return { error };
-  }
+  if (items && items.length > 0) {
+    const ordered = sortSkuItemsDepthFirst(
+      items.map((row: any) => ({
+        ...row,
+        parentId: row.parent_id ?? null,
+        sortOrder: row.sort_order ?? 0,
+      }))
+    );
+    const taskItems = ordered.filter((row: any) => (row.item_kind ?? 'task') === 'task');
+    const payload = taskItems.map((row: any, index: number) => ({
+      order_id: order.id,
+      type: row.type,
+      title: row.title,
+      description: row.description ?? null,
+      status: 'pending' as FirmProjectStatus,
+      sort_order: index + 1,
+    }));
 
-  const ordered = sortSkuItemsDepthFirst(
-    items.map((row: any) => ({
-      ...row,
-      parentId: row.parent_id ?? null,
-      sortOrder: row.sort_order ?? 0,
-    }))
-  );
-  const taskItems = ordered.filter((row: any) => (row.item_kind ?? 'task') === 'task');
-  const payload = taskItems.map((row: any, index: number) => ({
-    order_id: order.id,
-    type: row.type,
-    title: row.title,
-    description: row.description ?? null,
-    status: 'pending' as FirmProjectStatus,
-    sort_order: index + 1,
-  }));
+    const { error: insertErr } = await supabase
+      .schema('firm')
+      .from('project_todos')
+      .insert(payload);
 
-  const { error: insertErr } = await supabase
-    .schema('firm')
-    .from('project_todos')
-    .insert(payload);
-
-  if (insertErr) {
-    return { error: new Error(insertErr.message) };
+    if (insertErr) {
+      return { error: new Error(insertErr.message) };
+    }
   }
 
   const { error: updateErr } = await updateOrderStatus(orderId, 'confirmed');
   return { error: updateErr };
 }
 
-/** Firm 空间：获取某订单的 projects（客户 todo + firm todo，由 sku_items 复制） */
+/** 项目信息（与 SKU 结构一致，用于详情展示） */
+export interface FirmProjectInfo {
+  id: string;
+  orderId: string;
+  name: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** 根据 orderId 获取 project 信息（确认订单后才有） */
+export async function getProjectByOrderId(orderId: string): Promise<FirmProjectInfo | null> {
+  const { data, error } = await supabase
+    .schema('firm')
+    .from('projects')
+    .select('id, order_id, name, description, image_url, created_at, updated_at')
+    .eq('order_id', orderId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  return {
+    id: (data as any).id,
+    orderId: (data as any).order_id,
+    name: (data as any).name ?? '',
+    description: (data as any).description ?? null,
+    imageUrl: (data as any).image_url ?? null,
+    createdAt: (data as any).created_at,
+    updatedAt: (data as any).updated_at,
+  };
+}
+
+/** Firm 空间：获取某订单的 project_todos（客户 todo + firm todo，由 sku_items 复制） */
 export async function getOrderProjects(orderId: string): Promise<FirmProject[]> {
   const { data, error } = await supabase
     .schema('firm')

@@ -8,6 +8,7 @@ const config = getDefaultConfig(__dirname);
 const projectRoot = __dirname;
 const originalResolveRequest = config.resolver.resolveRequest;
 const webShimPath = path.resolve(projectRoot, 'react-native-web-shim.js');
+const rnwRoot = path.resolve(projectRoot, 'node_modules', 'react-native-web');
 
 function resolveAlias(moduleName) {
   if (moduleName.startsWith('@/lib/')) {
@@ -46,6 +47,22 @@ function resolveAlias(moduleName) {
 config.resolver.resolveRequest = (context, moduleName, platform) => {
   if (platform === 'web' && (moduleName === 'react-native' || moduleName === 'react-native-web')) {
     return { type: 'sourceFile', filePath: webShimPath };
+  }
+  // react-native-web 可能没有 dist/（依赖期望 dist/exports/*），映射到 src/exports/*（不依赖 platform，因 babel 改写后可能未传 web）
+  if (moduleName.startsWith('react-native-web/dist/exports/')) {
+    const sub = moduleName.slice('react-native-web/dist/exports/'.length);
+    const base = path.join(rnwRoot, 'src', 'exports', sub);
+    // 只返回文件路径，不返回目录（Metro 需要可计算 SHA 的文件）
+    const toTry = [
+      path.join(base, 'index.js'),
+      path.join(base, 'index.ts'),
+      base + '.js',
+      base + '.ts',
+      base,
+    ];
+    for (const p of toTry) {
+      if (fs.existsSync(p) && fs.statSync(p).isFile()) return { type: 'sourceFile', filePath: path.resolve(p) };
+    }
   }
   const aliasPath = resolveAlias(moduleName);
   if (aliasPath) {

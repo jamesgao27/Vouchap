@@ -1,41 +1,31 @@
 /**
- * Firm - Engagement 详情页（订单/项目详情，与 SKU 详情同一套 UI）
- * 路由：/firm/engagement/[id]，id = orderId。
- * 已确认订单：展示 project 信息 + project_todos 表格；
- * 待确认订单：展示 SKU 信息 + sku_items 树形 WBS 表格。
+ * Firm - SKU 详情页（与项目详情同一套 UI）
+ * 路由：/firm/sku/[skuId]。展示 SKU 信息 + sku_items 树形 WBS 表格。
  */
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import {
-  getOrderById,
-  getProjectByOrderId,
-  getOrderProjects,
-  getSkuById,
-  getSkuItems,
-} from '@/lib/firm';
+import { getSkuById, getSkuItems } from '@/lib/firm';
 import {
   ProjectSkuDetail,
   withWbsCodes,
-  projectTodosWithWbs,
   type ProjectSkuInfo,
   type TodoRow,
 } from '@/components/ProjectSkuDetail';
 
-export default function FirmEngagementDetailScreen() {
-  const { id: orderId } = useLocalSearchParams<{ id: string }>();
+export default function FirmSkuDetailScreen() {
+  const { skuId } = useLocalSearchParams<{ skuId: string }>();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<ProjectSkuInfo | null>(null);
   const [todos, setTodos] = useState<TodoRow[]>([]);
-  const [mode, setMode] = useState<'sku' | 'project'>('project');
 
   useEffect(() => {
-    if (!orderId) {
-      setError('Missing order ID');
+    if (!skuId) {
+      setError('Missing SKU ID');
       setLoading(false);
       return;
     }
@@ -44,33 +34,18 @@ export default function FirmEngagementDetailScreen() {
       setLoading(true);
       setError(null);
       try {
-        const order = await getOrderById(orderId);
+        const [sku, items] = await Promise.all([
+          getSkuById(skuId),
+          getSkuItems(skuId),
+        ]);
         if (cancelled) return;
-        if (!order) {
-          setError('Order not found');
+        if (!sku) {
+          setError('SKU not found');
           setLoading(false);
           return;
         }
-        const isConfirmed = order.status !== 'pending';
-        if (isConfirmed) {
-          const [project, projectTodos] = await Promise.all([
-            getProjectByOrderId(order.id),
-            getOrderProjects(order.id),
-          ]);
-          if (cancelled) return;
-          setInfo(project ? { name: project.name, description: project.description, imageUrl: project.imageUrl } : { name: 'Project' });
-          setTodos(projectTodosWithWbs(projectTodos));
-          setMode('project');
-        } else {
-          const [sku, items] = await Promise.all([
-            getSkuById(order.skuId),
-            getSkuItems(order.skuId),
-          ]);
-          if (cancelled) return;
-          setInfo(sku ? { name: sku.name, description: sku.description, imageUrl: sku.imageUrl } : { name: 'Service' });
-          setTodos(withWbsCodes(items));
-          setMode('sku');
-        }
+        setInfo({ name: sku.name, description: sku.description, imageUrl: sku.imageUrl });
+        setTodos(withWbsCodes(items));
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load');
       } finally {
@@ -78,7 +53,7 @@ export default function FirmEngagementDetailScreen() {
       }
     })();
     return () => { cancelled = true; };
-  }, [orderId]);
+  }, [skuId]);
 
   if (loading) {
     return (
@@ -110,10 +85,10 @@ export default function FirmEngagementDetailScreen() {
       </TouchableOpacity>
       <ProjectSkuDetail
         info={info}
-        mode={mode}
+        mode="sku"
         todos={todos}
-        infoSectionTitle="Project info"
-        todosSectionTitle={mode === 'sku' ? 'Work breakdown (WBS)' : 'Checklist'}
+        infoSectionTitle="Service info"
+        todosSectionTitle="Work breakdown (WBS)"
       />
     </View>
   );

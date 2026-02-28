@@ -19,6 +19,10 @@ interface CenterModalProps {
    * 可选：卡片最大宽度（默认 520）
    */
   maxWidth?: number;
+  /**
+   * 可选：为 true 时 body 内容区填满可用高度（用于表格等需占满浮窗的场景）
+   */
+  contentFillsHeight?: boolean;
 }
 
 export default function CenterModal({
@@ -27,6 +31,7 @@ export default function CenterModal({
   onClose,
   children,
   maxWidth,
+  contentFillsHeight,
 }: CenterModalProps) {
   return (
     <Modal
@@ -46,7 +51,10 @@ export default function CenterModal({
           </View>
           <ScrollView
             style={styles.body}
-            contentContainerStyle={styles.bodyContent}
+            contentContainerStyle={[
+              styles.bodyContent,
+              contentFillsHeight ? styles.bodyContentFills : null,
+            ]}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={Platform.OS === 'web'}
           >
@@ -106,6 +114,10 @@ const styles = StyleSheet.create({
     paddingTop: 4,
     paddingBottom: 8,
     gap: 12,
+  },
+  bodyContentFills: {
+    flexGrow: 1,
+    minHeight: '100%',
   },
 });
 

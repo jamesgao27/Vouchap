@@ -20,7 +20,7 @@ import { showToast } from '@/lib/toast';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ inviteId?: string; email?: string }>();
+  const params = useLocalSearchParams<{ inviteId?: string; email?: string; redirect?: string; token?: string }>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -50,7 +50,12 @@ export default function LoginScreen() {
   const checkExistingSession = async () => {
     try {
       const { isAuthenticated } = await import('@/lib/auth');
-      if (await isAuthenticated()) router.replace('/');
+      if (!(await isAuthenticated())) return;
+      if (params.redirect === '/auth/setup' && params.token) {
+        router.replace({ pathname: '/auth/setup', params: { token: params.token } });
+      } else {
+        router.replace('/');
+      }
     } catch (_) {}
   };
 
@@ -64,6 +69,11 @@ export default function LoginScreen() {
     setLoading(false);
     if (error) {
       showToast(error.message, 'error');
+      return;
+    }
+    // 若从 auth/setup 跳转过来，登录后带回 token 继续设置流程
+    if (params.redirect === '/auth/setup' && params.token) {
+      router.replace({ pathname: '/auth/setup', params: { token: params.token } });
       return;
     }
     try {
@@ -172,7 +182,19 @@ export default function LoginScreen() {
                     Forgot password? <Text style={styles.linkTextBoldMobile}>Reset It</Text>
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.linkButtonMobile} onPress={() => router.push('/register')}>
+                <TouchableOpacity
+                  style={styles.linkButtonMobile}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/register',
+                      params: {
+                        ...(params.redirect ? { redirect: params.redirect } : {}),
+                        ...(params.token ? { token: params.token } : {}),
+                        ...(params.email ? { email: params.email } : {}),
+                      },
+                    })
+                  }
+                >
                   <Text style={styles.linkTextMobile}>
                     Don't have an account? <Text style={styles.linkTextBoldMobile}>Sign Up</Text>
                   </Text>
@@ -317,7 +339,19 @@ export default function LoginScreen() {
             <TouchableOpacity style={styles.footerLink} onPress={() => router.push('/reset-password')}>
               <Text style={styles.footerLinkP}>Forgot password? <Text style={styles.footerLinkSpan}>Reset It</Text></Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.footerLink} onPress={() => router.push('/register')}>
+            <TouchableOpacity
+              style={styles.footerLink}
+              onPress={() =>
+                router.push({
+                  pathname: '/register',
+                  params: {
+                    ...(params.redirect ? { redirect: params.redirect } : {}),
+                    ...(params.token ? { token: params.token } : {}),
+                    ...(params.email ? { email: params.email } : {}),
+                  },
+                })
+              }
+            >
               <Text style={styles.footerLinkP}>Don't have an account? <Text style={styles.footerLinkSpan}>Sign Up</Text></Text>
             </TouchableOpacity>
           </View>
