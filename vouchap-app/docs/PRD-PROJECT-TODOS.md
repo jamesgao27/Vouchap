@@ -37,20 +37,22 @@
 
 ## 二、数据模型设计
 
-### 2.1 已有核心表
+### 2.1 核心表（public schema，主权归属 client）
 
-- `firm.orders`：业务订单，与 Client Space、SKU 绑定。
-- `firm.projects`：与 orders 一一对应，执行包（name, description, image_url 等）。
+- `firm.orders`：业务订单，与 Client Space、SKU 绑定（仍属 firm schema）。
+- **`public.projects`**：与 orders 一一对应，执行包；**主权归属 client**。字段含：
+  - `id`, `firm_space_id`, `client_space_id`, `order_id`（用于授权与直接按 firm/client 查询）
+  - `name`, `description`, `image_url`, `status`, `start_at`, `end_at`, `created_at`, `updated_at`
 - `firm.skus` / `firm.sku_items`：SKU 及模板 WBS 树（phase/section/task）。
-- `firm.project_todos`：订单下任务/条目（order_id, type, title, description, status, sort_order）。
+- **`public.project_todos`**：项目下任务/资料槽位（**主权归属 client**）。字段含：
+  - `id`, `project_id`（关联 public.projects）, `parent_id`（树形）, `type`, `title`, `description`, `status`, `sort_order`, `created_at`, `updated_at`
 
-### 2.2 Phase 1 增量字段
+### 2.2 设计说明
 
-| 表 | 新增/调整 | 说明 |
-|----|-----------|------|
-| **firm.projects** | `status text` | `planned` \| `in_progress` \| `completed` \| `cancelled` |
-| **firm.projects** | `start_at timestamptz null`, `end_at timestamptz null` | 项目起止时间 |
-| **firm.project_todos** | `parent_id uuid null` | 支持 WBS 树形结构（自引用） |
+| 表 | 说明 |
+|----|------|
+| **public.projects** | `firm_space_id`、`client_space_id` 用于 RLS 及按空间直接查询；`order_id` 保持与 firm.orders 一一对应。 |
+| **public.project_todos** | 以 `project_id` 关联 projects，树形靠 `parent_id` 自引用。 |
 
 ### 2.3 文件与 todo 关联（后续）
 

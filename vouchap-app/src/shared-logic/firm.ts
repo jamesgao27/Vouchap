@@ -105,11 +105,15 @@ export async function getClientTodosForClientSpace(clientSpaceId: string): Promi
   }
 
   const orderIds = ordersData.map((o: any) => o.id);
+  const { data: projectsData } = await supabase.from('projects').select('id, order_id').in('order_id', orderIds);
+  const projectIds = (projectsData || []).map((p: any) => p.id);
+  const orderIdByProjectId: Record<string, string> = {};
+  (projectsData || []).forEach((p: any) => { orderIdByProjectId[p.id] = p.order_id; });
+  if (projectIds.length === 0) return [];
   const { data: itemsData, error: itemsErr } = await supabase
-    .schema('firm')
     .from('project_todos')
     .select('*')
-    .in('order_id', orderIds)
+    .in('project_id', projectIds)
     .eq('type', 'client')
     .order('sort_order', { ascending: true });
 
@@ -122,10 +126,11 @@ export async function getClientTodosForClientSpace(clientSpaceId: string): Promi
   ordersData.forEach((o: any) => { orderMap[o.id] = o; });
 
   return (itemsData || []).map((row: any) => {
-    const order = orderMap[row.order_id];
+    const orderId = orderIdByProjectId[row.project_id];
+    const order = orderMap[orderId];
     return {
       id: row.id,
-      orderId: row.order_id,
+      orderId: orderId ?? row.project_id,
       firmSpaceId: order?.firm_space_id ?? '',
       clientSpaceId: order?.client_space_id ?? '',
       title: row.title,
@@ -221,7 +226,7 @@ export async function getClientOrdersForClientSpace(clientSpaceId: string): Prom
 
   const [skusRes, projectsRes] = await Promise.all([
     supabase.schema('firm').from('skus').select('id, name, description, image_url').in('id', skuIds),
-    supabase.schema('firm').from('projects').select('order_id, name, description, image_url').in('order_id', orderIds),
+    supabase.from('projects').select('order_id, name, description, image_url').in('order_id', orderIds),
   ]);
 
   const skuMap: Record<string, { name: string; description?: string | null; image_url?: string | null }> = {};
@@ -533,20 +538,30 @@ export async function confirmOrderAndCreateProjectTodos(
     return { error: skuErr ? new Error(skuErr.message) : new Error('SKU not found') };
   }
 
-  const { error: projectErr } = await supabase.schema('firm').from('projects').insert({
-    order_id: order.id,
-    name: (sku as any).name ?? 'Project',
-    description: (sku as any).description ?? null,
-    image_url: (sku as any).image_url ?? null,
-  });
+  const { data: projectRow, error: projectErr } = await supabase
+    .from('projects')
+    .insert({
+      firm_space_id: (order as any).firm_space_id,
+      client_space_id: (order as any).client_space_id,
+      order_id: order.id,
+      name: (sku as any).name ?? 'Project',
+      description: (sku as any).description ?? null,
+      image_url: (sku as any).image_url ?? null,
+    })
+    .select('id')
+    .maybeSingle();
 
+  let projectId: string | null = projectRow?.id ?? null;
   if (projectErr) {
     if (projectErr.code === '23505') {
-      // unique_violation: project already exists for this order (e.g. double-tap), continue
+      // unique_violation: project already exists, fetch id by order_id
+      const { data: existing } = await supabase.from('projects').select('id').eq('order_id', order.id).maybeSingle();
+      projectId = (existing as any)?.id ?? null;
     } else {
       return { error: new Error(projectErr.message) };
     }
   }
+  if (!projectId) return { error: new Error('Project not created') };
 
   const { data: items, error: itemsErr } = await supabase
     .schema('firm')
@@ -591,10 +606,9 @@ export async function confirmOrderAndCreateProjectTodos(
       const parentTaskOldId = getParentTaskId(row.id);
       const parent_id = parentTaskOldId ? oldIdToNewId.get(parentTaskOldId) ?? null : null;
       const { data: inserted, error: insertErr } = await supabase
-        .schema('firm')
         .from('project_todos')
         .insert({
-          order_id: order.id,
+          project_id: projectId,
           parent_id: parent_id,
           type: row.type,
           title: row.title,
@@ -631,7 +645,6 @@ export interface FirmProjectInfo {
 /** 根据 orderId 获取 project 信息（确认订单后才有） */
 export async function getProjectByOrderId(orderId: string): Promise<FirmProjectInfo | null> {
   const { data, error } = await supabase
-    .schema('firm')
     .from('projects')
     .select('id, order_id, name, description, image_url, status, start_at, end_at, created_at, updated_at')
     .eq('order_id', orderId)
@@ -653,13 +666,20 @@ export async function getProjectByOrderId(orderId: string): Promise<FirmProjectI
   };
 }
 
-/** Firm 空间：获取某订单的 project_todos（扁平列表，含 parent_id） */
+/** 根据 orderId 解析 project_id（public.projects 按 order_id 唯一） */
+async function getProjectIdByOrderId(orderId: string): Promise<string | null> {
+  const { data } = await supabase.from('projects').select('id').eq('order_id', orderId).maybeSingle();
+  return (data as any)?.id ?? null;
+}
+
+/** 获取某订单对应项目的 project_todos（扁平列表，含 parent_id） */
 export async function getOrderProjects(orderId: string): Promise<FirmProject[]> {
+  const projectId = await getProjectIdByOrderId(orderId);
+  if (!projectId) return [];
   const { data, error } = await supabase
-    .schema('firm')
     .from('project_todos')
     .select('*')
-    .eq('order_id', orderId)
+    .eq('project_id', projectId)
     .order('sort_order', { ascending: true });
 
   if (error) {
@@ -668,7 +688,7 @@ export async function getOrderProjects(orderId: string): Promise<FirmProject[]> 
   }
   return (data || []).map((row: any) => ({
     id: row.id,
-    orderId: row.order_id,
+    orderId: orderId,
     type: row.type,
     title: row.title,
     description: row.description ?? null,
@@ -775,44 +795,46 @@ export interface FirmProjectSummary {
   createdAt?: string;
 }
 
-/** Firm 空间：项目列表（带统计与客户/SKU 信息） */
+/** Firm 空间：项目列表（按 firm_space_id 直接查 public.projects，带统计） */
 export async function getFirmProjects(
   firmSpaceId: string,
   filters?: { status?: string; clientSpaceId?: string }
 ): Promise<FirmProjectSummary[]> {
+  let q = supabase
+    .from('projects')
+    .select('id, order_id, firm_space_id, client_space_id, name, description, image_url, status, start_at, end_at, created_at')
+    .eq('firm_space_id', firmSpaceId);
+  if (filters?.clientSpaceId) q = q.eq('client_space_id', filters.clientSpaceId);
+  const { data: projects, error: projErr } = await q.order('created_at', { ascending: false });
+  if (projErr || !projects?.length) return [];
+  const projectIds = (projects as any[]).map((p) => p.id);
   const orders = await getFirmOrders(firmSpaceId, filters?.clientSpaceId);
-  if (orders.length === 0) return [];
-  const orderIds = orders.map((o) => o.id);
-  const [projectsRes, todosRes, clientsRes] = await Promise.all([
-    supabase.schema('firm').from('projects').select('id, order_id, name, description, image_url, status, start_at, end_at, created_at').in('order_id', orderIds),
-    supabase.schema('firm').from('project_todos').select('order_id, status').in('order_id', orderIds),
+  const [todosRes, clientsRes] = await Promise.all([
+    supabase.from('project_todos').select('project_id, status').in('project_id', projectIds),
     supabase.schema('firm').from('clients').select('client_space_id, display_name').eq('firm_space_id', firmSpaceId),
   ]);
-  const projects = (projectsRes.data || []) as any[];
-  const todos = (todosRes.data || []) as any[];
-  const clients = (clientsRes.data || []) as any[];
-  const clientNameBySpace: Record<string, string> = {};
-  clients.forEach((c: any) => { clientNameBySpace[c.client_space_id] = c.display_name ?? ''; });
   const orderMap = new Map(orders.map((o) => [o.id, o]));
   const skuIds = [...new Set(orders.map((o) => o.skuId))];
   const { data: skuData } = await supabase.schema('firm').from('skus').select('id, name').in('id', skuIds);
   const skuNameById: Record<string, string> = {};
   (skuData || []).forEach((s: any) => { skuNameById[s.id] = s.name ?? ''; });
-  const todoCountByOrder: Record<string, { total: number; completed: number }> = {};
-  todos.forEach((t: any) => {
-    if (!todoCountByOrder[t.order_id]) todoCountByOrder[t.order_id] = { total: 0, completed: 0 };
-    todoCountByOrder[t.order_id].total += 1;
-    if (t.status === 'confirmed') todoCountByOrder[t.order_id].completed += 1;
+  const clientNameBySpace: Record<string, string> = {};
+  (clientsRes.data || []).forEach((c: any) => { clientNameBySpace[c.client_space_id] = c.display_name ?? ''; });
+  const todoCountByProject: Record<string, { total: number; completed: number }> = {};
+  (todosRes.data || []).forEach((t: any) => {
+    if (!todoCountByProject[t.project_id]) todoCountByProject[t.project_id] = { total: 0, completed: 0 };
+    todoCountByProject[t.project_id].total += 1;
+    if (t.status === 'confirmed') todoCountByProject[t.project_id].completed += 1;
   });
-  let list = projects.map((p: any) => {
+  let list = (projects as any[]).map((p: any) => {
     const order = orderMap.get(p.order_id);
-    const counts = todoCountByOrder[p.order_id] ?? { total: 0, completed: 0 };
+    const counts = todoCountByProject[p.id] ?? { total: 0, completed: 0 };
     return {
       projectId: p.id,
       orderId: p.order_id,
-      firmSpaceId: order?.firmSpaceId ?? '',
-      clientSpaceId: order?.clientSpaceId ?? '',
-      clientName: order?.clientSpaceId ? clientNameBySpace[order.clientSpaceId] : undefined,
+      firmSpaceId: p.firm_space_id ?? '',
+      clientSpaceId: p.client_space_id ?? '',
+      clientName: clientNameBySpace[p.client_space_id],
       skuId: order?.skuId ?? '',
       skuName: order?.skuId ? skuNameById[order.skuId] : undefined,
       name: p.name ?? '',
@@ -878,7 +900,7 @@ export async function updateProject(
   if (payload.status !== undefined) updates.status = payload.status;
   if (payload.startAt !== undefined) updates.start_at = payload.startAt;
   if (payload.endAt !== undefined) updates.end_at = payload.endAt;
-  const { error } = await supabase.schema('firm').from('projects').update(updates).eq('id', projectId);
+  const { error } = await supabase.from('projects').update(updates).eq('id', projectId);
   if (error) {
     console.error('updateProject:', error);
     return { error: error as Error };
@@ -895,20 +917,20 @@ export async function createProjectTodo(params: {
   description?: string | null;
   sortOrder?: number;
 }): Promise<{ id: string | null; error: Error | null }> {
+  const projectId = await getProjectIdByOrderId(params.orderId);
+  if (!projectId) return { id: null, error: new Error('Project not found') };
   const q = supabase
-    .schema('firm')
     .from('project_todos')
     .select('sort_order')
-    .eq('order_id', params.orderId);
+    .eq('project_id', projectId);
   if (params.parentId != null) q.eq('parent_id', params.parentId);
   else q.is('parent_id', null);
   const maxOrder = await q.order('sort_order', { ascending: false }).limit(1).maybeSingle();
   const nextOrder = (maxOrder.data as any)?.sort_order != null ? (maxOrder.data as any).sort_order + 1 : 1;
   const { data, error } = await supabase
-    .schema('firm')
     .from('project_todos')
     .insert({
-      order_id: params.orderId,
+      project_id: projectId,
       parent_id: params.parentId ?? null,
       type: params.type,
       title: params.title,
@@ -936,7 +958,7 @@ export async function updateProjectTodo(
   if (payload.status !== undefined) updates.status = payload.status;
   if (payload.sortOrder !== undefined) updates.sort_order = payload.sortOrder;
   if (payload.parentId !== undefined) updates.parent_id = payload.parentId;
-  const { error } = await supabase.schema('firm').from('project_todos').update(updates).eq('id', todoId);
+  const { error } = await supabase.from('project_todos').update(updates).eq('id', todoId);
   if (error) {
     console.error('updateProjectTodo:', error);
     return { error: error as Error };
@@ -946,11 +968,11 @@ export async function updateProjectTodo(
 
 /** 删除项目任务（Phase 1：仅允许叶子节点，即无子节点） */
 export async function deleteProjectTodo(todoId: string): Promise<{ error: Error | null }> {
-  const { data: children } = await supabase.schema('firm').from('project_todos').select('id').eq('parent_id', todoId).limit(1);
+  const { data: children } = await supabase.from('project_todos').select('id').eq('parent_id', todoId).limit(1);
   if (children && (children as any[]).length > 0) {
     return { error: new Error('Only leaf tasks can be deleted') };
   }
-  const { error } = await supabase.schema('firm').from('project_todos').delete().eq('id', todoId);
+  const { error } = await supabase.from('project_todos').delete().eq('id', todoId);
   if (error) {
     console.error('deleteProjectTodo:', error);
     return { error: error as Error };
@@ -967,11 +989,15 @@ export async function getFirmClientTodos(
   if (orders.length === 0) return [];
 
   const orderIds = orders.map((o) => o.id);
+  const { data: projectsData } = await supabase.from('projects').select('id, order_id').in('order_id', orderIds);
+  const projectIds = (projectsData || []).map((p: any) => p.id);
+  const orderIdByProjectId: Record<string, string> = {};
+  (projectsData || []).forEach((p: any) => { orderIdByProjectId[p.id] = p.order_id; });
+  if (projectIds.length === 0) return [];
   const { data: itemsData, error: itemsErr } = await supabase
-    .schema('firm')
     .from('project_todos')
     .select('*')
-    .in('order_id', orderIds)
+    .in('project_id', projectIds)
     .order('sort_order', { ascending: true });
 
   if (itemsErr) {
@@ -983,10 +1009,11 @@ export async function getFirmClientTodos(
   orders.forEach((o) => { orderMap[o.id] = o; });
 
   const items = (itemsData || []).map((row: any) => {
-    const order = orderMap[row.order_id];
+    const orderId = orderIdByProjectId[row.project_id];
+    const order = orderMap[orderId];
     return {
       id: row.id,
-      orderId: row.order_id,
+      orderId: orderId ?? row.project_id,
       firmSpaceId: order?.firmSpaceId ?? '',
       clientSpaceId: order?.clientSpaceId ?? '',
       title: row.title,
@@ -1285,13 +1312,12 @@ export async function deleteFirmClients(clientIds: string[]): Promise<{ error: E
   return { error: error ? new Error(error.message) : null };
 }
 
-/** 更新 project 状态（订单下某清单项；整单进展以 order.status 为准） */
+/** 更新某条 project_todo 的状态（id 为 todo id） */
 export async function updateProjectStatus(
   projectId: string,
   status: FirmProject['status']
 ): Promise<{ error: Error | null }> {
   const { error } = await supabase
-    .schema('firm')
     .from('project_todos')
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', projectId);

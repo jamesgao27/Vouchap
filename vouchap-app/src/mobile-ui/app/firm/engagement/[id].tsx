@@ -1,11 +1,9 @@
 /**
- * Firm - Engagement 详情页（订单/项目详情，与 SKU 详情同一套 UI）
- * 路由：/firm/engagement/[id]，id = orderId。
- * 已确认订单：getProjectDetail + getProjectTodosTree，展示项目信息 + WBS 树表；
- * 待确认订单：展示 SKU 信息 + sku_items 树形 WBS 表格。
+ * Firm - Engagement 详情页（订单/项目详情）
+ * 已确认：项目信息卡片 + 树形任务列表（aim.link 风格）；待确认：SKU 信息 + 扁平 WBS 表。
  */
-import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { useEffect, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,16 +11,19 @@ import {
   getOrderById,
   getProjectDetail,
   getProjectTodosTree,
-  flattenProjectTodoTree,
+  createProjectTodo,
   getSkuById,
   getSkuItems,
 } from '@/lib/firm';
+import type { ProjectTodoNode } from '@/lib/firm';
 import {
   ProjectSkuDetail,
+  ProjectInfoCard,
   withWbsCodes,
   type ProjectSkuInfo,
   type TodoRow,
 } from '@/components/ProjectSkuDetail';
+import { ProjectTodoTreeView } from '@/components/ProjectTodoTreeView';
 
 export default function FirmEngagementDetailScreen() {
   const { id: orderId } = useLocalSearchParams<{ id: string }>();
@@ -31,11 +32,29 @@ export default function FirmEngagementDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [info, setInfo] = useState<ProjectSkuInfo | null>(null);
   const [todos, setTodos] = useState<TodoRow[]>([]);
+  const [tree, setTree] = useState<ProjectTodoNode[]>([]);
   const [mode, setMode] = useState<'sku' | 'project'>('project');
   const [taskTotal, setTaskTotal] = useState(0);
   const [taskCompleted, setTaskCompleted] = useState(0);
   const [clientName, setClientName] = useState<string | undefined>();
   const [projectStatus, setProjectStatus] = useState<string | undefined>();
+
+  const loadProject = useCallback(async () => {
+    if (!orderId) return;
+    const detail = await getProjectDetail(orderId);
+    if (!detail?.project) return;
+    const newTree = await getProjectTodosTree(orderId);
+    setInfo({
+      name: detail.project.name,
+      description: detail.project.description,
+      imageUrl: detail.project.imageUrl,
+    });
+    setTree(newTree);
+    setTaskTotal(detail.taskTotal);
+    setTaskCompleted(detail.taskCompleted);
+    setClientName(detail.clientName);
+    setProjectStatus(detail.project.status);
+  }, [orderId]);
 
   useEffect(() => {
     if (!orderId) {
@@ -57,26 +76,9 @@ export default function FirmEngagementDetailScreen() {
         }
         const isConfirmed = order.status !== 'pending';
         if (isConfirmed) {
-          const detail = await getProjectDetail(order.id);
+          await loadProject();
           if (cancelled) return;
-          if (!detail?.project) {
-            setError('Project not found');
-            setLoading(false);
-            return;
-          }
-          const tree = await getProjectTodosTree(order.id);
-          if (cancelled) return;
-          setInfo({
-            name: detail.project.name,
-            description: detail.project.description,
-            imageUrl: detail.project.imageUrl,
-          });
-          setTodos(flattenProjectTodoTree(tree));
           setMode('project');
-          setTaskTotal(detail.taskTotal);
-          setTaskCompleted(detail.taskCompleted);
-          setClientName(detail.clientName);
-          setProjectStatus(detail.project.status);
         } else {
           const [sku, items] = await Promise.all([
             getSkuById(order.skuId),
@@ -94,7 +96,7 @@ export default function FirmEngagementDetailScreen() {
       }
     })();
     return () => { cancelled = true; };
-  }, [orderId]);
+  }, [orderId, loadProject]);
 
   if (loading) {
     return (
@@ -131,19 +133,39 @@ export default function FirmEngagementDetailScreen() {
           <Text style={styles.metaText}> · {taskCompleted}/{taskTotal} tasks</Text>
         </View>
       )}
-      <ProjectSkuDetail
-        info={info}
-        mode={mode}
-        todos={todos}
-        infoSectionTitle="Project info"
-        todosSectionTitle={mode === 'sku' ? 'Work breakdown (WBS)' : 'Checklist'}
-      />
+
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        {mode === 'project' ? (
+          <>
+            <ProjectInfoCard info={info} sectionTitle="Project info" />
+            <View style={styles.treeSection}>
+              <ProjectTodoTreeView
+                orderId={orderId!}
+                tree={tree}
+                onRefresh={loadProject}
+                createProjectTodo={createProjectTodo}
+              />
+            </View>
+          </>
+        ) : (
+          <ProjectSkuDetail
+            info={info}
+            mode="sku"
+            todos={todos}
+            infoSectionTitle="Service info"
+            todosSectionTitle="Work breakdown (WBS)"
+          />
+        )}
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
+  scroll: { flex: 1 },
+  scrollContent: { padding: 20, paddingBottom: 40 },
+  treeSection: { marginTop: 24 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F9FA', padding: 20 },
   errorText: { fontSize: 16, color: '#636E72', marginBottom: 16 },
   headerBack: { padding: 16, paddingTop: 48 },

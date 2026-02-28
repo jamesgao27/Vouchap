@@ -17,6 +17,36 @@ export type TodoRow =
   | (FirmSkuItem & { wbsCode: string })
   | (FirmProject & { wbsCode: string });
 
+/** 项目/SKU 信息卡片（可单独用于项目详情页） */
+export function ProjectInfoCard({
+  info,
+  sectionTitle = 'Project info',
+}: {
+  info: ProjectSkuInfo;
+  sectionTitle?: string;
+}) {
+  return (
+    <View style={styles.section}>
+      <Text style={styles.sectionTitle}>{sectionTitle}</Text>
+      <View style={styles.infoCard}>
+        <View style={styles.coverWrap}>
+          {info.imageUrl ? (
+            <Image source={{ uri: info.imageUrl }} style={styles.cover} resizeMode="cover" />
+          ) : (
+            <View style={styles.coverPlaceholder}>
+              <Text style={styles.coverPlaceholderText}>Cover</Text>
+            </View>
+          )}
+        </View>
+        <Text style={styles.name}>{info.name}</Text>
+        {info.description ? (
+          <Text style={styles.description}>{info.description}</Text>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
 interface ProjectSkuDetailProps {
   info: ProjectSkuInfo;
   /** SKU 模式：树形 WBS（phase/section/task）；Project 模式：扁平任务带 status */
@@ -36,24 +66,7 @@ export function ProjectSkuDetail({
 }: ProjectSkuDetailProps) {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{infoSectionTitle}</Text>
-        <View style={styles.infoCard}>
-          <View style={styles.coverWrap}>
-            {info.imageUrl ? (
-              <Image source={{ uri: info.imageUrl }} style={styles.cover} resizeMode="cover" />
-            ) : (
-              <View style={styles.coverPlaceholder}>
-                <Text style={styles.coverPlaceholderText}>Cover</Text>
-              </View>
-            )}
-          </View>
-          <Text style={styles.name}>{info.name}</Text>
-          {info.description ? (
-            <Text style={styles.description}>{info.description}</Text>
-          ) : null}
-        </View>
-      </View>
+      <ProjectInfoCard info={info} sectionTitle={infoSectionTitle} />
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{todosSectionTitle}</Text>
