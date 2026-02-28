@@ -74,7 +74,7 @@ export default function FirmEngagementDetailScreen() {
           setLoading(false);
           return;
         }
-        const isConfirmed = order.status !== 'pending';
+        const isConfirmed = order.status !== 'onboarding';
         if (isConfirmed) {
           await loadProject();
           if (cancelled) return;

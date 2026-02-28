@@ -13,6 +13,7 @@ import type {
   FirmOrder,
   FirmProject,
   FirmOrderStatus,
+  ProjectTodoStatus,
   FirmSku,
   FirmSkuItem,
   FirmTemplate,
@@ -78,25 +79,28 @@ function computeClientDisplayStatus(
   const hasAnyOrder = clientOrders.length > 0;
   const currentYearOrders = clientOrders.filter((o) => getOrderYear(o) === ctx.currentYear);
   const lastYearOrders = clientOrders.filter((o) => getOrderYear(o) === ctx.lastYear);
-  const hasCurrentYearInProgress = currentYearOrders.some((o) => o.status === 'pending' || o.status === 'submitted');
-  const hasLastYearConfirmed = lastYearOrders.some((o) => o.status === 'confirmed');
+  const hasCurrentYearInProgress = currentYearOrders.some((o) =>
+    o.status === 'onboarding' || o.status === 'collecting' || o.status === 'processing' ||
+    o.status === 'reviewing' || o.status === 'filing'
+  );
+  const hasLastYearCompleted = lastYearOrders.some((o) => o.status === 'completed');
 
   if (!hasAnyOrder) return 'new';
   if (ctx.taxSeasonEnded && !hasCurrentYearInProgress) return 'churned';
   if (hasCurrentYearInProgress) return 'in_service';
   if (ctx.taxSeasonStarted && !hasCurrentYearInProgress) return 'to_follow_up';
-  if (hasLastYearConfirmed) return 'to_revisit';
+  if (hasLastYearCompleted) return 'to_revisit';
   return 'to_follow_up';
 }
 
-/** 客户端空间：获取推送给本空间的待办（订单项 type=client，订单状态 pending/submitted） */
+/** 客户端空间：获取推送给本空间的待办（订单阶段为 onboarding..filing 即有 project 的） */
 export async function getClientTodosForClientSpace(clientSpaceId: string): Promise<FirmClientTodo[]> {
   const { data: ordersData, error: ordersErr } = await supabase
     .schema('firm')
     .from('orders')
     .select('id, firm_space_id, client_space_id, due_at, created_at')
     .eq('client_space_id', clientSpaceId)
-    .in('status', ['pending', 'submitted'])
+    .in('status', ['onboarding', 'collecting', 'processing', 'reviewing', 'filing'])
     .order('due_at', { ascending: true, nullsFirst: false });
 
   if (ordersErr || !ordersData?.length) {
@@ -152,6 +156,11 @@ export interface FirmOrderForClient extends FirmOrder {
   projectName?: string;
   projectDescription?: string | null;
   projectImageUrl?: string | null;
+  /** 确认后项目任务完成数/总数（用于列表进度展示） */
+  taskCompleted?: number;
+  taskTotal?: number;
+  /** Firm 空间名称（来自 public.spaces），用于卡片展示 */
+  firmName?: string;
 }
 
 /** 单笔订单（用于详情页） */
@@ -182,7 +191,7 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
     firmSpaceId: row.firm_space_id,
     clientSpaceId: row.client_space_id,
     skuId: row.sku_id,
-    status: row.status ?? 'pending',
+    status: row.status ?? 'onboarding',
     dueAt: row.due_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -226,21 +235,42 @@ export async function getClientOrdersForClientSpace(clientSpaceId: string): Prom
 
   const [skusRes, projectsRes] = await Promise.all([
     supabase.schema('firm').from('skus').select('id, name, description, image_url').in('id', skuIds),
-    supabase.from('projects').select('order_id, name, description, image_url').in('order_id', orderIds),
+    supabase.from('projects').select('id, order_id, name, description, image_url').in('order_id', orderIds),
   ]);
 
   const skuMap: Record<string, { name: string; description?: string | null; image_url?: string | null }> = {};
   (skusRes.data || []).forEach((s: any) => {
     skuMap[s.id] = { name: s.name || '', description: s.description ?? null, image_url: s.image_url ?? null };
   });
-  const projectByOrderId: Record<string, { name: string; description?: string | null; image_url?: string | null }> = {};
-  (projectsRes.data || []).forEach((p: any) => {
-    projectByOrderId[p.order_id] = { name: p.name || '', description: p.description ?? null, image_url: p.image_url ?? null };
+  const projectsList = (projectsRes.data || []) as any[];
+  const projectByOrderId: Record<string, { id: string; name: string; description?: string | null; image_url?: string | null }> = {};
+  projectsList.forEach((p: any) => {
+    projectByOrderId[p.order_id] = { id: p.id, name: p.name || '', description: p.description ?? null, image_url: p.image_url ?? null };
   });
+  const projectIds = projectsList.map((p: any) => p.id);
+  let todoCountByProjectId: Record<string, { total: number; completed: number }> = {};
+  if (projectIds.length > 0) {
+    const { data: todosData } = await supabase.from('project_todos').select('project_id, status').in('project_id', projectIds);
+    (todosData || []).forEach((t: any) => {
+      if (!todoCountByProjectId[t.project_id]) todoCountByProjectId[t.project_id] = { total: 0, completed: 0 };
+      todoCountByProjectId[t.project_id].total += 1;
+      if (t.status === 'success') todoCountByProjectId[t.project_id].completed += 1;
+    });
+  }
+
+  const firmSpaceIds = Array.from(new Set((ordersData || []).map((o: any) => o.firm_space_id).filter(Boolean)));
+  const spaceNameByFirmSpaceId: Record<string, string> = {};
+  if (firmSpaceIds.length > 0) {
+    const { data: spacesData } = await supabase.from('spaces').select('id, name').in('id', firmSpaceIds);
+    (spacesData || []).forEach((s: any) => {
+      spaceNameByFirmSpaceId[s.id] = s.name ?? '';
+    });
+  }
 
   return (ordersData || []).map((row: any) => {
     const sku = skuMap[row.sku_id];
     const project = projectByOrderId[row.id];
+    const counts = project ? todoCountByProjectId[project.id] : undefined;
     return {
       id: row.id,
       firmSpaceId: row.firm_space_id,
@@ -257,6 +287,9 @@ export async function getClientOrdersForClientSpace(clientSpaceId: string): Prom
       projectName: project?.name ?? undefined,
       projectDescription: project?.description ?? undefined,
       projectImageUrl: project?.image_url ?? undefined,
+      taskTotal: counts?.total,
+      taskCompleted: counts?.completed,
+      firmName: spaceNameByFirmSpaceId[row.firm_space_id] || undefined,
     };
   });
 }
@@ -484,7 +517,7 @@ export async function getFirmOrdersWithDetails(
   });
 }
 
-/** Firm 空间：创建订单（初始为 pending，仅记录 SKU，projects 需待客户确认后再创建） */
+/** Firm 空间：创建订单（初始为 onboarding，仅记录 SKU，projects 需待客户确认后再创建） */
 export async function createFirmOrder(
   firmSpaceId: string,
   clientSpaceId: string,
@@ -499,7 +532,7 @@ export async function createFirmOrder(
       firm_space_id: firmSpaceId,
       client_space_id: clientSpaceId,
       sku_id: skuId,
-      status: 'pending',
+      status: 'onboarding',
       due_at: dueAt,
       created_by: user.user?.id ?? null,
     })
@@ -512,7 +545,7 @@ export async function createFirmOrder(
   return { id: (data as any)?.id ?? null, error: null };
 }
 
-/** 客户端确认订单：复制 sku -> project，复制 sku_items -> project_todos，并将订单标记为 confirmed */
+/** 客户端确认订单：复制 sku -> project，复制 sku_items -> project_todos，并将订单标记为 collecting（资料中） */
 export async function confirmOrderAndCreateProjectTodos(
   orderId: string
 ): Promise<{ error: Error | null }> {
@@ -613,7 +646,7 @@ export async function confirmOrderAndCreateProjectTodos(
           type: row.type,
           title: row.title,
           description: row.description ?? null,
-          status: 'pending' as FirmProjectStatus,
+          status: 'action_required' as ProjectTodoStatus,
           sort_order: i + 1,
         })
         .select('id')
@@ -624,7 +657,7 @@ export async function confirmOrderAndCreateProjectTodos(
     }
   }
 
-  const { error: updateErr } = await updateOrderStatus(orderId, 'confirmed');
+  const { error: updateErr } = await updateOrderStatus(orderId, 'collecting');
   return { error: updateErr };
 }
 
@@ -824,7 +857,7 @@ export async function getFirmProjects(
   (todosRes.data || []).forEach((t: any) => {
     if (!todoCountByProject[t.project_id]) todoCountByProject[t.project_id] = { total: 0, completed: 0 };
     todoCountByProject[t.project_id].total += 1;
-    if (t.status === 'confirmed') todoCountByProject[t.project_id].completed += 1;
+    if (t.status === 'success') todoCountByProject[t.project_id].completed += 1;
   });
   let list = (projects as any[]).map((p: any) => {
     const order = orderMap.get(p.order_id);
@@ -869,7 +902,7 @@ export async function getProjectDetail(orderId: string): Promise<{
   ]);
   if (!order) return null;
   const taskTotal = todos.length;
-  const taskCompleted = todos.filter((t) => t.status === 'confirmed').length;
+  const taskCompleted = todos.filter((t) => t.status === 'success').length;
   let clientName: string | undefined;
   let skuName: string | undefined;
   if (order.clientSpaceId) {
@@ -935,7 +968,7 @@ export async function createProjectTodo(params: {
       type: params.type,
       title: params.title,
       description: params.description ?? null,
-      status: 'pending',
+      status: 'onboarding',
       sort_order: params.sortOrder ?? nextOrder,
     })
     .select('id')
@@ -1337,10 +1370,10 @@ export async function updateOrderStatus(
   return { error: error ? new Error(error.message) : null };
 }
 
-/** 兼容：按 project id 更新状态（原 updateClientTodoStatus） */
+/** 兼容：按 project_todo id 更新状态（原 updateClientTodoStatus） */
 export async function updateClientTodoStatus(
   id: string,
-  status: 'pending' | 'submitted' | 'confirmed'
+  status: ProjectTodoStatus
 ): Promise<{ error: Error | null }> {
   return updateProjectStatus(id, status);
 }

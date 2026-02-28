@@ -14,18 +14,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { ProjectTodoNode } from '@/lib/firm';
-
-const STATUS_LABEL: Record<string, string> = {
-  pending: 'To do',
-  submitted: 'In review',
-  confirmed: 'Done',
-};
-
-const STATUS_PILL_COLOR: Record<string, string> = {
-  pending: '#0984E3',
-  submitted: '#F39C12',
-  confirmed: '#00B894',
-};
+import { TODO_STATUS_LABEL, TODO_STATUS_COLOR } from '@/lib/constants/project-todo-status';
 
 export interface ProjectTodoTreeViewProps {
   orderId: string;
@@ -103,7 +92,7 @@ export function ProjectTodoTreeView({
     const hasChildren = node.children.length > 0;
     const isExpanded = expanded.has(node.id);
     const indent = depth * 16;
-    const childCompleted = node.children.filter((c) => c.status === 'confirmed').length;
+    const childCompleted = node.children.filter((c) => c.status === 'success').length;
     const childTotal = node.children.length;
     const subtaskLabel = childTotal > 0 ? `${childCompleted}/${childTotal}` : '0';
 
@@ -133,8 +122,8 @@ export function ProjectTodoTreeView({
           </Text>
         </View>
         <View style={[styles.metaRow, { paddingLeft: 12 + indent + 18 + 8 + 4 }]}>
-          <View style={[styles.statusPill, { backgroundColor: STATUS_PILL_COLOR[node.status] ?? '#95A5A6' }]}>
-            <Text style={styles.statusPillText}>{STATUS_LABEL[node.status] ?? node.status}</Text>
+          <View style={[styles.statusPill, { backgroundColor: TODO_STATUS_COLOR[node.status] ?? '#95A5A6' }]}>
+            <Text style={styles.statusPillText}>{TODO_STATUS_LABEL[node.status] ?? node.status}</Text>
           </View>
           <View style={styles.metaItem}>
             <Ionicons name="document-text-outline" size={12} color="#95A5A6" />

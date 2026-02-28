@@ -6,6 +6,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, Image } from 'react-native';
 import type { FirmSkuItem, FirmProject } from '@/types';
+import { TODO_STATUS_LABEL } from '@/lib/constants/project-todo-status';
 
 export interface ProjectSkuInfo {
   name: string;
@@ -98,7 +99,9 @@ export function ProjectSkuDetail({
                   {row.description ?? '—'}
                 </Text>
                 {mode === 'project' && 'status' in row ? (
-                  <Text style={[styles.td, styles.colStatus]} numberOfLines={1}>{row.status}</Text>
+                  <Text style={[styles.td, styles.colStatus]} numberOfLines={1}>
+                    {TODO_STATUS_LABEL[row.status] ?? row.status}
+                  </Text>
                 ) : null}
               </View>
             ))

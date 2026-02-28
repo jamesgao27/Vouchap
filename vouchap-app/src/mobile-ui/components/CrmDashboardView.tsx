@@ -420,10 +420,11 @@ function OrderStatusBars({ width, height, entries }: BarProps) {
         const barX = colCenterX - barW / 2;
         const barHeight = maxVal ? (val / maxVal) * chartH : 0;
         const barY = padding.top + chartH - barHeight;
-        const label = name.length > 10 ? `${name.slice(0, 9)}…` : name;
+        const safeName = name ?? '';
+        const label = safeName.length > 10 ? `${safeName.slice(0, 9)}…` : safeName;
         const color = FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length];
         return (
-          <G key={name}>
+          <G key={safeName || `bar-${i}`}>
             <Rect x={barX} y={barY} width={barW} height={barHeight} rx={4} fill={color} />
             <SvgText
               x={colCenterX}

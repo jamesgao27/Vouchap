@@ -940,7 +940,7 @@ export default function HomeScreen() {
             <View style={[styles.buttonsRow, { marginTop: 12 }]}>
               <TouchableOpacity style={[styles.secondaryButtonAlt, styles.halfWidthButton]} onPress={() => router.push('/tax-filing')}>
                 <Ionicons name="document-text-outline" size={20} color="#0984e3" style={styles.buttonIcon} />
-                <Text style={styles.secondaryButtonAltText}>报税</Text>
+                <Text style={styles.secondaryButtonAltText}>Tax Filing</Text>
               </TouchableOpacity>
             </View>
           )}

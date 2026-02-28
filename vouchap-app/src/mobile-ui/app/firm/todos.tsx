@@ -10,9 +10,12 @@ import { getFirmOrders } from '@/lib/firm';
 import type { FirmOrder } from '@/types';
 
 const STATUS_LABEL: Record<string, string> = {
-  pending: 'Pending',
-  submitted: 'Submitted',
-  confirmed: 'Confirmed',
+  onboarding: 'Onboarding',
+  collecting: 'Collecting',
+  processing: 'Processing',
+  reviewing: 'Reviewing',
+  filing: 'Filing',
+  completed: 'Completed',
   cancelled: 'Cancelled',
 };
 

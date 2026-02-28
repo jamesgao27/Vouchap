@@ -520,8 +520,15 @@ export interface FirmSku {
   updatedAt?: string;
 }
 
-// 订单状态（= 该单 projects 的进展状态）
-export type FirmOrderStatus = 'pending' | 'submitted' | 'confirmed' | 'cancelled';
+// 订单阶段（6 阶段 + 取消）：Onboarding = 启动/契约建立，无 pending
+export type FirmOrderStatus =
+  | 'onboarding'   // 启动
+  | 'collecting'   // 资料中
+  | 'processing'   // 处理中
+  | 'reviewing'    // 待确认
+  | 'filing'       // 申报中
+  | 'completed'    // 已完成
+  | 'cancelled';   // 取消
 
 // 订单，一单对应一 SKU
 export interface FirmOrder {
@@ -538,7 +545,14 @@ export interface FirmOrder {
 
 // 项目（订单下的清单项，由 sku_items 复制；进展状态以 order.status 为准）
 export type FirmProjectType = 'client' | 'firm';
-export type FirmProjectStatus = 'pending' | 'submitted' | 'confirmed';
+
+/** 待办/任务状态：Action Required, Missing Info, Under Review, Flagged, Success */
+export type ProjectTodoStatus =
+  | 'action_required'  // 需客户行动
+  | 'missing_info'      // 资料不完整
+  | 'under_review'      // 审核中
+  | 'flagged'          // 有争议
+  | 'success';         // 已通过
 
 export interface FirmProject {
   id: string;
@@ -546,7 +560,7 @@ export interface FirmProject {
   type: FirmProjectType;
   title: string;
   description?: string | null;
-  status: FirmProjectStatus;
+  status: ProjectTodoStatus;
   sortOrder: number;
   /** 父任务 id，WBS 树形结构（仅 project_todos 有） */
   parentId?: string | null;
@@ -563,7 +577,7 @@ export interface FirmClientTodo {
   title: string;
   description?: string | null;
   dueAt?: string | null;
-  status: FirmProjectStatus;
+  status: ProjectTodoStatus;
   sortOrder: number;
   createdAt?: string;
   updatedAt?: string;

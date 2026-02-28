@@ -28,16 +28,22 @@ import {
 import DataTable, { type DataTableColumn, WEB_POPOVER } from '@/components/DataTable';
 
 const STATUS_LABEL: Record<string, string> = {
-  pending: 'Pending',
-  submitted: 'Submitted',
-  confirmed: 'Confirmed',
+  onboarding: 'Onboarding',
+  collecting: 'Collecting',
+  processing: 'Processing',
+  reviewing: 'Reviewing',
+  filing: 'Filing',
+  completed: 'Completed',
   cancelled: 'Cancelled',
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  pending: '#F39C12',
-  submitted: '#0984E3',
-  confirmed: '#00B894',
+  onboarding: '#6C5CE7',
+  collecting: '#0984E3',
+  processing: '#FDCB6E',
+  reviewing: '#E17055',
+  filing: '#00CEC9',
+  completed: '#00B894',
   cancelled: '#B2BEC3',
 };
 
@@ -105,7 +111,7 @@ function matchQuery(q: string, row: FirmOrderWithDetails): boolean {
 }
 
 type GroupByType = 'none' | 'byClient' | 'byStatus';
-type FilterStatus = 'all' | 'pending' | 'submitted' | 'confirmed' | 'cancelled';
+type FilterStatus = 'all' | 'onboarding' | 'collecting' | 'processing' | 'reviewing' | 'filing' | 'completed' | 'cancelled';
 
 const cellText = { fontSize: 14, color: '#2D3436' };
 
@@ -372,7 +378,7 @@ export default function FirmEngagementsScreen() {
         if (!byStatus[key]) byStatus[key] = [];
         byStatus[key].push(o);
       });
-      const order = ['pending', 'submitted', 'confirmed', 'cancelled'];
+      const order = ['onboarding', 'collecting', 'processing', 'reviewing', 'filing', 'completed', 'cancelled'];
       const keys = order.filter((k) => (byStatus[k]?.length ?? 0) > 0);
       return keys.map((k) => ({
         title: STATUS_LABEL[k] ?? k,
@@ -488,7 +494,7 @@ export default function FirmEngagementsScreen() {
         )}
         {showFilterMenu && (
           <View style={styles.groupDropdown}>
-            {(['all', 'pending', 'submitted', 'confirmed', 'cancelled'] as FilterStatus[]).map((key) => (
+            {(['all', 'onboarding', 'collecting', 'processing', 'reviewing', 'filing', 'completed', 'cancelled'] as FilterStatus[]).map((key) => (
               <TouchableOpacity key={key} style={[styles.groupOption, filterStatus === key && styles.groupOptionSelected]} onPress={() => { setFilterStatus(key); setShowFilterMenu(false); }}>
                 <Text style={[styles.groupOptionText, filterStatus === key && styles.groupOptionTextSelected]}>{key === 'all' ? 'All' : STATUS_LABEL[key] ?? key}</Text>
               </TouchableOpacity>
@@ -711,9 +717,12 @@ export default function FirmEngagementsScreen() {
                     {(
                       [
                         ['all', 'All'],
-                        ['pending', 'Pending'],
-                        ['submitted', 'Submitted'],
-                        ['confirmed', 'Confirmed'],
+                        ['onboarding', 'Onboarding'],
+                        ['collecting', 'Collecting'],
+                        ['processing', 'Processing'],
+                        ['reviewing', 'Reviewing'],
+                        ['filing', 'Filing'],
+                        ['completed', 'Completed'],
                         ['cancelled', 'Cancelled'],
                       ] as const
                     ).map(([value, label]) => (
@@ -878,9 +887,12 @@ export default function FirmEngagementsScreen() {
               {(
                 [
                   ['all', 'All'],
-                  ['pending', 'Pending'],
-                  ['submitted', 'Submitted'],
-                  ['confirmed', 'Confirmed'],
+                  ['onboarding', 'Onboarding'],
+                  ['collecting', 'Collecting'],
+                  ['processing', 'Processing'],
+                  ['reviewing', 'Reviewing'],
+                  ['filing', 'Filing'],
+                  ['completed', 'Completed'],
                   ['cancelled', 'Cancelled'],
                 ] as const
               ).map(([value, label]) => (

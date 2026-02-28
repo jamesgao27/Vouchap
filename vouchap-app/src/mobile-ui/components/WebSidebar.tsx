@@ -203,7 +203,7 @@ export default function WebSidebar() {
               >
                 <Ionicons name="document-text-outline" size={22} color={pathname.startsWith('/tax-filing') ? '#0984e3' : '#2D3436'} />
                 <Text style={[styles.navText, pathname.startsWith('/tax-filing') && styles.navTextActive]}>
-                  报税
+                  Tax Filing
                 </Text>
               </TouchableOpacity>
             )}

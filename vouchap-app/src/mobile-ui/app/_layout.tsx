@@ -106,7 +106,7 @@ function LayoutContent() {
         <Stack.Screen 
           name="tax-filing/index" 
           options={{ 
-            title: '报税',
+            title: 'Tax Filing',
             headerBackTitle: 'Home'
           }} 
         />

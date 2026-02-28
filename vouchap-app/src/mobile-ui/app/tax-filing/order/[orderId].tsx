@@ -49,7 +49,7 @@ export default function TaxFilingOrderDetailScreen() {
           setLoading(false);
           return;
         }
-        const isConfirmed = order.status !== 'pending';
+        const isConfirmed = order.status !== 'onboarding';
         if (isConfirmed) {
           const [project, projectTodos] = await Promise.all([
             getProjectByOrderId(order.id),
