@@ -230,12 +230,12 @@ export default function ClientSetupScreen() {
               <View style={styles.iconWrap}>
                 <Ionicons name="link" size={40} color="#6C5CE7" />
               </View>
-              <Text style={styles.pageTitle}>Link your space</Text>
+              <Text style={styles.pageTitle}>Link your space with</Text>
               <View style={styles.firmNameBlock}>
                 <Text style={styles.firmNameText}>{firmName}</Text>
               </View>
               <Text style={styles.pageSubtitle}>
-                has invited you. Select a space to link and create an engagement.
+                Select a space to link and start tax filing:
               </Text>
             </View>
 
@@ -289,7 +289,7 @@ export default function ClientSetupScreen() {
                 {status === 'submitting' ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.primaryButtonText}>Confirm and create engagement</Text>
+                  <Text style={styles.primaryButtonText}>Confirm and start filing</Text>
                 )}
               </TouchableOpacity>
 

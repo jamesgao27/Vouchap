@@ -1,7 +1,7 @@
 /**
  * Firm - Engagement 详情页（订单/项目详情，与 SKU 详情同一套 UI）
  * 路由：/firm/engagement/[id]，id = orderId。
- * 已确认订单：展示 project 信息 + project_todos 表格；
+ * 已确认订单：getProjectDetail + getProjectTodosTree，展示项目信息 + WBS 树表；
  * 待确认订单：展示 SKU 信息 + sku_items 树形 WBS 表格。
  */
 import { useEffect, useState } from 'react';
@@ -11,15 +11,15 @@ import { TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   getOrderById,
-  getProjectByOrderId,
-  getOrderProjects,
+  getProjectDetail,
+  getProjectTodosTree,
+  flattenProjectTodoTree,
   getSkuById,
   getSkuItems,
 } from '@/lib/firm';
 import {
   ProjectSkuDetail,
   withWbsCodes,
-  projectTodosWithWbs,
   type ProjectSkuInfo,
   type TodoRow,
 } from '@/components/ProjectSkuDetail';
@@ -32,6 +32,10 @@ export default function FirmEngagementDetailScreen() {
   const [info, setInfo] = useState<ProjectSkuInfo | null>(null);
   const [todos, setTodos] = useState<TodoRow[]>([]);
   const [mode, setMode] = useState<'sku' | 'project'>('project');
+  const [taskTotal, setTaskTotal] = useState(0);
+  const [taskCompleted, setTaskCompleted] = useState(0);
+  const [clientName, setClientName] = useState<string | undefined>();
+  const [projectStatus, setProjectStatus] = useState<string | undefined>();
 
   useEffect(() => {
     if (!orderId) {
@@ -53,14 +57,26 @@ export default function FirmEngagementDetailScreen() {
         }
         const isConfirmed = order.status !== 'pending';
         if (isConfirmed) {
-          const [project, projectTodos] = await Promise.all([
-            getProjectByOrderId(order.id),
-            getOrderProjects(order.id),
-          ]);
+          const detail = await getProjectDetail(order.id);
           if (cancelled) return;
-          setInfo(project ? { name: project.name, description: project.description, imageUrl: project.imageUrl } : { name: 'Project' });
-          setTodos(projectTodosWithWbs(projectTodos));
+          if (!detail?.project) {
+            setError('Project not found');
+            setLoading(false);
+            return;
+          }
+          const tree = await getProjectTodosTree(order.id);
+          if (cancelled) return;
+          setInfo({
+            name: detail.project.name,
+            description: detail.project.description,
+            imageUrl: detail.project.imageUrl,
+          });
+          setTodos(flattenProjectTodoTree(tree));
           setMode('project');
+          setTaskTotal(detail.taskTotal);
+          setTaskCompleted(detail.taskCompleted);
+          setClientName(detail.clientName);
+          setProjectStatus(detail.project.status);
         } else {
           const [sku, items] = await Promise.all([
             getSkuById(order.skuId),
@@ -108,6 +124,13 @@ export default function FirmEngagementDetailScreen() {
       >
         <Ionicons name="arrow-back" size={24} color="#2D3436" />
       </TouchableOpacity>
+      {mode === 'project' && (clientName != null || projectStatus != null || taskTotal > 0) && (
+        <View style={styles.metaRow}>
+          {clientName ? <Text style={styles.metaText}>{clientName}</Text> : null}
+          {projectStatus ? <Text style={styles.metaText}> · {projectStatus}</Text> : null}
+          <Text style={styles.metaText}> · {taskCompleted}/{taskTotal} tasks</Text>
+        </View>
+      )}
       <ProjectSkuDetail
         info={info}
         mode={mode}
@@ -124,6 +147,8 @@ const styles = StyleSheet.create({
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F8F9FA', padding: 20 },
   errorText: { fontSize: 16, color: '#636E72', marginBottom: 16 },
   headerBack: { padding: 16, paddingTop: 48 },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 20, paddingBottom: 8 },
+  metaText: { fontSize: 13, color: '#636E72' },
   backBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 16 },
   backBtnText: { fontSize: 16, color: '#6C5CE7', fontWeight: '500' },
 });

@@ -548,6 +548,8 @@ export interface FirmProject {
   description?: string | null;
   status: FirmProjectStatus;
   sortOrder: number;
+  /** 父任务 id，WBS 树形结构（仅 project_todos 有） */
+  parentId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

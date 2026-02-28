@@ -561,28 +561,52 @@ export async function confirmOrderAndCreateProjectTodos(
   if (items && items.length > 0) {
     const ordered = sortSkuItemsDepthFirst(
       items.map((row: any) => ({
-        ...row,
+        id: row.id,
         parentId: row.parent_id ?? null,
         sortOrder: row.sort_order ?? 0,
+        item_kind: row.item_kind ?? 'task',
+        type: row.type,
+        title: row.title,
+        description: row.description ?? null,
       }))
     );
+    // 每个 task 的「父任务」：沿 parent 上溯直到 item_kind=task
+    const idToParentTaskId = new Map<string, string | null>();
+    const idToItem = new Map<string, (typeof ordered)[0]>();
+    ordered.forEach((it) => idToItem.set(it.id, it));
+    function getParentTaskId(itemId: string): string | null {
+      const item = idToItem.get(itemId);
+      if (!item || !item.parentId) return null;
+      let cur = idToItem.get(item.parentId);
+      while (cur) {
+        if ((cur as any).item_kind === 'task') return cur.id;
+        cur = cur.parentId ? idToItem.get(cur.parentId) : undefined;
+      }
+      return null;
+    }
     const taskItems = ordered.filter((row: any) => (row.item_kind ?? 'task') === 'task');
-    const payload = taskItems.map((row: any, index: number) => ({
-      order_id: order.id,
-      type: row.type,
-      title: row.title,
-      description: row.description ?? null,
-      status: 'pending' as FirmProjectStatus,
-      sort_order: index + 1,
-    }));
-
-    const { error: insertErr } = await supabase
-      .schema('firm')
-      .from('project_todos')
-      .insert(payload);
-
-    if (insertErr) {
-      return { error: new Error(insertErr.message) };
+    const oldIdToNewId = new Map<string, string>();
+    for (let i = 0; i < taskItems.length; i++) {
+      const row = taskItems[i];
+      const parentTaskOldId = getParentTaskId(row.id);
+      const parent_id = parentTaskOldId ? oldIdToNewId.get(parentTaskOldId) ?? null : null;
+      const { data: inserted, error: insertErr } = await supabase
+        .schema('firm')
+        .from('project_todos')
+        .insert({
+          order_id: order.id,
+          parent_id: parent_id,
+          type: row.type,
+          title: row.title,
+          description: row.description ?? null,
+          status: 'pending' as FirmProjectStatus,
+          sort_order: i + 1,
+        })
+        .select('id')
+        .single();
+      if (insertErr) return { error: new Error(insertErr.message) };
+      const newId = (inserted as any)?.id;
+      if (newId) oldIdToNewId.set(row.id, newId);
     }
   }
 
@@ -597,6 +621,9 @@ export interface FirmProjectInfo {
   name: string;
   description?: string | null;
   imageUrl?: string | null;
+  status?: string;
+  startAt?: string | null;
+  endAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -606,23 +633,27 @@ export async function getProjectByOrderId(orderId: string): Promise<FirmProjectI
   const { data, error } = await supabase
     .schema('firm')
     .from('projects')
-    .select('id, order_id, name, description, image_url, created_at, updated_at')
+    .select('id, order_id, name, description, image_url, status, start_at, end_at, created_at, updated_at')
     .eq('order_id', orderId)
     .maybeSingle();
 
   if (error || !data) return null;
+  const row = data as any;
   return {
-    id: (data as any).id,
-    orderId: (data as any).order_id,
-    name: (data as any).name ?? '',
-    description: (data as any).description ?? null,
-    imageUrl: (data as any).image_url ?? null,
-    createdAt: (data as any).created_at,
-    updatedAt: (data as any).updated_at,
+    id: row.id,
+    orderId: row.order_id,
+    name: row.name ?? '',
+    description: row.description ?? null,
+    imageUrl: row.image_url ?? null,
+    status: row.status ?? 'in_progress',
+    startAt: row.start_at ?? null,
+    endAt: row.end_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
-/** Firm 空间：获取某订单的 project_todos（客户 todo + firm todo，由 sku_items 复制） */
+/** Firm 空间：获取某订单的 project_todos（扁平列表，含 parent_id） */
 export async function getOrderProjects(orderId: string): Promise<FirmProject[]> {
   const { data, error } = await supabase
     .schema('firm')
@@ -643,9 +674,288 @@ export async function getOrderProjects(orderId: string): Promise<FirmProject[]> 
     description: row.description ?? null,
     status: row.status,
     sortOrder: row.sort_order ?? 0,
+    parentId: row.parent_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
+}
+
+/** 项目任务树节点（WBS） */
+export interface ProjectTodoNode {
+  id: string;
+  orderId: string;
+  parentId: string | null;
+  type: FirmProject['type'];
+  title: string;
+  description?: string | null;
+  status: FirmProject['status'];
+  sortOrder: number;
+  depth: number;
+  children: ProjectTodoNode[];
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** 获取某订单的 project_todos 树形结构（深度优先） */
+export async function getProjectTodosTree(orderId: string): Promise<ProjectTodoNode[]> {
+  const flat = await getOrderProjects(orderId);
+  const withParent = flat as (FirmProject & { parentId?: string | null })[];
+  const byParent = new Map<string | null, (typeof withParent)[0][]>();
+  for (const item of withParent) {
+    const key = item.parentId ?? null;
+    if (!byParent.has(key)) byParent.set(key, []);
+    byParent.get(key)!.push(item);
+  }
+  for (const list of byParent.values()) list.sort((a, b) => a.sortOrder - b.sortOrder);
+  function buildChildren(parentKey: string | null, depth: number): ProjectTodoNode[] {
+    const list = byParent.get(parentKey) ?? [];
+    return list.map((item) => ({
+      id: item.id,
+      orderId: item.orderId,
+      parentId: item.parentId ?? null,
+      type: item.type,
+      title: item.title,
+      description: item.description ?? null,
+      status: item.status,
+      sortOrder: item.sortOrder,
+      depth,
+      children: buildChildren(item.id, depth + 1),
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+    }));
+  }
+  return buildChildren(null, 0);
+}
+
+/** 将 getProjectTodosTree 的树形结果压平并加上 WBS 编码（1, 1.1, 1.2...），供表格展示 */
+export function flattenProjectTodoTree(nodes: ProjectTodoNode[]): (FirmProject & { wbsCode: string })[] {
+  const counter: number[] = [];
+  const out: (FirmProject & { wbsCode: string })[] = [];
+  function walk(list: ProjectTodoNode[], depth: number) {
+    list.forEach((node, idx) => {
+      counter[depth] = idx + 1;
+      for (let i = depth + 1; i < counter.length; i++) counter[i] = 0;
+      const wbsCode = counter.slice(0, depth + 1).join('.');
+      out.push({
+        id: node.id,
+        orderId: node.orderId,
+        type: node.type,
+        title: node.title,
+        description: node.description ?? null,
+        status: node.status,
+        sortOrder: node.sortOrder,
+        wbsCode,
+        createdAt: node.createdAt,
+        updatedAt: node.updatedAt,
+      });
+      walk(node.children, depth + 1);
+    });
+  }
+  walk(nodes, 0);
+  return out;
+}
+
+/** 项目列表项（Firm 工作台） */
+export interface FirmProjectSummary {
+  projectId: string;
+  orderId: string;
+  firmSpaceId: string;
+  clientSpaceId: string;
+  clientName?: string;
+  skuId: string;
+  skuName?: string;
+  name: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  status: string;
+  startAt?: string | null;
+  endAt?: string | null;
+  taskTotal: number;
+  taskCompleted: number;
+  createdAt?: string;
+}
+
+/** Firm 空间：项目列表（带统计与客户/SKU 信息） */
+export async function getFirmProjects(
+  firmSpaceId: string,
+  filters?: { status?: string; clientSpaceId?: string }
+): Promise<FirmProjectSummary[]> {
+  const orders = await getFirmOrders(firmSpaceId, filters?.clientSpaceId);
+  if (orders.length === 0) return [];
+  const orderIds = orders.map((o) => o.id);
+  const [projectsRes, todosRes, clientsRes] = await Promise.all([
+    supabase.schema('firm').from('projects').select('id, order_id, name, description, image_url, status, start_at, end_at, created_at').in('order_id', orderIds),
+    supabase.schema('firm').from('project_todos').select('order_id, status').in('order_id', orderIds),
+    supabase.schema('firm').from('clients').select('client_space_id, display_name').eq('firm_space_id', firmSpaceId),
+  ]);
+  const projects = (projectsRes.data || []) as any[];
+  const todos = (todosRes.data || []) as any[];
+  const clients = (clientsRes.data || []) as any[];
+  const clientNameBySpace: Record<string, string> = {};
+  clients.forEach((c: any) => { clientNameBySpace[c.client_space_id] = c.display_name ?? ''; });
+  const orderMap = new Map(orders.map((o) => [o.id, o]));
+  const skuIds = [...new Set(orders.map((o) => o.skuId))];
+  const { data: skuData } = await supabase.schema('firm').from('skus').select('id, name').in('id', skuIds);
+  const skuNameById: Record<string, string> = {};
+  (skuData || []).forEach((s: any) => { skuNameById[s.id] = s.name ?? ''; });
+  const todoCountByOrder: Record<string, { total: number; completed: number }> = {};
+  todos.forEach((t: any) => {
+    if (!todoCountByOrder[t.order_id]) todoCountByOrder[t.order_id] = { total: 0, completed: 0 };
+    todoCountByOrder[t.order_id].total += 1;
+    if (t.status === 'confirmed') todoCountByOrder[t.order_id].completed += 1;
+  });
+  let list = projects.map((p: any) => {
+    const order = orderMap.get(p.order_id);
+    const counts = todoCountByOrder[p.order_id] ?? { total: 0, completed: 0 };
+    return {
+      projectId: p.id,
+      orderId: p.order_id,
+      firmSpaceId: order?.firmSpaceId ?? '',
+      clientSpaceId: order?.clientSpaceId ?? '',
+      clientName: order?.clientSpaceId ? clientNameBySpace[order.clientSpaceId] : undefined,
+      skuId: order?.skuId ?? '',
+      skuName: order?.skuId ? skuNameById[order.skuId] : undefined,
+      name: p.name ?? '',
+      description: p.description ?? null,
+      imageUrl: p.image_url ?? null,
+      status: p.status ?? 'in_progress',
+      startAt: p.start_at ?? null,
+      endAt: p.end_at ?? null,
+      taskTotal: counts.total,
+      taskCompleted: counts.completed,
+      createdAt: p.created_at,
+    };
+  });
+  if (filters?.status) list = list.filter((p) => p.status === filters.status);
+  list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  return list;
+}
+
+/** 项目详情（基础信息 + 统计） */
+export async function getProjectDetail(orderId: string): Promise<{
+  project: FirmProjectInfo | null;
+  order: FirmOrderById | null;
+  clientName?: string;
+  skuName?: string;
+  taskTotal: number;
+  taskCompleted: number;
+} | null> {
+  const [order, project, todos] = await Promise.all([
+    getOrderById(orderId),
+    getProjectByOrderId(orderId),
+    getOrderProjects(orderId),
+  ]);
+  if (!order) return null;
+  const taskTotal = todos.length;
+  const taskCompleted = todos.filter((t) => t.status === 'confirmed').length;
+  let clientName: string | undefined;
+  let skuName: string | undefined;
+  if (order.clientSpaceId) {
+    const { data: c } = await supabase.schema('firm').from('clients').select('display_name').eq('client_space_id', order.clientSpaceId).eq('firm_space_id', order.firmSpaceId).maybeSingle();
+    clientName = (c as any)?.display_name;
+  }
+  const { data: sku } = await supabase.schema('firm').from('skus').select('name').eq('id', order.skuId).maybeSingle();
+  skuName = (sku as any)?.name;
+  return {
+    project: project ?? null,
+    order,
+    clientName,
+    skuName,
+    taskTotal,
+    taskCompleted,
+  };
+}
+
+/** 更新项目基础信息 */
+export async function updateProject(
+  projectId: string,
+  payload: { name?: string; description?: string | null; imageUrl?: string | null; status?: string; startAt?: string | null; endAt?: string | null }
+): Promise<{ error: Error | null }> {
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (payload.name !== undefined) updates.name = payload.name;
+  if (payload.description !== undefined) updates.description = payload.description;
+  if (payload.imageUrl !== undefined) updates.image_url = payload.imageUrl;
+  if (payload.status !== undefined) updates.status = payload.status;
+  if (payload.startAt !== undefined) updates.start_at = payload.startAt;
+  if (payload.endAt !== undefined) updates.end_at = payload.endAt;
+  const { error } = await supabase.schema('firm').from('projects').update(updates).eq('id', projectId);
+  if (error) {
+    console.error('updateProject:', error);
+    return { error: error as Error };
+  }
+  return { error: null };
+}
+
+/** 新增项目任务（todo） */
+export async function createProjectTodo(params: {
+  orderId: string;
+  parentId?: string | null;
+  type: FirmProject['type'];
+  title: string;
+  description?: string | null;
+  sortOrder?: number;
+}): Promise<{ id: string | null; error: Error | null }> {
+  const q = supabase
+    .schema('firm')
+    .from('project_todos')
+    .select('sort_order')
+    .eq('order_id', params.orderId);
+  if (params.parentId != null) q.eq('parent_id', params.parentId);
+  else q.is('parent_id', null);
+  const maxOrder = await q.order('sort_order', { ascending: false }).limit(1).maybeSingle();
+  const nextOrder = (maxOrder.data as any)?.sort_order != null ? (maxOrder.data as any).sort_order + 1 : 1;
+  const { data, error } = await supabase
+    .schema('firm')
+    .from('project_todos')
+    .insert({
+      order_id: params.orderId,
+      parent_id: params.parentId ?? null,
+      type: params.type,
+      title: params.title,
+      description: params.description ?? null,
+      status: 'pending',
+      sort_order: params.sortOrder ?? nextOrder,
+    })
+    .select('id')
+    .single();
+  if (error) {
+    console.error('createProjectTodo:', error);
+    return { id: null, error: error as Error };
+  }
+  return { id: (data as any)?.id ?? null, error: null };
+}
+
+/** 更新项目任务 */
+export async function updateProjectTodo(
+  todoId: string,
+  payload: { title?: string; description?: string | null; status?: FirmProject['status']; sortOrder?: number; parentId?: string | null }
+): Promise<{ error: Error | null }> {
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (payload.title !== undefined) updates.title = payload.title;
+  if (payload.description !== undefined) updates.description = payload.description;
+  if (payload.status !== undefined) updates.status = payload.status;
+  if (payload.sortOrder !== undefined) updates.sort_order = payload.sortOrder;
+  if (payload.parentId !== undefined) updates.parent_id = payload.parentId;
+  const { error } = await supabase.schema('firm').from('project_todos').update(updates).eq('id', todoId);
+  if (error) {
+    console.error('updateProjectTodo:', error);
+    return { error: error as Error };
+  }
+  return { error: null };
+}
+
+/** 删除项目任务（Phase 1：仅允许叶子节点，即无子节点） */
+export async function deleteProjectTodo(todoId: string): Promise<{ error: Error | null }> {
+  const { data: children } = await supabase.schema('firm').from('project_todos').select('id').eq('parent_id', todoId).limit(1);
+  if (children && (children as any[]).length > 0) {
+    return { error: new Error('Only leaf tasks can be deleted') };
+  }
+  const { error } = await supabase.schema('firm').from('project_todos').delete().eq('id', todoId);
+  if (error) {
+    console.error('deleteProjectTodo:', error);
+    return { error: error as Error };
+  }
+  return { error: null };
 }
 
 /** Firm 空间：获取某客户或全部客户的「待办」列表（订单项扁平，兼容原 todo 页） */
