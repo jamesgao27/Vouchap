@@ -15,7 +15,6 @@ import {
   Platform,
   Animated,
 } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Path } from 'react-native-svg';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -131,6 +130,7 @@ export default function TaxFilingScreen() {
   useEffect(() => {
     (async () => {
       try {
+        const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
         const raw = await AsyncStorage.getItem(PINNED_ORDER_IDS_KEY);
         if (raw) {
           const ids = JSON.parse(raw) as string[];
@@ -153,7 +153,9 @@ export default function TaxFilingScreen() {
   const handleTogglePin = useCallback(async (orderId: string) => {
     setPinnedOrderIds((prev) => {
       const next = prev.includes(orderId) ? prev.filter((id) => id !== orderId) : [...prev, orderId];
-      AsyncStorage.setItem(PINNED_ORDER_IDS_KEY, JSON.stringify(next)).catch(() => {});
+      import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) => {
+        AsyncStorage.setItem(PINNED_ORDER_IDS_KEY, JSON.stringify(next)).catch(() => {});
+      }).catch(() => {});
       return next;
     });
   }, []);

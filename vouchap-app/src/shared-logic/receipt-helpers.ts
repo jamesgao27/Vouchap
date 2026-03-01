@@ -333,6 +333,8 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
   const itemsSum = items.reduce((sum, i) => sum + i.price, 0);
   const tax = result.tax ?? 0;
   const totalAmount = result.totalAmount ?? itemsSum + tax;
+  const confidence = result.confidence ?? 0.5;
+  const status: VoucherStatus = confidence >= 0.85 ? 'confirmed' : 'pending';
 
   return {
     spaceId,
@@ -343,9 +345,9 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
     tax,
     date: result.date,
     accountId: accountId ?? null,
-    status: 'pending' as VoucherStatus,
+    status,
     items,
-    confidence: result.confidence,
+    confidence,
   };
 }
 

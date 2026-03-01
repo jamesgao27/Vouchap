@@ -51,6 +51,8 @@ export const voucherDetailStyles = StyleSheet.create({
     alignItems: 'center',
   },
   receiptImage: { width: '100%', height: '100%' },
+  /** 非正方形缩略图取靠上/靠左部分 */
+  thumbAlignTopLeft: Platform.select({ web: { objectFit: 'cover' as const, objectPosition: 'top left' as const }, default: {} }),
   summaryContent: { flex: 1, justifyContent: 'space-between' },
   summaryContentTop: { flex: 1, justifyContent: 'space-between' },
   summaryContentMain: { flex: 1 },

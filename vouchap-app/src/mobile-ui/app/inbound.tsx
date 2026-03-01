@@ -700,7 +700,7 @@ export default function InboundScreen() {
               <Text style={styles.selectedCountText}>{selectedIds.size} selected</Text>
             </View>
             <TouchableOpacity style={styles.deleteButton} onPress={handleBatchDelete}>
-              <Ionicons name="trash-outline" size={20} color="#E74C3C" />
+              <Ionicons name="trash-outline" size={20} color="#fff" />
               <Text style={styles.deleteButtonText}>Delete</Text>
             </TouchableOpacity>
           </View>

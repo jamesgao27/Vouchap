@@ -3,15 +3,12 @@ import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 
-// 仅在非 Web 且原生模块可用时加载 AsyncStorage，避免 Expo Go / 未 link 时崩溃
+// 移动端不在此处 require AsyncStorage，否则在 NativeModule 未 link（如未执行 pod install / 未用 dev client 构建）时
+// require 阶段就会抛错且可能无法被 try/catch 捕获，导致白屏。此处直接返回 undefined，应用可正常启动，会话仅内存持久化。
+// 若需移动端会话持久化，请执行：cd ios && pod install && cd .. 后重新 npx expo run:ios / run:android。
 function getAuthStorage(): undefined | { getItem: (key: string) => Promise<string | null>; setItem: (key: string, value: string) => Promise<void>; removeItem: (key: string) => Promise<void> } {
   if (Platform.OS === 'web') return undefined;
-  try {
-    const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-    return AsyncStorage;
-  } catch {
-    return undefined;
-  }
+  return undefined;
 }
 
 // 安全获取环境变量，避免启动时崩溃
@@ -30,7 +27,6 @@ export function validateSupabaseConfig(): { valid: boolean; error?: string } {
 }
 
 // 使用安全默认值初始化客户端，避免启动时崩溃
-// 实际使用时会在首次调用前验证配置
 export const supabase = createClient(
   supabaseUrl || 'https://placeholder.supabase.co',
   supabaseAnonKey || 'placeholder-key',

@@ -487,7 +487,7 @@ export default function InboundDetailsScreen() {
               disabled={isUploadingImage}
             >
               {current.imageUrl ? (
-                <Image source={{ uri: current.imageUrl }} style={styles.receiptImage} resizeMode="cover" />
+                <Image source={{ uri: current.imageUrl }} style={[styles.receiptImage, styles.thumbAlignTopLeft]} resizeMode="cover" />
               ) : (
                 <View style={styles.imagePlaceholderContent}>
                   {isUploadingImage ? (

@@ -801,7 +801,7 @@ export default function InvoiceDetailsScreen() {
               disabled={isUploadingImage}
             >
               {currentInvoice.imageUrl ? (
-                <Image source={{ uri: currentInvoice.imageUrl }} style={styles.receiptImage} resizeMode="cover" />
+                <Image source={{ uri: currentInvoice.imageUrl }} style={[styles.receiptImage, styles.thumbAlignTopLeft]} resizeMode="cover" />
               ) : (
                 <View style={styles.imagePlaceholderContent}>
                   {isUploadingImage ? <ActivityIndicator size="small" color="#6C5CE7" /> : <Ionicons name="document-text" size={32} color="#95A5A6" />}
@@ -1402,6 +1402,7 @@ const styles = StyleSheet.create({
   imagePlaceholder: { width: 80, height: 80, borderRadius: 8, backgroundColor: '#E9ECEF', overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
   imagePlaceholderContent: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
   receiptImage: { width: '100%', height: '100%' },
+  thumbAlignTopLeft: Platform.select({ web: { objectFit: 'cover' as const, objectPosition: 'top left' as const }, default: {} }),
   summaryContent: { flex: 1, justifyContent: 'space-between' },
   summaryContentTop: { flex: 1, justifyContent: 'space-between' },
   summaryContentMain: { flex: 1 },

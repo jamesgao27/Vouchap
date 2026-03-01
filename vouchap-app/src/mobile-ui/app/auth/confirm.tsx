@@ -182,7 +182,7 @@ export default function EmailConfirmScreen() {
                 setTimeout(() => {
                   console.log('Redirecting to:', redirect);
                   router.replace(redirect as any);
-                }, 1500);
+                }, 2000);
                 return;
               } else {
                 console.error('Session data missing user');

@@ -825,7 +825,7 @@ export default function ReceiptDetailsScreen() {
               {currentReceipt.imageUrl ? (
                 <Image
                   source={{ uri: currentReceipt.imageUrl }}
-                  style={styles.receiptImage}
+                  style={[styles.receiptImage, styles.thumbAlignTopLeft]}
                   resizeMode="cover"
                 />
               ) : (
@@ -1942,6 +1942,8 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
   },
+  /** 非正方形缩略图取靠上/靠左部分，不居中 */
+  thumbAlignTopLeft: Platform.select({ web: { objectFit: 'cover' as const, objectPosition: 'top left' as const }, default: {} }),
   summaryContent: {
     flex: 1,
     justifyContent: 'space-between',

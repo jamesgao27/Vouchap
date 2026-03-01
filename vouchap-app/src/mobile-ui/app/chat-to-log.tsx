@@ -13,6 +13,8 @@ import {
   Keyboard,
   Animated,
   InteractionManager,
+  Image,
+  Modal,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
@@ -22,6 +24,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { recognizeReceipt, recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio, recognizeInboundFromText, recognizeInboundFromAudio, recognizeOutboundFromText, recognizeOutboundFromAudio } from '@/lib/gemini';
 import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition-retry';
 import { saveReceipt, updateReceipt, getReceiptById } from '@/lib/database';
+import { checkDuplicateReceipt } from '@/lib/receipt-duplicate-checker';
 import { saveInvoice, getInvoiceById } from '@/lib/invoices';
 import { saveInbound, getInboundById } from '@/lib/inbound';
 import { saveOutbound, getOutboundById } from '@/lib/outbound';
@@ -89,8 +92,8 @@ interface Message {
   invoicePreview?: Invoice;
   inboundPreview?: Inbound;
   outboundPreview?: Outbound;
-  /** attachments 类型：报税附件上传记录，用于跳转 project/attachment（放在「收到消息」卡片） */
-  attachmentPreview?: { id: string; projectId: string; todoId: string; name: string; summary?: string | null };
+  /** attachments 类型：报税附件上传记录，用于跳转 project/attachment（放在「收到消息」卡片）；imageUrl 用于聊天内就地小图预览 */
+  attachmentPreview?: { id: string; projectId: string; todoId: string; name: string; summary?: string | null; imageUrl?: string | null };
   /** attachments 类型：发出消息中预览的图片 URL */
   attachmentImageUrl?: string | null;
   receiptDeleted?: boolean;
@@ -99,7 +102,13 @@ interface Message {
   outboundDeleted?: boolean;
   voucherType?: VoucherLogType; // 当前记录类别，用于详情跳转
   audioUrl?: string;
+  /** 录音时长（秒），用于展示 "Voice input (Xs)" */
+  audioDurationSeconds?: number;
+  /** 用户发出的图片消息：聊天记录中显示小图预览，文件名弱化 */
+  imageUrl?: string | null;
   isPlayingAudio?: boolean;
+  /** 多文件提交时：上传完成、识别中，占位预览卡片 loading */
+  previewCardLoading?: boolean;
 }
 
 export function ChatToLogContent(props: { voucherType: VoucherLogType }) {
@@ -148,7 +157,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   const effectiveProjectId = params.projectId ?? chatPanel?.attachmentContext?.projectId;
   /** attachments 模式：项目下的 task 列表，用于识别文件类别后自动匹配关联 */
   const [attachmentTaskOptions, setAttachmentTaskOptions] = useState<{ id: string; title: string }[]>([]);
-  const [stagedAttachmentFiles, setStagedAttachmentFiles] = useState<{ uri: string; name?: string }[]>([]);
+  const [stagedAttachmentFiles, setStagedAttachmentFiles] = useState<{ id: string; uri: string; name?: string }[]>([]);
+  /** 当前正在上传/识别的暂存文件 id，用于按文件显示 loading */
+  const [uploadingStagedIds, setUploadingStagedIds] = useState<Set<string>>(new Set());
+  /** 聊天记录中点击附件预览图时，在弹层中展示大图 */
+  const [attachmentImageModalUrl, setAttachmentImageModalUrl] = useState<string | null>(null);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [oldestLoadedAt, setOldestLoadedAt] = useState<string | null>(null);
@@ -188,12 +201,18 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     if (isAiInventoryType && !showAiInventory) router.replace('/');
   }, [isAiInventoryType]);
 
-  // 从 FAB 展开栏带过来的预填输入（打开右栏时填入）
+  // 从 FAB 展开栏带过来的预填输入与已选图片（打开右栏时填入）
   useEffect(() => {
-    if (!isPanel || !chatPanel?.initialInput) return;
-    setInputText(chatPanel.initialInput);
-    chatPanel.setInitialInput(null);
-  }, [isPanel, chatPanel?.initialInput]);
+    if (!isPanel || !chatPanel) return;
+    if (chatPanel.initialInput) {
+      setInputText(chatPanel.initialInput);
+      chatPanel.setInitialInput(null);
+    }
+    if (chatPanel.initialStagedFiles?.length) {
+      setStagedAttachmentFiles(prev => [...(chatPanel.initialStagedFiles ?? []), ...prev]);
+      chatPanel.setInitialStagedFiles(null);
+    }
+  }, [isPanel, chatPanel?.initialInput, chatPanel?.initialStagedFiles]);
 
   // 右栏模式：注册聚焦回调，供 openPanel 后激活输入框
   useEffect(() => {
@@ -331,12 +350,16 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
 
         for (const log of sorted) {
           if (log.prompt) {
+            const requestImageUrl = log.type === 'image' && log.requestData?.imageUrl ? log.requestData.imageUrl : undefined;
+            const voiceDuration = log.requestData?.audioDurationSeconds ?? (log.audioUrl && log.prompt ? (() => { const m = log.prompt.match(/Voice input \((\d+)s\)/); return m ? parseInt(m[1], 10) : undefined; })() : undefined);
             restoredMessages.push({
               id: `${log.id}-prompt`,
               text: log.audioUrl ? `🎤 Voice` : log.prompt,
               isUser: true,
               timestamp: new Date(log.createdAt),
               audioUrl: log.audioUrl,
+              audioDurationSeconds: voiceDuration,
+              imageUrl: requestImageUrl,
             });
           }
           const logType = log.voucherType ?? 'receipt';
@@ -381,7 +404,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               voucherType: 'receipt',
             });
           } else if (log.responseData?.attachmentPreview && logType === 'attachments') {
-            const preview = log.responseData.attachmentPreview as { id: string; projectId: string; todoId: string; name: string; summary?: string | null };
+            const preview = log.responseData.attachmentPreview as { id: string; projectId: string; todoId: string; name: string; summary?: string | null; imageUrl?: string | null };
             restoredMessages.push({
               id: `${log.id}-preview`,
               text: '',
@@ -556,7 +579,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             voucherType: 'receipt',
           });
         } else if (log.responseData?.attachmentPreview && logType === 'attachments') {
-          const preview = log.responseData.attachmentPreview as { id: string; projectId: string; todoId: string; name: string; summary?: string | null };
+          const preview = log.responseData.attachmentPreview as { id: string; projectId: string; todoId: string; name: string; summary?: string | null; imageUrl?: string | null };
           moreMessagesRaw.push({
             id: `${log.id}-preview`,
             text: '',
@@ -574,11 +597,13 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
           });
         }
         if (log.prompt) {
+          const requestImageUrl = log.type === 'image' && log.requestData?.imageUrl ? log.requestData.imageUrl : undefined;
           moreMessagesRaw.push({
             id: `${log.id}-prompt`,
             text: log.prompt,
             isUser: true,
             timestamp: new Date(log.createdAt),
+            imageUrl: requestImageUrl,
           });
         }
       }
@@ -729,7 +754,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         quality: 0.9,
       });
       if (result.canceled || !result.assets?.length) return;
-      setStagedAttachmentFiles(prev => [...prev, ...result.assets.map((a) => ({ uri: a.uri!, name: a.fileName }))]);
+      const now = Date.now();
+      setStagedAttachmentFiles(prev => [...prev, ...result.assets.map((a, i) => ({ id: `${a.uri}-${now}-${i}`, uri: a.uri!, name: a.fileName }))]);
+      setIsVoiceMode(false);
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Failed to add files', 'error');
     }
@@ -740,103 +767,139 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     const hasStaged = stagedAttachmentFiles.length > 0;
     if ((!text && !hasStaged) || isProcessing) return;
 
-    // 有暂存图片：按类型上传并识别（复用已有 receipt/invoice 图片识别，attachments 用报税 prompt）
+    // 有暂存图片：按文件分别上传/识别，每文件单独预览框与 loading
     if (hasStaged) {
       const toUpload = [...stagedAttachmentFiles];
       const userInstructions = text || undefined;
-      setStagedAttachmentFiles([]);
       setInputText('');
       setIsProcessing(true);
+      setUploadingStagedIds(new Set(toUpload.map((f) => f.id)));
       const scrollToBottom = () => setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
       try {
-        const space = await getCurrentSpace(true);
+        // 优先用缓存，避免移动端 forceRefresh 时拿不到 currentSpaceId 导致多文件提交报 No space context
+        let space = await getCurrentSpace(false);
+        if (!space?.id) space = await getCurrentSpace(true);
         const clientSpaceId = space?.id ?? '';
         if (!clientSpaceId) {
           showToast('No space context.', 'error');
-          setStagedAttachmentFiles(toUpload);
+          setUploadingStagedIds(new Set());
           setIsProcessing(false);
           return;
         }
-        const newMessages: Message[] = [];
         if (voucherType === 'attachments') {
           const projectId = effectiveProjectId;
           if (!projectId || attachmentTaskOptions.length === 0) {
             showToast(attachmentTaskOptions.length === 0 ? 'Loading project tasks…' : 'Open from a tax-filing project to attach files.', 'info');
-            setStagedAttachmentFiles(toUpload);
+            setUploadingStagedIds(new Set());
             setIsProcessing(false);
             return;
           }
-          const project = await getProjectById(projectId);
-          const projectContext = { taxCountry: project?.taxCountry ?? null, taxScenario: project?.taxScenario ?? null };
-          for (let i = 0; i < toUpload.length; i++) {
-            const file = toUpload[i];
-            const processedUri = await processImageForUpload(file.uri, { autoCrop: true, quality: 0.85 });
-            const imageUrl = await uploadTaxFilingFile(processedUri, `chat-attach-${Date.now()}-${i}`, clientSpaceId);
-            const { taskId: todoId } = await classifyTaxDocumentAndPickTask(imageUrl, projectContext, attachmentTaskOptions);
-            const createResult = await createProjectTodoAttachment(todoId, imageUrl, { status: 'PENDING_AI' });
-            if ('error' in createResult) {
-              showToast(`Upload failed: ${createResult.error.message}`, 'error');
-              continue;
-            }
-            const attachmentId = createResult.id;
-            const name = file.name ?? `File ${i + 1}`;
-            let summary: string | null = null;
-            try {
-              const taskTitle = attachmentTaskOptions.find((t) => t.id === todoId)?.title ?? '';
-              const recognition = await runTaxFilingRecognition(imageUrl, { country: (project?.taxCountry === 'USA' ? 'USA' : 'CANADA') as 'CANADA' | 'USA', taxScenario: project?.taxScenario ?? '' }, taskTitle ? { task: taskTitle } : undefined, userInstructions);
-              await updateProjectTodoAttachment(attachmentId, { summary: recognition.summary, doc_type: recognition.doc_type, extracted_data: recognition.extracted_data, status: 'PROCESSED' });
-              summary = recognition.summary;
-            } catch (_) {}
-            const userMsg: Message = { id: `attach-user-${attachmentId}`, text: name, isUser: true, timestamp: new Date() };
-            const previewMsg: Message = { id: `attach-preview-${attachmentId}`, text: '', isUser: false, timestamp: new Date(), attachmentPreview: { id: attachmentId, projectId, todoId, name, summary }, voucherType: 'attachments' };
-            newMessages.push(previewMsg, userMsg);
-            await saveChatLog({ receiptId: undefined, voucherType: 'attachments', type: 'image', modelName: 'tax-filing', prompt: userInstructions ? `Uploaded: ${name}. Note: ${userInstructions}` : `Uploaded: ${name}`, response: '', requestData: { projectId, todoId, fileName: name }, responseData: { attachmentPreview: { id: attachmentId, projectId, todoId, name, summary } }, success: true });
-          }
-        } else if (voucherType === 'receipt' || voucherType === 'invoice') {
-          for (let i = 0; i < toUpload.length; i++) {
-            const file = toUpload[i];
-            const processedUri = await processImageForUpload(file.uri, { autoCrop: true, quality: 0.85 });
-            const tempFileName = `chat-${voucherType}-${Date.now()}-${i}`;
-            const imageUrl = await uploadReceiptImageTempWithSpace(processedUri, tempFileName, clientSpaceId);
-            const first = await runWithRecognitionRetry(() => recognizeReceipt(imageUrl), { maxAttempts: 3, delayMs: 1500 });
-            if (!first.success) {
-              const errText = first.isContentQuality ? '❌ Content unclear or not recognized. Please resubmit.' : `❌ ${getUserFacingMessage(first)}`;
-              newMessages.push({ id: `img-err-${Date.now()}-${i}`, text: errText, isUser: false, timestamp: new Date() });
-              continue;
-            }
-            if (isRecognitionResultUnrecognizable(first.result)) {
-              newMessages.push({ id: `img-err-${Date.now()}-${i}`, text: '❌ Content unclear or not recognized. Please resubmit.', isUser: false, timestamp: new Date() });
-              continue;
-            }
-            const name = file.name ?? `Image ${i + 1}`;
-            const userMsg: Message = { id: `img-user-${Date.now()}-${i}`, text: name, isUser: true, timestamp: new Date() };
-            if (voucherType === 'invoice') {
-              const invoice = await convertGeminiResultToInvoice(first.result as any);
-              const invoiceToSave = { ...invoice, status: 'pending' as const, inputType: 'image' as const };
-              const invoiceId = await saveInvoice(invoiceToSave);
-              const previewMessage: Message = { id: `img-preview-${Date.now()}-${i}`, text: '', isUser: false, timestamp: new Date(), invoicePreview: { ...invoiceToSave, id: invoiceId, status: 'pending', account: (first.result as any).paymentAccountName ? { id: invoice.accountId || '', spaceId: invoice.spaceId, name: (first.result as any).paymentAccountName!, isAiRecognized: true } : undefined } as Invoice, voucherType: 'invoice' };
-              newMessages.push(userMsg, previewMessage);
-              await saveChatLog({ receiptId: undefined, voucherType: 'invoice', type: 'image', modelName: 'gemini', prompt: name, response: '', requestData: { imageUrl }, responseData: { invoicePreview: previewMessage.invoicePreview }, success: true });
+        }
+        for (let i = 0; i < toUpload.length; i++) {
+          const file = toUpload[i];
+          const removeFromStaged = () => {
+            setStagedAttachmentFiles((prev) => prev.filter((x) => x.id !== file.id));
+            setUploadingStagedIds((prev) => {
+              const s = new Set(prev);
+              s.delete(file.id);
+              return s;
+            });
+          };
+          const appendMessages = (msgs: Message[]) => {
+            setMessages((prev) => [...msgs, ...prev]);
+            scrollToBottom();
+          };
+          try {
+            if (voucherType === 'attachments') {
+              const projectId = effectiveProjectId!;
+              const project = await getProjectById(projectId);
+              const projectContext = { taxCountry: project?.taxCountry ?? null, taxScenario: project?.taxScenario ?? null };
+              const processedUri = await processImageForUpload(file.uri, { autoCrop: true, quality: 0.85 });
+              const imageUrl = await uploadTaxFilingFile(processedUri, `chat-attach-${Date.now()}-${i}`, clientSpaceId);
+              const { taskId: todoId } = await classifyTaxDocumentAndPickTask(imageUrl, projectContext, attachmentTaskOptions);
+              const createResult = await createProjectTodoAttachment(todoId, imageUrl, { status: 'PENDING_AI' });
+              if ('error' in createResult) {
+                showToast(`Upload failed: ${createResult.error.message}`, 'error');
+                removeFromStaged();
+                appendMessages([{ id: `attach-err-${file.id}`, text: `❌ ${file.name ?? 'File'} failed`, isUser: false, timestamp: new Date() }]);
+                continue;
+              }
+              const attachmentId = createResult.id;
+              const name = file.name ?? `File ${i + 1}`;
+              const loadingCardId = `attach-preview-loading-${file.id}`;
+              const userMsg: Message = { id: `attach-user-${attachmentId}`, text: name, isUser: true, timestamp: new Date() };
+              const loadingCardMsg: Message = { id: loadingCardId, text: '', isUser: false, timestamp: new Date(), previewCardLoading: true };
+              removeFromStaged();
+              appendMessages([loadingCardMsg, userMsg]);
+              let summary: string | null = null;
+              try {
+                const taskTitle = attachmentTaskOptions.find((t) => t.id === todoId)?.title ?? '';
+                const recognition = await runTaxFilingRecognition(imageUrl, { country: (project?.taxCountry === 'USA' ? 'USA' : 'CANADA') as 'CANADA' | 'USA', taxScenario: project?.taxScenario ?? '' }, taskTitle ? { task: taskTitle } : undefined, userInstructions);
+                await updateProjectTodoAttachment(attachmentId, { summary: recognition.summary, doc_type: recognition.doc_type, extracted_data: recognition.extracted_data, status: 'PROCESSED' });
+                summary = recognition.summary;
+              } catch (_) {}
+              const previewPayload = { id: attachmentId, projectId, todoId, name, summary, imageUrl };
+              const previewMsg: Message = { id: `attach-preview-${attachmentId}`, text: '', isUser: false, timestamp: new Date(), attachmentPreview: previewPayload, voucherType: 'attachments' };
+              setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMsg : m)));
+              await saveChatLog({ receiptId: undefined, voucherType: 'attachments', type: 'image', modelName: 'tax-filing', prompt: userInstructions ? `Uploaded: ${name}. Note: ${userInstructions}` : `Uploaded: ${name}`, response: '', requestData: { projectId, todoId, fileName: name }, responseData: { attachmentPreview: previewPayload }, success: true });
+            } else if (voucherType === 'receipt' || voucherType === 'invoice') {
+              const name = file.name ?? `Image ${i + 1}`;
+              const processedUri = await processImageForUpload(file.uri, { autoCrop: true, quality: 0.85 });
+              const tempFileName = `chat-${voucherType}-${Date.now()}-${i}`;
+              const imageUrl = await uploadReceiptImageTempWithSpace(processedUri, tempFileName, clientSpaceId);
+              const loadingCardId = `img-preview-loading-${file.id}`;
+              const userMsg: Message = { id: `img-user-${file.id}`, text: name, isUser: true, timestamp: new Date(), imageUrl };
+              const loadingCardMsg: Message = { id: loadingCardId, text: '', isUser: false, timestamp: new Date(), previewCardLoading: true };
+              removeFromStaged();
+              appendMessages([loadingCardMsg, userMsg]);
+              const first = await runWithRecognitionRetry(() => recognizeReceipt(imageUrl), { maxAttempts: 3, delayMs: 1500 });
+              if (!first.success) {
+                const errText = first.isContentQuality ? '❌ Content unclear or not recognized. Please resubmit.' : `❌ ${getUserFacingMessage(first)}`;
+                setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: errText, isUser: false, timestamp: new Date() } : m)));
+                continue;
+              }
+              if (isRecognitionResultUnrecognizable(first.result)) {
+                setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: '❌ Content unclear or not recognized. Please resubmit.', isUser: false, timestamp: new Date() } : m)));
+                continue;
+              }
+              if (voucherType === 'invoice') {
+                const invoice = await convertGeminiResultToInvoice(first.result as any);
+                const invoiceToSave = { ...invoice, inputType: 'image' as const, imageUrl };
+                const invoiceId = await saveInvoice(invoiceToSave);
+                const previewMessage: Message = { id: `img-preview-${file.id}`, text: '', isUser: false, timestamp: new Date(), invoicePreview: { ...invoiceToSave, id: invoiceId, status: invoice.status, account: (first.result as any).paymentAccountName ? { id: invoice.accountId || '', spaceId: invoice.spaceId, name: (first.result as any).paymentAccountName!, isAiRecognized: true } : undefined } as Invoice, voucherType: 'invoice' };
+                setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMessage : m)));
+                await saveChatLog({ receiptId: undefined, voucherType: 'invoice', type: 'image', modelName: 'gemini', prompt: name, response: '', requestData: { imageUrl }, responseData: { invoicePreview: previewMessage.invoicePreview }, success: true });
+              } else {
+                const receipt = await convertGeminiResultToReceipt(first.result);
+                const receiptToSave = { ...receipt, inputType: 'image' as const, imageUrl };
+                const receiptId = await saveReceipt(receiptToSave);
+                let receiptStatus: ReceiptStatus = receipt.status;
+                const savedReceipt = await getReceiptById(receiptId);
+                if (savedReceipt) {
+                  const duplicateReceipt = await checkDuplicateReceipt(savedReceipt);
+                  if (duplicateReceipt) {
+                    await updateReceipt(receiptId, { status: 'duplicate' }, true);
+                    receiptStatus = 'duplicate';
+                  }
+                }
+                const previewMessage: Message = { id: `img-preview-${file.id}`, text: '', isUser: false, timestamp: new Date(), receiptPreview: { ...receiptToSave, id: receiptId, status: receiptStatus, account: (first.result as any).paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: (first.result as any).paymentAccountName!, isAiRecognized: true } : undefined } };
+                setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMessage : m)));
+                await saveChatLog({ receiptId, voucherType: 'receipt', type: 'image', modelName: 'gemini', prompt: name, response: '', requestData: { imageUrl }, responseData: { receiptPreview: previewMessage.receiptPreview }, success: true });
+              }
             } else {
-              const receipt = await convertGeminiResultToReceipt(first.result);
-              const receiptToSave = { ...receipt, status: 'pending' as ReceiptStatus, inputType: 'image' as const };
-              const receiptId = await saveReceipt(receiptToSave);
-              const previewMessage: Message = { id: `img-preview-${Date.now()}-${i}`, text: '', isUser: false, timestamp: new Date(), receiptPreview: { ...receiptToSave, id: receiptId, status: 'pending' as ReceiptStatus, account: (first.result as any).paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: (first.result as any).paymentAccountName!, isAiRecognized: true } : undefined } };
-              newMessages.push(userMsg, previewMessage);
-              await saveChatLog({ receiptId, voucherType: 'receipt', type: 'image', modelName: 'gemini', prompt: name, response: '', requestData: { imageUrl }, responseData: { receiptPreview: previewMessage.receiptPreview }, success: true });
+              showToast('Image upload for this type is not supported yet.', 'info');
+              removeFromStaged();
             }
+          } catch (e) {
+            showToast(e instanceof Error ? e.message : 'Upload failed', 'error');
+            removeFromStaged();
+            appendMessages([{ id: `img-err-${file.id}`, text: `❌ ${file.name ?? 'File'} failed`, isUser: false, timestamp: new Date() }]);
           }
-        } else {
-          showToast('Image upload for this type is not supported yet.', 'info');
         }
-        if (newMessages.length > 0) {
-          setMessages((prev) => [...newMessages, ...prev]);
-        }
-        scrollToBottom();
       } catch (e) {
         showToast(e instanceof Error ? e.message : 'Upload failed', 'error');
-        setStagedAttachmentFiles(toUpload);
       } finally {
+        setUploadingStagedIds(new Set());
         setIsProcessing(false);
       }
       return;
@@ -1071,6 +1134,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         isUser: true,
         timestamp: new Date(),
         audioUrl: localUri, // 暂用本地 URI，上传后更新
+        audioDurationSeconds: duration,
       };
       setMessages(prev => [userMessage, ...prev]);
       
@@ -1118,21 +1182,21 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             voucherType: 'invoice',
           };
           setMessages(prev => [previewMessage, ...prev]);
-          await saveChatLog({ receiptId: undefined, voucherType: 'invoice', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: '', requestData: { audioUrl }, responseData: { invoicePreview: previewMessage.invoicePreview }, success: true, audioUrl });
+          await saveChatLog({ receiptId: undefined, voucherType: 'invoice', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: '', requestData: { audioUrl, audioDurationSeconds: duration }, responseData: { invoicePreview: previewMessage.invoicePreview }, success: true, audioUrl });
         } else if (voucherType === 'inbound') {
           const inbound = await convertGeminiResultToInbound(result as Awaited<ReturnType<typeof recognizeInboundFromAudio>>);
           const inboundToSave = { ...inbound, status: 'pending' as const, inputType: 'audio' as const };
           const inboundId = await saveInbound(inboundToSave);
           const previewMessage: Message = { id: (Date.now() + 1).toString(), text: '', isUser: false, timestamp: new Date(), inboundPreview: { ...inboundToSave, id: inboundId, status: 'pending' }, voucherType: 'inbound' };
           setMessages(prev => [previewMessage, ...prev]);
-          await saveChatLog({ receiptId: undefined, voucherType: 'inbound', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: '', requestData: { audioUrl }, responseData: { inboundPreview: previewMessage.inboundPreview }, success: true, audioUrl });
+          await saveChatLog({ receiptId: undefined, voucherType: 'inbound', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: '', requestData: { audioUrl, audioDurationSeconds: duration }, responseData: { inboundPreview: previewMessage.inboundPreview }, success: true, audioUrl });
         } else if (voucherType === 'outbound') {
           const outbound = await convertGeminiResultToOutbound(result as Awaited<ReturnType<typeof recognizeOutboundFromAudio>>);
           const outboundToSave = { ...outbound, status: 'pending' as const, inputType: 'audio' as const };
           const outboundId = await saveOutbound(outboundToSave);
           const previewMessage: Message = { id: (Date.now() + 1).toString(), text: '', isUser: false, timestamp: new Date(), outboundPreview: { ...outboundToSave, id: outboundId, status: 'pending' }, voucherType: 'outbound' };
           setMessages(prev => [previewMessage, ...prev]);
-          await saveChatLog({ receiptId: undefined, voucherType: 'outbound', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: '', requestData: { audioUrl }, responseData: { outboundPreview: previewMessage.outboundPreview }, success: true, audioUrl });
+          await saveChatLog({ receiptId: undefined, voucherType: 'outbound', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: '', requestData: { audioUrl, audioDurationSeconds: duration }, responseData: { outboundPreview: previewMessage.outboundPreview }, success: true, audioUrl });
         } else {
           const receipt = await convertGeminiResultToReceipt(result as Awaited<ReturnType<typeof recognizeReceiptFromAudio>>);
           const receiptToSave = { ...receipt, status: 'pending' as ReceiptStatus, inputType: 'audio' as const };
@@ -1150,7 +1214,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             },
           };
           setMessages(prev => [previewMessage, ...prev]);
-          await saveChatLog({ receiptId, voucherType: 'receipt', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: previewMessage.text, requestData: { audioUrl }, responseData: { receiptPreview: previewMessage.receiptPreview }, success: true, audioUrl });
+          await saveChatLog({ receiptId, voucherType: 'receipt', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: previewMessage.text, requestData: { audioUrl, audioDurationSeconds: duration }, responseData: { receiptPreview: previewMessage.receiptPreview }, success: true, audioUrl });
         }
         scrollToBottom();
       };
@@ -1274,6 +1338,18 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
 
   const mainContent = (
     <>
+      <Modal visible={!!attachmentImageModalUrl} transparent animationType="fade">
+        <Pressable style={styles.attachmentImageModalBackdrop} onPress={() => setAttachmentImageModalUrl(null)}>
+          <View style={styles.attachmentImageModalContent}>
+            {attachmentImageModalUrl ? (
+              <Image source={{ uri: attachmentImageModalUrl }} style={styles.attachmentImageModalImage} resizeMode="contain" />
+            ) : null}
+          </View>
+          <TouchableOpacity style={styles.attachmentImageModalClose} onPress={() => setAttachmentImageModalUrl(null)}>
+            <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.9)" />
+          </TouchableOpacity>
+        </Pressable>
+      </Modal>
       <FlatList
         ref={listRef}
         data={messages}
@@ -1298,7 +1374,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         renderItem={({ item: message }) => (
           <View>
             {/* 用户消息上方显示时间戳 */}
-            {message.isUser && (message.text || message.audioUrl) && (
+            {message.isUser && (message.text || message.audioUrl || message.imageUrl) && (
               <View style={styles.timestampDivider}>
                 <Text style={styles.timestampText}>
                   {format(message.timestamp, 'MMM dd, HH:mm')}
@@ -1307,7 +1383,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             )}
             
             {/* 只在有内容时显示消息气泡 */}
-            {(message.text || message.audioUrl) && (
+            {(message.text || message.audioUrl || message.imageUrl) && (
               <View
                 style={[
                   styles.messageContainer,
@@ -1317,22 +1393,27 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 {/* 语音消息：显示播放按钮 */}
                 {message.audioUrl ? (
                   <TouchableOpacity
-                    style={styles.audioMessageContent}
+                    style={styles.userVoiceMessageContent}
                     onPress={() => handlePlayAudio(message.id, message.audioUrl!)}
                   >
-                    <Ionicons 
-                      name={playingAudioId === message.id ? 'pause-circle' : 'play-circle'} 
-                      size={32} 
-                      color={message.isUser ? '#fff' : '#6C5CE7'} 
-                    />
-                    <Text style={[
-                      styles.messageText,
-                      message.isUser ? styles.userMessageText : styles.botMessageText,
-                      { marginLeft: 8 }
-                    ]}>
-                      {message.text}
+                    <View style={styles.userVoiceMessageIcon}>
+                      <Ionicons
+                        name={playingAudioId === message.id ? 'pause-circle' : 'play-circle'}
+                        size={32}
+                        color="#fff"
+                      />
+                    </View>
+                    <Text style={styles.userVoiceMessageLabel} numberOfLines={1}>
+                      Voice input ({message.audioDurationSeconds ?? 0}s)
                     </Text>
                   </TouchableOpacity>
+                ) : message.imageUrl ? (
+                  <View style={styles.userImageMessageContent}>
+                    <TouchableOpacity onPress={() => setAttachmentImageModalUrl(message.imageUrl!)} activeOpacity={0.9}>
+                      <Image source={{ uri: message.imageUrl }} style={[styles.userMessageImageThumb, styles.thumbAlignTopLeft]} resizeMode="cover" />
+                    </TouchableOpacity>
+                    <Text style={styles.userMessageImageName} numberOfLines={1} ellipsizeMode="tail">{message.text}</Text>
+                  </View>
                 ) : (
                   <Text style={[
                     styles.messageText,
@@ -1344,6 +1425,18 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               </View>
             )}
             
+            {/* 预览卡片 loading 占位（上传完成、识别中） */}
+            {message.previewCardLoading && (
+              <View style={styles.receiptPreviewCard}>
+                <View style={styles.receiptPreviewHeader}>
+                  <Ionicons name="receipt" size={20} color="#6C5CE7" />
+                  <Text style={styles.receiptPreviewTitle}>Loading…</Text>
+                </View>
+                <View style={[styles.receiptPreviewContent, { minHeight: 72, justifyContent: 'center', alignItems: 'center' }]}>
+                  <ActivityIndicator size="small" color="#6C5CE7" />
+                </View>
+              </View>
+            )}
             {/* 识别结果预览卡片 */}
             {message.receiptPreview && (
               <View style={styles.receiptPreviewCard}>
@@ -1801,26 +1894,32 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             )}
 
             {message.attachmentPreview && (
-              <TouchableOpacity
-                style={styles.receiptPreviewCard}
-                onPress={() => handlePreviewDetails(message)}
-                activeOpacity={0.8}
-              >
+              <View style={styles.receiptPreviewCard}>
                 <View style={styles.receiptPreviewHeader}>
                   <Ionicons name="document-attach" size={20} color="#6C5CE7" />
                   <Text style={styles.receiptPreviewTitle}>Attachment</Text>
                 </View>
                 <View style={styles.receiptPreviewContent}>
-                  <View style={styles.receiptPreviewRow}>
-                    <Text style={styles.receiptPreviewLabel}>File:</Text>
-                    <Text style={styles.receiptPreviewValue} numberOfLines={1}>{message.attachmentPreview.name}</Text>
-                  </View>
-                  {message.attachmentPreview.summary ? (
-                    <View style={styles.receiptPreviewRow}>
-                      <Text style={styles.receiptPreviewLabel}>Summary:</Text>
-                      <Text style={styles.receiptPreviewValue} numberOfLines={2}>{message.attachmentPreview.summary}</Text>
+                  <View style={styles.attachmentPreviewRow}>
+                    {message.attachmentPreview.imageUrl ? (
+                      <TouchableOpacity
+                        style={styles.attachmentThumbWrap}
+                        onPress={() => setAttachmentImageModalUrl(message.attachmentPreview!.imageUrl!)}
+                        activeOpacity={0.9}
+                      >
+                        <Image source={{ uri: message.attachmentPreview.imageUrl }} style={[styles.attachmentThumb, styles.thumbAlignTopLeft]} resizeMode="cover" />
+                        <View style={styles.attachmentThumbTapHint}>
+                          <Ionicons name="expand-outline" size={18} color="rgba(255,255,255,0.9)" />
+                        </View>
+                      </TouchableOpacity>
+                    ) : null}
+                    <View style={styles.attachmentPreviewMeta}>
+                      <Text style={styles.attachmentPreviewName} numberOfLines={1}>{message.attachmentPreview.name}</Text>
+                      {message.attachmentPreview.summary ? (
+                        <Text style={styles.attachmentPreviewSummary} numberOfLines={2}>{message.attachmentPreview.summary}</Text>
+                      ) : null}
                     </View>
-                  ) : null}
+                  </View>
                 </View>
                 <View style={styles.receiptPreviewActions}>
                   <TouchableOpacity style={styles.previewActionButton} onPress={() => handlePreviewDetails(message)}>
@@ -1828,7 +1927,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                     <Text style={styles.previewActionText}>View in project</Text>
                   </TouchableOpacity>
                 </View>
-              </TouchableOpacity>
+              </View>
             )}
             
           </View>
@@ -1840,21 +1939,29 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         {Platform.OS === 'web' ? (
           <View style={styles.webInputOuter}>
             <View style={styles.webInputBlock}>
-              {stagedAttachmentFiles.length > 0 ? (
+              {stagedAttachmentFiles.length > 0 && !isProcessing ? (
                 <View style={styles.stagedFilesRow}>
                   <View style={styles.stagedFilesList}>
-                    {stagedAttachmentFiles.map((f, idx) => (
-                      <View key={`${f.uri}-${idx}`} style={styles.stagedFileChip}>
-                        <Text style={styles.stagedFileChipText} numberOfLines={1}>{f.name ?? `File ${idx + 1}`}</Text>
-                        <TouchableOpacity
-                          hitSlop={8}
-                          onPress={() => setStagedAttachmentFiles(prev => prev.filter((_, i) => i !== idx))}
-                          disabled={isProcessing}
-                        >
-                          <Ionicons name="close-circle" size={18} color="#636E72" />
-                        </TouchableOpacity>
-                      </View>
-                    ))}
+                    {stagedAttachmentFiles.map((f) => {
+                      const uploading = uploadingStagedIds.has(f.id);
+                      return (
+                        <View key={f.id} style={styles.stagedFileChip}>
+                          <View style={styles.stagedFileThumbWrap}>
+                            <Image source={{ uri: f.uri }} style={[styles.stagedFileThumb, styles.thumbAlignTopLeft]} resizeMode="cover" />
+                          </View>
+                          <Text style={styles.stagedFileChipText} numberOfLines={1}>{f.name ?? 'Image'}</Text>
+                          {!uploading ? (
+                            <TouchableOpacity
+                              hitSlop={8}
+                              onPress={() => setStagedAttachmentFiles(prev => prev.filter((x) => x.id !== f.id))}
+                              disabled={isProcessing}
+                            >
+                              <Ionicons name="close-circle" size={18} color="#636E72" />
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      );
+                    })}
                   </View>
                 </View>
               ) : null}
@@ -1882,13 +1989,15 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   <TouchableOpacity style={styles.webActionIcon} onPress={pickImagesForSend} disabled={isProcessing}>
                     <Ionicons name="image-outline" size={22} color="#636E72" />
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.webActionIcon, isRecording && styles.webActionIconRecording]}
-                    onPress={() => { if (isRecordingRef.current) handleStopRecording(); else if (!isProcessing) handleStartRecording(); }}
-                    disabled={isProcessing}
-                  >
-                    <Ionicons name={isRecording ? 'mic' : 'mic-outline'} size={22} color={isRecording ? '#E74C3C' : '#636E72'} />
-                  </TouchableOpacity>
+                  {Platform.OS !== 'web' && (
+                    <TouchableOpacity
+                      style={[styles.webActionIcon, isRecording && styles.webActionIconRecording]}
+                      onPress={() => { if (isRecordingRef.current) handleStopRecording(); else if (!isProcessing) handleStartRecording(); }}
+                      disabled={isProcessing}
+                    >
+                      <Ionicons name={isRecording ? 'mic' : 'mic-outline'} size={22} color={isRecording ? '#E74C3C' : '#636E72'} />
+                    </TouchableOpacity>
+                  )}
                 </View>
                 {isPanel && chatPanel && (() => {
                   const typeOptions: { value: VoucherLogType; label: string }[] = [
@@ -1939,162 +2048,161 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             <Text style={styles.webInputDisclaimer}>AI may make mistakes.</Text>
           </View>
         ) : (
-          <>
-        {/* 语音/键盘切换按钮 */}
-        <TouchableOpacity
-          style={styles.modeToggleButton}
-          onPress={() => {
-            const nextVoice = !isVoiceMode;
-            setIsVoiceMode(nextVoice);
-            if (nextVoice) {
-              Keyboard.dismiss();
-            } else {
-              setTimeout(() => {
-                inputRef.current?.focus();
-              }, 150);
-            }
-          }}
-          disabled={isProcessing || isRecording}
-        >
-          {isVoiceMode ? (
-            <MaterialCommunityIcons name="keyboard-outline" size={24} color="#6C5CE7" />
-          ) : (
-            <Ionicons name="mic-outline" size={24} color="#6C5CE7" />
-          )}
-        </TouchableOpacity>
-
-        {stagedAttachmentFiles.length > 0 ? (
-          <View style={styles.stagedFilesRow}>
-            <View style={styles.stagedFilesList}>
-              {stagedAttachmentFiles.map((f, idx) => (
-                <View key={`${f.uri}-${idx}`} style={styles.stagedFileChip}>
-                  <Text style={styles.stagedFileChipText} numberOfLines={1}>{f.name ?? `File ${idx + 1}`}</Text>
-                  <TouchableOpacity
-                    hitSlop={8}
-                    onPress={() => setStagedAttachmentFiles(prev => prev.filter((_, i) => i !== idx))}
-                    disabled={isProcessing}
-                  >
-                    <Ionicons name="close-circle" size={18} color="#636E72" />
-                  </TouchableOpacity>
+          <View style={styles.nativeInputColumn}>
+            {/* 预览区：已选图片在上方另起一行，不挤压录入框 */}
+            {stagedAttachmentFiles.length > 0 && !isProcessing ? (
+              <View style={styles.stagedFilesRow}>
+                <View style={styles.stagedFilesList}>
+                  {stagedAttachmentFiles.map((f) => {
+                    const uploading = uploadingStagedIds.has(f.id);
+                    return (
+                      <View key={f.id} style={styles.stagedFileChip}>
+                        <View style={styles.stagedFileThumbWrap}>
+                          <Image source={{ uri: f.uri }} style={[styles.stagedFileThumb, styles.thumbAlignTopLeft]} resizeMode="cover" />
+                        </View>
+                        <Text style={styles.stagedFileChipText} numberOfLines={1}>{f.name ?? 'Image'}</Text>
+                        {!uploading ? (
+                          <TouchableOpacity
+                            hitSlop={8}
+                            onPress={() => setStagedAttachmentFiles(prev => prev.filter((x) => x.id !== f.id))}
+                            disabled={isProcessing}
+                          >
+                            <Ionicons name="close-circle" size={18} color="#636E72" />
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    );
+                  })}
                 </View>
-              ))}
+              </View>
+            ) : null}
+            {/* 录入行：键盘/录音 icon 左端，再图片 icon，再输入框/录音按钮，再发送 */}
+            <View style={styles.nativeInputRow}>
+              {!isPanel && (
+                <TouchableOpacity
+                  style={styles.modeToggleButton}
+                  onPress={() => {
+                    const nextVoice = !isVoiceMode;
+                    setIsVoiceMode(nextVoice);
+                    if (nextVoice) {
+                      Keyboard.dismiss();
+                    } else {
+                      setTimeout(() => {
+                        inputRef.current?.focus();
+                      }, 150);
+                    }
+                  }}
+                  disabled={isProcessing || isRecording}
+                >
+                  {isVoiceMode ? (
+                    <MaterialCommunityIcons name="keyboard-outline" size={22} color="#6C5CE7" />
+                  ) : (
+                    <Ionicons name="mic-outline" size={22} color="#6C5CE7" />
+                  )}
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity style={styles.attachIconButton} onPress={pickImagesForSend} disabled={isProcessing}>
+                <Ionicons name="image-outline" size={22} color="#6C5CE7" />
+              </TouchableOpacity>
+              {(isVoiceMode && !isPanel) ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.voiceButton,
+                    isRecording && styles.voiceButtonRecording,
+                    pressed && !isRecording && styles.voiceButtonPressed,
+                  ]}
+                  onPressIn={() => {
+                    pressStartTime.current = Date.now();
+                    isLongPressMode.current = false;
+                  }}
+                  onLongPress={() => {
+                    if (!isRecordingRef.current && !isProcessing) {
+                      isLongPressMode.current = true;
+                      handleStartRecording();
+                    }
+                  }}
+                  onPressOut={() => {
+                    const pressDuration = Date.now() - pressStartTime.current;
+                    if (isLongPressMode.current && isRecordingRef.current) {
+                      handleStopRecording();
+                    } else if (pressDuration < 500) {
+                      if (isRecordingRef.current) {
+                        handleStopRecording();
+                      } else if (!isProcessing) {
+                        isLongPressMode.current = false;
+                        handleStartRecording();
+                      }
+                    }
+                  }}
+                  delayLongPress={500}
+                  disabled={isProcessing}
+                >
+                  {isRecording ? (
+                    <Animated.View style={{ transform: [{ scale: recordingAnimation }] }}>
+                      <View style={styles.voiceButtonContent}>
+                        <Ionicons name="mic" size={22} color="#E74C3C" />
+                        <Text style={styles.voiceButtonTextRecording}>
+                          {formatDuration(recordingDuration)} - Tap to send
+                        </Text>
+                      </View>
+                    </Animated.View>
+                  ) : (
+                    <View style={styles.voiceButtonContent}>
+                      <Ionicons name="mic-outline" size={22} color="#636E72" />
+                      <Text style={styles.voiceButtonText}>Tap or hold to record</Text>
+                    </View>
+                  )}
+                </Pressable>
+              ) : (
+                <View style={styles.inputWrapper}>
+                  <TextInput
+                    ref={inputRef}
+                    style={styles.input}
+                    placeholder={voucherType === 'attachments' ? 'Add tax documents...' : voucherType === 'invoice' ? 'Describe your incomes...' : voucherType === 'inbound' ? 'Describe your inbound...' : voucherType === 'outbound' ? 'Describe your outbound...' : 'Describe your expenses...'}
+                    placeholderTextColor="#95A5A6"
+                    value={inputText}
+                    onChangeText={setInputText}
+                    multiline
+                    maxLength={500}
+                    editable={!isProcessing}
+                    returnKeyType="send"
+                    onSubmitEditing={handleSend}
+                    blurOnSubmit={false}
+                    textAlignVertical="center"
+                    onFocus={() => {
+                      setTimeout(() => {
+                        listRef.current?.scrollToOffset({ offset: 0, animated: true });
+                      }, 100);
+                    }}
+                  />
+                  {inputText.length > 0 && (
+                    <TouchableOpacity
+                      style={styles.clearButton}
+                      onPress={() => setInputText('')}
+                    >
+                      <Ionicons name="close-circle" size={18} color="#95A5A6" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+              {!isVoiceMode && (
+                <TouchableOpacity
+                  style={[
+                    styles.sendButton,
+                    ((!inputText.trim() && stagedAttachmentFiles.length === 0) || isProcessing) && styles.sendButtonDisabled,
+                  ]}
+                  onPress={handleSend}
+                  disabled={(!inputText.trim() && stagedAttachmentFiles.length === 0) || isProcessing}
+                >
+                  {isProcessing ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Ionicons name="send" size={20} color="#fff" />
+                  )}
+                </TouchableOpacity>
+              )}
             </View>
           </View>
-        ) : null}
-        {isVoiceMode ? (
-          // Voice mode: tap to start/stop OR hold to talk
-          <Pressable
-            style={({ pressed }) => [
-              styles.voiceButton,
-              isRecording && styles.voiceButtonRecording,
-              pressed && !isRecording && styles.voiceButtonPressed,
-            ]}
-            onPressIn={() => {
-              // 记录按下时间
-              pressStartTime.current = Date.now();
-              isLongPressMode.current = false;
-            }}
-            onLongPress={() => {
-              // 长按模式：开始录音
-              if (!isRecordingRef.current && !isProcessing) {
-                isLongPressMode.current = true;
-                handleStartRecording();
-              }
-            }}
-            onPressOut={() => {
-              const pressDuration = Date.now() - pressStartTime.current;
-              
-              if (isLongPressMode.current && isRecordingRef.current) {
-                // 长按模式：松手停止并提交
-                handleStopRecording();
-              } else if (pressDuration < 500) {
-                // 短按模式：点击切换录音状态
-                if (isRecordingRef.current) {
-                  // 正在录音，停止并提交
-                  handleStopRecording();
-                } else if (!isProcessing) {
-                  // 未在录音，开始录音
-                  isLongPressMode.current = false;
-                  handleStartRecording();
-                }
-              }
-            }}
-            delayLongPress={500}
-            disabled={isProcessing}
-          >
-            {isRecording ? (
-              <Animated.View style={{ transform: [{ scale: recordingAnimation }] }}>
-                <View style={styles.voiceButtonContent}>
-                  <Ionicons name="mic" size={24} color="#E74C3C" />
-                  <Text style={styles.voiceButtonTextRecording}>
-                    {formatDuration(recordingDuration)} - Tap to send
-                  </Text>
-                </View>
-              </Animated.View>
-            ) : (
-              <View style={styles.voiceButtonContent}>
-                <Ionicons name="mic-outline" size={24} color="#636E72" />
-                <Text style={styles.voiceButtonText}>Tap or hold to record</Text>
-              </View>
-            )}
-          </Pressable>
-        ) : (
-          // 文字模式：输入框（与语音按钮同高，占位符按类型并框内上下居中）
-          <View style={styles.inputWrapper}>
-            <TextInput
-              ref={inputRef}
-              style={styles.input}
-              placeholder={voucherType === 'attachments' ? 'Add tax documents...' : voucherType === 'invoice' ? 'Describe your incomes...' : voucherType === 'inbound' ? 'Describe your inbound...' : voucherType === 'outbound' ? 'Describe your outbound...' : 'Describe your expenses...'}
-              placeholderTextColor="#95A5A6"
-              value={inputText}
-              onChangeText={setInputText}
-              multiline
-              maxLength={500}
-              editable={!isProcessing}
-              returnKeyType="send"
-              onSubmitEditing={handleSend}
-              blurOnSubmit={false}
-              textAlignVertical="center"
-              onFocus={() => {
-                setTimeout(() => {
-                  listRef.current?.scrollToOffset({ offset: 0, animated: true });
-                }, 100);
-              }}
-            />
-            {inputText.length > 0 && (
-              <TouchableOpacity
-                style={styles.clearButton}
-                onPress={() => setInputText('')}
-              >
-                <Ionicons name="close-circle" size={20} color="#95A5A6" />
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-        {!isVoiceMode && (
-          <TouchableOpacity style={styles.attachIconButton} onPress={pickImagesForSend} disabled={isProcessing}>
-            <Ionicons name="image-outline" size={24} color="#6C5CE7" />
-          </TouchableOpacity>
-        )}
-
-        {/* 发送按钮（仅文字模式显示）；有文字或暂存图片时可发送 */}
-        {!isVoiceMode && (
-          <TouchableOpacity
-            style={[
-              styles.sendButton,
-              ((!inputText.trim() && stagedAttachmentFiles.length === 0) || isProcessing) && styles.sendButtonDisabled,
-            ]}
-            onPress={handleSend}
-            disabled={(!inputText.trim() && stagedAttachmentFiles.length === 0) || isProcessing}
-          >
-            {isProcessing ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Ionicons name="send" size={20} color="#fff" />
-            )}
-          </TouchableOpacity>
-        )}
-          </>
         )}
       </View>
     </>
@@ -2277,6 +2385,18 @@ const styles = StyleSheet.create({
     borderTopColor: '#E9ECEF',
     gap: 8,
   },
+  nativeInputColumn: {
+    flexDirection: 'column',
+    flex: 1,
+    minWidth: 0,
+    gap: 6,
+  },
+  nativeInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    minWidth: 0,
+  },
   webInputOuter: {
     flex: 1,
     minWidth: 0,
@@ -2411,12 +2531,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   attachIconButton: {
-    padding: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F0EFFF',
     justifyContent: 'center',
     alignItems: 'center',
   },
   stagedFilesRow: {
-    marginBottom: 8,
+    marginBottom: 4,
   },
   stagedFilesList: {
     flexDirection: 'row',
@@ -2426,18 +2549,31 @@ const styles = StyleSheet.create({
   stagedFileChip: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 6,
     paddingVertical: 4,
-    paddingLeft: 8,
-    paddingRight: 4,
+    paddingLeft: 4,
+    paddingRight: 6,
     borderRadius: 12,
     backgroundColor: '#F1F3F5',
-    maxWidth: '100%',
+    width: '48%',
+    minWidth: 0,
+  },
+  stagedFileThumbWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#E9ECEF',
+  },
+  stagedFileThumb: {
+    width: '100%',
+    height: '100%',
   },
   stagedFileChipText: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#2D3436',
-    maxWidth: 160,
+    flex: 1,
+    minWidth: 0,
   },
   attachmentTaskRow: {
     flexDirection: 'row',
@@ -2501,31 +2637,31 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 44,
+    minHeight: 40,
     backgroundColor: '#F8F9FA',
-    borderRadius: 22,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: '#E9ECEF',
-    paddingRight: 8,
+    paddingRight: 6,
     overflow: 'hidden',
   },
   input: {
     flex: 1,
-    minHeight: 44,
-    maxHeight: 100,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 15,
+    minHeight: 40,
+    maxHeight: 96,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 13,
     color: '#2D3436',
-    borderRadius: 22,
+    borderRadius: 20,
   },
   clearButton: {
     padding: 4,
   },
   sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#6C5CE7',
     justifyContent: 'center',
     alignItems: 'center',
@@ -2546,11 +2682,14 @@ const styles = StyleSheet.create({
   },
   receiptPreviewCard: {
     backgroundColor: '#fff',
-    borderRadius: 12,
-    marginLeft: 16,
-    marginRight: 16,
+    borderRadius: 16,
+    borderBottomLeftRadius: 4,
+    marginLeft: 0,
+    marginRight: 0,
     marginBottom: 8,
-    padding: 12,
+    width: '90%',
+    alignSelf: 'flex-start',
+    padding: 11,
     borderWidth: 1,
     borderColor: '#E9ECEF',
     shadowColor: '#000',
@@ -2562,61 +2701,118 @@ const styles = StyleSheet.create({
   receiptPreviewHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 8,
-    gap: 8,
+    marginBottom: 6,
+    gap: 6,
   },
   receiptPreviewTitle: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#2D3436',
   },
   receiptPreviewContent: {
-    marginBottom: 8,
+    marginBottom: 6,
   },
   receiptPreviewRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: 4,
   },
   receiptPreviewLabel: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#636E72',
     fontWeight: '500',
   },
   receiptPreviewValue: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#2D3436',
     fontWeight: '600',
   },
   receiptPreviewAmount: {
     color: '#6C5CE7',
-    fontSize: 16,
+    fontSize: 14,
   },
   receiptPreviewItems: {
-    marginTop: 8,
+    marginTop: 6,
+  },
+  attachmentPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  attachmentThumbWrap: {
+    width: 64,
+    height: 64,
+    borderRadius: 6,
+    overflow: 'hidden',
+    backgroundColor: '#E9ECEF',
+  },
+  attachmentThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  attachmentThumbTapHint: {
+    position: 'absolute',
+    right: 4,
+    bottom: 4,
+    opacity: 0.85,
+  },
+  attachmentPreviewMeta: {
+    flex: 1,
+    minWidth: 0,
+  },
+  attachmentPreviewName: {
+    fontSize: 10,
+    color: '#95A5A6',
+    marginBottom: 3,
+  },
+  attachmentPreviewSummary: {
+    fontSize: 12,
+    color: '#2D3436',
+    lineHeight: 16,
+  },
+  attachmentImageModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.85)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  attachmentImageModalContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  attachmentImageModalImage: {
+    width: '100%',
+    height: '100%',
+  },
+  attachmentImageModalClose: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 40,
+    right: 20,
   },
   receiptPreviewItemRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 4,
-    paddingLeft: 8,
+    marginTop: 3,
+    paddingLeft: 6,
   },
   receiptPreviewItemName: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#2D3436',
     flex: 1,
   },
   receiptPreviewItemPrice: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#636E72',
     fontWeight: '500',
-    marginLeft: 8,
+    marginLeft: 6,
   },
   receiptPreviewActions: {
     flexDirection: 'row',
-    gap: 8,
-    marginTop: 6,
-    paddingTop: 8,
+    gap: 6,
+    marginTop: 5,
+    paddingTop: 6,
     borderTopWidth: 1,
     borderTopColor: '#E9ECEF',
   },
@@ -2625,12 +2821,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#6C5CE7',
-    gap: 6,
+    gap: 5,
   },
   previewActionButtonPrimary: {
     backgroundColor: '#6C5CE7',
@@ -2645,7 +2841,7 @@ const styles = StyleSheet.create({
     borderColor: '#BDC3C7',
   },
   previewActionText: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#6C5CE7',
     fontWeight: '600',
   },
@@ -2654,18 +2850,18 @@ const styles = StyleSheet.create({
   },
   // 语音模式相关样式
   modeToggleButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#F0EFFF',
     justifyContent: 'center',
     alignItems: 'center',
   },
   voiceButton: {
     flex: 1,
-    height: 44,
+    height: 40,
     backgroundColor: '#F8F9FA',
-    borderRadius: 22,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: '#E9ECEF',
     justifyContent: 'center',
@@ -2685,17 +2881,59 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   voiceButtonText: {
-    fontSize: 15,
+    fontSize: 13,
     color: '#636E72',
     fontWeight: '500',
   },
   voiceButtonTextRecording: {
-    fontSize: 15,
+    fontSize: 13,
     color: '#E74C3C',
     fontWeight: '600',
   },
   audioMessageContent: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  userImageMessageContent: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    maxWidth: '100%',
+    alignSelf: 'flex-start',
+  },
+  userMessageImageThumb: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  thumbAlignTopLeft: Platform.select({
+    web: { objectFit: 'cover' as const, objectPosition: 'top left' as const },
+    default: {},
+  }),
+  userMessageImageName: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.5)',
+    marginTop: 4,
+    maxWidth: 220,
+    minWidth: 56,
+  },
+  userVoiceMessageContent: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    maxWidth: '100%',
+    alignSelf: 'flex-start',
+  },
+  userVoiceMessageIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userVoiceMessageLabel: {
+    fontSize: 10,
+    color: 'rgba(255,255,255,0.5)',
+    marginTop: 4,
   },
 });

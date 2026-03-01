@@ -628,12 +628,12 @@ export default function InvoicesScreen() {
         {hasSelection ? (
           <View style={styles.bulkBar}>
             <Text style={styles.bulkText}>{selectedIds.size} selected</Text>
-            <TouchableOpacity style={styles.bulkBtn} onPress={handleBatchDelete}>
+            <TouchableOpacity style={[styles.bulkBtn, styles.bulkBtnDanger]} onPress={handleBatchDelete}>
               <Ionicons name="trash-outline" size={18} color="#fff" />
               <Text style={styles.bulkBtnText}>Delete</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.bulkBtnClear} onPress={() => setSelectedIds(new Set())}>
-              <Text style={styles.bulkBtnClearText}>Clear</Text>
+              <Text style={styles.bulkBtnClearText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -1134,6 +1134,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#6C5CE7',
     borderRadius: 8,
   },
+  bulkBtnDanger: { backgroundColor: '#E74C3C' },
   bulkBtnText: { fontSize: 14, color: '#fff', fontWeight: '600' },
   bulkBtnClear: { paddingVertical: 8, paddingHorizontal: 12 },
   bulkBtnClearText: { fontSize: 14, color: '#636E72', fontWeight: '500' },

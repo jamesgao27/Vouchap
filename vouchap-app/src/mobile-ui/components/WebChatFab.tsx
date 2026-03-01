@@ -1,5 +1,6 @@
 /**
  * Web 端聊天气泡 FAB；悬停展开为与右栏一致的底部输入区（嵌入/非嵌入均支持），移开延迟还原。
+ * 图片选择与完整 chat-to-log 一致，打开右栏时已选图片会带入暂存区。
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
 import {
@@ -10,10 +11,12 @@ import {
   TextInput,
   Pressable,
   Text,
+  Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { useChatPanel } from '../contexts/ChatPanelContext';
-import type { ChatPanelType } from '../contexts/ChatPanelContext';
+import type { ChatPanelType, StagedAttachmentFile } from '../contexts/ChatPanelContext';
 import { PANEL_WIDTH } from './WebChatPanel';
 import { showAiInventory } from '@/lib/feature-flags';
 import { showToast } from '@/lib/toast';
@@ -48,10 +51,32 @@ function getPlaceholder(type: ChatPanelType): string {
 }
 
 export default function WebChatFab({ type = 'receipt', variant = 'chat', embedded }: WebChatFabProps) {
-  const { open, openPanel, type: contextType, setType } = useChatPanel();
+  const { open, openPanel, type: contextType, setType, setInitialStagedFiles } = useChatPanel();
   const [hovered, setHovered] = useState(false);
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
+  const [stagedAttachmentFiles, setStagedAttachmentFiles] = useState<StagedAttachmentFile[]>([]);
   const leaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const pickImagesForSend = useCallback(async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync?.();
+      if (status !== 'granted' && status !== 'undetermined') {
+        showToast('Need photo library permission.', 'info');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        allowsEditing: false,
+        quality: 0.9,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      const now = Date.now();
+      setStagedAttachmentFiles(prev => [...prev, ...result.assets.map((a, i) => ({ id: `${a.uri}-${now}-${i}`, uri: a.uri!, name: a.fileName }))]);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to add files', 'error');
+    }
+  }, []);
 
   // 与当前页一致：右侧栏关闭时同步提交类别
   useEffect(() => {
@@ -97,22 +122,49 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
   const currentLabel = TYPE_OPTIONS.find(o => o.value === currentType)?.label ?? 'Expenses';
 
   const openFullPanel = () => {
+    if (stagedAttachmentFiles.length) {
+      setInitialStagedFiles(stagedAttachmentFiles);
+    }
     openPanel(currentType);
+    setStagedAttachmentFiles([]);
     setHovered(false);
     setShowTypeDropdown(false);
   };
 
-  // 悬停时只显示展开的输入栏，整块为呼出完整右栏的热区；未悬停时只显示气泡
+  // 悬停时只显示展开的输入栏；点击输入区或发送按钮呼出完整右栏，图片按钮与 chat-to-log 一致
   if (hovered) {
+    const thumbAlignTopLeft = Platform.select({
+      web: { objectFit: 'cover' as const, objectPosition: 'top left' as const },
+      default: {},
+    });
     return (
-      <Pressable
+      <View
         style={styles.expandedOuter}
-        onPress={openFullPanel}
         onMouseEnter={handleEnter}
         onMouseLeave={scheduleCollapse}
       >
         <View style={styles.expandedBlock}>
-          <View style={styles.expandedRow}>
+          {stagedAttachmentFiles.length > 0 ? (
+            <View style={styles.stagedFilesRow}>
+              <View style={styles.stagedFilesList}>
+                {stagedAttachmentFiles.map((f) => (
+                  <View key={f.id} style={styles.stagedFileChip}>
+                    <View style={styles.stagedFileThumbWrap}>
+                      <Image source={{ uri: f.uri }} style={[styles.stagedFileThumb, thumbAlignTopLeft]} resizeMode="cover" />
+                    </View>
+                    <Text style={styles.stagedFileChipText} numberOfLines={1}>{f.name ?? 'Image'}</Text>
+                    <TouchableOpacity
+                      hitSlop={8}
+                      onPress={() => setStagedAttachmentFiles(prev => prev.filter(x => x.id !== f.id))}
+                    >
+                      <Ionicons name="close-circle" size={18} color="#636E72" />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            </View>
+          ) : null}
+          <TouchableOpacity style={styles.expandedRow} onPress={openFullPanel} activeOpacity={1}>
             <View style={styles.expandedInputWrap}>
               <TextInput
                 style={styles.expandedInput}
@@ -123,14 +175,11 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
                 pointerEvents="none"
               />
             </View>
-          </View>
+          </TouchableOpacity>
           <View style={styles.expandedActionsRow}>
             <View style={styles.expandedActionsLeft}>
-              <TouchableOpacity style={styles.expandedActionIcon} onPress={() => showToast('Upload images, PDF or audio – coming soon.', 'info')}>
+              <TouchableOpacity style={styles.expandedActionIcon} onPress={pickImagesForSend}>
                 <Ionicons name="image-outline" size={22} color="#636E72" />
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.expandedActionIcon}>
-                <Ionicons name="mic-outline" size={22} color="#636E72" />
               </TouchableOpacity>
             </View>
             <View style={styles.typeDropdownWrap} nativeID="webchatfab-type-dropdown">
@@ -169,7 +218,7 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
           </View>
         </View>
         <Text style={styles.expandedDisclaimer}>AI may make mistakes.</Text>
-      </Pressable>
+      </View>
     );
   }
 
@@ -260,6 +309,43 @@ const styles = StyleSheet.create({
   expandedRow: {
     flexDirection: 'row',
     alignItems: 'flex-end',
+  },
+  stagedFilesRow: {
+    marginBottom: 8,
+  },
+  stagedFilesList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  stagedFileChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 4,
+    paddingLeft: 4,
+    paddingRight: 6,
+    borderRadius: 12,
+    backgroundColor: '#F1F3F5',
+    width: '48%',
+    minWidth: 0,
+  },
+  stagedFileThumbWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#E9ECEF',
+  },
+  stagedFileThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  stagedFileChipText: {
+    fontSize: 12,
+    color: '#2D3436',
+    flex: 1,
+    minWidth: 0,
   },
   expandedInputWrap: {
     flex: 1,
