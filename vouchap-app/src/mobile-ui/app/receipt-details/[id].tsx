@@ -737,7 +737,7 @@ export default function ReceiptDetailsScreen() {
     setIsUploadingImage(true);
     try {
       // 上传图片到 storage
-      const imageUrl = await uploadReceiptImage(imageUri, id);
+      const imageUrl = await uploadReceiptImage(imageUri, id, receipt?.spaceId ?? '');
       
       // 更新 receipt 的 imageUrl
       await updateReceipt(id, { imageUrl });

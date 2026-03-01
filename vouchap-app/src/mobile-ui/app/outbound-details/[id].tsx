@@ -393,7 +393,7 @@ export default function OutboundDetailsScreen() {
     if (!id) return;
     setIsUploadingImage(true);
     try {
-      const imageUrl = await uploadOutboundImage(imageUri, id);
+      const imageUrl = await uploadOutboundImage(imageUri, id, editedOutbound?.spaceId ?? outbound?.spaceId ?? '');
       await saveOutbound({ ...(editedOutbound || outbound)!, id, imageUrl });
       await loadOutbound();
     } catch (error) {

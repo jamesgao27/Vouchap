@@ -1,5 +1,5 @@
 /**
- * 项目信息页：编辑封面、名称、分类标签；查看 firm 与 order 信息。
+ * 项目信息页（client 侧 project 路由）：编辑封面、名称、分类标签；查看 firm 与 order 信息。
  */
 import { useCallback, useEffect, useState } from 'react';
 import {
@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import {
   getOrderById,
-  getProjectByOrderId,
+  getProjectById,
   updateProject,
   type FirmProjectInfo,
 } from '@/lib/firm';
@@ -34,8 +34,8 @@ const STAGE_LABEL: Record<string, string> = {
   cancelled: 'Cancelled',
 };
 
-export default function OrderInfoScreen() {
-  const { orderId } = useLocalSearchParams<{ orderId: string }>();
+export default function ProjectInfoScreen() {
+  const { projectId } = useLocalSearchParams<{ projectId: string }>();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -46,27 +46,42 @@ export default function OrderInfoScreen() {
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState('');
   const [editImageUrl, setEditImageUrl] = useState<string | null>(null);
+  const [editTaxCountry, setEditTaxCountry] = useState('');
+  const [editTaxScenario, setEditTaxScenario] = useState('');
   const [editTags, setEditTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [uploadingCover, setUploadingCover] = useState(false);
 
+  const TAX_COUNTRY_OPTIONS = [{ value: '', label: '—' }, { value: 'CANADA', label: 'Canada' }, { value: 'USA', label: 'USA' }];
+  const TAX_SCENARIO_OPTIONS = [
+    { value: '', label: '—' },
+    { value: 'T1', label: 'T1' },
+    { value: 'T2', label: 'T2' },
+    { value: '1040', label: '1040' },
+    { value: '1120-S', label: '1120-S' },
+  ];
+
   const load = useCallback(async () => {
-    if (!orderId) return;
+    if (!projectId) return;
     setLoading(true);
     setError(null);
     try {
-      const [orderData, projectData] = await Promise.all([
-        getOrderById(orderId),
-        getProjectByOrderId(orderId),
-      ]);
+      const projectData = await getProjectById(projectId);
+      if (!projectData) {
+        setError('Project not found');
+        return;
+      }
+      setProject(projectData);
+      const orderData = await getOrderById(projectData.orderId);
       if (!orderData) {
         setError('Order not found');
         return;
       }
       setOrder(orderData);
-      setProject(projectData ?? null);
-      setEditName(projectData?.name ?? '');
-      setEditImageUrl(projectData?.imageUrl ?? null);
+      setEditName(projectData.name ?? '');
+      setEditImageUrl(projectData.imageUrl ?? null);
+      setEditTaxCountry(projectData.taxCountry ?? '');
+      setEditTaxScenario(projectData.taxScenario ?? '');
       setEditTags([]);
       if (orderData.firmSpaceId) {
         const { data: space } = await supabase
@@ -81,7 +96,7 @@ export default function OrderInfoScreen() {
     } finally {
       setLoading(false);
     }
-  }, [orderId]);
+  }, [projectId]);
 
   useEffect(() => {
     load();
@@ -123,6 +138,8 @@ export default function OrderInfoScreen() {
       const { error: err } = await updateProject(project.id, {
         name: editName || project.name,
         imageUrl: editImageUrl ?? undefined,
+        taxCountry: editTaxCountry.trim() || null,
+        taxScenario: editTaxScenario.trim() || null,
       });
       if (err) throw err;
       setEditing(false);
@@ -133,7 +150,7 @@ export default function OrderInfoScreen() {
     } finally {
       setSaving(false);
     }
-  }, [project?.id, editName, editImageUrl, load]);
+  }, [project?.id, editName, editImageUrl, editTaxCountry, editTaxScenario, load]);
 
   const taxSeasonYear = order?.dueAt || order?.createdAt
     ? new Date((order.dueAt || order.createdAt)!).getFullYear()
@@ -146,7 +163,7 @@ export default function OrderInfoScreen() {
       </View>
     );
   }
-  if (error || !order) {
+  if (error || !order || !project) {
     return (
       <View style={styles.centered}>
         <Text style={styles.errorText}>{error ?? 'Not found'}</Text>
@@ -227,6 +244,52 @@ export default function OrderInfoScreen() {
             />
           ) : (
             <Text style={styles.value}>{project?.name ?? '—'}</Text>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>报税辖区 (Tax jurisdiction)</Text>
+          {editing ? (
+            <View style={styles.optionRow}>
+              {TAX_COUNTRY_OPTIONS.map((opt) => (
+                <TouchableOpacity
+                  key={opt.value || '_'}
+                  style={[styles.optionBtn, editTaxCountry === opt.value && styles.optionBtnActive]}
+                  onPress={() => setEditTaxCountry(opt.value)}
+                >
+                  <Text style={[styles.optionBtnText, editTaxCountry === opt.value && styles.optionBtnTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.value}>
+              {project?.taxCountry && project?.taxScenario
+                ? `${project.taxCountry} · ${project.taxScenario}`
+                : project?.taxCountry || project?.taxScenario || '—'}
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>报税场景 (Tax scenario)</Text>
+          {editing ? (
+            <View style={styles.optionRowWrap}>
+              {TAX_SCENARIO_OPTIONS.map((opt) => (
+                <TouchableOpacity
+                  key={opt.value || '_'}
+                  style={[styles.optionBtn, editTaxScenario === opt.value && styles.optionBtnActive]}
+                  onPress={() => setEditTaxScenario(opt.value)}
+                >
+                  <Text style={[styles.optionBtnText, editTaxScenario === opt.value && styles.optionBtnTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <Text style={styles.value}>{project?.taxScenario ?? '—'}</Text>
           )}
         </View>
 
@@ -358,6 +421,19 @@ const styles = StyleSheet.create({
     color: '#2D3436',
   },
   value: { fontSize: 16, color: '#2D3436', fontWeight: '500' },
+  optionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  optionRowWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  optionBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#FFF',
+  },
+  optionBtnActive: { borderColor: '#6C5CE7', backgroundColor: '#F0EEFF' },
+  optionBtnText: { fontSize: 14, color: '#636E72' },
+  optionBtnTextActive: { color: '#6C5CE7', fontWeight: '600' },
   valueSecondary: { fontSize: 14, color: '#636E72' },
   tagsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tagPill: {

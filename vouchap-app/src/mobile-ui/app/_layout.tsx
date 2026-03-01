@@ -18,6 +18,7 @@ function isSettingsPage(pathname: string): boolean {
 
 function chatTypeFromPathname(pathname: string | null): ChatPanelType | null {
   if (!pathname) return null;
+  if (pathname.startsWith('/tax-filing')) return 'attachments';
   if (pathname === '/receipts' || pathname.startsWith('/receipts/')) return 'receipt';
   if (pathname === '/invoices' || pathname.startsWith('/invoices/')) return 'invoice';
   if (pathname === '/inbound' || pathname.startsWith('/inbound/')) return 'inbound';
@@ -112,6 +113,10 @@ function LayoutContent() {
         />
         <Stack.Screen 
           name="tax-filing/order/[orderId]" 
+          options={{ headerShown: false }} 
+        />
+        <Stack.Screen 
+          name="tax-filing/project/[projectId]" 
           options={{ headerShown: false }} 
         />
         <Stack.Screen 

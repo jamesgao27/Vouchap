@@ -153,6 +153,8 @@ export interface FirmOrderForClient extends FirmOrder {
   skuName?: string;
   skuDescription?: string | null;
   skuImageUrl?: string | null;
+  /** 客户接受订单后创建的 project id，用于 client 侧以 project 为主体的路由 */
+  projectId?: string;
   projectName?: string;
   projectDescription?: string | null;
   projectImageUrl?: string | null;
@@ -237,12 +239,12 @@ export async function getOrderHeaderForClient(orderId: string): Promise<{
   };
 }
 
-/** 根据 skuId 获取 SKU 基本信息（名称、说明、封面），用于详情展示 */
-export async function getSkuById(skuId: string): Promise<{ name: string; description?: string | null; imageUrl?: string | null } | null> {
+/** 根据 skuId 获取 SKU 基本信息（名称、说明、封面、报税辖区与场景） */
+export async function getSkuById(skuId: string): Promise<{ name: string; description?: string | null; imageUrl?: string | null; taxCountry?: string | null; taxScenario?: string | null } | null> {
   const { data, error } = await supabase
     .schema('firm')
     .from('skus')
-    .select('name, description, image_url')
+    .select('name, description, image_url, tax_country, tax_scenario')
     .eq('id', skuId)
     .maybeSingle();
 
@@ -252,6 +254,8 @@ export async function getSkuById(skuId: string): Promise<{ name: string; descrip
     name: row.name ?? '',
     description: row.description ?? null,
     imageUrl: row.image_url ?? null,
+    taxCountry: row.tax_country ?? null,
+    taxScenario: row.tax_scenario ?? null,
   };
 }
 
@@ -325,6 +329,7 @@ export async function getClientOrdersForClientSpace(clientSpaceId: string): Prom
       skuName: sku?.name ?? undefined,
       skuDescription: sku?.description ?? undefined,
       skuImageUrl: sku?.image_url ?? undefined,
+      projectId: project?.id ?? undefined,
       projectName: project?.name ?? undefined,
       projectDescription: project?.description ?? undefined,
       projectImageUrl: project?.image_url ?? undefined,
@@ -604,7 +609,7 @@ export async function confirmOrderAndCreateProjectTodos(
   const { data: sku, error: skuErr } = await supabase
     .schema('firm')
     .from('skus')
-    .select('id, name, description, image_url')
+    .select('id, name, description, image_url, tax_country, tax_scenario')
     .eq('id', order.sku_id)
     .single();
 
@@ -621,6 +626,8 @@ export async function confirmOrderAndCreateProjectTodos(
       name: (sku as any).name ?? 'Project',
       description: (sku as any).description ?? null,
       image_url: (sku as any).image_url ?? null,
+      tax_country: (sku as any).tax_country ?? null,
+      tax_scenario: (sku as any).tax_scenario ?? null,
     })
     .select('id')
     .maybeSingle();
@@ -691,7 +698,7 @@ export async function confirmOrderAndCreateProjectTodos(
   return { error: updateErr };
 }
 
-/** 项目信息（与 SKU 结构一致，用于详情展示） */
+/** 项目信息（与 SKU 结构一致，用于详情展示；含报税辖区与场景） */
 export interface FirmProjectInfo {
   id: string;
   orderId: string;
@@ -703,13 +710,15 @@ export interface FirmProjectInfo {
   endAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+  taxCountry?: string | null;
+  taxScenario?: string | null;
 }
 
 /** 根据 orderId 获取 project 信息（确认订单后才有） */
 export async function getProjectByOrderId(orderId: string): Promise<FirmProjectInfo | null> {
   const { data, error } = await supabase
     .from('projects')
-    .select('id, order_id, name, description, image_url, status, start_at, end_at, created_at, updated_at')
+    .select('id, order_id, name, description, image_url, status, start_at, end_at, created_at, updated_at, tax_country, tax_scenario')
     .eq('order_id', orderId)
     .maybeSingle();
 
@@ -726,6 +735,34 @@ export async function getProjectByOrderId(orderId: string): Promise<FirmProjectI
     endAt: row.end_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    taxCountry: row.tax_country ?? null,
+    taxScenario: row.tax_scenario ?? null,
+  };
+}
+
+/** 根据 projectId 获取 project 信息（client 侧以 project 为主体的路由用） */
+export async function getProjectById(projectId: string): Promise<FirmProjectInfo | null> {
+  const { data, error } = await supabase
+    .from('projects')
+    .select('id, order_id, name, description, image_url, status, start_at, end_at, created_at, updated_at, tax_country, tax_scenario')
+    .eq('id', projectId)
+    .maybeSingle();
+
+  if (error || !data) return null;
+  const row = data as any;
+  return {
+    id: row.id,
+    orderId: row.order_id,
+    name: row.name ?? '',
+    description: row.description ?? null,
+    imageUrl: row.image_url ?? null,
+    status: row.status ?? 'in_progress',
+    startAt: row.start_at ?? null,
+    endAt: row.end_at ?? null,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    taxCountry: row.tax_country ?? null,
+    taxScenario: row.tax_scenario ?? null,
   };
 }
 
@@ -957,10 +994,19 @@ export async function getProjectDetail(orderId: string): Promise<{
   };
 }
 
-/** 更新项目基础信息 */
+/** 更新项目基础信息（含报税国别/场景，与 SKU 对齐） */
 export async function updateProject(
   projectId: string,
-  payload: { name?: string; description?: string | null; imageUrl?: string | null; status?: string; startAt?: string | null; endAt?: string | null }
+  payload: {
+    name?: string;
+    description?: string | null;
+    imageUrl?: string | null;
+    status?: string;
+    startAt?: string | null;
+    endAt?: string | null;
+    taxCountry?: string | null;
+    taxScenario?: string | null;
+  }
 ): Promise<{ error: Error | null }> {
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (payload.name !== undefined) updates.name = payload.name;
@@ -969,6 +1015,8 @@ export async function updateProject(
   if (payload.status !== undefined) updates.status = payload.status;
   if (payload.startAt !== undefined) updates.start_at = payload.startAt;
   if (payload.endAt !== undefined) updates.end_at = payload.endAt;
+  if (payload.taxCountry !== undefined) updates.tax_country = payload.taxCountry;
+  if (payload.taxScenario !== undefined) updates.tax_scenario = payload.taxScenario;
   const { error } = await supabase.from('projects').update(updates).eq('id', projectId);
   if (error) {
     console.error('updateProject:', error);
@@ -1049,86 +1097,224 @@ export async function deleteProjectTodo(todoId: string): Promise<{ error: Error 
   return { error: null };
 }
 
-/** 任务关联的文件（收据）摘要，用于 Todos 页 task 下文件列表 */
+/** 附件列表项预览：用于 todo 下多列卡片展示，兼容不同 doc 结构 */
+export interface AttachmentPreviewField {
+  label: string;
+  value: string;
+}
+
+/** 任务关联的文件摘要，用于 Todos 页 task 下文件列表（含识别结果预览） */
 export interface ProjectTodoReceiptSummary {
   id: string;
   name: string;
   imageUrl?: string | null;
+  docType?: string | null;
+  status?: string;
+  /** 识别结果摘要字段，用于列表卡片展示（currency、tax_year、issuer 等） */
+  extractedPreview?: AttachmentPreviewField[];
 }
 
-/** 获取某 project_todo 关联的 receipts 列表（用于 task 展开展示；点击进入 receipt 详情） */
-export async function getReceiptsByProjectTodoId(projectTodoId: string): Promise<ProjectTodoReceiptSummary[]> {
-  const { data: links, error: linkErr } = await supabase
-    .from('project_todo_receipts')
-    .select('receipt_id')
-    .eq('project_todo_id', projectTodoId);
-  if (linkErr || !links?.length) return [];
-  const receiptIds = (links as any[]).map((r) => r.receipt_id);
+function buildExtractedPreview(extracted_data: unknown): AttachmentPreviewField[] {
+  if (!extracted_data || typeof extracted_data !== 'object') return [];
+  const obj = extracted_data as Record<string, unknown>;
+  const out: AttachmentPreviewField[] = [];
+  const meta = obj.metadata as Record<string, unknown> | undefined;
+  if (meta && typeof meta === 'object') {
+    if (meta.currency != null) out.push({ label: 'Currency', value: String(meta.currency) });
+    if (meta.tax_year != null) out.push({ label: 'Tax year', value: String(meta.tax_year) });
+    if (meta.issuer != null) out.push({ label: 'Issuer', value: String(meta.issuer) });
+  }
+  const skip = new Set(['metadata']);
+  let count = 0;
+  for (const k of Object.keys(obj)) {
+    if (skip.has(k) || count >= 4) continue;
+    const v = obj[k];
+    if (v == null) continue;
+    if (typeof v === 'string' || typeof v === 'number') {
+      out.push({ label: k.replace(/_/g, ' '), value: String(v) });
+      count++;
+    } else if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+      const flat = JSON.stringify(v);
+      if (flat.length <= 40) {
+        out.push({ label: k.replace(/_/g, ' '), value: flat });
+        count++;
+      }
+    }
+  }
+  return out;
+}
+
+/** 获取某 project_todo 关联的附件列表（project_todo_attachments） */
+export async function getAttachmentsByProjectTodoId(projectTodoId: string): Promise<ProjectTodoReceiptSummary[]> {
   const { data: rows, error } = await supabase
-    .from('receipts')
-    .select('id, image_url, total_amount, date')
-    .in('id', receiptIds);
+    .from('project_todo_attachments')
+    .select('id, attachment_url, summary, status, doc_type, extracted_data')
+    .eq('project_todo_id', projectTodoId)
+    .order('created_at', { ascending: true });
   if (error || !rows?.length) return [];
   return (rows as any[]).map((r) => ({
     id: r.id,
-    name: r.date
-      ? `Receipt ${typeof r.date === 'string' ? r.date.split('T')[0] : r.date}${r.total_amount != null ? ` · ${Number(r.total_amount).toFixed(2)}` : ''}`
-      : 'Receipt',
-    imageUrl: r.image_url ?? null,
+    name: r.summary?.trim() || (r.status === 'PENDING_AI' ? 'Processing...' : 'Attachment'),
+    imageUrl: r.attachment_url ?? null,
+    docType: r.doc_type ?? null,
+    status: r.status ?? 'PENDING_AI',
+    extractedPreview: buildExtractedPreview(r.extracted_data),
   }));
 }
 
-/** 批量获取多个 project_todo 关联的 receipts（key = todoId） */
-export async function getReceiptsByProjectTodoIds(
+/** 批量获取多个 project_todo 关联的附件（key = todoId） */
+export async function getAttachmentsByProjectTodoIds(
   projectTodoIds: string[]
 ): Promise<Record<string, ProjectTodoReceiptSummary[]>> {
   if (projectTodoIds.length === 0) return {};
-  const { data: links, error: linkErr } = await supabase
-    .from('project_todo_receipts')
-    .select('project_todo_id, receipt_id')
-    .in('project_todo_id', projectTodoIds);
-  if (linkErr || !links?.length) return {};
-  const receiptIds = [...new Set((links as any[]).map((r) => r.receipt_id))];
-  const todoIdByReceiptId = new Map<string, string[]>();
-  (links as any[]).forEach((r) => {
-    const list = todoIdByReceiptId.get(r.receipt_id) ?? [];
-    list.push(r.project_todo_id);
-    todoIdByReceiptId.set(r.receipt_id, list);
-  });
   const { data: rows, error } = await supabase
-    .from('receipts')
-    .select('id, image_url, total_amount, date')
-    .in('id', receiptIds);
+    .from('project_todo_attachments')
+    .select('id, project_todo_id, attachment_url, summary, status, doc_type, extracted_data')
+    .in('project_todo_id', projectTodoIds)
+    .order('created_at', { ascending: true });
   if (error || !rows?.length) return {};
-  const summary = (r: any) => ({
-    id: r.id,
-    name: r.date
-      ? `Receipt ${typeof r.date === 'string' ? r.date.split('T')[0] : r.date}${r.total_amount != null ? ` · ${Number(r.total_amount).toFixed(2)}` : ''}`
-      : 'Receipt',
-    imageUrl: r.image_url ?? null,
-  });
   const out: Record<string, ProjectTodoReceiptSummary[]> = {};
   projectTodoIds.forEach((id) => { out[id] = []; });
   (rows as any[]).forEach((r) => {
-    const todoIds = todoIdByReceiptId.get(r.id) ?? [];
-    const s = summary(r);
-    todoIds.forEach((tid) => {
-      if (!out[tid]) out[tid] = [];
-      out[tid].push(s);
+    const todoId = r.project_todo_id;
+    if (!out[todoId]) out[todoId] = [];
+    out[todoId].push({
+      id: r.id,
+      name: r.summary?.trim() || (r.status === 'PENDING_AI' ? 'Processing...' : 'Attachment'),
+      imageUrl: r.attachment_url ?? null,
+      docType: r.doc_type ?? null,
+      status: r.status ?? 'PENDING_AI',
+      extractedPreview: buildExtractedPreview(r.extracted_data),
     });
   });
   return out;
 }
 
-/** 将收据关联到 project_todo（上传文件到任务后调用） */
-export async function linkReceiptToProjectTodo(
+/** 创建任务附件（上传文件到任务后调用）；attachment_url 为 Storage 公网 URL */
+export async function createProjectTodoAttachment(
   projectTodoId: string,
-  receiptId: string
-): Promise<{ error: Error | null }> {
+  attachmentUrl: string,
+  opts?: { status?: 'PENDING_AI' | 'PROCESSED' | 'VERIFIED'; summary?: string; doc_type?: string }
+): Promise<{ id: string } | { error: Error }> {
+  const { data, error } = await supabase
+    .from('project_todo_attachments')
+    .insert({
+      project_todo_id: projectTodoId,
+      attachment_url: attachmentUrl,
+      status: opts?.status ?? 'PENDING_AI',
+      summary: opts?.summary ?? null,
+      doc_type: opts?.doc_type ?? null,
+    })
+    .select('id')
+    .single();
+  if (error) return { error: new Error(error.message) };
+  return { id: (data as any).id };
+}
+
+/** 更新任务附件（识别完成后：summary、doc_type、extracted_data、status 从 PENDING_AI → PROCESSED/VERIFIED） */
+export async function updateProjectTodoAttachment(
+  attachmentId: string,
+  updates: { summary?: string | null; doc_type?: string | null; extracted_data?: unknown; status?: 'PENDING_AI' | 'PROCESSED' | 'VERIFIED' }
+): Promise<{ ok: true } | { error: Error }> {
+  const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (updates.summary !== undefined) payload.summary = updates.summary;
+  if (updates.doc_type !== undefined) payload.doc_type = updates.doc_type;
+  if (updates.extracted_data !== undefined) payload.extracted_data = updates.extracted_data;
+  if (updates.status !== undefined) payload.status = updates.status;
   const { error } = await supabase
-    .from('project_todo_receipts')
-    .insert({ project_todo_id: projectTodoId, receipt_id: receiptId });
-  return { error: error ? new Error(error.message) : null };
+    .from('project_todo_attachments')
+    .update(payload)
+    .eq('id', attachmentId);
+  if (error) return { error: new Error(error.message) };
+  return { ok: true };
+}
+
+/** 删除任务附件 */
+export async function deleteProjectTodoAttachment(attachmentId: string): Promise<{ error: Error | null }> {
+  const { error } = await supabase
+    .from('project_todo_attachments')
+    .delete()
+    .eq('id', attachmentId);
+  if (error) {
+    console.error('deleteProjectTodoAttachment:', error);
+    return { error: new Error(error.message) };
+  }
+  return { error: null };
+}
+
+/** 获取单条任务附件（用于详情页） */
+export async function getProjectTodoAttachmentById(
+  attachmentId: string
+): Promise<{ id: string; attachment_url: string; summary: string | null; doc_type: string | null; status: string; extracted_data: unknown } | null> {
+  const { data, error } = await supabase
+    .from('project_todo_attachments')
+    .select('id, attachment_url, summary, doc_type, status, extracted_data')
+    .eq('id', attachmentId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const r = data as any;
+  return {
+    id: r.id,
+    attachment_url: r.attachment_url,
+    summary: r.summary ?? null,
+    doc_type: r.doc_type ?? null,
+    status: r.status ?? 'PENDING_AI',
+    extracted_data: r.extracted_data ?? null,
+  };
+}
+
+/** 获取附件及其项目/任务上下文，供历史 PENDING_AI 识别：用 project 的 tax_country/tax_scenario + todo 的 phase/section/task 构建提示词后调用 updateProjectTodoAttachment */
+export async function getProjectTodoAttachmentWithContext(attachmentId: string): Promise<{
+  attachment: { id: string; attachment_url: string; status: string };
+  project: { taxCountry: string | null; taxScenario: string | null };
+  todoContext: { phase?: string; section?: string; task?: string };
+} | null> {
+  const { data: att, error: attErr } = await supabase
+    .from('project_todo_attachments')
+    .select('id, attachment_url, status, project_todo_id')
+    .eq('id', attachmentId)
+    .maybeSingle();
+  if (attErr || !att) return null;
+  const todoId = (att as any).project_todo_id;
+  const { data: todo, error: todoErr } = await supabase
+    .from('project_todos')
+    .select('id, project_id, parent_id, title, item_kind')
+    .eq('id', todoId)
+    .maybeSingle();
+  if (todoErr || !todo) return null;
+  const projectId = (todo as any).project_id;
+  const { data: proj, error: projErr } = await supabase
+    .from('projects')
+    .select('tax_country, tax_scenario')
+    .eq('id', projectId)
+    .maybeSingle();
+  if (projErr || !proj) return null;
+  const { data: todosFlat } = await supabase
+    .from('project_todos')
+    .select('id, parent_id, title, item_kind')
+    .eq('project_id', projectId);
+  const byId = new Map<string, { parent_id: string | null; title: string; item_kind: string }>();
+  (todosFlat || []).forEach((t: any) => byId.set(t.id, { parent_id: t.parent_id, title: t.title ?? '', item_kind: t.item_kind ?? 'task' }));
+  const todoContext: { phase?: string; section?: string; task?: string } = {};
+  let curId: string | null = todoId;
+  const path: { title: string; item_kind: string }[] = [];
+  while (curId) {
+    const node = byId.get(curId);
+    if (!node) break;
+    path.push({ title: node.title, item_kind: node.item_kind });
+    curId = node.parent_id;
+  }
+  path.reverse();
+  path.forEach((p) => {
+    if (p.item_kind === 'phase') todoContext.phase = p.title;
+    else if (p.item_kind === 'section') todoContext.section = p.title;
+    else if (p.item_kind === 'task') todoContext.task = p.title;
+  });
+  return {
+    attachment: { id: (att as any).id, attachment_url: (att as any).attachment_url, status: (att as any).status },
+    project: { taxCountry: (proj as any).tax_country ?? null, taxScenario: (proj as any).tax_scenario ?? null },
+    todoContext,
+  };
 }
 
 /** Firm 空间：获取某客户或全部客户的「待办」列表（订单项扁平，兼容原 todo 页） */
@@ -1231,21 +1417,32 @@ export async function getFirmSkus(firmSpaceId: string): Promise<FirmSku[]> {
     imageUrl: row.image_url ?? null,
     isPublished: row.is_published ?? false,
     itemsCount: itemsCountMap[row.id] ?? 0,
+    taxCountry: row.tax_country ?? null,
+    taxScenario: row.tax_scenario ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
 }
 
-/** Firm 空间：更新 SKU（名称、介绍、封面图） */
+/** Firm 空间：更新 SKU（名称、介绍、封面图、报税国别与场景） */
 export async function updateFirmSku(
   skuId: string,
-  payload: { name?: string; description?: string | null; imageUrl?: string | null; isPublished?: boolean }
+  payload: {
+    name?: string;
+    description?: string | null;
+    imageUrl?: string | null;
+    isPublished?: boolean;
+    taxCountry?: string | null;
+    taxScenario?: string | null;
+  }
 ): Promise<{ error: Error | null }> {
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (payload.name !== undefined) updates.name = payload.name;
   if (payload.description !== undefined) updates.description = payload.description;
   if (payload.imageUrl !== undefined) updates.image_url = payload.imageUrl;
   if (payload.isPublished !== undefined) updates.is_published = payload.isPublished;
+  if (payload.taxCountry !== undefined) updates.tax_country = payload.taxCountry;
+  if (payload.taxScenario !== undefined) updates.tax_scenario = payload.taxScenario;
   const { error } = await supabase
     .schema('firm')
     .from('skus')

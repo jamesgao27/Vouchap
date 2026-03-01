@@ -416,7 +416,7 @@ export default function InboundDetailsScreen() {
     if (!id) return;
     setIsUploadingImage(true);
     try {
-      const imageUrl = await uploadInboundImage(imageUri, id);
+      const imageUrl = await uploadInboundImage(imageUri, id, editedInbound?.spaceId ?? inbound?.spaceId ?? '');
       await saveInbound({ ...(editedInbound || inbound)!, id, imageUrl });
       await loadInbound();
     } catch (error) {

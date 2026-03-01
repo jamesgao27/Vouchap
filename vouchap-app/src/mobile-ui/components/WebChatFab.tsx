@@ -36,9 +36,11 @@ const TYPE_OPTIONS: { value: ChatPanelType; label: string }[] = [
   { value: 'receipt', label: 'Expenses' },
   { value: 'invoice', label: 'Incomes' },
   ...(showAiInventory ? [{ value: 'inbound' as const, label: 'Inbound' }, { value: 'outbound' as const, label: 'Outbound' }] : []),
+  { value: 'attachments', label: 'Attachments' },
 ];
 
 function getPlaceholder(type: ChatPanelType): string {
+  if (type === 'attachments') return 'Upload tax documents...';
   if (type === 'invoice') return 'Describe your incomes...';
   if (type === 'inbound') return 'Describe your inbound...';
   if (type === 'outbound') return 'Describe your outbound...';

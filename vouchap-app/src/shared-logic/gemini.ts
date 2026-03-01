@@ -12,6 +12,7 @@ import { getEntityOptions } from './entity-list';
 import { getWarehousesForOptions, getLocationsByWarehouseForOptions } from './warehouse';
 import { getSkusForOptions } from './skus';
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as FileSystemNew from 'expo-file-system';
 import { GeminiReceiptResult, GeminiVoucherResult, GeminiInboundOutboundResult, VoucherLogType } from '@/types';
@@ -332,40 +333,44 @@ Please return strictly in JSON format without any extra text. JSON format as fol
   "confidence": 0.92
 }`;
 
-  // 从 URL 下载图片并转换为 base64（只需要下载一次）
+  // 从 URL 下载图片并转换为 base64（Web 用 fetch，Native 用 FileSystem）
   console.log('Downloading image from URL...');
   console.log('Image URL:', imageUrl);
 
-  // 下载文件到临时目录
-  const downloadResult = await FileSystem.downloadAsync(
-    imageUrl,
-    FileSystem.documentDirectory + `temp-${Date.now()}.jpg`
-  );
-
-  if (!downloadResult.uri) {
-    throw new Error('Failed to download image from URL');
-  }
-
-  // 读取文件为 base64
-  const base64 = await FileSystem.readAsStringAsync(downloadResult.uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-
-  // 清理临时文件
-  try {
-    await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true });
-  } catch (e) {
-    console.warn('Failed to delete temp file:', e);
-  }
-
-  // 从 URL 推断 MIME 类型
+  let base64: string;
   let mimeType = 'image/jpeg';
-  if (imageUrl.includes('.png')) {
-    mimeType = 'image/png';
-  } else if (imageUrl.includes('.gif')) {
-    mimeType = 'image/gif';
-  } else if (imageUrl.includes('.webp')) {
-    mimeType = 'image/webp';
+  if (imageUrl.includes('.png')) mimeType = 'image/png';
+  else if (imageUrl.includes('.gif')) mimeType = 'image/gif';
+  else if (imageUrl.includes('.webp')) mimeType = 'image/webp';
+
+  if (Platform.OS === 'web') {
+    const res = await fetch(imageUrl, { mode: 'cors' });
+    if (!res.ok) throw new Error('Failed to fetch image from URL');
+    const blob = await res.blob();
+    base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const b64 = dataUrl.split(',')[1];
+        resolve(b64 ?? '');
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  } else {
+    const downloadResult = await FileSystem.downloadAsync(
+      imageUrl,
+      FileSystem.documentDirectory + `temp-${Date.now()}.jpg`
+    );
+    if (!downloadResult.uri) throw new Error('Failed to download image from URL');
+    base64 = await FileSystem.readAsStringAsync(downloadResult.uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    try {
+      await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true });
+    } catch (e) {
+      console.warn('Failed to delete temp file:', e);
+    }
   }
 
   console.log('Image downloaded, size:', base64.length, 'bytes, mime type:', mimeType);

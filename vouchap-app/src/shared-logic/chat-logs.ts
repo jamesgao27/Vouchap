@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import { getCurrentUser } from './auth';
 
 /** 记录类别：由列表页入口决定，不由大模型判断。空/未传表示历史数据即 receipt */
-export type VoucherLogType = 'receipt' | 'invoice' | 'inbound' | 'outbound';
+export type VoucherLogType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'attachments';
 
 export interface ChatLog {
   id: string;

@@ -208,15 +208,17 @@ export async function uploadAudioFile(localUri: string): Promise<string | null> 
     const arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
     console.log('ArrayBuffer size:', arrayBuffer.length);
 
-    // 生成文件名
-    const fileName = `audio-${Date.now()}.m4a`;
+    // 路径：{spaceId}/audio_{timestamp}.m4a（按 space 分文件夹）
+    const folder = spaceId.trim() || 'unknown';
+    const fileName = `audio_${Date.now()}.m4a`;
+    const filePath = `${folder}/${fileName}`;
 
-    console.log('Uploading audio to bucket: chat-audio, path:', fileName);
+    console.log('Uploading audio to bucket: chat-audio, path:', filePath);
 
-    // 上传到 Supabase Storage（使用 chat-audio bucket）
+    // 上传到 Supabase Storage（chat-audio bucket，按 space_id 分目录）
     const { data, error } = await supabase.storage
       .from('chat-audio')
-      .upload(fileName, arrayBuffer, {
+      .upload(filePath, arrayBuffer, {
         contentType: 'audio/mp4',
         upsert: true,
       });
@@ -231,7 +233,7 @@ export async function uploadAudioFile(localUri: string): Promise<string | null> 
     // 获取公开 URL
     const { data: urlData } = supabase.storage
       .from('chat-audio')
-      .getPublicUrl(fileName);
+      .getPublicUrl(filePath);
 
     console.log('Audio uploaded, public URL:', urlData.publicUrl);
     return urlData.publicUrl;

@@ -97,7 +97,7 @@ export async function processReceiptInBackground(
 
     // 3. 使用真实ID重新上传处理后的图片（替换临时文件）
     // 注意：processedImageUri 是预处理后的图片本地 URI，不是原始图片
-    const finalImageUrl = await uploadReceiptImage(processedImageUri, receiptId);
+    const finalImageUrl = await uploadReceiptImage(processedImageUri, receiptId, receipt.spaceId || '');
     console.log('最终处理后的图片已上传，URL:', finalImageUrl);
 
     // 4. 删除临时文件（如果存在）- 使用 try-catch 确保失败不影响主流程

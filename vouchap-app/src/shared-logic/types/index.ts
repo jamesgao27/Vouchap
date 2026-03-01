@@ -364,7 +364,7 @@ export interface Outbound {
 }
 
 // 凭证记录类别：由列表页入口决定，不由大模型判断
-export type VoucherLogType = 'receipt' | 'invoice' | 'inbound' | 'outbound';
+export type VoucherLogType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'attachments';
 
 // Gemini识别结果（使用分类名称，后续会匹配到分类ID）
 export interface GeminiReceiptResult {
@@ -516,6 +516,10 @@ export interface FirmSku {
   isPublished?: boolean;
   /** 关联的 sku_items 数量（统计字段） */
   itemsCount?: number;
+  /** 报税辖区：CANADA | USA，用于识别提示词与 Project 对齐 */
+  taxCountry?: string | null;
+  /** 报税场景：如 T1, T2, 1040, 1120-S */
+  taxScenario?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

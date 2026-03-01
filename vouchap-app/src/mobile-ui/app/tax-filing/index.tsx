@@ -165,13 +165,21 @@ export default function TaxFilingScreen() {
     if (!error) setOrders(await loadOrders());
   };
 
-  /** 点击卡片/行：进入 Todos 树形列表页 */
-  const goToTodos = (orderId: string) => {
-    router.push(`/tax-filing/order/${orderId}`);
+  /** 点击卡片/行：已接受订单进 project 路由（client 主权），未接受进 order 路由 */
+  const goToTodos = (order: FirmOrderForClient) => {
+    if (order.projectId) {
+      router.push(`/tax-filing/project/${order.projectId}`);
+    } else {
+      router.push(`/tax-filing/order/${order.id}`);
+    }
   };
-  /** 点击 edit：进入项目信息页 */
-  const goToInfo = (orderId: string) => {
-    router.push(`/tax-filing/order/${orderId}/info`);
+  /** 点击 edit：进入项目信息页（已接受用 project，未接受用 order） */
+  const goToInfo = (order: FirmOrderForClient) => {
+    if (order.projectId) {
+      router.push(`/tax-filing/project/${order.projectId}/info`);
+    } else {
+      router.push(`/tax-filing/order/${order.id}/info`);
+    }
   };
 
   if (!showTaxFiling) return null;
@@ -213,8 +221,8 @@ export default function TaxFilingScreen() {
                   order={o}
                   isPinned={pinnedOrderIds.includes(o.id)}
                   onTogglePin={() => handleTogglePin(o.id)}
-                  onPress={() => goToTodos(o.id)}
-                  onSettings={o.status !== 'onboarding' ? () => goToInfo(o.id) : undefined}
+                  onPress={() => goToTodos(o)}
+                  onSettings={o.status !== 'onboarding' ? () => goToInfo(o) : undefined}
                   onConfirm={o.status === 'onboarding' ? () => handleConfirmOrder(o) : undefined}
                   confirming={confirmingId === o.id}
                 />
@@ -228,8 +236,8 @@ export default function TaxFilingScreen() {
                   order={o}
                   isPinned={pinnedOrderIds.includes(o.id)}
                   onTogglePin={() => handleTogglePin(o.id)}
-                  onPress={() => goToTodos(o.id)}
-                  onSettings={o.status !== 'onboarding' ? () => goToInfo(o.id) : undefined}
+                  onPress={() => goToTodos(o)}
+                  onSettings={o.status !== 'onboarding' ? () => goToInfo(o) : undefined}
                   onConfirm={o.status === 'onboarding' ? () => handleConfirmOrder(o) : undefined}
                   confirming={confirmingId === o.id}
                 />

@@ -15,17 +15,24 @@ import {
   InteractionManager,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio, recognizeInboundFromText, recognizeInboundFromAudio, recognizeOutboundFromText, recognizeOutboundFromAudio } from '@/lib/gemini';
+import { recognizeReceipt, recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio, recognizeInboundFromText, recognizeInboundFromAudio, recognizeOutboundFromText, recognizeOutboundFromAudio } from '@/lib/gemini';
 import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition-retry';
 import { saveReceipt, updateReceipt, getReceiptById } from '@/lib/database';
 import { saveInvoice, getInvoiceById } from '@/lib/invoices';
 import { saveInbound, getInboundById } from '@/lib/inbound';
 import { saveOutbound, getOutboundById } from '@/lib/outbound';
 import { saveChatLog, getChatLogsPaginated, VoucherLogType } from '@/lib/chat-logs';
-import { showAiInventory } from '@/lib/feature-flags';
+import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
+import { getCurrentSpace } from '@/lib/auth';
+import { uploadTaxFilingFile, uploadReceiptImageTempWithSpace } from '@/lib/supabase';
+import { processImageForUpload } from '@/lib/image-processor';
+import { getProjectById, getProjectTodosTree, createProjectTodoAttachment, updateProjectTodoAttachment, type ProjectTodoNode } from '@/lib/firm';
+import { classifyTaxDocumentAndPickTask } from '@/lib/tax-filing-task-matcher';
+import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
 import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound } from '@/types';
 import { convertGeminiResultToReceipt, convertGeminiResultToInvoice, convertGeminiResultToInbound, convertGeminiResultToOutbound } from '@/lib/receipt-helpers';
 import { format } from 'date-fns';
@@ -82,6 +89,10 @@ interface Message {
   invoicePreview?: Invoice;
   inboundPreview?: Inbound;
   outboundPreview?: Outbound;
+  /** attachments 类型：报税附件上传记录，用于跳转 project/attachment（放在「收到消息」卡片） */
+  attachmentPreview?: { id: string; projectId: string; todoId: string; name: string; summary?: string | null };
+  /** attachments 类型：发出消息中预览的图片 URL */
+  attachmentImageUrl?: string | null;
   receiptDeleted?: boolean;
   invoiceDeleted?: boolean;
   inboundDeleted?: boolean;
@@ -98,8 +109,10 @@ export function ChatToLogContent(props: { voucherType: VoucherLogType }) {
 function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   const router = useRouter();
   const navigation = useNavigation();
-  const params = useLocalSearchParams<{ type?: string; drawer?: string }>();
-  const voucherType: VoucherLogType = props.voucherType ?? ((params.type === 'invoice' || params.type === 'inbound' || params.type === 'outbound') ? params.type : 'receipt');
+  const params = useLocalSearchParams<{ type?: string; drawer?: string; projectId?: string; todoId?: string }>();
+  const chatPanel = useChatPanel();
+  const voucherType: VoucherLogType = props.voucherType ?? ((params.type === 'invoice' || params.type === 'inbound' || params.type === 'outbound' || params.type === 'attachments') ? params.type : 'receipt');
+  const isAttachmentsType = voucherType === 'attachments';
   const isAiInventoryType = voucherType === 'inbound' || voucherType === 'outbound';
   const isDrawer = Platform.OS === 'web' && params.drawer === '1';
   const isPanel = props.voucherType !== undefined;
@@ -118,6 +131,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       title = 'Chat to Log Inbound';
     } else if (voucherType === 'outbound') {
       title = 'Chat to Log Outbound';
+    } else if (voucherType === 'attachments') {
+      title = 'Attachments';
     } else {
       title = 'Chat to Log Expenses';
     }
@@ -130,6 +145,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   const [confirmedInbounds, setConfirmedInbounds] = useState<Set<string>>(new Set());
   const [confirmedOutbounds, setConfirmedOutbounds] = useState<Set<string>>(new Set());
   const [messages, setMessages] = useState<Message[]>([]);
+  const effectiveProjectId = params.projectId ?? chatPanel?.attachmentContext?.projectId;
+  /** attachments 模式：项目下的 task 列表，用于识别文件类别后自动匹配关联 */
+  const [attachmentTaskOptions, setAttachmentTaskOptions] = useState<{ id: string; title: string }[]>([]);
+  const [stagedAttachmentFiles, setStagedAttachmentFiles] = useState<{ uri: string; name?: string }[]>([]);
   const [hasMoreHistory, setHasMoreHistory] = useState(true);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [oldestLoadedAt, setOldestLoadedAt] = useState<string | null>(null);
@@ -151,7 +170,6 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   const isLongPressMode = useRef(false); // 是否是长按模式（按住录音）
   const pressStartTime = useRef(0); // 按下的时间戳
   
-  const chatPanel = useChatPanel();
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
   
   // 组件挂载状态，后台重试完成后仅在校验通过后更新 UI
@@ -186,6 +204,31 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     };
   }, [isPanel, chatPanel]);
 
+  // attachments 模式：有 projectId 时加载 task 列表（用于识别文件后自动匹配）
+  useEffect(() => {
+    if (!isAttachmentsType || !effectiveProjectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const project = await getProjectById(effectiveProjectId);
+        if (!project || cancelled) return;
+        const tree = await getProjectTodosTree(project.orderId);
+        const tasks: { id: string; title: string }[] = [];
+        function walk(nodes: ProjectTodoNode[]) {
+          nodes.forEach((n) => {
+            if (n.itemKind === 'task') tasks.push({ id: n.id, title: n.title });
+            walk(n.children);
+          });
+        }
+        walk(tree);
+        if (!cancelled) setAttachmentTaskOptions(tasks);
+      } catch {
+        if (!cancelled) setAttachmentTaskOptions([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isAttachmentsType, effectiveProjectId]);
+
   // 提交类别选单打开时：点击选单外区域收起（仅 Web）
   useEffect(() => {
     if (Platform.OS !== 'web' || !showTypeDropdown) return;
@@ -202,7 +245,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       let isActive = true;
       const current = messagesRef.current;
       const hasPreviews = current.some(
-        (m) => m.receiptPreview?.id || m.invoicePreview?.id || m.inboundPreview?.id || m.outboundPreview?.id,
+        (m) => m.receiptPreview?.id || m.invoicePreview?.id || m.inboundPreview?.id || m.outboundPreview?.id || m.attachmentPreview?.id,
       );
       if (!hasPreviews || current.length === 0) return;
       (async () => {
@@ -262,7 +305,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
 
         if (!logs || logs.length === 0) {
           let welcomeText: string;
-          if (voucherType === 'invoice') {
+          if (voucherType === 'attachments') {
+            welcomeText = 'Upload tax documents (image or PDF). Each file will be automatically classified and attached to the matching task. You can upload multiple files; they will be processed one by one.';
+          } else if (voucherType === 'invoice') {
             welcomeText = 'Hi! Describe your income (sale / money received). I\'ll extract customer, amount, and items.\n\nExample: "Client ABC paid $500 on March 15 for consulting. Items: Service $500"';
           } else if (voucherType === 'inbound') {
             welcomeText = 'Hi! Describe your inbound (goods received from supplier). I\'ll extract supplier, date, and items with quantity and unit.\n\nExample: "ABC Supplier delivered on March 15: Widget A 10 boxes @ $50, Widget B 20 pcs"';
@@ -335,6 +380,16 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               receiptPreview: preview,
               voucherType: 'receipt',
             });
+          } else if (log.responseData?.attachmentPreview && logType === 'attachments') {
+            const preview = log.responseData.attachmentPreview as { id: string; projectId: string; todoId: string; name: string; summary?: string | null };
+            restoredMessages.push({
+              id: `${log.id}-preview`,
+              text: '',
+              isUser: false,
+              timestamp: new Date(log.createdAt),
+              attachmentPreview: preview,
+              voucherType: 'attachments',
+            });
           } else if (log.response) {
             restoredMessages.push({
               id: `${log.id}-response`,
@@ -347,7 +402,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
 
         if (restoredMessages.length === 0) {
           let welcomeText: string;
-          if (voucherType === 'invoice') welcomeText = 'Hi! Describe your income (sale / money received). I\'ll extract customer, amount, and items.';
+          if (voucherType === 'attachments') welcomeText = 'Upload tax documents (image or PDF). Each file will be automatically classified and attached to the matching task.';
+          else if (voucherType === 'invoice') welcomeText = 'Hi! Describe your income (sale / money received). I\'ll extract customer, amount, and items.';
           else if (voucherType === 'inbound') welcomeText = 'Hi! Describe your inbound (goods received). I\'ll extract supplier, date, and items with quantity and unit.';
           else if (voucherType === 'outbound') welcomeText = 'Hi! Describe your outbound (goods shipped). I\'ll extract customer, date, and items with quantity and unit.';
           else welcomeText = 'Hi! I can help you create expenses from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"';
@@ -499,6 +555,16 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             receiptPreview: preview,
             voucherType: 'receipt',
           });
+        } else if (log.responseData?.attachmentPreview && logType === 'attachments') {
+          const preview = log.responseData.attachmentPreview as { id: string; projectId: string; todoId: string; name: string; summary?: string | null };
+          moreMessagesRaw.push({
+            id: `${log.id}-preview`,
+            text: '',
+            isUser: false,
+            timestamp: new Date(log.createdAt),
+            attachmentPreview: preview,
+            voucherType: 'attachments',
+          });
         } else if (log.response) {
           moreMessagesRaw.push({
             id: `${log.id}-response`,
@@ -622,6 +688,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       }
       return;
     }
+    const attachmentPreview = message.attachmentPreview;
+    if (attachmentPreview?.id && attachmentPreview?.projectId) {
+      router.push(`/tax-filing/project/${attachmentPreview.projectId}/attachment/${attachmentPreview.id}`);
+      return;
+    }
     const receiptId = message.receiptPreview?.id;
     if (!receiptId) return;
     try {
@@ -638,27 +709,149 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     }
   };
 
+  /** 选择图片加入暂存，与现有 image icon 复用，点发送时再按类型识别 */
+  const pickImagesForSend = useCallback(async () => {
+    if (isProcessing) return;
+    if (voucherType === 'attachments' && !effectiveProjectId) {
+      showToast('Open from a tax-filing project to attach files.', 'info');
+      return;
+    }
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync?.();
+      if (status !== 'granted' && status !== 'undetermined') {
+        showToast('Need photo library permission.', 'info');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        allowsEditing: false,
+        quality: 0.9,
+      });
+      if (result.canceled || !result.assets?.length) return;
+      setStagedAttachmentFiles(prev => [...prev, ...result.assets.map((a) => ({ uri: a.uri!, name: a.fileName }))]);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to add files', 'error');
+    }
+  }, [effectiveProjectId, isProcessing, voucherType]);
+
   const handleSend = async () => {
     const text = inputText.trim();
-    if (!text || isProcessing) return;
+    const hasStaged = stagedAttachmentFiles.length > 0;
+    if ((!text && !hasStaged) || isProcessing) return;
 
-    // 添加用户消息
-    const userMessage: Message = {
-      id: Date.now().toString(),
-      text: text,
-      isUser: true,
-      timestamp: new Date(),
-    };
+    // 有暂存图片：按类型上传并识别（复用已有 receipt/invoice 图片识别，attachments 用报税 prompt）
+    if (hasStaged) {
+      const toUpload = [...stagedAttachmentFiles];
+      const userInstructions = text || undefined;
+      setStagedAttachmentFiles([]);
+      setInputText('');
+      setIsProcessing(true);
+      const scrollToBottom = () => setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+      try {
+        const space = await getCurrentSpace(true);
+        const clientSpaceId = space?.id ?? '';
+        if (!clientSpaceId) {
+          showToast('No space context.', 'error');
+          setStagedAttachmentFiles(toUpload);
+          setIsProcessing(false);
+          return;
+        }
+        const newMessages: Message[] = [];
+        if (voucherType === 'attachments') {
+          const projectId = effectiveProjectId;
+          if (!projectId || attachmentTaskOptions.length === 0) {
+            showToast(attachmentTaskOptions.length === 0 ? 'Loading project tasks…' : 'Open from a tax-filing project to attach files.', 'info');
+            setStagedAttachmentFiles(toUpload);
+            setIsProcessing(false);
+            return;
+          }
+          const project = await getProjectById(projectId);
+          const projectContext = { taxCountry: project?.taxCountry ?? null, taxScenario: project?.taxScenario ?? null };
+          for (let i = 0; i < toUpload.length; i++) {
+            const file = toUpload[i];
+            const processedUri = await processImageForUpload(file.uri, { autoCrop: true, quality: 0.85 });
+            const imageUrl = await uploadTaxFilingFile(processedUri, `chat-attach-${Date.now()}-${i}`, clientSpaceId);
+            const { taskId: todoId } = await classifyTaxDocumentAndPickTask(imageUrl, projectContext, attachmentTaskOptions);
+            const createResult = await createProjectTodoAttachment(todoId, imageUrl, { status: 'PENDING_AI' });
+            if ('error' in createResult) {
+              showToast(`Upload failed: ${createResult.error.message}`, 'error');
+              continue;
+            }
+            const attachmentId = createResult.id;
+            const name = file.name ?? `File ${i + 1}`;
+            let summary: string | null = null;
+            try {
+              const taskTitle = attachmentTaskOptions.find((t) => t.id === todoId)?.title ?? '';
+              const recognition = await runTaxFilingRecognition(imageUrl, { country: (project?.taxCountry === 'USA' ? 'USA' : 'CANADA') as 'CANADA' | 'USA', taxScenario: project?.taxScenario ?? '' }, taskTitle ? { task: taskTitle } : undefined, userInstructions);
+              await updateProjectTodoAttachment(attachmentId, { summary: recognition.summary, doc_type: recognition.doc_type, extracted_data: recognition.extracted_data, status: 'PROCESSED' });
+              summary = recognition.summary;
+            } catch (_) {}
+            const userMsg: Message = { id: `attach-user-${attachmentId}`, text: name, isUser: true, timestamp: new Date() };
+            const previewMsg: Message = { id: `attach-preview-${attachmentId}`, text: '', isUser: false, timestamp: new Date(), attachmentPreview: { id: attachmentId, projectId, todoId, name, summary }, voucherType: 'attachments' };
+            newMessages.push(previewMsg, userMsg);
+            await saveChatLog({ receiptId: undefined, voucherType: 'attachments', type: 'image', modelName: 'tax-filing', prompt: userInstructions ? `Uploaded: ${name}. Note: ${userInstructions}` : `Uploaded: ${name}`, response: '', requestData: { projectId, todoId, fileName: name }, responseData: { attachmentPreview: { id: attachmentId, projectId, todoId, name, summary } }, success: true });
+          }
+        } else if (voucherType === 'receipt' || voucherType === 'invoice') {
+          for (let i = 0; i < toUpload.length; i++) {
+            const file = toUpload[i];
+            const processedUri = await processImageForUpload(file.uri, { autoCrop: true, quality: 0.85 });
+            const tempFileName = `chat-${voucherType}-${Date.now()}-${i}`;
+            const imageUrl = await uploadReceiptImageTempWithSpace(processedUri, tempFileName, clientSpaceId);
+            const first = await runWithRecognitionRetry(() => recognizeReceipt(imageUrl), { maxAttempts: 3, delayMs: 1500 });
+            if (!first.success) {
+              const errText = first.isContentQuality ? '❌ Content unclear or not recognized. Please resubmit.' : `❌ ${getUserFacingMessage(first)}`;
+              newMessages.push({ id: `img-err-${Date.now()}-${i}`, text: errText, isUser: false, timestamp: new Date() });
+              continue;
+            }
+            if (isRecognitionResultUnrecognizable(first.result)) {
+              newMessages.push({ id: `img-err-${Date.now()}-${i}`, text: '❌ Content unclear or not recognized. Please resubmit.', isUser: false, timestamp: new Date() });
+              continue;
+            }
+            const name = file.name ?? `Image ${i + 1}`;
+            const userMsg: Message = { id: `img-user-${Date.now()}-${i}`, text: name, isUser: true, timestamp: new Date() };
+            if (voucherType === 'invoice') {
+              const invoice = await convertGeminiResultToInvoice(first.result as any);
+              const invoiceToSave = { ...invoice, status: 'pending' as const, inputType: 'image' as const };
+              const invoiceId = await saveInvoice(invoiceToSave);
+              const previewMessage: Message = { id: `img-preview-${Date.now()}-${i}`, text: '', isUser: false, timestamp: new Date(), invoicePreview: { ...invoiceToSave, id: invoiceId, status: 'pending', account: (first.result as any).paymentAccountName ? { id: invoice.accountId || '', spaceId: invoice.spaceId, name: (first.result as any).paymentAccountName!, isAiRecognized: true } : undefined } as Invoice, voucherType: 'invoice' };
+              newMessages.push(userMsg, previewMessage);
+              await saveChatLog({ receiptId: undefined, voucherType: 'invoice', type: 'image', modelName: 'gemini', prompt: name, response: '', requestData: { imageUrl }, responseData: { invoicePreview: previewMessage.invoicePreview }, success: true });
+            } else {
+              const receipt = await convertGeminiResultToReceipt(first.result);
+              const receiptToSave = { ...receipt, status: 'pending' as ReceiptStatus, inputType: 'image' as const };
+              const receiptId = await saveReceipt(receiptToSave);
+              const previewMessage: Message = { id: `img-preview-${Date.now()}-${i}`, text: '', isUser: false, timestamp: new Date(), receiptPreview: { ...receiptToSave, id: receiptId, status: 'pending' as ReceiptStatus, account: (first.result as any).paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: (first.result as any).paymentAccountName!, isAiRecognized: true } : undefined } };
+              newMessages.push(userMsg, previewMessage);
+              await saveChatLog({ receiptId, voucherType: 'receipt', type: 'image', modelName: 'gemini', prompt: name, response: '', requestData: { imageUrl }, responseData: { receiptPreview: previewMessage.receiptPreview }, success: true });
+            }
+          }
+        } else {
+          showToast('Image upload for this type is not supported yet.', 'info');
+        }
+        if (newMessages.length > 0) {
+          setMessages((prev) => [...newMessages, ...prev]);
+        }
+        scrollToBottom();
+      } catch (e) {
+        showToast(e instanceof Error ? e.message : 'Upload failed', 'error');
+        setStagedAttachmentFiles(toUpload);
+      } finally {
+        setIsProcessing(false);
+      }
+      return;
+    }
+
+    // 纯文字：attachments 类型仅支持图片提交
+    if (voucherType === 'attachments') {
+      showToast('Add images from a tax-filing project to submit.', 'info');
+      return;
+    }
+    const userMessage: Message = { id: Date.now().toString(), text: text, isUser: true, timestamp: new Date() };
     setMessages(prev => [userMessage, ...prev]);
     setInputText('');
     setIsProcessing(true);
-
-    // 滚动到底部
-    setTimeout(() => {
-      listRef.current?.scrollToOffset({ offset: 0, animated: true });
-    }, 100);
-
-    // 识别：先试一次，可重试错误则后台静默重试直至成功；内容质量差则直接提示重新提交
+    setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
     const recognizeFn = () => {
       if (voucherType === 'invoice') return recognizeVoucherFromText(text, 'invoice');
       if (voucherType === 'inbound') return recognizeInboundFromText(text);
@@ -1606,6 +1799,37 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 </View>
               </View>
             )}
+
+            {message.attachmentPreview && (
+              <TouchableOpacity
+                style={styles.receiptPreviewCard}
+                onPress={() => handlePreviewDetails(message)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.receiptPreviewHeader}>
+                  <Ionicons name="document-attach" size={20} color="#6C5CE7" />
+                  <Text style={styles.receiptPreviewTitle}>Attachment</Text>
+                </View>
+                <View style={styles.receiptPreviewContent}>
+                  <View style={styles.receiptPreviewRow}>
+                    <Text style={styles.receiptPreviewLabel}>File:</Text>
+                    <Text style={styles.receiptPreviewValue} numberOfLines={1}>{message.attachmentPreview.name}</Text>
+                  </View>
+                  {message.attachmentPreview.summary ? (
+                    <View style={styles.receiptPreviewRow}>
+                      <Text style={styles.receiptPreviewLabel}>Summary:</Text>
+                      <Text style={styles.receiptPreviewValue} numberOfLines={2}>{message.attachmentPreview.summary}</Text>
+                    </View>
+                  ) : null}
+                </View>
+                <View style={styles.receiptPreviewActions}>
+                  <TouchableOpacity style={styles.previewActionButton} onPress={() => handlePreviewDetails(message)}>
+                    <Ionicons name="eye-outline" size={16} color="#6C5CE7" />
+                    <Text style={styles.previewActionText}>View in project</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableOpacity>
+            )}
             
           </View>
         )}
@@ -1616,12 +1840,30 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         {Platform.OS === 'web' ? (
           <View style={styles.webInputOuter}>
             <View style={styles.webInputBlock}>
+              {stagedAttachmentFiles.length > 0 ? (
+                <View style={styles.stagedFilesRow}>
+                  <View style={styles.stagedFilesList}>
+                    {stagedAttachmentFiles.map((f, idx) => (
+                      <View key={`${f.uri}-${idx}`} style={styles.stagedFileChip}>
+                        <Text style={styles.stagedFileChipText} numberOfLines={1}>{f.name ?? `File ${idx + 1}`}</Text>
+                        <TouchableOpacity
+                          hitSlop={8}
+                          onPress={() => setStagedAttachmentFiles(prev => prev.filter((_, i) => i !== idx))}
+                          disabled={isProcessing}
+                        >
+                          <Ionicons name="close-circle" size={18} color="#636E72" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </View>
+                </View>
+              ) : null}
               <View style={styles.webInputRow}>
                 <View style={styles.webInputWrapper}>
                   <TextInput
                     ref={inputRef}
                     style={styles.webInput}
-                    placeholder={voucherType === 'invoice' ? 'Describe your incomes...' : voucherType === 'inbound' ? 'Describe your inbound...' : voucherType === 'outbound' ? 'Describe your outbound...' : 'Describe your expenses...'}
+                    placeholder={voucherType === 'attachments' ? 'Add tax documents...' : voucherType === 'invoice' ? 'Describe your incomes...' : voucherType === 'inbound' ? 'Describe your inbound...' : voucherType === 'outbound' ? 'Describe your outbound...' : 'Describe your expenses...'}
                     placeholderTextColor="#95A5A6"
                     value={inputText}
                     onChangeText={setInputText}
@@ -1637,7 +1879,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               </View>
               <View style={styles.webInputActionsRow}>
                 <View style={styles.webInputActionsLeft}>
-                  <TouchableOpacity style={styles.webActionIcon} onPress={() => showToast('Upload images, PDF or audio – coming soon.', 'info')}>
+                  <TouchableOpacity style={styles.webActionIcon} onPress={pickImagesForSend} disabled={isProcessing}>
                     <Ionicons name="image-outline" size={22} color="#636E72" />
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -1653,6 +1895,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                     { value: 'receipt', label: 'Expenses' },
                     { value: 'invoice', label: 'Incomes' },
                     ...(showAiInventory ? [{ value: 'inbound' as const, label: 'Inbound' }, { value: 'outbound' as const, label: 'Outbound' }] : []),
+                    ...(showTaxFiling ? [{ value: 'attachments' as const, label: 'Attachments' }] : []),
                   ];
                   const currentLabel = typeOptions.find(o => o.value === voucherType)?.label ?? 'Expenses';
                   return (
@@ -1685,9 +1928,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   );
                 })()}
                 <TouchableOpacity
-                  style={[styles.webSendButton, (!inputText.trim() || isProcessing) && styles.sendButtonDisabled]}
+                  style={[styles.webSendButton, ((!inputText.trim() && stagedAttachmentFiles.length === 0) || isProcessing) && styles.sendButtonDisabled]}
                   onPress={handleSend}
-                  disabled={!inputText.trim() || isProcessing}
+                  disabled={(!inputText.trim() && stagedAttachmentFiles.length === 0) || isProcessing}
                 >
                   {isProcessing ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="send" size={20} color="#fff" />}
                 </TouchableOpacity>
@@ -1720,6 +1963,24 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
           )}
         </TouchableOpacity>
 
+        {stagedAttachmentFiles.length > 0 ? (
+          <View style={styles.stagedFilesRow}>
+            <View style={styles.stagedFilesList}>
+              {stagedAttachmentFiles.map((f, idx) => (
+                <View key={`${f.uri}-${idx}`} style={styles.stagedFileChip}>
+                  <Text style={styles.stagedFileChipText} numberOfLines={1}>{f.name ?? `File ${idx + 1}`}</Text>
+                  <TouchableOpacity
+                    hitSlop={8}
+                    onPress={() => setStagedAttachmentFiles(prev => prev.filter((_, i) => i !== idx))}
+                    disabled={isProcessing}
+                  >
+                    <Ionicons name="close-circle" size={18} color="#636E72" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </View>
+          </View>
+        ) : null}
         {isVoiceMode ? (
           // Voice mode: tap to start/stop OR hold to talk
           <Pressable
@@ -1783,7 +2044,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             <TextInput
               ref={inputRef}
               style={styles.input}
-              placeholder={voucherType === 'invoice' ? 'Describe your incomes...' : voucherType === 'inbound' ? 'Describe your inbound...' : voucherType === 'outbound' ? 'Describe your outbound...' : 'Describe your expenses...'}
+              placeholder={voucherType === 'attachments' ? 'Add tax documents...' : voucherType === 'invoice' ? 'Describe your incomes...' : voucherType === 'inbound' ? 'Describe your inbound...' : voucherType === 'outbound' ? 'Describe your outbound...' : 'Describe your expenses...'}
               placeholderTextColor="#95A5A6"
               value={inputText}
               onChangeText={setInputText}
@@ -1810,16 +2071,21 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             )}
           </View>
         )}
+        {!isVoiceMode && (
+          <TouchableOpacity style={styles.attachIconButton} onPress={pickImagesForSend} disabled={isProcessing}>
+            <Ionicons name="image-outline" size={24} color="#6C5CE7" />
+          </TouchableOpacity>
+        )}
 
-        {/* 发送按钮（仅文字模式显示） */}
+        {/* 发送按钮（仅文字模式显示）；有文字或暂存图片时可发送 */}
         {!isVoiceMode && (
           <TouchableOpacity
             style={[
               styles.sendButton,
-              (!inputText.trim() || isProcessing) && styles.sendButtonDisabled,
+              ((!inputText.trim() && stagedAttachmentFiles.length === 0) || isProcessing) && styles.sendButtonDisabled,
             ]}
             onPress={handleSend}
-            disabled={!inputText.trim() || isProcessing}
+            disabled={(!inputText.trim() && stagedAttachmentFiles.length === 0) || isProcessing}
           >
             {isProcessing ? (
               <ActivityIndicator size="small" color="#fff" />
@@ -2137,6 +2403,99 @@ const styles = StyleSheet.create({
     color: '#95A5A6',
     textAlign: 'center',
     marginTop: 10,
+  },
+  attachmentsHint: {
+    fontSize: 14,
+    color: '#636E72',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  attachIconButton: {
+    padding: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stagedFilesRow: {
+    marginBottom: 8,
+  },
+  stagedFilesList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  stagedFileChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingVertical: 4,
+    paddingLeft: 8,
+    paddingRight: 4,
+    borderRadius: 12,
+    backgroundColor: '#F1F3F5',
+    maxWidth: '100%',
+  },
+  stagedFileChipText: {
+    fontSize: 13,
+    color: '#2D3436',
+    maxWidth: 160,
+  },
+  attachmentTaskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+    gap: 8,
+  },
+  attachmentTaskLabel: {
+    fontSize: 14,
+    color: '#636E72',
+    fontWeight: '500',
+  },
+  attachmentTaskSelectWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  attachmentTaskSelectPlaceholder: {
+    fontSize: 13,
+    color: '#95A5A6',
+    width: '100%',
+    marginBottom: 4,
+  },
+  attachmentTaskOption: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: '#F1F3F5',
+  },
+  attachmentTaskOptionActive: {
+    backgroundColor: '#6C5CE7',
+  },
+  attachmentTaskOptionText: {
+    fontSize: 13,
+    color: '#2D3436',
+    maxWidth: 160,
+  },
+  attachmentTaskOptionTextActive: {
+    color: '#fff',
+  },
+  uploadAttachmentsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: '#6C5CE7',
+  },
+  uploadAttachmentsBtnDisabled: {
+    backgroundColor: '#BDC3C7',
+  },
+  uploadAttachmentsBtnText: {
+    fontSize: 15,
+    color: '#fff',
+    fontWeight: '600',
   },
   inputWrapper: {
     flex: 1,

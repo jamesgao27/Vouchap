@@ -40,6 +40,8 @@ export async function processOutboundInBackground(
 ): Promise<void> {
   console.log('[出库单处理] 开始处理，outboundId:', outboundId, 'imageUrl:', imageUrl);
   try {
+    const existing = await getOutboundById(outboundId);
+    const spaceId = existing?.spaceId ?? '';
     console.log('[出库单处理] 步骤1: 调用AI识别图片...');
     const recognizedData = await recognizeOutboundFromImage(imageUrl);
     console.log('[出库单处理] AI识别完成，结果:', JSON.stringify(recognizedData, null, 2));
@@ -49,7 +51,7 @@ export async function processOutboundInBackground(
     console.log('[出库单处理] 转换完成，出库单数据:', JSON.stringify(outbound, null, 2));
     
     console.log('[出库单处理] 步骤3: 上传正式图片...');
-    const finalImageUrl = await uploadOutboundImage(processedImageUri, outboundId);
+    const finalImageUrl = await uploadOutboundImage(processedImageUri, outboundId, spaceId);
     console.log('[出库单处理] 图片上传完成，finalImageUrl:', finalImageUrl);
     
     if (imageUrl && imageUrl !== finalImageUrl) {

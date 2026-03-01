@@ -4,7 +4,9 @@
  */
 import React, { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
 
-export type ChatPanelType = 'receipt' | 'invoice' | 'inbound' | 'outbound';
+export type ChatPanelType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'attachments';
+
+export type AttachmentContext = { projectId?: string; todoId?: string };
 
 type ChatPanelContextValue = {
   open: boolean;
@@ -14,6 +16,9 @@ type ChatPanelContextValue = {
   closePanel: () => void;
   initialInput: string | null;
   setInitialInput: (v: string | null) => void;
+  /** 报税附件模式：从报税项目页呼出时带入 projectId / todoId */
+  attachmentContext: AttachmentContext;
+  setAttachmentContext: (c: AttachmentContext) => void;
   /** 由右栏 ChatToLogContent 注册，openPanel 后用于聚焦输入框 */
   inputFocusRef: React.MutableRefObject<(() => void) | null>;
 };
@@ -24,6 +29,7 @@ export function ChatPanelProvider({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<ChatPanelType>('receipt');
   const [initialInput, setInitialInput] = useState<string | null>(null);
+  const [attachmentContext, setAttachmentContext] = useState<AttachmentContext>({});
   const inputFocusRef = useRef<(() => void) | null>(null);
 
   const openPanel = useCallback((t?: ChatPanelType) => {
@@ -42,6 +48,8 @@ export function ChatPanelProvider({ children }: { children: ReactNode }) {
     closePanel,
     initialInput,
     setInitialInput,
+    attachmentContext,
+    setAttachmentContext,
     inputFocusRef,
   };
 

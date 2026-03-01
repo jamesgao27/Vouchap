@@ -1,5 +1,5 @@
 /**
- * 订单/项目 - Todos 树形列表页（默认进入的详情页）
+ * 项目 - Todos 树形列表页（client 侧以 project 为主体的详情页）
  * 顶行用页面 Stack 顶栏（税季+项目名+Services from firm、设置）；展示区顶栏隐藏。状态/(n/m)/资料数跟随名称左对齐。
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -19,15 +19,17 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useChatPanel } from '../../../../contexts/ChatPanelContext';
 import {
   getOrderById,
   getOrderHeaderForClient,
   getProjectTodosTree,
-  getProjectByOrderId,
+  getProjectById,
   getAttachmentsByProjectTodoIds,
   createProjectTodo,
   updateProjectTodo,
   createProjectTodoAttachment,
+  deleteProjectTodoAttachment,
   type ProjectTodoNode,
   type ProjectTodoReceiptSummary,
 } from '@/lib/firm';
@@ -162,11 +164,13 @@ function useNodeStats(nodes: ProjectTodoNode[]) {
   }, [nodes]);
 }
 
-export default function OrderTodosScreen() {
-  const { orderId } = useLocalSearchParams<{ orderId: string }>();
+export default function ProjectTodosScreen() {
+  const { projectId } = useLocalSearchParams<{ projectId: string }>();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** 由 project 解析出的 orderId，用于 API（getProjectTodosTree 等） */
+  const [orderId, setOrderId] = useState<string | null>(null);
   const [header, setHeader] = useState<{ projectName: string; firmName: string; dueAt: string | null; createdAt: string | null; status: string } | null>(null);
   /** 当前订单的 client space_id，用于税表上传路径 tax-filing/{clientSpaceId}/... */
   const [clientSpaceId, setClientSpaceId] = useState<string>('');
@@ -179,24 +183,33 @@ export default function OrderTodosScreen() {
   const [taskFilesMap, setTaskFilesMap] = useState<Record<string, ProjectTodoReceiptSummary[]>>({});
 
   const load = useCallback(async () => {
-    if (!orderId) return;
+    if (!projectId) return;
     setLoading(true);
     setError(null);
     try {
-      const order = await getOrderById(orderId);
+      const project = await getProjectById(projectId);
+      if (!project) {
+        setError('Project not found');
+        setLoading(false);
+        return;
+      }
+      const orderIdVal = project.orderId;
+      setOrderId(orderIdVal);
+      const order = await getOrderById(orderIdVal);
       if (!order) {
         setError('Order not found');
+        setLoading(false);
         return;
       }
       setClientSpaceId(order.clientSpaceId ?? '');
-      const headerData = await getOrderHeaderForClient(orderId);
+      const headerData = await getOrderHeaderForClient(orderIdVal);
       setHeader(headerData ?? null);
       if (order.status === 'onboarding') {
         setTree([]);
         setLoading(false);
         return;
       }
-      const todosTree = await getProjectTodosTree(orderId);
+      const todosTree = await getProjectTodosTree(orderIdVal);
       setTree(todosTree);
       const taskIds = collectTaskIds(todosTree);
       const filesMap = await getAttachmentsByProjectTodoIds(taskIds);
@@ -206,11 +219,18 @@ export default function OrderTodosScreen() {
     } finally {
       setLoading(false);
     }
-  }, [orderId]);
+  }, [projectId]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  const chatPanel = useChatPanel();
+  useEffect(() => {
+    if (!projectId || !chatPanel) return;
+    chatPanel.setAttachmentContext({ projectId, todoId: undefined });
+    return () => chatPanel.setAttachmentContext({});
+  }, [projectId, chatPanel]);
 
   const nodeStats = useNodeStats(tree);
 
@@ -275,6 +295,7 @@ export default function OrderTodosScreen() {
 
   const onConfirmAddChild = useCallback(
     async (parentId: string, parentType: ProjectTodoNode['type'], title: string) => {
+      if (!orderId) return;
       const trimmed = (title ?? '').trim();
       if (!trimmed) {
         setPendingParentId(null);
@@ -302,7 +323,7 @@ export default function OrderTodosScreen() {
           next.delete(parentId);
           return next;
         });
-        const todosTree = await getProjectTodosTree(orderId);
+        const todosTree = orderId ? await getProjectTodosTree(orderId) : [];
         setTree(todosTree);
         const taskIds = collectTaskIds(todosTree);
         const filesMap = await getAttachmentsByProjectTodoIds(taskIds);
@@ -325,6 +346,7 @@ export default function OrderTodosScreen() {
 
   const onCancelTask = useCallback(
     async (todoId: string) => {
+      if (!orderId) return;
       const { error: err } = await updateProjectTodo(todoId, { status: 'canceled' });
       if (err) {
         if (Platform.OS === 'web') window.alert('Cancel failed: ' + (err.message ?? ''));
@@ -342,6 +364,7 @@ export default function OrderTodosScreen() {
 
   const onRestoreTask = useCallback(
     async (todoId: string) => {
+      if (!orderId) return;
       const { error: err } = await updateProjectTodo(todoId, { status: 'action_required' });
       if (err) {
         if (Platform.OS === 'web') window.alert('Restore failed: ' + (err.message ?? ''));
@@ -359,6 +382,7 @@ export default function OrderTodosScreen() {
 
   const onUploadFile = useCallback(
     async (todoId: string) => {
+      if (!orderId) return;
       try {
         const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync?.();
         if (status !== 'granted' && status !== 'undetermined') {
@@ -399,14 +423,30 @@ export default function OrderTodosScreen() {
   );
 
   const goToInfo = useCallback(() => {
-    router.push(`/tax-filing/order/${orderId}/info`);
-  }, [orderId, router]);
+    if (projectId) router.push(`/tax-filing/project/${projectId}/info`);
+  }, [projectId, router]);
 
   const goToFileDetail = useCallback(
     (attachmentId: string) => {
-      router.push(`/tax-filing/order/${orderId}/attachment/${attachmentId}`);
+      if (projectId) router.push(`/tax-filing/project/${projectId}/attachment/${attachmentId}`);
     },
-    [orderId, router]
+    [projectId, router]
+  );
+
+  const onRemoveFile = useCallback(
+    async (todoId: string, attachmentId: string) => {
+      if (!orderId) return;
+      const { error } = await deleteProjectTodoAttachment(attachmentId);
+      if (error) {
+        if (Platform.OS === 'web') window.alert('Remove failed: ' + (error.message ?? ''));
+        else Alert.alert('Remove failed', error.message ?? '');
+        return;
+      }
+      const taskIds = collectTaskIds(tree);
+      const filesMap = await getAttachmentsByProjectTodoIds(taskIds);
+      setTaskFilesMap(filesMap);
+    },
+    [orderId, tree]
   );
 
   const dateForYear = header?.dueAt || header?.createdAt || null;
@@ -498,6 +538,7 @@ export default function OrderTodosScreen() {
                       onCancelTask={onCancelTask}
                       onRestoreTask={onRestoreTask}
                       onUploadFile={onUploadFile}
+                      onRemoveFile={onRemoveFile}
                     />
                   </View>
                 ))}
@@ -621,6 +662,7 @@ function TodoTree({
   onCancelTask,
   onRestoreTask,
   onUploadFile,
+  onRemoveFile,
 }: {
   nodes: ProjectTodoNode[];
   depth: number;
@@ -648,6 +690,7 @@ function TodoTree({
   onCancelTask?: (todoId: string) => void;
   onRestoreTask?: (todoId: string) => void;
   onUploadFile?: (todoId: string) => void;
+  onRemoveFile?: (todoId: string, attachmentId: string) => void;
 }) {
   const indent = depth * 14;
   const { taskTotal, taskSuccess, effectiveStatus } = nodeStats;
@@ -982,6 +1025,7 @@ function TodoTree({
                 onCancelTask={onCancelTask}
                 onRestoreTask={onRestoreTask}
                 onUploadFile={onUploadFile}
+                onRemoveFile={onRemoveFile}
               />
             )}
             {pendingParentId === node.id && onConfirmAddChild && onCancelAddChild && (
@@ -1040,7 +1084,21 @@ function TodoTree({
                               </View>
                             )}
                           </View>
-                          <Ionicons name="chevron-forward" size={14} color="#95A5A6" />
+                          <View style={styles.attachmentCardTrailing}>
+                            {onRemoveFile ? (
+                              <Pressable
+                                style={styles.fileRowRemoveBtn}
+                                onPress={(e) => {
+                                  e.stopPropagation();
+                                  onRemoveFile(node.id, f.id);
+                                }}
+                                hitSlop={8}
+                              >
+                                <Ionicons name="close-circle-outline" size={18} color="#95A5A6" />
+                              </Pressable>
+                            ) : null}
+                            <Ionicons name="chevron-forward" size={14} color="#95A5A6" />
+                          </View>
                         </View>
                       </TouchableOpacity>
                     ))}
@@ -1220,15 +1278,6 @@ const styles = StyleSheet.create({
   attachmentCardSummary: { fontSize: 12, color: '#2D3436', marginBottom: 4 },
   attachmentCardPreview: { gap: 2 },
   attachmentCardPreviewLine: { fontSize: 10, color: '#636E72', marginBottom: 0 },
-  fileRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    gap: 8,
-    backgroundColor: '#F8F9FA',
-    borderRadius: 8,
-    marginBottom: 6,
-  },
-  fileRowTitle: { flex: 1, fontSize: 12, color: '#2D3436' },
+  attachmentCardTrailing: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  fileRowRemoveBtn: { width: 20, height: 20, justifyContent: 'center', alignItems: 'center', cursor: 'pointer' },
 });

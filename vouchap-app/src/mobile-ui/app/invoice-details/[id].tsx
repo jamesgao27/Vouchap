@@ -746,7 +746,7 @@ export default function InvoiceDetailsScreen() {
     if (!id) return;
     setIsUploadingImage(true);
     try {
-      const imageUrl = await uploadInvoiceImage(imageUri, id);
+      const imageUrl = await uploadInvoiceImage(imageUri, id, editedInvoice?.spaceId ?? invoice?.spaceId ?? '');
       await saveInvoice({ ...(editedInvoice || invoice)!, id, imageUrl });
       await loadInvoice();
     } catch (error) {

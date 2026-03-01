@@ -39,7 +39,18 @@ export default function FirmServiceCatalogScreen() {
   const [editName, setEditName] = useState('');
   const [editDescription, setEditDescription] = useState('');
   const [editImageUri, setEditImageUri] = useState<string | null>(null);
+  const [editTaxCountry, setEditTaxCountry] = useState<string>('');
+  const [editTaxScenario, setEditTaxScenario] = useState<string>('');
   const [saving, setSaving] = useState(false);
+
+  const TAX_COUNTRY_OPTIONS = [{ value: '', label: '—' }, { value: 'CANADA', label: 'Canada' }, { value: 'USA', label: 'USA' }];
+  const TAX_SCENARIO_OPTIONS = [
+    { value: '', label: '—' },
+    { value: 'T1', label: 'T1' },
+    { value: 'T2', label: 'T2' },
+    { value: '1040', label: '1040' },
+    { value: '1120-S', label: '1120-S' },
+  ];
   const { width: windowWidth } = useWindowDimensions();
 
   const loadData = useCallback(async (forceRefresh = false) => {
@@ -71,6 +82,8 @@ export default function FirmServiceCatalogScreen() {
     setEditName(t.name);
     setEditDescription(t.description ?? '');
     setEditImageUri(null);
+    setEditTaxCountry(t.taxCountry ?? '');
+    setEditTaxScenario(t.taxScenario ?? '');
   }, []);
 
   const pickImage = useCallback(async () => {
@@ -115,7 +128,7 @@ export default function FirmServiceCatalogScreen() {
     } finally {
       setSaving(false);
     }
-  }, [editingSku, editName, editDescription, editImageUri, loadData]);
+  }, [editingSku, editName, editDescription, editImageUri, editTaxCountry, editTaxScenario, loadData]);
 
   const numColumns = Platform.select({
     web: Math.max(2, Math.floor((windowWidth - 48) / (CARD_MIN_WIDTH + GRID_GAP))),
@@ -172,6 +185,11 @@ export default function FirmServiceCatalogScreen() {
                     {t.description ? (
                       <Text style={styles.cardDesc} numberOfLines={3} ellipsizeMode="tail">
                         {t.description}
+                      </Text>
+                    ) : null}
+                    {(t.taxCountry || t.taxScenario) ? (
+                      <Text style={styles.cardTaxBadge} numberOfLines={1}>
+                        {[t.taxCountry, t.taxScenario].filter(Boolean).join(' · ')}
                       </Text>
                     ) : null}
                   </View>
@@ -243,6 +261,34 @@ export default function FirmServiceCatalogScreen() {
               multiline
               numberOfLines={3}
             />
+            <Text style={styles.editLabel}>报税辖区 (Tax jurisdiction)</Text>
+            <View style={styles.editOptionRow}>
+              {TAX_COUNTRY_OPTIONS.map((opt) => (
+                <TouchableOpacity
+                  key={opt.value || '_'}
+                  style={[styles.editOptionBtn, editTaxCountry === opt.value && styles.editOptionBtnActive]}
+                  onPress={() => setEditTaxCountry(opt.value)}
+                >
+                  <Text style={[styles.editOptionBtnText, editTaxCountry === opt.value && styles.editOptionBtnTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.editLabel}>报税场景 (Tax scenario)</Text>
+            <View style={styles.editOptionRowWrap}>
+              {TAX_SCENARIO_OPTIONS.map((opt) => (
+                <TouchableOpacity
+                  key={opt.value || '_'}
+                  style={[styles.editOptionBtn, editTaxScenario === opt.value && styles.editOptionBtnActive]}
+                  onPress={() => setEditTaxScenario(opt.value)}
+                >
+                  <Text style={[styles.editOptionBtnText, editTaxScenario === opt.value && styles.editOptionBtnTextActive]}>
+                    {opt.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
             <TouchableOpacity
               style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
               onPress={saveEdit}
@@ -309,6 +355,7 @@ const styles = StyleSheet.create({
   posterBodyContent: { flex: 1, minHeight: 80, overflow: 'hidden' },
   cardTitle: { fontSize: 14, fontWeight: '600', color: '#2D3436', lineHeight: 20 },
   cardDesc: { fontSize: 13, color: '#636E72', marginTop: 6, lineHeight: 18 },
+  cardTaxBadge: { fontSize: 11, color: '#6C5CE7', marginTop: 4 },
   itemRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -381,6 +428,32 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   editInputMultiline: { minHeight: 80, textAlignVertical: 'top' },
+  editOptionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  editOptionRowWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 16,
+  },
+  editOptionBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#FFF',
+  },
+  editOptionBtnActive: {
+    borderColor: '#6C5CE7',
+    backgroundColor: '#F0EEFF',
+  },
+  editOptionBtnText: { fontSize: 14, color: '#636E72' },
+  editOptionBtnTextActive: { color: '#6C5CE7', fontWeight: '600' },
   saveBtn: {
     flexDirection: 'row',
     alignItems: 'center',

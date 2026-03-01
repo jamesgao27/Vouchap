@@ -39,9 +39,11 @@ export async function processInboundInBackground(
   processedImageUri: string
 ): Promise<void> {
   try {
+    const existing = await getInboundById(inboundId);
+    const spaceId = existing?.spaceId ?? '';
     const recognizedData = await recognizeInboundFromImage(imageUrl);
     const inbound = await convertGeminiResultToInbound(recognizedData);
-    const finalImageUrl = await uploadInboundImage(processedImageUri, inboundId);
+    const finalImageUrl = await uploadInboundImage(processedImageUri, inboundId, spaceId);
     if (imageUrl && imageUrl !== finalImageUrl) {
       await deleteTempFile(imageUrl);
     }
