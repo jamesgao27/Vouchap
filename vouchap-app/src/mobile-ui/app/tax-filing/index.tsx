@@ -165,8 +165,13 @@ export default function TaxFilingScreen() {
     if (!error) setOrders(await loadOrders());
   };
 
-  const goToDetail = (orderId: string) => {
+  /** 点击卡片/行：进入 Todos 树形列表页 */
+  const goToTodos = (orderId: string) => {
     router.push(`/tax-filing/order/${orderId}`);
+  };
+  /** 点击 edit：进入项目信息页 */
+  const goToInfo = (orderId: string) => {
+    router.push(`/tax-filing/order/${orderId}/info`);
   };
 
   if (!showTaxFiling) return null;
@@ -208,8 +213,8 @@ export default function TaxFilingScreen() {
                   order={o}
                   isPinned={pinnedOrderIds.includes(o.id)}
                   onTogglePin={() => handleTogglePin(o.id)}
-                  onPress={() => goToDetail(o.id)}
-                  onSettings={o.status !== 'onboarding' ? () => goToDetail(o.id) : undefined}
+                  onPress={() => goToTodos(o.id)}
+                  onSettings={o.status !== 'onboarding' ? () => goToInfo(o.id) : undefined}
                   onConfirm={o.status === 'onboarding' ? () => handleConfirmOrder(o) : undefined}
                   confirming={confirmingId === o.id}
                 />
@@ -223,8 +228,8 @@ export default function TaxFilingScreen() {
                   order={o}
                   isPinned={pinnedOrderIds.includes(o.id)}
                   onTogglePin={() => handleTogglePin(o.id)}
-                  onPress={() => goToDetail(o.id)}
-                  onSettings={o.status !== 'onboarding' ? () => goToDetail(o.id) : undefined}
+                  onPress={() => goToTodos(o.id)}
+                  onSettings={o.status !== 'onboarding' ? () => goToInfo(o.id) : undefined}
                   onConfirm={o.status === 'onboarding' ? () => handleConfirmOrder(o) : undefined}
                   confirming={confirmingId === o.id}
                 />

@@ -198,6 +198,45 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
   };
 }
 
+/** 订单顶行展示（与列表页卡片一致）：projectName、firmName、dueAt、createdAt，用于 todos/info 页顶栏；税季用 dueAt ?? createdAt */
+export async function getOrderHeaderForClient(orderId: string): Promise<{
+  projectName: string;
+  firmName: string;
+  dueAt: string | null;
+  createdAt: string | null;
+  status: string;
+} | null> {
+  const order = await getOrderById(orderId);
+  if (!order) return null;
+  const isOnboarding = order.status === 'onboarding';
+  let projectName = 'Service order';
+  let firmName = '';
+  if (!isOnboarding) {
+    const [project, spaceRow] = await Promise.all([
+      getProjectByOrderId(orderId),
+      order.firmSpaceId
+        ? supabase.from('spaces').select('name').eq('id', order.firmSpaceId).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+    projectName = project?.name ?? 'Project';
+    firmName = (spaceRow.data as any)?.name ?? '';
+  } else {
+    const sku = await getSkuById(order.skuId);
+    if (sku) projectName = sku.name;
+    if (order.firmSpaceId) {
+      const { data: spaceRow } = await supabase.from('spaces').select('name').eq('id', order.firmSpaceId).maybeSingle();
+      firmName = (spaceRow as any)?.name ?? '';
+    }
+  }
+  return {
+    projectName,
+    firmName,
+    dueAt: order.dueAt ?? null,
+    createdAt: order.createdAt ?? null,
+    status: order.status,
+  };
+}
+
 /** 根据 skuId 获取 SKU 基本信息（名称、说明、封面），用于详情展示 */
 export async function getSkuById(skuId: string): Promise<{ name: string; description?: string | null; imageUrl?: string | null } | null> {
   const { data, error } = await supabase
@@ -725,7 +764,7 @@ export async function getOrderProjects(orderId: string): Promise<FirmProject[]> 
   }));
 }
 
-/** 项目任务树节点（WBS） */
+/** 项目任务树节点（WBS）；排序与 SKU-items 一致：同级按 sort_order */
 export interface ProjectTodoNode {
   id: string;
   orderId: string;
@@ -736,6 +775,8 @@ export interface ProjectTodoNode {
   status: FirmProject['status'];
   sortOrder: number;
   depth: number;
+  /** phase / section / task；仅 task 可关联文件 */
+  itemKind: 'phase' | 'section' | 'task';
   children: ProjectTodoNode[];
   createdAt?: string;
   updatedAt?: string;
@@ -764,6 +805,7 @@ export async function getProjectTodosTree(orderId: string): Promise<ProjectTodoN
       status: item.status,
       sortOrder: item.sortOrder,
       depth,
+      itemKind: (item as any).itemKind ?? 'task',
       children: buildChildren(item.id, depth + 1),
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
@@ -962,7 +1004,7 @@ export async function createProjectTodo(params: {
       type: params.type,
       title: params.title,
       description: params.description ?? null,
-      status: 'onboarding',
+      status: 'action_required',
       sort_order: params.sortOrder ?? nextOrder,
     })
     .select('id')
@@ -1005,6 +1047,88 @@ export async function deleteProjectTodo(todoId: string): Promise<{ error: Error 
     return { error: error as Error };
   }
   return { error: null };
+}
+
+/** 任务关联的文件（收据）摘要，用于 Todos 页 task 下文件列表 */
+export interface ProjectTodoReceiptSummary {
+  id: string;
+  name: string;
+  imageUrl?: string | null;
+}
+
+/** 获取某 project_todo 关联的 receipts 列表（用于 task 展开展示；点击进入 receipt 详情） */
+export async function getReceiptsByProjectTodoId(projectTodoId: string): Promise<ProjectTodoReceiptSummary[]> {
+  const { data: links, error: linkErr } = await supabase
+    .from('project_todo_receipts')
+    .select('receipt_id')
+    .eq('project_todo_id', projectTodoId);
+  if (linkErr || !links?.length) return [];
+  const receiptIds = (links as any[]).map((r) => r.receipt_id);
+  const { data: rows, error } = await supabase
+    .from('receipts')
+    .select('id, image_url, total_amount, date')
+    .in('id', receiptIds);
+  if (error || !rows?.length) return [];
+  return (rows as any[]).map((r) => ({
+    id: r.id,
+    name: r.date
+      ? `Receipt ${typeof r.date === 'string' ? r.date.split('T')[0] : r.date}${r.total_amount != null ? ` · ${Number(r.total_amount).toFixed(2)}` : ''}`
+      : 'Receipt',
+    imageUrl: r.image_url ?? null,
+  }));
+}
+
+/** 批量获取多个 project_todo 关联的 receipts（key = todoId） */
+export async function getReceiptsByProjectTodoIds(
+  projectTodoIds: string[]
+): Promise<Record<string, ProjectTodoReceiptSummary[]>> {
+  if (projectTodoIds.length === 0) return {};
+  const { data: links, error: linkErr } = await supabase
+    .from('project_todo_receipts')
+    .select('project_todo_id, receipt_id')
+    .in('project_todo_id', projectTodoIds);
+  if (linkErr || !links?.length) return {};
+  const receiptIds = [...new Set((links as any[]).map((r) => r.receipt_id))];
+  const todoIdByReceiptId = new Map<string, string[]>();
+  (links as any[]).forEach((r) => {
+    const list = todoIdByReceiptId.get(r.receipt_id) ?? [];
+    list.push(r.project_todo_id);
+    todoIdByReceiptId.set(r.receipt_id, list);
+  });
+  const { data: rows, error } = await supabase
+    .from('receipts')
+    .select('id, image_url, total_amount, date')
+    .in('id', receiptIds);
+  if (error || !rows?.length) return {};
+  const summary = (r: any) => ({
+    id: r.id,
+    name: r.date
+      ? `Receipt ${typeof r.date === 'string' ? r.date.split('T')[0] : r.date}${r.total_amount != null ? ` · ${Number(r.total_amount).toFixed(2)}` : ''}`
+      : 'Receipt',
+    imageUrl: r.image_url ?? null,
+  });
+  const out: Record<string, ProjectTodoReceiptSummary[]> = {};
+  projectTodoIds.forEach((id) => { out[id] = []; });
+  (rows as any[]).forEach((r) => {
+    const todoIds = todoIdByReceiptId.get(r.id) ?? [];
+    const s = summary(r);
+    todoIds.forEach((tid) => {
+      if (!out[tid]) out[tid] = [];
+      out[tid].push(s);
+    });
+  });
+  return out;
+}
+
+/** 将收据关联到 project_todo（上传文件到任务后调用） */
+export async function linkReceiptToProjectTodo(
+  projectTodoId: string,
+  receiptId: string
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase
+    .from('project_todo_receipts')
+    .insert({ project_todo_id: projectTodoId, receipt_id: receiptId });
+  return { error: error ? new Error(error.message) : null };
 }
 
 /** Firm 空间：获取某客户或全部客户的「待办」列表（订单项扁平，兼容原 todo 页） */

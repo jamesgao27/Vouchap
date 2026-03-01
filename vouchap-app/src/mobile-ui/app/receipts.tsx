@@ -25,7 +25,7 @@ import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUser } from '@/lib/auth';
 import { SwipeableRow } from './SwipeableRow';
-import { uploadReceiptImageTemp } from '@/lib/supabase';
+import { uploadReceiptImageTempWithSpace } from '@/lib/supabase';
 import { processReceiptInBackground } from '@/lib/receipt-processor';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getExchangeRates, sumAmountsInCurrency } from '@/lib/exchange-rates';
@@ -302,7 +302,9 @@ export default function ReceiptsScreen() {
 
         console.log('🔄 [processCapturedImage] 开始上传图片...');
         const tempFileName = `temp-${Date.now()}`;
-        const imageUrl = await uploadReceiptImageTemp(processedImageUri, tempFileName);
+        const user = await getCurrentUser();
+        const spaceId = user?.currentSpaceId || user?.spaceId || '';
+        const imageUrl = await uploadReceiptImageTempWithSpace(processedImageUri, tempFileName, spaceId);
         console.log('✅ [processCapturedImage] 图片上传完成:', imageUrl);
 
         console.log('🔄 [processCapturedImage] 创建小票记录...');

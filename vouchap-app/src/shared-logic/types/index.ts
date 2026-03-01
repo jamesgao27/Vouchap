@@ -546,13 +546,14 @@ export interface FirmOrder {
 // 项目（订单下的清单项，由 sku_items 复制；进展状态以 order.status 为准）
 export type FirmProjectType = 'client' | 'firm';
 
-/** 待办/任务状态：Action Required, Missing Info, Under Review, Flagged, Success */
+/** 待办/任务状态：Action Required, Missing Info, Under Review, Flagged, Success, Canceled */
 export type ProjectTodoStatus =
   | 'action_required'  // 需客户行动
   | 'missing_info'      // 资料不完整
   | 'under_review'      // 审核中
   | 'flagged'          // 有争议
-  | 'success';         // 已通过
+  | 'success'          // 已通过
+  | 'canceled';        // 已终止，不参与父级状态传导
 
 export interface FirmProject {
   id: string;

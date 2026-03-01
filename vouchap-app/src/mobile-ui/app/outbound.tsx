@@ -25,7 +25,7 @@ import { Outbound } from '@/types';
 import { format } from 'date-fns';
 import { VoucherStatus } from '@/types';
 import { SwipeableRow } from './SwipeableRow';
-import { uploadOutboundImageTemp } from '@/lib/supabase';
+import { uploadOutboundImageTempWithSpace } from '@/lib/supabase';
 import { processOutboundInBackground } from '@/lib/outbound-processor';
 import { processImageForUpload } from '@/lib/image-processor';
 import { voucherListStyles as styles } from '../styles/voucher-list-styles';
@@ -312,7 +312,9 @@ export default function OutboundScreen() {
         
         console.log('[出库单] 步骤2: 上传临时图片...');
         const tempFileName = `temp-${Date.now()}`;
-        const imageUrl = await uploadOutboundImageTemp(processedImageUri, tempFileName);
+        const user = await getCurrentUser();
+        const spaceId = user?.currentSpaceId || user?.spaceId || '';
+        const imageUrl = await uploadOutboundImageTempWithSpace(processedImageUri, tempFileName, spaceId);
         console.log('[出库单] 临时图片上传完成，imageUrl:', imageUrl);
         
         console.log('[出库单] 步骤3: 创建出库单记录...');

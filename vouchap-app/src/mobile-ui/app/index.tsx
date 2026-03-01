@@ -9,7 +9,7 @@ import { isAuthenticated, getCurrentUser, getCurrentSpace, setCurrentSpace, getU
 import { initializeAuthCache, isCacheInitialized } from '@/lib/auth-cache';
 import { Space, UserSpace } from '@/types';
 import { getPendingInvitationsForUser } from '@/lib/space-invitations';
-import { uploadReceiptImageTemp } from '@/lib/supabase';
+import { uploadReceiptImageTempWithSpace } from '@/lib/supabase';
 import { saveReceipt } from '@/lib/database';
 import { saveInvoice } from '@/lib/invoices';
 import { processReceiptInBackground } from '@/lib/receipt-processor';
@@ -597,9 +597,10 @@ export default function HomeScreen() {
         });
         console.log('Image processed:', processedImageUri);
 
-        // 2. Upload to Supabase Storage (temp)
+        // 2. Upload to Supabase Storage (temp)，按当前 space_id 分文件夹
         const tempFileName = `temp-${Date.now()}`;
-        const imageUrl = await uploadReceiptImageTemp(processedImageUri, tempFileName);
+        const spaceId = currentSpace?.id ?? '';
+        const imageUrl = await uploadReceiptImageTempWithSpace(processedImageUri, tempFileName, spaceId);
         console.log('Image uploaded:', imageUrl);
 
         if (type === 'invoice') {

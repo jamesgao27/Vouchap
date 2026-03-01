@@ -8,39 +8,35 @@ import { findOrCreateEntity, updateEntity } from './entities';
 import { runWithRecognitionRetry } from './recognition-retry';
 import { getCurrentUser } from './auth';
 
-// 从公共URL中提取文件路径
-function extractFilePathFromUrl(url: string): string | null {
+// 从公共 URL 提取 bucket 与对象路径。URL 格式: .../storage/v1/object/public/{bucket_id}/{path}
+function extractBucketAndPathFromUrl(url: string): { bucket: string; filePath: string } | null {
   try {
-    const STORAGE_BUCKET = 'receipts';
-    // URL 格式通常是: https://[project].supabase.co/storage/v1/object/public/receipts/[filename]
     const urlObj = new URL(url);
     const pathParts = urlObj.pathname.split('/');
-    const bucketIndex = pathParts.indexOf(STORAGE_BUCKET);
-    if (bucketIndex !== -1 && bucketIndex + 1 < pathParts.length) {
-      // 提取 bucket 后面的所有路径部分（文件名可能包含目录结构）
-      const fileName = pathParts.slice(bucketIndex + 1).join('/');
-      return fileName;
-    }
-    return null;
+    const publicIndex = pathParts.indexOf('public');
+    if (publicIndex === -1 || publicIndex + 2 > pathParts.length) return null;
+    const bucket = pathParts[publicIndex + 1];
+    const filePath = pathParts.slice(publicIndex + 2).join('/');
+    return filePath ? { bucket, filePath } : null;
   } catch (error) {
-    console.error('Error extracting file path from URL:', error);
+    console.error('Error extracting bucket/path from URL:', error);
     return null;
   }
 }
 
-// 删除临时文件
+// 删除临时文件（支持 receipts 与 tax-filing bucket）
 async function deleteTempFile(imageUrl: string): Promise<void> {
   try {
-    const STORAGE_BUCKET = 'receipts';
-    const filePath = extractFilePathFromUrl(imageUrl);
-    if (!filePath) {
-      console.warn('Could not extract file path from URL:', imageUrl);
+    const parsed = extractBucketAndPathFromUrl(imageUrl);
+    if (!parsed) {
+      console.warn('Could not extract bucket/path from URL:', imageUrl);
       return;
     }
+    const { bucket, filePath } = parsed;
 
-    console.log(`Deleting temp file from bucket: ${STORAGE_BUCKET}, path: ${filePath}`);
+    console.log(`Deleting temp file from bucket: ${bucket}, path: ${filePath}`);
     const { error } = await supabase.storage
-      .from(STORAGE_BUCKET)
+      .from(bucket)
       .remove([filePath]);
 
     if (error) {

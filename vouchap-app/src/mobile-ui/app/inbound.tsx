@@ -25,7 +25,7 @@ import { Inbound } from '@/types';
 import { format } from 'date-fns';
 import { VoucherStatus } from '@/types';
 import { SwipeableRow } from './SwipeableRow';
-import { uploadInboundImageTemp } from '@/lib/supabase';
+import { uploadInboundImageTempWithSpace } from '@/lib/supabase';
 import { processInboundInBackground } from '@/lib/inbound-processor';
 import { processImageForUpload } from '@/lib/image-processor';
 import { voucherListStyles as styles } from '../styles/voucher-list-styles';
@@ -290,7 +290,9 @@ export default function InboundScreen() {
       try {
         const processedImageUri = await processImageForUpload(imageUri, { autoCrop, quality: 0.85 });
         const tempFileName = `temp-${Date.now()}`;
-        const imageUrl = await uploadInboundImageTemp(processedImageUri, tempFileName);
+        const user = await getCurrentUser();
+        const spaceId = user?.currentSpaceId || user?.spaceId || '';
+        const imageUrl = await uploadInboundImageTempWithSpace(processedImageUri, tempFileName, spaceId);
         const today = getLocalDateString();
         const inboundId = await saveInbound({
           spaceId: '',

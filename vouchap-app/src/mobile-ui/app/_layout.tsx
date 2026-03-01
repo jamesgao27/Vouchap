@@ -111,6 +111,10 @@ function LayoutContent() {
           }} 
         />
         <Stack.Screen 
+          name="tax-filing/order/[orderId]" 
+          options={{ headerShown: false }} 
+        />
+        <Stack.Screen 
           name="firm/clients" 
           options={{ title: 'Clients', headerBackTitle: 'Back' }} 
         />
