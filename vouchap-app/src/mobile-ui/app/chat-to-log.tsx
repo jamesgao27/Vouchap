@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, memo } from 'react';
 import {
   View,
   Text,
@@ -29,7 +29,7 @@ import { checkDuplicateReceipt } from '@/lib/receipt-duplicate-checker';
 import { saveInvoice, getInvoiceById } from '@/lib/invoices';
 import { saveInbound, getInboundById } from '@/lib/inbound';
 import { saveOutbound, getOutboundById } from '@/lib/outbound';
-import { saveChatLog, getChatLogsPaginated, VoucherLogType } from '@/lib/chat-logs';
+import { saveChatLog, getChatLogsPaginated, VoucherLogType, type ChatLog } from '@/lib/chat-logs';
 import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
 import { getCurrentSpace } from '@/lib/auth';
 import { uploadTaxFilingFile, uploadReceiptImageTempWithSpace } from '@/lib/supabase';
@@ -81,6 +81,73 @@ const openFileUrlExternal = (url: string) => {
   }
 };
 
+/**
+ * 从 ChatLog 还原「用户提交消息」的 Message 对象（唯一来源，避免在 loadInitialHistory /
+ * loadMoreHistory 中各写一份相同逻辑）。
+ *
+ * 关键规则：
+ * - audio → audioUrl + voiceDuration；显示文字固定为 '🎤 Voice'
+ * - image + 非文档 → imageUrl（缩略图可点预览）
+ * - image + 文档   → documentUrl（点击新窗口打开）
+ * - tax-filing 用 requestData.fileName 存文件名（prompt 含 "Uploaded: " 前缀，需剥离）
+ * - expenses/invoice/inbound/outbound 用 requestData.imageUrl 存文件 URL
+ */
+function restorePromptFromLog(log: ChatLog): Message | null {
+  if (!log.prompt) return null;
+
+  const isImageType = log.type === 'image';
+  const isAudioType = log.type === 'audio';
+
+  // tax-filing 以 fileName 存储干净的文件名；其他模块 imageUrl 存 URL
+  const taxFilingFileName = (log.requestData as any)?.fileName as string | undefined;
+  const fileUrlFromRequest = (log.requestData as any)?.imageUrl as string | undefined;
+
+  // 判断文档类型：优先用文件名判，兜底用 prompt 判
+  const effectiveFileName = taxFilingFileName ?? log.prompt;
+  const isDocFile =
+    isPdfFile(effectiveFileName) ||
+    /\.(docx?|xlsx?|pptx?)$/i.test(effectiveFileName);
+
+  // 统一取附件 URL：expenses 存在 requestData.imageUrl，tax-filing 存在 attachmentUrl
+  const attachUrl = fileUrlFromRequest ?? log.attachmentUrl ?? undefined;
+
+  let requestImageUrl: string | undefined;
+  let documentUrl: string | undefined;
+  if (isImageType) {
+    if (isDocFile) {
+      documentUrl = attachUrl;
+    } else {
+      requestImageUrl = attachUrl;
+    }
+  }
+
+  const voiceDuration =
+    (log.requestData as any)?.audioDurationSeconds ??
+    (isAudioType && log.audioUrl && log.prompt
+      ? (() => {
+          const m = log.prompt.match(/Voice input \((\d+)s\)/);
+          return m ? parseInt(m[1], 10) : undefined;
+        })()
+      : undefined);
+
+  // 显示文字：语音固定'🎤 Voice'；tax-filing 用干净文件名（剥离 "Uploaded: " 前缀）；其他用 prompt
+  const displayText =
+    isAudioType && log.audioUrl
+      ? '🎤 Voice'
+      : (taxFilingFileName ?? log.prompt);
+
+  return {
+    id: `${log.id}-prompt`,
+    text: displayText,
+    isUser: true,
+    timestamp: new Date(log.createdAt),
+    audioUrl: isAudioType ? log.audioUrl ?? undefined : undefined,
+    audioDurationSeconds: voiceDuration,
+    imageUrl: requestImageUrl,
+    documentUrl,
+  };
+}
+
 // 与列表页 receipts/invoices 统一的货币符号
 const getCurrencySymbol = (currency?: string): string => {
   const symbols: Record<string, string> = {
@@ -126,16 +193,109 @@ interface Message {
   audioDurationSeconds?: number;
   /** 用户发出的图片消息：聊天记录中显示小图预览，文件名弱化 */
   imageUrl?: string | null;
+  /** 用户发出的文档消息（PDF / docx 等）：点击可在新窗口打开，文件名显示在下行 */
+  documentUrl?: string;
   isPlayingAudio?: boolean;
   /** 多文件提交时：上传完成、识别中，占位预览卡片 loading */
   previewCardLoading?: boolean;
 }
+
+/**
+ * 用户消息气泡内容（统一组件）。
+ * 四种类型布局完全一致：56×56 交互区 + 下行文字。
+ *   - 图片：缩略图（靠上裁剪），点击页内预览大图
+ *   - 语音：播放/暂停图标，点击播放；下行"Voice input (Xs)"
+ *   - 文档：文档图标，点击新窗口打开；下行文件名
+ *   - 文字：纯文字（无交互区）
+ */
+const UserMessageBubble = memo(function UserMessageBubble({
+  message,
+  playingAudioId,
+  onPlayAudio,
+  onPreviewImage,
+}: {
+  message: Message;
+  playingAudioId: string | null;
+  onPlayAudio: (id: string, url: string) => void;
+  onPreviewImage: (url: string) => void;
+}) {
+  if (message.audioUrl) {
+    return (
+      <View style={styles.userMediaMessageContent}>
+        <TouchableOpacity
+          style={styles.userMediaThumb}
+          onPress={() => onPlayAudio(message.id, message.audioUrl!)}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name={playingAudioId === message.id ? 'pause-circle' : 'play-circle'}
+            size={32}
+            color="#fff"
+          />
+        </TouchableOpacity>
+        <Text style={styles.userMediaLabel} numberOfLines={1}>
+          Voice input ({message.audioDurationSeconds ?? 0}s)
+        </Text>
+      </View>
+    );
+  }
+
+  if (message.imageUrl) {
+    return (
+      <View style={styles.userMediaMessageContent}>
+        <TouchableOpacity
+          style={styles.userMediaThumb}
+          onPress={() => onPreviewImage(message.imageUrl!)}
+          activeOpacity={0.9}
+        >
+          <Image
+            source={{ uri: message.imageUrl }}
+            style={[styles.userMediaThumbImage, styles.thumbAlignTopLeft]}
+            resizeMode="cover"
+          />
+        </TouchableOpacity>
+        <Text style={styles.userMediaLabel} numberOfLines={1} ellipsizeMode="tail">
+          {message.text}
+        </Text>
+      </View>
+    );
+  }
+
+  if (message.documentUrl || /\.(pdf|docx?|xlsx?|pptx?)$/i.test(message.text)) {
+    return (
+      <View style={styles.userMediaMessageContent}>
+        <TouchableOpacity
+          style={styles.userMediaThumb}
+          onPress={() => message.documentUrl && openFileUrlExternal(message.documentUrl)}
+          activeOpacity={message.documentUrl ? 0.8 : 1}
+          disabled={!message.documentUrl}
+        >
+          <Ionicons
+            name={/\.pdf$/i.test(message.text) ? 'document-text-outline' : 'document-outline'}
+            size={28}
+            color="rgba(255,255,255,0.9)"
+          />
+        </TouchableOpacity>
+        <Text style={styles.userMediaLabel} numberOfLines={1} ellipsizeMode="tail">
+          {message.text}
+        </Text>
+      </View>
+    );
+  }
+
+  return (
+    <Text style={[styles.messageText, styles.userMessageText]}>
+      {message.text}
+    </Text>
+  );
+});
 
 export function ChatToLogContent(props: { voucherType: VoucherLogType }) {
   return <ChatToLogScreen voucherType={props.voucherType} />;
 }
 
 function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
+  console.count('[ChatToLog render]');
   const router = useRouter();
   const navigation = useNavigation();
   const params = useLocalSearchParams<{ type?: string; drawer?: string; projectId?: string; todoId?: string }>();
@@ -239,13 +399,15 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   }, [isPanel, chatPanel?.initialInput, chatPanel?.initialStagedFiles]);
 
   // 右栏模式：注册聚焦回调，供 openPanel 后激活输入框
+  // 依赖 inputFocusRef（稳定的 useRef 对象）而非整个 chatPanel，避免不必要的 effect 重触发
+  const inputFocusRef = chatPanel?.inputFocusRef;
   useEffect(() => {
-    if (!isPanel || !chatPanel?.inputFocusRef) return;
-    chatPanel.inputFocusRef.current = () => inputRef.current?.focus();
+    if (!isPanel || !inputFocusRef) return;
+    inputFocusRef.current = () => inputRef.current?.focus();
     return () => {
-      if (chatPanel?.inputFocusRef) chatPanel.inputFocusRef.current = null;
+      inputFocusRef.current = null;
     };
-  }, [isPanel, chatPanel]);
+  }, [isPanel, inputFocusRef]);
 
   // attachments 模式：有 projectId 时加载 task 列表（用于识别文件后自动匹配）
   useEffect(() => {
@@ -340,6 +502,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   );
 
   useEffect(() => {
+    console.log('[chat-to-log] effect loadInitialHistory MOUNT', {
+      voucherType,
+      effectiveProjectId,
+    });
     // 首次加载：拉取最近 5 条历史（从下往上显示，避免卡顿）
     const loadInitialHistory = async () => {
       try {
@@ -348,23 +514,14 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
           voucherType,
           effectiveProjectId,
         });
-        // 报税附件模式下：为兼容尚未完全迁移的历史数据，这里不再依赖后端按 voucherType / projectId 精确过滤，
-        // 而是先取当前空间最近若干条记录，再在前端按 voucherType 做一次过滤。
         const projectFilter = voucherType === 'tax-filing' ? effectiveProjectId : undefined;
         const rawLogs = await getChatLogsPaginated(
           5,
           undefined,
-          voucherType === 'tax-filing' ? undefined : voucherType,
-          voucherType === 'tax-filing' ? undefined : projectFilter,
+          voucherType,
+          projectFilter,
         );
-        const logs =
-          voucherType === 'tax-filing'
-            ? (rawLogs || []).filter((log) =>
-                log.voucherType === 'tax-filing' ||
-                !!log.responseData?.attachmentPreview ||
-                !!log.requestData?.todoId,
-              )
-            : rawLogs;
+        const logs = rawLogs;
         console.log('[chat-to-log] loadInitialHistory got logs', {
           total: rawLogs?.length ?? 0,
           afterFilter: logs?.length ?? 0,
@@ -398,19 +555,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         const restoredMessages: Message[] = [];
 
         for (const log of sorted) {
-          if (log.prompt) {
-            const requestImageUrl = log.type === 'image' && log.requestData?.imageUrl ? log.requestData.imageUrl : undefined;
-            const voiceDuration = log.requestData?.audioDurationSeconds ?? (log.audioUrl && log.prompt ? (() => { const m = log.prompt.match(/Voice input \((\d+)s\)/); return m ? parseInt(m[1], 10) : undefined; })() : undefined);
-            restoredMessages.push({
-              id: `${log.id}-prompt`,
-              text: log.audioUrl ? `🎤 Voice` : log.prompt,
-              isUser: true,
-              timestamp: new Date(log.createdAt),
-              audioUrl: log.audioUrl ?? undefined,
-              audioDurationSeconds: voiceDuration,
-              imageUrl: requestImageUrl,
-            });
-          }
+          const promptMsg = restorePromptFromLog(log);
+          if (promptMsg) restoredMessages.push(promptMsg);
           const logType = log.voucherType ?? 'receipt';
           if (log.responseData?.invoicePreview && logType === 'invoice') {
             const preview = log.responseData.invoicePreview as Invoice;
@@ -565,6 +711,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     );
 
     return () => {
+      console.log('[chat-to-log] effect loadInitialHistory CLEANUP');
       task.cancel();
       keyboardWillShow.remove();
       keyboardWillHide.remove();
@@ -585,17 +732,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       const rawMoreLogs = await getChatLogsPaginated(
         20,
         oldestLoadedAt,
-        voucherType === 'tax-filing' ? undefined : voucherType,
-        voucherType === 'tax-filing' ? undefined : projectFilter,
+        voucherType,
+        projectFilter,
       );
-      const moreLogs =
-        voucherType === 'tax-filing'
-          ? (rawMoreLogs || []).filter((log) =>
-              log.voucherType === 'tax-filing' ||
-              !!log.responseData?.attachmentPreview ||
-              !!log.requestData?.todoId,
-            )
-          : rawMoreLogs;
+      const moreLogs = rawMoreLogs;
       console.log('[chat-to-log] loadMoreHistory got logs', {
         total: rawMoreLogs?.length ?? 0,
         afterFilter: moreLogs?.length ?? 0,
@@ -672,16 +812,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             timestamp: new Date(log.createdAt),
           });
         }
-        if (log.prompt) {
-          const requestImageUrl = log.type === 'image' && log.requestData?.imageUrl ? log.requestData.imageUrl : undefined;
-          moreMessagesRaw.push({
-            id: `${log.id}-prompt`,
-            text: log.prompt,
-            isUser: true,
-            timestamp: new Date(log.createdAt),
-            imageUrl: requestImageUrl,
-          });
-        }
+        const promptMsg = restorePromptFromLog(log);
+        if (promptMsg) moreMessagesRaw.push(promptMsg);
       }
 
       const moreMessages = await Promise.all(
@@ -946,13 +1078,14 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               const attachmentId = createResult.id;
               const name = file.name ?? `File ${i + 1}`;
               const loadingCardId = `attach-preview-loading-${file.id}`;
-              // tax-filing 模块也复用「提交记录」样式：图片类在紫色气泡中展示缩略图 + 文件名
+              // tax-filing 模块：图片用缩略图，文档用 documentUrl（已上传的远端 URL）
               const userMsg: Message = {
                 id: `attach-user-${attachmentId}`,
                 text: name,
                 isUser: true,
                 timestamp: new Date(),
                 imageUrl: isImage ? file.uri : undefined,
+                documentUrl: !isImage ? fileUrl : undefined,
               };
               const loadingCardMsg: Message = { id: loadingCardId, text: '', isUser: false, timestamp: new Date(), previewCardLoading: true };
               removeFromStaged();
@@ -988,7 +1121,6 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 text: name,
                 isUser: true,
                 timestamp: new Date(),
-                // 恢复提交记录中带缩略图的样式：图片用本地 uri 作为气泡缩略图
                 imageUrl: isImage ? file.uri : undefined,
               };
               const loadingCardMsg: Message = { id: loadingCardId, text: '', isUser: false, timestamp: new Date(), previewCardLoading: true };
@@ -1000,6 +1132,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 fileUrl = await uploadReceiptImageTempWithSpace(file.uri, tempFileName, clientSpaceId);
               } else {
                 fileUrl = await uploadReceiptImageTempWithSpace(file.uri, tempFileName, clientSpaceId, { fileName: file.name, mimeType: file.mimeType });
+                // 上传完成后更新用户消息，补充 documentUrl 以支持点击打开
+                setMessages((prev) => prev.map((m) => (m.id === `img-user-${file.id}` ? { ...m, documentUrl: fileUrl } : m)));
               }
               const recognizeFn = voucherType === 'receipt'
                 ? () => (isImage ? recognizeReceipt(fileUrl) : recognizeReceiptFromDocument(fileUrl, file.mimeType))
@@ -1057,6 +1191,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 fileUrl = await uploadReceiptImageTempWithSpace(file.uri, tempFileName, clientSpaceId);
               } else {
                 fileUrl = await uploadReceiptImageTempWithSpace(file.uri, tempFileName, clientSpaceId, { fileName: file.name, mimeType: file.mimeType });
+                setMessages((prev) => prev.map((m) => (m.id === `img-user-${file.id}` ? { ...m, documentUrl: fileUrl } : m)));
               }
               try {
                 if (voucherType === 'inbound') {
@@ -1563,7 +1698,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         renderItem={({ item: message }) => (
           <View>
             {/* 用户消息上方显示时间戳 */}
-            {message.isUser && (message.text || message.audioUrl || message.imageUrl) && (
+            {message.isUser && (message.text || message.audioUrl || message.imageUrl || message.documentUrl) && (
               <View style={styles.timestampDivider}>
                 <Text style={styles.timestampText}>
                   {format(message.timestamp, 'MMM dd, HH:mm')}
@@ -1572,49 +1707,22 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             )}
             
             {/* 只在有内容时显示消息气泡 */}
-            {(message.text || message.audioUrl || message.imageUrl) && (
+            {(message.text || message.audioUrl || message.imageUrl || message.documentUrl) && (
               <View
                 style={[
                   styles.messageContainer,
                   message.isUser ? styles.userMessage : styles.botMessage,
                 ]}
               >
-                {/* 语音消息：显示播放按钮 */}
-                {message.audioUrl ? (
-                  <TouchableOpacity
-                    style={styles.userVoiceMessageContent}
-                    onPress={() => handlePlayAudio(message.id, message.audioUrl!)}
-                  >
-                    <View style={styles.userVoiceMessageIcon}>
-                      <Ionicons
-                        name={playingAudioId === message.id ? 'pause-circle' : 'play-circle'}
-                        size={32}
-                        color="#fff"
-                      />
-                    </View>
-                    <Text style={styles.userVoiceMessageLabel} numberOfLines={1}>
-                      Voice input ({message.audioDurationSeconds ?? 0}s)
-                    </Text>
-                  </TouchableOpacity>
-                ) : message.imageUrl ? (
-                  <View style={styles.userImageMessageContent}>
-                    <TouchableOpacity onPress={() => setAttachmentImageModalUrl(message.imageUrl!)} activeOpacity={0.9}>
-                      <Image source={{ uri: message.imageUrl }} style={[styles.userMessageImageThumb, styles.thumbAlignTopLeft]} resizeMode="cover" />
-                    </TouchableOpacity>
-                    <Text style={styles.userMessageImageName} numberOfLines={1} ellipsizeMode="tail">{message.text}</Text>
-                  </View>
-                ) : message.isUser && message.text && /\.(pdf|docx?)$/i.test(message.text) ? (
-                  <View style={styles.userImageMessageContent}>
-                    <View style={styles.userMessageDocIconWrap}>
-                      <Ionicons name={/\.pdf$/i.test(message.text) ? 'document-text-outline' : 'document-outline'} size={28} color="rgba(255,255,255,0.9)" />
-                    </View>
-                    <Text style={styles.userMessageImageName} numberOfLines={1} ellipsizeMode="tail">{message.text}</Text>
-                  </View>
+                {message.isUser ? (
+                  <UserMessageBubble
+                    message={message}
+                    playingAudioId={playingAudioId}
+                    onPlayAudio={handlePlayAudio}
+                    onPreviewImage={setAttachmentImageModalUrl}
+                  />
                 ) : (
-                  <Text style={[
-                    styles.messageText,
-                    message.isUser ? styles.userMessageText : styles.botMessageText,
-                  ]}>
+                  <Text style={[styles.messageText, styles.botMessageText]}>
                     {message.text}
                   </Text>
                 )}
@@ -2285,7 +2393,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                     { value: 'receipt', label: 'Expenses' },
                     { value: 'invoice', label: 'Incomes' },
                     ...(showAiInventory ? [{ value: 'inbound' as const, label: 'Inbound' }, { value: 'outbound' as const, label: 'Outbound' }] : []),
-                    ...(showTaxFiling ? [{ value: 'tax-filing' as const, label: 'Attachments' }] : []),
+                    ...(showTaxFiling ? [{ value: 'tax-filing' as const, label: 'Tax-filing' }] : []),
                   ];
                   const currentLabel = typeOptions.find(o => o.value === voucherType)?.label ?? 'Expenses';
                   return (
@@ -3214,54 +3322,50 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  userImageMessageContent: {
+  /** 统一的用户媒体消息容器（图片 / 语音 / 文档共用） */
+  userMediaMessageContent: {
     flexDirection: 'column',
     alignItems: 'flex-start',
     maxWidth: '100%',
     alignSelf: 'flex-start',
   },
-  userMessageImageThumb: {
-    width: 56,
-    height: 56,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-  },
-  userMessageDocIconWrap: {
+  /** 56×56 交互区：图片缩略图 / 语音图标 / 文档图标 */
+  userMediaThumb: {
     width: 56,
     height: 56,
     borderRadius: 8,
     backgroundColor: 'rgba(255,255,255,0.2)',
     justifyContent: 'center',
     alignItems: 'center',
+    overflow: 'hidden',
   },
-  thumbAlignTopLeft: Platform.select({
-    web: { objectFit: 'cover' as const, objectPosition: 'top left' as const },
-    default: {},
-  }),
-  userMessageImageName: {
+  userMediaThumbImage: {
+    width: 56,
+    height: 56,
+  },
+  /** 交互区下方的说明文字（文件名 / "Voice input (Xs)"） */
+  userMediaLabel: {
     fontSize: 10,
     color: 'rgba(255,255,255,0.5)',
     marginTop: 4,
     maxWidth: 220,
     minWidth: 56,
   },
-  userVoiceMessageContent: {
+  thumbAlignTopLeft: Platform.select({
+    web: { objectFit: 'cover' as const, objectPosition: 'top left' as const },
+    default: {},
+  }),
+  // 以下保留旧名，供可能残留的引用（stagedFile 缩略图等）
+  userImageMessageContent: {
     flexDirection: 'column',
     alignItems: 'flex-start',
     maxWidth: '100%',
     alignSelf: 'flex-start',
   },
-  userVoiceMessageIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 8,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  userVoiceMessageLabel: {
-    fontSize: 10,
-    color: 'rgba(255,255,255,0.5)',
-    marginTop: 4,
-  },
+  userMessageImageThumb: { width: 56, height: 56, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.2)' },
+  userMessageDocIconWrap: { width: 56, height: 56, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
+  userMessageImageName: { fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 4, maxWidth: 220, minWidth: 56 },
+  userVoiceMessageContent: { flexDirection: 'column', alignItems: 'flex-start', maxWidth: '100%', alignSelf: 'flex-start' },
+  userVoiceMessageIcon: { width: 56, height: 56, borderRadius: 8, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
+  userVoiceMessageLabel: { fontSize: 10, color: 'rgba(255,255,255,0.5)', marginTop: 4 },
 });

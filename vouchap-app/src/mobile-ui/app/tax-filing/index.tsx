@@ -175,10 +175,13 @@ export default function TaxFilingScreen() {
       router.push(`/tax-filing/order/${order.id}`);
     }
   };
-  /** 点击 edit：进入项目信息页（已接受用 project，未接受用 order） */
+  /** 点击 edit：进入项目信息页
+   *  - 已接受：跳转到 project 页并激活 Info 页签 + 编辑态
+   *  - 未接受：仍使用 order info 路由
+   */
   const goToInfo = (order: FirmOrderForClient) => {
     if (order.projectId) {
-      router.push(`/tax-filing/project/${order.projectId}/info`);
+      router.push(`/tax-filing/project/${order.projectId}?tab=info&edit=1`);
     } else {
       router.push(`/tax-filing/order/${order.id}/info`);
     }

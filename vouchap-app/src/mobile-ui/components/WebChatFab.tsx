@@ -39,7 +39,7 @@ const TYPE_OPTIONS: { value: ChatPanelType; label: string }[] = [
   { value: 'receipt', label: 'Expenses' },
   { value: 'invoice', label: 'Incomes' },
   ...(showAiInventory ? [{ value: 'inbound' as const, label: 'Inbound' }, { value: 'outbound' as const, label: 'Outbound' }] : []),
-  { value: 'tax-filing', label: 'Attachments' },
+  { value: 'tax-filing', label: 'Tax-filing' },
 ];
 
 function getPlaceholder(type: ChatPanelType): string {

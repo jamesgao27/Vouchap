@@ -175,9 +175,13 @@ export interface FirmOrderById {
   dueAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+  /** SKU 名称（附带查询，用于项目信息展示） */
+  skuName?: string | null;
+  /** SKU 描述（附带查询，用于项目信息展示） */
+  skuDescription?: string | null;
 }
 
-/** 根据 orderId 获取订单（用于 engagement 详情） */
+/** 根据 orderId 获取订单（用于 engagement 详情）；附带查询关联 SKU 基本信息 */
 export async function getOrderById(orderId: string): Promise<FirmOrderById | null> {
   const { data, error } = await supabase
     .schema('firm')
@@ -188,6 +192,23 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
 
   if (error || !data) return null;
   const row = data as any;
+
+  // 附带拉取 SKU 名称与描述，供详情页展示
+  let skuName: string | null = null;
+  let skuDescription: string | null = null;
+  if (row.sku_id) {
+    const { data: skuRow } = await supabase
+      .schema('firm')
+      .from('skus')
+      .select('name, description')
+      .eq('id', row.sku_id)
+      .maybeSingle();
+    if (skuRow) {
+      skuName = (skuRow as any).name ?? null;
+      skuDescription = (skuRow as any).description ?? null;
+    }
+  }
+
   return {
     id: row.id,
     firmSpaceId: row.firm_space_id,
@@ -197,6 +218,8 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
     dueAt: row.due_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    skuName,
+    skuDescription,
   };
 }
 
@@ -712,6 +735,7 @@ export interface FirmProjectInfo {
   updatedAt?: string;
   taxCountry?: string | null;
   taxScenario?: string | null;
+  tags?: string[] | null;
 }
 
 /** 根据 orderId 获取 project 信息（确认订单后才有） */
@@ -744,7 +768,7 @@ export async function getProjectByOrderId(orderId: string): Promise<FirmProjectI
 export async function getProjectById(projectId: string): Promise<FirmProjectInfo | null> {
   const { data, error } = await supabase
     .from('projects')
-    .select('id, order_id, name, description, image_url, status, start_at, end_at, created_at, updated_at, tax_country, tax_scenario')
+    .select('id, order_id, name, description, image_url, status, start_at, end_at, created_at, updated_at, tax_country, tax_scenario, tags')
     .eq('id', projectId)
     .maybeSingle();
 
@@ -763,6 +787,7 @@ export async function getProjectById(projectId: string): Promise<FirmProjectInfo
     updatedAt: row.updated_at,
     taxCountry: row.tax_country ?? null,
     taxScenario: row.tax_scenario ?? null,
+    tags: (row.tags as string[] | null) ?? [],
   };
 }
 
@@ -1006,6 +1031,7 @@ export async function updateProject(
     endAt?: string | null;
     taxCountry?: string | null;
     taxScenario?: string | null;
+    tags?: string[] | null;
   }
 ): Promise<{ error: Error | null }> {
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -1017,12 +1043,41 @@ export async function updateProject(
   if (payload.endAt !== undefined) updates.end_at = payload.endAt;
   if (payload.taxCountry !== undefined) updates.tax_country = payload.taxCountry;
   if (payload.taxScenario !== undefined) updates.tax_scenario = payload.taxScenario;
+  if (payload.tags !== undefined) updates.tags = payload.tags;
   const { error } = await supabase.from('projects').update(updates).eq('id', projectId);
   if (error) {
     console.error('updateProject:', error);
     return { error: error as Error };
   }
   return { error: null };
+}
+
+/**
+ * 加载某客户空间下所有项目已使用过的标签，去重后返回，用于编辑时的标签建议。
+ */
+export async function getSpaceProjectTags(clientSpaceId: string): Promise<string[]> {
+  // 1. 取该客户空间下所有 order id
+  const { data: orders } = await supabase
+    .from('orders')
+    .select('id')
+    .eq('client_space_id', clientSpaceId);
+  const orderIds = (orders as any[] | null)?.map((o) => o.id) ?? [];
+  if (orderIds.length === 0) return [];
+
+  // 2. 取所有 project 的 tags 字段
+  const { data: projects } = await supabase
+    .from('projects')
+    .select('tags')
+    .in('order_id', orderIds)
+    .not('tags', 'is', null);
+
+  const seen = new Set<string>();
+  for (const row of (projects as any[] | null) ?? []) {
+    if (Array.isArray(row.tags)) {
+      for (const t of row.tags as string[]) if (t) seen.add(t);
+    }
+  }
+  return [...seen].sort();
 }
 
 /** 新增项目任务（todo） */

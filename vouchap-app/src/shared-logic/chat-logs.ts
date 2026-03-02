@@ -23,8 +23,8 @@ export interface ChatLog {
   confidence?: number;
   processingTimeMs?: number;
   attachmentUrl?: string | null;
-   /** 语音记录的附件 URL（从 attachmentUrl 映射而来，便于兼容旧代码） */
-   audioUrl?: string | null;
+  /** 仅语音记录使用的附件 URL（从 attachmentUrl 映射而来，便于兼容旧代码） */
+  audioUrl?: string | null;
   createdAt: string;
 }
 
@@ -148,7 +148,7 @@ export async function getChatLogs(limit: number = 100): Promise<ChatLog[]> {
       confidence: row.confidence,
       processingTimeMs: row.processing_time_ms,
       attachmentUrl: row.attachment_url ?? null,
-      audioUrl: row.attachment_url ?? null,
+      audioUrl: row.type === 'audio' ? (row.attachment_url ?? null) : null,
       createdAt: row.created_at,
     }));
   } catch (error) {
@@ -265,7 +265,7 @@ export async function getChatLogsPaginated(
             confidence: row.confidence,
             processingTimeMs: row.processing_time_ms,
             attachmentUrl: row.attachment_url ?? null,
-            audioUrl: row.attachment_url ?? null,
+            audioUrl: row.type === 'audio' ? (row.attachment_url ?? null) : null,
             createdAt: row.created_at,
           }));
         } catch (fbEx) {
@@ -293,7 +293,7 @@ export async function getChatLogsPaginated(
       confidence: row.confidence,
       processingTimeMs: row.processing_time_ms,
       attachmentUrl: row.attachment_url ?? null,
-      audioUrl: row.attachment_url ?? null,
+      audioUrl: row.type === 'audio' ? (row.attachment_url ?? null) : null,
       createdAt: row.created_at,
     }));
   } catch (error) {

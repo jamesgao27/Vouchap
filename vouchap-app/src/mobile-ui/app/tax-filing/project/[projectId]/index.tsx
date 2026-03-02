@@ -2,7 +2,7 @@
  * 项目 - Todos 树形列表页（client 侧以 project 为主体的详情页）
  * 顶行用页面 Stack 顶栏（税季+项目名+Services from firm、设置）；展示区顶栏隐藏。状态/(n/m)/资料数跟随名称左对齐。
  */
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, memo } from 'react';
 import {
   View,
   Text,
@@ -34,6 +34,7 @@ import {
   type ProjectTodoReceiptSummary,
 } from '@/lib/firm';
 import { TODO_STATUS_LABEL, TODO_STATUS_COLOR } from '@/lib/constants/project-todo-status';
+import { ProjectInfoTab, type ProjectInfoTabHandle } from './info';
 import { uploadTaxFilingFile } from '@/lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 
@@ -164,7 +165,7 @@ function useNodeStats(nodes: ProjectTodoNode[]) {
 }
 
 export default function ProjectTodosScreen() {
-  const { projectId } = useLocalSearchParams<{ projectId: string }>();
+  const { projectId, tab, edit } = useLocalSearchParams<{ projectId: string; tab?: string; edit?: string }>();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -226,13 +227,16 @@ export default function ProjectTodosScreen() {
 
   const chatPanel = useChatPanel();
   // 进入/切换报税项目时：仅更新附件上下文，不再自动打开/关闭 chat-to-log
+  // 注意：依赖 setAttachmentContext（稳定的 useState setter）而非整个 chatPanel 对象，
+  // 避免因 context value 对象每次渲染都重建而导致 effect 无限重触发（render 死循环）。
+  const setAttachmentContext = chatPanel?.setAttachmentContext;
   useEffect(() => {
-    if (!projectId || !chatPanel) return;
-    chatPanel.setAttachmentContext({ projectId, todoId: undefined });
+    if (!projectId || !setAttachmentContext) return;
+    setAttachmentContext({ projectId, todoId: undefined });
     return () => {
-      chatPanel.setAttachmentContext({});
+      setAttachmentContext({});
     };
-  }, [projectId, chatPanel]);
+  }, [projectId, setAttachmentContext]);
 
   const nodeStats = useNodeStats(tree);
 
@@ -423,9 +427,13 @@ export default function ProjectTodosScreen() {
     [orderId, clientSpaceId]
   );
 
-  const goToInfo = useCallback(() => {
-    if (projectId) router.push(`/tax-filing/project/${projectId}/info`);
-  }, [projectId, router]);
+  const [activeTab, setActiveTab] = useState<'todos' | 'info'>('todos');
+  const [infoEditing, setInfoEditing] = useState(false);
+  const infoTabRef = useRef<ProjectInfoTabHandle>(null);
+
+  const toggleInfo = useCallback(() => {
+    setActiveTab((t) => (t === 'info' ? 'todos' : 'info'));
+  }, []);
 
   const goToFileDetail = useCallback(
     (attachmentId: string) => {
@@ -450,25 +458,66 @@ export default function ProjectTodosScreen() {
     [orderId, tree]
   );
 
+  // 根据路由参数初始化：从列表卡片的 Edit 进入时，直接落在 Info 页签并进入编辑态
+  useEffect(() => {
+    if (tab === 'info') {
+      setActiveTab('info');
+      if (edit === '1' || edit === 'true') {
+        setInfoEditing(true);
+      }
+    }
+  }, [tab, edit]);
+
+  // 当需要编辑且 Info Tab 已激活时，通知子组件进入编辑态
+  useEffect(() => {
+    if (activeTab === 'info' && infoEditing && infoTabRef.current) {
+      infoTabRef.current.startEditing();
+    }
+  }, [activeTab, infoEditing]);
+
   const dateForYear = header?.dueAt || header?.createdAt || null;
   const taxSeasonYear = dateForYear ? new Date(dateForYear).getFullYear() : null;
   const navigation = useNavigation();
-  useLayoutEffect(() => {
-    navigation.setOptions({
-      headerTitle: () => (
-        <OrderTodosHeaderTitle
-          projectName={header?.projectName ?? ''}
-          firmName={header?.firmName ?? ''}
-          taxSeasonYear={taxSeasonYear ?? null}
+
+  // headerTitle：仅在项目数据就绪/变化时更新，与页签切换完全解耦
+  const HeaderTitle = useCallback(
+    () => (
+      <OrderTodosHeaderTitle
+        projectName={header?.projectName ?? ''}
+        firmName={header?.firmName ?? ''}
+        taxSeasonYear={taxSeasonYear ?? null}
+      />
+    ),
+    [header?.projectName, header?.firmName, taxSeasonYear],
+  );
+
+  // headerRight：info 图标切换页签，仅在 activeTab 变化时重建
+  const HeaderRight = useCallback(
+    () => (
+      <TouchableOpacity
+        onPress={toggleInfo}
+        style={{ padding: 8, marginRight: 2 }}
+        hitSlop={8}
+        activeOpacity={0.7}
+      >
+        <Ionicons
+          name={activeTab === 'info' ? 'list-outline' : 'information-circle-outline'}
+          size={22}
+          color={activeTab === 'info' ? '#6C5CE7' : '#636E72'}
         />
-      ),
-      headerRight: () => (
-        <TouchableOpacity onPress={goToInfo} style={{ padding: 8 }} hitSlop={8}>
-          <Ionicons name="settings-outline" size={22} color="#636E72" />
-        </TouchableOpacity>
-      ),
-    });
-  }, [navigation, header, taxSeasonYear, goToInfo]);
+      </TouchableOpacity>
+    ),
+    [activeTab, toggleInfo],
+  );
+
+  useLayoutEffect(() => {
+    if (!header) return;
+    navigation.setOptions({ headerTitle: HeaderTitle });
+  }, [navigation, HeaderTitle, header]);
+
+  useLayoutEffect(() => {
+    navigation.setOptions({ headerRight: HeaderRight });
+  }, [navigation, HeaderRight]);
 
   if (loading) {
     return (
@@ -491,18 +540,80 @@ export default function ProjectTodosScreen() {
 
   return (
     <View style={styles.container}>
-      {header?.status === 'onboarding' ? (
+      {/* ── 操作行：左侧页签 + 右侧操作按钮 ── */}
+      <View style={styles.operationBar}>
+        {/* 页签组 */}
+        <View style={styles.tabGroup}>
+          <TouchableOpacity
+            style={[styles.tabChip, activeTab === 'todos' && styles.tabChipActive]}
+            onPress={() => setActiveTab('todos')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.tabChipText, activeTab === 'todos' && styles.tabChipTextActive]}>Todos</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.tabChip, activeTab === 'info' && styles.tabChipActive]}
+            onPress={() => setActiveTab('info')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.tabChipText, activeTab === 'info' && styles.tabChipTextActive]}>Info</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* 右侧按钮：todos 时显示下载；info 时显示 Edit / Cancel+Save */}
+        {activeTab === 'todos' ? (
+          <TouchableOpacity style={styles.operationBtn} onPress={() => {}} activeOpacity={0.7}>
+            <Ionicons name="download-outline" size={16} color="#6C5CE7" />
+            <Text style={styles.operationBtnText}>Download all</Text>
+          </TouchableOpacity>
+        ) : infoEditing ? (
+          <View style={styles.operationEditGroup}>
+            <TouchableOpacity
+              style={[styles.operationBtn, styles.operationBtnSmall]}
+              onPress={() => {
+                infoTabRef.current?.cancelEditing();
+                setInfoEditing(false);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.operationBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.operationBtn, styles.operationBtnPrimary, styles.operationBtnSmall]}
+              onPress={async () => {
+                if (!infoTabRef.current) return;
+                const ok = await infoTabRef.current.saveEditing();
+                if (ok) setInfoEditing(false);
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.operationBtnText, { color: '#FFF' }]}>Save</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={styles.operationBtn}
+            onPress={() => {
+              infoTabRef.current?.startEditing();
+              setInfoEditing(true);
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="create-outline" size={16} color="#6C5CE7" />
+            <Text style={styles.operationBtnText}>Edit info</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
+      {/* ── 内容区 ── */}
+      {activeTab === 'info' ? (
+        <ProjectInfoTab ref={infoTabRef} projectId={projectId ?? ''} />
+      ) : header?.status === 'onboarding' ? (
         <View style={styles.emptyWrap}>
           <Text style={styles.emptyText}>Accept the order to see checklist</Text>
         </View>
       ) : (
         <>
-          <View style={styles.operationBar}>
-            <TouchableOpacity style={styles.operationBtn} onPress={() => {}} activeOpacity={0.7}>
-              <Ionicons name="download-outline" size={18} color="#6C5CE7" />
-              <Text style={styles.operationBtnText}>Download all files</Text>
-            </TouchableOpacity>
-          </View>
           <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
             {tree.length === 0 ? (
               <View style={styles.treeCard}>
@@ -1124,7 +1235,7 @@ const styles = StyleSheet.create({
   operationBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-end',
+    justifyContent: 'space-between',
     height: 52,
     paddingHorizontal: 16,
     paddingVertical: 8,
@@ -1132,16 +1243,51 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
   },
+  // 页签胶囊组
+  tabGroup: {
+    flexDirection: 'row',
+    backgroundColor: '#F0F2F5',
+    borderRadius: 8,
+    padding: 3,
+    gap: 2,
+  },
+  tabChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  tabChipActive: {
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  tabChipText: { fontSize: 13, fontWeight: '600', color: '#95A5A6' },
+  tabChipTextActive: { color: '#2D3436' },
   operationBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
     backgroundColor: '#F8F9FA',
-    gap: 6,
+    gap: 5,
   },
-  operationBtnText: { fontSize: 14, color: '#6C5CE7', fontWeight: '500' },
+  operationBtnText: { fontSize: 13, color: '#6C5CE7', fontWeight: '500' },
+  operationEditGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  operationBtnSmall: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  operationBtnPrimary: {
+    backgroundColor: '#6C5CE7',
+  },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 40 },
   treeCard: {
@@ -1281,4 +1427,5 @@ const styles = StyleSheet.create({
   attachmentCardPreviewLine: { fontSize: 10, color: '#636E72', marginBottom: 0 },
   attachmentCardTrailing: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   fileRowRemoveBtn: { width: 20, height: 20, justifyContent: 'center', alignItems: 'center', cursor: 'pointer' },
+
 });

@@ -2,7 +2,7 @@
  * Web 聊天侧栏状态：由 FAB 打开，不切换路由；右栏打开即常驻并压缩主区（无 pin 切换）。
  * Web 端默认右栏关闭，通过气泡（FAB）呼出。
  */
-import React, { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useMemo, ReactNode } from 'react';
 
 export type ChatPanelType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'tax-filing';
 
@@ -47,21 +47,24 @@ export function ChatPanelProvider({ children }: { children: ReactNode }) {
 
   const closePanel = useCallback(() => setOpen(false), []);
 
-  const value: ChatPanelContextValue = {
-    open,
-    setOpen,
-    type,
-    setType,
-    openPanel,
-    closePanel,
-    initialInput,
-    setInitialInput,
-    initialStagedFiles,
-    setInitialStagedFiles,
-    attachmentContext,
-    setAttachmentContext,
-    inputFocusRef,
-  };
+  const value = useMemo<ChatPanelContextValue>(
+    () => ({
+      open,
+      setOpen,
+      type,
+      setType,
+      openPanel,
+      closePanel,
+      initialInput,
+      setInitialInput,
+      initialStagedFiles,
+      setInitialStagedFiles,
+      attachmentContext,
+      setAttachmentContext,
+      inputFocusRef,
+    }),
+    [open, type, initialInput, initialStagedFiles, attachmentContext, openPanel, closePanel],
+  );
 
   return (
     <ChatPanelContext.Provider value={value}>

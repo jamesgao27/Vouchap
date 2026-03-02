@@ -261,7 +261,9 @@ export async function uploadProjectCover(fileUri: string, projectId: string, spa
     const { error } = await supabase.storage.from(TAX_FILING_BUCKET).upload(filePath, uploadPayload, { contentType: mimeType, upsert: true });
     if (error) throw error;
     const { data: { publicUrl } } = supabase.storage.from(TAX_FILING_BUCKET).getPublicUrl(filePath);
-    return publicUrl;
+    // 为避免浏览器 / CDN 对同一路径封面的缓存，统一追加版本参数强制刷新
+    const versionedUrl = `${publicUrl}${publicUrl.includes('?') ? '&' : '?'}v=${Date.now()}`;
+    return versionedUrl;
   } catch (error) {
     console.error('Error uploading project cover:', error);
     throw error;
