@@ -19,6 +19,7 @@ import { GeminiReceiptResult, GeminiVoucherResult, GeminiInboundOutboundResult, 
 import { getAvailableImageModel } from './gemini-helper';
 import { getMostFrequentCurrency, getCurrenciesByUsage } from './database';
 import { normalizeShortDate, getLocalDateString } from './date-utils';
+import { supabase } from './supabase';
 
 // 引用 gemini-helper 中处理好的安全判断逻辑（如果 gemini-helper 导出了 apiKey）
 // 或者直接在此处复制安全获取逻辑：
@@ -56,9 +57,78 @@ function clearModelCacheIfUnavailable(err: unknown) {
   }
 }
 
-/** 小票识别统一 JSON 输出规范：所有录入方式（图片/文字/语音）必须使用同一套字段，便于下游一致解析 */
+/** 小票识别统一 JSON 输出规范：所有录入方式（图片/文字/语音/文档）必须使用同一套字段，便于下游一致解析 */
 const RECEIPT_JSON_ITEMS_RULE = 'Each item MUST have: "name" (string), "categoryName" (string), "purposeName" (string), "price" (number). Do NOT use "description" or "amount".';
 const RECEIPT_JSON_ITEMS_EXAMPLE = { name: 'Item Name', categoryName: 'Food', purposeName: 'Personal', price: 12.99 };
+
+/** 图片解析引导：针对拍照/扫描的小票图片 */
+const RECEIPT_IMAGE_PARSE_INTRO = 'You are a financial expert specializing in North American receipts. Analyze the receipt image and extract ALL available information with maximum accuracy.\n\n';
+
+/** 文档解析引导：针对 PDF/Word 等文档，解析方式不同，但数据规则与返回格式与图片一致 */
+const RECEIPT_DOCUMENT_PARSE_INTRO = 'You are a financial expert. You are given a DOCUMENT (PDF or Word), not a photo. First read and parse the entire document content (all text, tables, layout). Then extract receipt/purchase information using the EXACT SAME rules and JSON output format as for receipt images. For imageQuality, rate document readability and completeness (0–1).\n\n';
+
+/** 小票数据识别规则与 JSON 格式（图片/文档共用，与 RECEIPT_*_INTRO 组合提交） */
+function buildReceiptExtractionRules(opts: {
+  supplierListImg: string;
+  categoryList: string;
+  purposeList: string;
+  paymentAccountList: string;
+  defaultCurrency: string;
+  currencyList: string;
+  firstPurposeName: string;
+}): string {
+  const { supplierListImg, categoryList, purposeList, paymentAccountList, defaultCurrency, currencyList, firstPurposeName } = opts;
+  return `Existing Suppliers (pick from list if match else return new name, will create): [${supplierListImg || 'None'}]. Same rule for categoryName, purpose, paymentAccountName: match from injected lists or return new value (will create).
+
+1. Supplier name (supplierName): Extract the complete merchant/store name from the receipt header (usually the most prominent text at the top). 
+   - Pick from Existing Suppliers above if it matches; else return the extracted name (will create new supplier).
+   - DO NOT use generic terms like "Receipt", "Invoice", "Bill", "Processing", "Pending", or status words
+   - If truly unidentifiable, use "Unknown Supplier" only as last resort
+
+2. Supplier information (supplierInfo) - CRITICAL: Extract ALL visible merchant information with MAXIMUM DETAIL. Scan the ENTIRE receipt systematically: header, footer, sides, corners, and every section. This information is ESSENTIAL for complete merchant identification.
+   
+   - Tax number (taxNumber): Extract ALL tax identification numbers if present. This is ESSENTIAL for merchant identification and MUST be extracted if visible anywhere on the receipt.
+     * United States formats: EIN XX-XXXXXXX; labels: "EIN", "Tax ID", "Federal Tax ID"
+     * Canada formats: GST/HST, PST, QST; labels: "GST", "HST", "PST", "QST", "Business Number", "BN"
+     * **Extract ALL tax numbers if multiple. Combine with commas if multiple.**
+   
+   - Phone (phone): Extract the main business phone if visible. North American formats: (XXX) XXX-XXXX, XXX-XXX-XXXX, 1-XXX-XXX-XXXX.
+   - Address (address): Extract the COMPLETE business address (street, city, state/province, ZIP/postal code) if visible.
+
+3. Date (date, format: YYYY-MM-DD): Extract the purchase/transaction date. For ambiguous slash dates, choose the interpretation closest to today (past). Convert to YYYY-MM-DD.
+
+4. Total amount (totalAmount, numeric). Common labels: "Total", "Amount Due", "Grand Total". Exclude tip if separate.
+
+5. Currency (currency, ISO: USD, CAD, MXN). User's most used: [${currencyList}]. Default if not stated: "${defaultCurrency}".
+
+6. Payment account (paymentAccountName): Match from [${paymentAccountList || 'No existing accounts'}] by card suffix or type; else descriptive name with last 4 digits and type.
+
+7. Tax amount (tax, numeric, 0 if not available). Sum all taxes if multiple.
+
+8. Detailed item list (items). ${RECEIPT_JSON_ITEMS_RULE}
+   - name, categoryName (pick from [${categoryList}]), purposeName (pick from [${purposeList}], default "${firstPurposeName}"), price (number).
+
+9. Image quality assessment (imageQuality): clarity and completeness (0.0–1.0), clarityComment, completenessComment. For documents, rate readability and completeness of content.
+
+10. Data consistency (dataConsistency): itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment.
+
+11. Overall confidence (confidence): 0.0–1.0.
+
+Return ONLY valid JSON, no markdown. Format:
+{
+  "supplierName": "string",
+  "supplierInfo": { "taxNumber": "string or null", "phone": "string or null", "address": "string or null" },
+  "date": "YYYY-MM-DD",
+  "totalAmount": number,
+  "currency": "USD",
+  "paymentAccountName": "string or null",
+  "tax": number,
+  "items": [ { "name": "string", "categoryName": "string", "purposeName": "string", "price": number } ],
+  "imageQuality": { "clarity": number, "completeness": number, "clarityComment": "string", "completenessComment": "string" },
+  "dataConsistency": { "itemsSum": number, "itemsSumMatchesTotal": boolean, "missingItems": boolean, "consistencyComment": "string" },
+  "confidence": number
+}`;
+}
 
 // 识别小票内容（使用图片 URL）
 export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptResult> {
@@ -164,174 +234,16 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
   const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, MXN';
 
-  const prompt = `You are a financial expert specializing in North American receipts. Analyze the receipt image and extract ALL available information with maximum accuracy.
-
-Existing Suppliers (pick from list if match else return new name, will create): [${supplierListImg || 'None'}]. Same rule for categoryName, purpose, paymentAccountName: match from injected lists or return new value (will create).
-
-1. Supplier name (supplierName): Extract the complete merchant/store name from the receipt header (usually the most prominent text at the top). 
-   - Pick from Existing Suppliers above if it matches; else return the extracted name (will create new supplier).
-   - DO NOT use generic terms like "Receipt", "Invoice", "Bill", "Processing", "Pending", or status words
-   - If truly unidentifiable, use "Unknown Supplier" only as last resort
-
-2. Supplier information (supplierInfo) - CRITICAL: Extract ALL visible merchant information with MAXIMUM DETAIL. Scan the ENTIRE receipt systematically: header, footer, sides, corners, and every section. This information is ESSENTIAL for complete merchant identification.
-   
-   - Tax number (taxNumber): Extract ALL tax identification numbers if present. This is ESSENTIAL for merchant identification and MUST be extracted if visible anywhere on the receipt.
-     * United States formats:
-       - EIN (Employer Identification Number): XX-XXXXXXX (e.g., 12-3456789)
-       - Look for labels: "EIN", "Tax ID", "Federal Tax ID", "Employer ID", "Tax ID#", "Tax Identification Number"
-     * Canada formats:
-       - GST/HST Number: 9 digits, may include RT (e.g., 123456789RT0001, GST/HST #123456789)
-       - PST Number: Provincial Sales Tax number (varies by province)
-       - QST Number: Quebec Sales Tax number
-       - Look for labels: "GST", "HST", "PST", "QST", "GST/HST #", "Tax Registration #", "Business Number", "BN"
-     * Other North American formats:
-       - Business Number (BN): 9 digits (Canada)
-       - State Tax ID (varies by US state)
-     * Common locations: Near store name at top, footer, near tax calculation section, registration section
-     * **Extract ALL tax numbers if multiple are present (e.g., both GST and PST). Combine them with commas if multiple.**
-     * **CRITICAL: Even if partially visible or unclear, extract what you can see. Do not omit tax numbers.**
-   
-   - Phone (phone): Extract the phone number if available. This is IMPORTANT contact information and MUST be extracted if visible.
-     * North American formats (most common):
-       - (XXX) XXX-XXXX (e.g., (416) 555-1234)
-       - XXX-XXX-XXXX (e.g., 416-555-1234)
-       - XXX.XXX.XXXX (e.g., 416.555.1234)
-       - 1-XXX-XXX-XXXX (with country code)
-       - XXX XXX XXXX (spaces only)
-     * Toll-free numbers: 1-800-XXX-XXXX, 1-888-XXX-XXXX, 1-877-XXX-XXXX, 1-866-XXX-XXXX
-     * International formats: +1 XXX XXX XXXX, +1-XXX-XXX-XXXX
-     * Common locations: Header, footer, customer service section, contact section, near store name
-     * Common labels: "Phone:", "Tel:", "Call:", "Customer Service:", "T:", "P:", "Phone #", "Tel #", "Contact:", "Call us at"
-     * **Extract the main business phone number (prefer customer service or main line over fax). If multiple numbers, prefer the primary business number.**
-     * **CRITICAL: Extract phone numbers even if partially visible. Include area codes and country codes if present.**
-   
-   - Address (address): Extract the COMPLETE business address with ALL details. This is CRITICAL location information and MUST be extracted if visible.
-     * North American address format:
-       - Street address: Building number + Street name (e.g., "123 Main Street", "456 Oak Ave", "789 King St W")
-       - City, State/Province, ZIP/Postal Code
-       - US format: "123 Main St, New York, NY 10001"
-       - Canada format: "123 Main St, Toronto, ON M5H 2N2" (postal code format: A1A 1A1)
-     * Include ALL visible details:
-       - Unit/suite number if present (e.g., "Suite 200", "Unit 5", "#101", "Apt 3B")
-       - Street direction if present (e.g., "North", "South", "E", "W", "East", "West")
-       - Full state/province name or abbreviation (e.g., "California" or "CA", "Ontario" or "ON")
-       - Complete ZIP/postal code (e.g., "10001", "M5H 2N2")
-       - Building name if present (e.g., "Empire State Building", "Shopping Mall")
-     * Common locations: Header, footer, dedicated address section, near store name, registration section
-     * Common labels: "Address:", "Location:", "Store Address:", "Business Address:", "Registered Address:", "Mailing Address:", "Physical Address:"
-     * **If multiple addresses are present, prefer the physical store/business address over mailing or registered address**
-     * **For chain stores, prefer the specific location address over corporate headquarters**
-     * **CRITICAL: Extract the COMPLETE address including street number, street name, city, state/province, and postal/ZIP code. Do not omit any part if visible.**
-
-3. Date (date, format: YYYY-MM-DD): Extract the purchase/transaction date from the receipt
-   - Common North American formats on receipts:
-     * Full date: MM/DD/YYYY, DD/MM/YYYY, YYYY-MM-DD, or written format (e.g., "March 15, 2024")
-     * 6-digit date: MM/DD/YY or DD/MM/YY (e.g., "03/15/24" or "15/03/24")
-   - Look for: Transaction date, purchase date, sale date, or date near receipt header
-   - **CRITICAL for 6-digit slash dates (e.g. 26/02/06, 03/15/24):**
-     * When ambiguous (YY/MM/DD, DD/MM/YY, MM/DD/YY all valid), **choose the interpretation whose date is closest to today** — receipts are usually recent.
-     * North American receipts may use MM/DD/YY or DD/MM/YY
-     * **Resolution strategy:**
-       1. If format is ambiguous (e.g., "03/15/24" could be March 15 or May 3):
-          - **Prioritize the date that is CLOSER to the current date in the past**
-          - Receipts are typically from recent transactions (within days, weeks, or months)
-          - Example: If today is 2024-03-20 and you see "03/15/24":
-            * MM/DD/YY interpretation: 2024-03-15 (5 days ago) ✓ CORRECT
-            * DD/MM/YY interpretation: 2024-15-03 (invalid date) ✗
-          - Example: If today is 2024-05-20 and you see "03/15/24":
-            * MM/DD/YY interpretation: 2024-03-15 (66 days ago) ✓ CORRECT
-            * DD/MM/YY interpretation: 2024-15-03 (invalid date) ✗
-          - Example: If today is 2024-05-20 and you see "15/03/24":
-            * DD/MM/YY interpretation: 2024-03-15 (66 days ago) ✓ CORRECT
-            * MM/DD/YY interpretation: 2024-15-03 (invalid date) ✗
-       2. If both interpretations are valid dates:
-          - Choose the date that is **closer to the current date** (but still in the past)
-          - Receipts are almost always from past transactions, not future dates
-       3. If one interpretation results in a future date and the other in a past date:
-          - **Always choose the past date** (receipts cannot be from the future)
-       4. If one interpretation results in an invalid date (e.g., month > 12 or day > 31):
-          - Use the valid interpretation
-     * Convert 2-digit year to 4-digit:
-       - If YY is 00-30, assume 2000-2030 (e.g., "24" → 2024)
-       - If YY is 31-99, assume 1931-1999 (e.g., "95" → 1995)
-       - However, for recent receipts, prefer current century (2000s)
-   - Convert to YYYY-MM-DD format (e.g., "03/15/2024" → "2024-03-15", "03/15/24" → "2024-03-15")
-
-4. Total amount (totalAmount, numeric type, can be negative for refunds)
-   - Extract the final total amount (after taxes)
-   - Common labels: "Total", "Amount Due", "Grand Total", "TOTAL"
-   - Exclude tip/gratuity if separately listed
-
-5. Currency (currency, ISO code such as: USD, CAD, MXN, etc.)
-   - IMPORTANT: User's most frequently used currencies (in order of frequency): [${currencyList}]
-   - If currency is not explicitly stated, use "${defaultCurrency}" as the default (user's most common currency)
-   - US receipts: Usually USD; Canadian receipts: Usually CAD; Mexican receipts: Usually MXN
-   - Infer from location, store name, or receipt context when not explicit
-6. Payment account (paymentAccountName, if available, MUST include key distinguishing information):
-   - IMPORTANT: If the payment info matches any of these existing accounts, use the EXACT same name: [${paymentAccountList || 'No existing accounts'}]
-   - Match by card suffix (last 4 digits) or payment type when possible
-   - If no match found, create a new descriptive name with:
-     * Card number suffix: Last 4 digits (e.g., ****1234, *1234, Last 4: 1234, ending in 1234)
-     * Account type: Credit Card, Debit Card, Cash, Check, Gift Card, etc.
-     * Card brand if visible: Visa, Mastercard, Amex, Discover, etc.
-   - Example: If existing accounts include "Visa *1234" and receipt shows "VISA ending in 1234", use "Visa *1234"
-
-7. Tax amount (tax, numeric type, 0 if not available)
-   - Extract total tax amount (sum of all taxes if multiple)
-   - Common labels: "Tax", "GST", "HST", "PST", "QST", "Sales Tax", "State Tax", "Provincial Tax"
-   - If multiple taxes (e.g., GST + PST), sum them for total tax
-   - If tax is included in item prices, use 0
-7. Detailed item list (items). ${RECEIPT_JSON_ITEMS_RULE}
-   - name (string): item/product name
-   - categoryName: pick from [${categoryList}]
-   - purposeName: pick from [${purposeList}], default "${purposeNames[0]}"
-   - price (number): unit price or line amount
-8. Image quality assessment (imageQuality):
-   - clarity: Image clarity score (0.0-1.0, where 1.0 is perfectly clear)
-   - completeness: Image completeness score (0.0-1.0, where 1.0 means all receipt content is visible)
-   - clarityComment: Brief comment on image clarity (e.g., "Clear and sharp", "Slightly blurry", "Very blurry")
-   - completenessComment: Brief comment on image completeness (e.g., "Complete receipt visible", "Partially cut off", "Missing important sections")
-9. Data consistency check (dataConsistency):
-   - itemsSum: Sum of all item prices (calculate: sum of all items.price)
-   - itemsSumMatchesTotal: Boolean indicating if itemsSum + tax (if any) equals totalAmount (within 0.01 tolerance)
-   - missingItems: Boolean indicating if there might be items not captured in the list
-   - consistencyComment: Brief comment on data consistency (e.g., "Items sum matches total", "Items sum differs from total by X", "Some items may be missing")
-10. Overall confidence (confidence): Overall recognition confidence score (0.0-1.0). Consider:
-    - Image clarity and completeness
-    - Whether all items are captured
-    - Whether item prices sum matches the total amount
-    - Lower confidence if items sum doesn't match total or if items seem incomplete
-
-Please return strictly in JSON format without any extra text. JSON format as follows:
-{
-  "supplierName": "Supplier Name (must be actual merchant name, not generic terms like 'Receipt', 'Processing', or status words)",
-  "supplierInfo": {
-    "taxNumber": "12-3456789 or GST/HST #123456789 (Extract ALL tax numbers if visible. Use null ONLY if truly not found after scanning entire receipt)",
-    "phone": "(416) 555-1234 or 416-555-1234 (Extract main business phone if visible. Use null ONLY if truly not found)",
-    "address": "123 Main Street, Toronto, ON M5H 2N2 (Extract COMPLETE address including street, city, state/province, ZIP/postal code if visible. Use null ONLY if truly not found)"
-  },
-  "date": "2024-03-13",
-  "totalAmount": 123.45,
-  "currency": "USD",
-  "paymentAccountName": "Credit Card ****1234",
-  "tax": 5.67,
-  "items": [
-    ${JSON.stringify(RECEIPT_JSON_ITEMS_EXAMPLE)}
-  ],
-  "imageQuality": {
-    "clarity": 0.95,
-    "completeness": 1.0,
-    "clarityComment": "Clear and sharp",
-    "completenessComment": "Complete receipt visible"
-  },
-  "dataConsistency": {
-    "itemsSum": 123.45,
-    "itemsSumMatchesTotal": true,
-    "missingItems": false,
-    "consistencyComment": "Items sum matches total"
-  },
-  "confidence": 0.92
-}`;
+  const extractionRules = buildReceiptExtractionRules({
+    supplierListImg,
+    categoryList,
+    purposeList,
+    paymentAccountList,
+    defaultCurrency,
+    currencyList,
+    firstPurposeName: purposeNames[0] || 'Personal',
+  });
+  const prompt = RECEIPT_IMAGE_PARSE_INTRO + extractionRules;
 
   // 从 URL 下载图片并转换为 base64（Web 用 fetch，Native 用 FileSystem）
   console.log('Downloading image from URL...');
@@ -562,6 +474,202 @@ Please return strictly in JSON format without any extra text. JSON format as fol
   }
 
   throw new Error('Receipt recognition failed: Unknown error');
+}
+
+/** 从 URL 下载文件（图片或 PDF/文档）为 base64 + mimeType，供文档识别使用 */
+async function downloadFileToBase64(fileUrl: string, mimeHint?: string): Promise<{ base64: string; mimeType: string }> {
+  let mimeType = mimeHint ?? 'image/jpeg';
+  if (!mimeHint) {
+    if (fileUrl.includes('.pdf')) mimeType = 'application/pdf';
+    else if (fileUrl.includes('.png')) mimeType = 'image/png';
+    else if (fileUrl.includes('.gif')) mimeType = 'image/gif';
+    else if (fileUrl.includes('.webp')) mimeType = 'image/webp';
+    else if (fileUrl.includes('.doc')) mimeType = 'application/pdf'; // DOC 用 PDF 模型尝试或后续可扩展
+  }
+  if (Platform.OS === 'web') {
+    const blobToBase64 = (blob: Blob): Promise<string> =>
+      new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          resolve((dataUrl.split(',')[1]) ?? '');
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
+      });
+    const match = fileUrl.match(/\/storage\/v1\/object\/public\/([^/]+)\/(.+)$/);
+    if (match) {
+      const [, bucket, path] = match;
+      const { data, error } = await supabase.storage.from(bucket).download(path);
+      if (error) throw new Error(`Storage download failed: ${error.message}`);
+      if (!data) throw new Error('Storage download returned no data');
+      const base64 = await blobToBase64(data);
+      return { base64, mimeType };
+    }
+    try {
+      const res = await fetch(fileUrl, { mode: 'cors' });
+      if (!res.ok) throw new Error(`Document fetch failed: ${res.status} ${res.statusText}`);
+      const blob = await res.blob();
+      const base64 = await blobToBase64(blob);
+      return { base64, mimeType };
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes('fetch') || msg.includes('CORS') || msg.includes('NetworkError')) {
+        throw new Error('PDF/文档下载失败，请检查网络或存储 CORS 设置');
+      }
+      throw e;
+    }
+  }
+  const ext = mimeType === 'application/pdf' ? 'pdf' : 'jpg';
+  const downloadResult = await FileSystem.downloadAsync(fileUrl, FileSystem.documentDirectory + `temp-doc-${Date.now()}.${ext}`);
+  if (!downloadResult.uri) throw new Error('Failed to download file from URL');
+  const base64 = await FileSystem.readAsStringAsync(downloadResult.uri, { encoding: FileSystem.EncodingType.Base64 });
+  try { await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true }); } catch (_) {}
+  return { base64, mimeType };
+}
+
+/**
+ * 小票/支出文档识别（PDF 等）：解析部分与图片不同，数据规则与返回格式与 recognizeReceipt 一致，prompt 组合提交。
+ */
+export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: string): Promise<GeminiReceiptResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key 未配置') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  if (!availableModelCache) {
+    try {
+      availableModelCache = await getAvailableImageModel() ?? null;
+    } catch (_) {}
+  }
+  const modelsToTry = availableModelCache ? [availableModelCache, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+
+  let categoryNames: string[] = [];
+  try {
+    const categories = await getCategories('expense');
+    categoryNames = categories.map(cat => cat.name);
+  } catch (_) { categoryNames = [...DEFAULT_EXPENSE_CATEGORIES]; }
+  if (categoryNames.length === 0) categoryNames = [...DEFAULT_EXPENSE_CATEGORIES];
+
+  let purposeNames: string[] = [];
+  try {
+    const purposes = await getPurposes('expense');
+    purposeNames = purposes.map(p => p.name);
+  } catch (_) { purposeNames = [...DEFAULT_EXPENSE_PURPOSES]; }
+  if (purposeNames.length === 0) purposeNames = [...DEFAULT_EXPENSE_PURPOSES];
+
+  let paymentAccountNames: string[] = [];
+  try {
+    const accounts = await getAccountsForOptions();
+    paymentAccountNames = accounts.map(pa => pa.name);
+  } catch (_) {}
+
+  let supplierNamesImg: string[] = [];
+  try {
+    const entities = await getEntityOptions('expense');
+    supplierNamesImg = entities.map(e => e.name);
+  } catch (_) {}
+
+  // 货币：优先按使用频次取前几种，兜底 USD
+  let userCurrencies: string[] = [];
+  try {
+    userCurrencies = await getCurrenciesByUsage();
+  } catch (_) {
+    // 兼容旧实现：getMostFrequentCurrency 返回单个值
+    try {
+      const most = await getMostFrequentCurrency();
+      if (most) userCurrencies = [most];
+    } catch (_) {}
+  }
+  const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
+  const currencyList = userCurrencies.length > 0 ? userCurrencies.slice(0, 3).join(', ') : 'USD, CAD, MXN';
+  const supplierListImg = supplierNamesImg.join(', ');
+  const categoryList = categoryNames.join(', ');
+  const purposeList = purposeNames.join(', ');
+  const paymentAccountList = paymentAccountNames.join(', ');
+
+  const extractionRules = buildReceiptExtractionRules({
+    supplierListImg,
+    categoryList,
+    purposeList,
+    paymentAccountList,
+    defaultCurrency,
+    currencyList,
+    firstPurposeName: purposeNames[0] || 'Personal',
+  });
+  const prompt = RECEIPT_DOCUMENT_PARSE_INTRO + extractionRules;
+
+  const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
+  const filePart = { inlineData: { data: base64, mimeType } };
+
+  const defaultCategory = categoryNames.length > 0 ? categoryNames[0] : 'Meal';
+  let lastError: Error | null = null;
+
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([prompt, filePart]);
+      const text = result.response.text();
+      let jsonText = text.trim();
+      if (jsonText.startsWith('```json')) jsonText = jsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      else if (jsonText.startsWith('```')) jsonText = jsonText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      const parsedResult: GeminiReceiptResult = JSON.parse(jsonText);
+      const paymentAccountName = parsedResult.paymentAccountName || (parsedResult as any).paymentAccount;
+      const imageQuality = parsedResult.imageQuality ? {
+        clarity: parsedResult.imageQuality.clarity !== undefined ? Number(parsedResult.imageQuality.clarity) : undefined,
+        completeness: parsedResult.imageQuality.completeness !== undefined ? Number(parsedResult.imageQuality.completeness) : undefined,
+        clarityComment: parsedResult.imageQuality.clarityComment,
+        completenessComment: parsedResult.imageQuality.completenessComment,
+      } : undefined;
+      const dataConsistency = parsedResult.dataConsistency ? {
+        itemsSum: parsedResult.dataConsistency.itemsSum !== undefined ? Number(parsedResult.dataConsistency.itemsSum) : undefined,
+        itemsSumMatchesTotal: parsedResult.dataConsistency.itemsSumMatchesTotal !== undefined ? Boolean(parsedResult.dataConsistency.itemsSumMatchesTotal) : undefined,
+        missingItems: parsedResult.dataConsistency.missingItems !== undefined ? Boolean(parsedResult.dataConsistency.missingItems) : undefined,
+        consistencyComment: parsedResult.dataConsistency.consistencyComment,
+      } : undefined;
+      const calculatedItemsSum = parsedResult.items.reduce((sum, item) => sum + (Number((item as any).price ?? (item as any).amount) || 0), 0);
+      const totalAmount = Number(parsedResult.totalAmount) || 0;
+      const tax = parsedResult.tax !== undefined ? Number(parsedResult.tax) : 0;
+      const expectedTotal = calculatedItemsSum + tax;
+      const actualItemsSumMatches = Math.abs(expectedTotal - totalAmount) <= 0.01;
+      return {
+        supplierName: parsedResult.supplierName || 'Unknown Supplier',
+        supplierInfo: parsedResult.supplierInfo ? {
+          taxNumber: parsedResult.supplierInfo.taxNumber && parsedResult.supplierInfo.taxNumber !== 'null' ? parsedResult.supplierInfo.taxNumber : undefined,
+          phone: parsedResult.supplierInfo.phone && parsedResult.supplierInfo.phone !== 'null' ? parsedResult.supplierInfo.phone : undefined,
+          address: parsedResult.supplierInfo.address && parsedResult.supplierInfo.address !== 'null' ? parsedResult.supplierInfo.address : undefined,
+        } : undefined,
+        date: normalizeShortDate(parsedResult.date || getLocalDateString()),
+        totalAmount,
+        currency: parsedResult.currency || 'USD',
+        paymentAccountName,
+        tax,
+        items: parsedResult.items.map((item: any) => ({
+          name: item.name ?? item.description ?? 'Unknown Item',
+          categoryName: item.categoryName ?? item.category ?? defaultCategory,
+          price: Number(item.price ?? item.amount ?? 0),
+          purposeName: item.purposeName ?? item.purpose ?? 'Personal',
+          isAsset: item.isAsset !== undefined ? Boolean(item.isAsset) : false,
+          confidence: item.confidence !== undefined ? Number(item.confidence) : 0.8,
+        })),
+        confidence: parsedResult.confidence !== undefined ? Number(parsedResult.confidence) : 0.8,
+        imageQuality,
+        dataConsistency: dataConsistency || {
+          itemsSum: calculatedItemsSum,
+          itemsSumMatchesTotal: actualItemsSumMatches,
+          missingItems: !actualItemsSumMatches && calculatedItemsSum < totalAmount,
+          consistencyComment: actualItemsSumMatches ? 'Items sum matches total' : `Items sum (${calculatedItemsSum.toFixed(2)}) differs from total (${totalAmount.toFixed(2)})`,
+        },
+      };
+    } catch (e) {
+      lastError = e instanceof Error ? e : new Error(String(e));
+      clearModelCacheIfUnavailable(e);
+      continue;
+    }
+  }
+  throw lastError || new Error('Receipt document recognition failed');
 }
 
 /**
@@ -1306,6 +1414,100 @@ User input:
   throw lastError || new Error('All models failed');
 }
 
+/** 发票/收入文档解析引导：先读文档再提取，数据规则与返回格式与文字/图片一致 */
+const INVOICE_DOCUMENT_PARSE_INTRO = 'You are a financial expert. You are given a DOCUMENT (PDF or Word), not a photo. First read and parse the entire document content (all text, tables, layout). Then extract INVOICE (sales / money received) information using the EXACT SAME rules and JSON output format as for invoice text. Return ONLY valid JSON, no markdown.\n\n';
+
+/** 发票文档识别（PDF 等）：解析部分与图片不同，数据规则与返回格式与 recognizeInvoiceFromText 一致，prompt 组合提交 */
+export async function recognizeInvoiceFromDocument(fileUrl: string, mimeHint?: string): Promise<GeminiVoucherResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const error = new Error('Gemini API Key 未配置。') as any;
+    error.code = 'GEMINI_API_KEY_MISSING';
+    throw error;
+  }
+  let categoryNames: string[] = [];
+  try {
+    const categories = await getCategories('income');
+    categoryNames = categories.map(cat => cat.name);
+  } catch {
+    categoryNames = [...DEFAULT_INCOME_CATEGORIES];
+  }
+  if (categoryNames.length === 0) categoryNames = [...DEFAULT_INCOME_CATEGORIES];
+  let purposeNames: string[] = [];
+  try {
+    const purposes = await getPurposes('income');
+    purposeNames = purposes.map(p => p.name);
+  } catch {
+    purposeNames = [...DEFAULT_INCOME_PURPOSES];
+  }
+  if (purposeNames.length === 0) purposeNames = [...DEFAULT_INCOME_PURPOSES];
+  let paymentAccountNames: string[] = [];
+  try {
+    const accounts = await getAccountsForOptions();
+    paymentAccountNames = accounts.map(pa => pa.name);
+  } catch {}
+  let customerNames: string[] = [];
+  try {
+    const entities = await getEntityOptions();
+    customerNames = entities.map((e) => e.name);
+  } catch {}
+  const customerList = customerNames.length > 0 ? customerNames.join(', ') : 'None';
+  const categoryList = categoryNames.join(', ');
+  const purposeList = purposeNames.join(', ');
+  const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : 'None';
+  const userCurrencies = await getCurrenciesByUsage();
+  const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
+  const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, CNY';
+  const today = getLocalDateString();
+
+  const rulesAndData = `Rules: Gibberish/no real content → confidence 0.1, customerName "Unknown", totalAmount 0, items []. For customerName, categoryName, purpose, paymentAccountName: pick from injected lists if match, else return new value (will create). Dates YYYY-MM-DD; use ${today} if not mentioned.
+
+Data: today=${today}. Customers [${customerList}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList}]. Categories [${categoryList}]. Purposes [${purposeList}], default "${purposeNames[0]}".
+
+Output: customerName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[], dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
+
+  const prompt = INVOICE_DOCUMENT_PARSE_INTRO + rulesAndData;
+  const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
+  const filePart = { inlineData: { data: base64, mimeType } };
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch {}
+  const modelsToTry = availableModel ? [availableModel, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+  let lastError: Error | null = null;
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([prompt, filePart]);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+      if (!parsed.customerName) parsed.customerName = 'Customer';
+      if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
+      if (parsed.totalAmount === undefined) parsed.totalAmount = 0;
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Sales', purpose: purposeNames[0] || 'Employer', price: parsed.totalAmount || 0 }];
+      parsed.items = parsed.items.map((item: any) => ({
+        ...item,
+        purpose: item.purpose || item.purposeName || purposeNames[0] || 'Employer',
+        purposeName: item.purposeName || item.purpose || purposeNames[0] || 'Employer',
+      })).filter((item: any) => item.name != null && item.price !== undefined && item.categoryName);
+      if (parsed.items.length === 0) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Sales', purpose: purposeNames[0] || 'Employer', price: parsed.totalAmount || 0 }];
+      if (!parsed.currency) parsed.currency = defaultCurrency;
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      if (!parsed.dataConsistency) parsed.dataConsistency = {};
+      return parsed as GeminiVoucherResult;
+    } catch (error) {
+      clearModelCacheIfUnavailable(error);
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
 /** 按凭证类型从语音识别 */
 export async function recognizeVoucherFromAudio(audioUri: string, voucherType: VoucherLogType): Promise<GeminiVoucherResult> {
   if (voucherType === 'receipt') {
@@ -1451,6 +1653,16 @@ const INBOUND_JSON_EXAMPLE = (today: string) => `{
   ],
   "confidence": 0.9
 }`;
+
+/** 入库单文档解析引导：先读全文/表格再提取，与图片解析不同；数据规则与返回格式与图片一致 */
+const INBOUND_DOCUMENT_PARSE_INTRO = `You are a warehouse/inventory expert. You are given a DOCUMENT (PDF or image of 入库单). First read and parse the entire document (tables, layout). Then extract INBOUND (入库) information. Return ONLY valid JSON, no markdown.
+
+`;
+
+/** 出库单文档解析引导：先读全文/表格再提取；数据规则与返回格式与图片一致 */
+const OUTBOUND_DOCUMENT_PARSE_INTRO = `You are a warehouse/inventory expert. You are given a DOCUMENT (PDF or image of 出库单). First read and parse the entire document (tables, layout). Then extract OUTBOUND (出库) information. Return ONLY valid JSON, no markdown.
+
+`;
 
 /** 入库单文字识别：按样例表格最完整字段提取 */
 export async function recognizeInboundFromText(text: string): Promise<GeminiInboundOutboundResult> {
@@ -1814,6 +2026,108 @@ ${OUTBOUND_JSON_EXAMPLE(today)}`;
     try {
       const model = currentGenAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent([prompt, imagePart]);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+      if (!parsed.customerName) parsed.customerName = 'Customer';
+      if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
+      parsed.items = normalizeOutboundItems(parsed.items, today);
+      if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      return parsed as GeminiInboundOutboundResult;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+/** 入库单文档识别（PDF 等）：文档解析引导 + 与图片相同的数据规则与 JSON */
+export async function recognizeInboundFromDocument(fileUrl: string, mimeHint?: string): Promise<GeminiInboundOutboundResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key 未配置。') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const today = getLocalDateString();
+  const rulesAndExample = `CURRENT DATE: ${today}. For ambiguous short slash dates, choose the date closest to today.
+
+HEADER: documentNo, supplierName, warehouseName, locationName, date, inboundType, totalAmount, totalAmountChinese, currency, handlerName, warehouseKeeperName, accountantName, remarks.
+ITEMS (array, REQUIRED): lineNo, productCode, productName, specification, quantity, qualifiedQuantity, defectiveQuantity, unit, unitPrice, amount, skuCode, remarks.
+
+Example structure:
+${INBOUND_JSON_EXAMPLE(today)}`;
+  const prompt = INBOUND_DOCUMENT_PARSE_INTRO + rulesAndExample;
+
+  const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
+  const filePart = { inlineData: { data: base64, mimeType } };
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch (_) {}
+  const modelsToTry = availableModel ? [availableModel, ...INBOUND_OUTBOUND_POSSIBLE_MODELS] : INBOUND_OUTBOUND_POSSIBLE_MODELS;
+  let lastError: Error | null = null;
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([prompt, filePart]);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: any = JSON.parse(jsonMatch[0]);
+      if (!parsed.supplierName) parsed.supplierName = 'Supplier';
+      if (!parsed.date) parsed.date = today;
+      parsed.date = normalizeShortDate(parsed.date);
+      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
+      parsed.items = normalizeInboundItems(parsed.items, today);
+      if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
+      if (parsed.confidence === undefined) parsed.confidence = 0.8;
+      return parsed as GeminiInboundOutboundResult;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+/** 出库单文档识别（PDF 等）：文档解析引导 + 与图片相同的数据规则与 JSON */
+export async function recognizeOutboundFromDocument(fileUrl: string, mimeHint?: string): Promise<GeminiInboundOutboundResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key 未配置。') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const today = getLocalDateString();
+  const rulesAndExample = `CURRENT DATE: ${today}. For ambiguous short slash dates, choose the date closest to today.
+
+HEADER: documentNo, customerName, warehouseName, locationName, date, totalAmount, totalTax, currency, handlerName, preparerName, accountantName, remarks.
+ITEMS (array, REQUIRED): lineNo, productName, specification, quantity, unit, unitPrice, amount, supplyPrice, tax, skuCode, remarks.
+
+Example structure:
+${OUTBOUND_JSON_EXAMPLE(today)}`;
+  const prompt = OUTBOUND_DOCUMENT_PARSE_INTRO + rulesAndExample;
+
+  const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
+  const filePart = { inlineData: { data: base64, mimeType } };
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch (_) {}
+  const modelsToTry = availableModel ? [availableModel, ...INBOUND_OUTBOUND_POSSIBLE_MODELS] : INBOUND_OUTBOUND_POSSIBLE_MODELS;
+  let lastError: Error | null = null;
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([prompt, filePart]);
       const textResponse = result.response.text();
       const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON in response');

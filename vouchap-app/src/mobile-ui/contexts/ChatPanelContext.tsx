@@ -4,7 +4,7 @@
  */
 import React, { createContext, useContext, useState, useCallback, useRef, ReactNode } from 'react';
 
-export type ChatPanelType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'attachments';
+export type ChatPanelType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'tax-filing';
 
 export type AttachmentContext = { projectId?: string; todoId?: string };
 
@@ -12,6 +12,7 @@ export type StagedAttachmentFile = { id: string; uri: string; name?: string };
 
 type ChatPanelContextValue = {
   open: boolean;
+  setOpen: (v: boolean) => void;
   type: ChatPanelType;
   setType: (t: ChatPanelType) => void;
   openPanel: (t?: ChatPanelType) => void;
@@ -48,6 +49,7 @@ export function ChatPanelProvider({ children }: { children: ReactNode }) {
 
   const value: ChatPanelContextValue = {
     open,
+    setOpen,
     type,
     setType,
     openPanel,

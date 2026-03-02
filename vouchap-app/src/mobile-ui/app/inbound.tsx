@@ -27,7 +27,6 @@ import { VoucherStatus } from '@/types';
 import { SwipeableRow } from './SwipeableRow';
 import { uploadInboundImageTempWithSpace } from '@/lib/supabase';
 import { processInboundInBackground } from '@/lib/inbound-processor';
-import { processImageForUpload } from '@/lib/image-processor';
 import { voucherListStyles as styles } from '../styles/voucher-list-styles';
 import { getLocalDateString } from '@/lib/date-utils';
 import { showToast } from '@/lib/toast';
@@ -274,8 +273,7 @@ export default function InboundScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        // 从相册选择的图片通常未裁剪，这里保留自动裁剪逻辑
-        processCapturedImage(result.assets[0].uri, true);
+        processCapturedImage(result.assets[0].uri);
       }
     } catch (error) {
       console.error('Image picker error:', error);
@@ -283,16 +281,15 @@ export default function InboundScreen() {
     }
   };
 
-  const processCapturedImage = async (imageUri: string, autoCrop: boolean = true) => {
+  const processCapturedImage = async (imageUri: string) => {
     setShowSuccessModal(true);
     setLastInboundId(null);
     (async () => {
       try {
-        const processedImageUri = await processImageForUpload(imageUri, { autoCrop, quality: 0.85 });
         const tempFileName = `temp-${Date.now()}`;
         const user = await getCurrentUser();
         const spaceId = user?.currentSpaceId || user?.spaceId || '';
-        const imageUrl = await uploadInboundImageTempWithSpace(processedImageUri, tempFileName, spaceId);
+        const imageUrl = await uploadInboundImageTempWithSpace(imageUri, tempFileName, spaceId);
         const today = getLocalDateString();
         const inboundId = await saveInbound({
           spaceId: '',
@@ -304,7 +301,7 @@ export default function InboundScreen() {
         });
         setLastInboundId(inboundId);
         load({ full: true });
-        processInboundInBackground(imageUrl, inboundId, processedImageUri).then(() => load({ full: true })).catch(err => console.error('Background process failed:', err));
+        processInboundInBackground(imageUrl, inboundId, imageUri).then(() => load({ full: true })).catch(err => console.error('Background process failed:', err));
       } catch (error) {
         console.error('Processing error:', error);
         showToast('Failed to process inbound image.', 'error');
@@ -813,7 +810,7 @@ export default function InboundScreen() {
                     {item.status === 'confirmed' ? (
                       <View style={styles.confirmedStatusContainer}>
                         <View style={styles.confirmedBadge}>
-                          <Ionicons name={item.inputType === 'audio' ? 'mic' : item.inputType === 'text' ? 'menu' : 'camera'} size={12} color="#fff" />
+                          <Ionicons name={item.inputType === 'audio' ? 'mic' : item.inputType === 'text' ? 'menu' : item.inputType === 'document' ? 'attach' : 'camera'} size={12} color="#fff" />
                         </View>
                       </View>
                     ) : (

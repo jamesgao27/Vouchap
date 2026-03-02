@@ -27,7 +27,6 @@ import { VoucherStatus } from '@/types';
 import { SwipeableRow } from './SwipeableRow';
 import { uploadOutboundImageTempWithSpace } from '@/lib/supabase';
 import { processOutboundInBackground } from '@/lib/outbound-processor';
-import { processImageForUpload } from '@/lib/image-processor';
 import { voucherListStyles as styles } from '../styles/voucher-list-styles';
 import { getLocalDateString } from '@/lib/date-utils';
 import { showToast } from '@/lib/toast';
@@ -291,8 +290,7 @@ export default function OutboundScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        // 从相册选择的图片通常未裁剪，这里保留自动裁剪逻辑
-        processCapturedImage(result.assets[0].uri, true);
+        processCapturedImage(result.assets[0].uri);
       }
     } catch (error) {
       console.error('Image picker error:', error);
@@ -300,21 +298,17 @@ export default function OutboundScreen() {
     }
   };
 
-  const processCapturedImage = async (imageUri: string, autoCrop: boolean = true) => {
+  const processCapturedImage = async (imageUri: string) => {
     console.log('[出库单] 开始处理图片，imageUri:', imageUri);
     setShowSuccessModal(true);
     setLastOutboundId(null);
     (async () => {
       try {
-        console.log('[出库单] 步骤1: 处理图片...');
-        const processedImageUri = await processImageForUpload(imageUri, { autoCrop, quality: 0.85 });
-        console.log('[出库单] 图片处理完成，processedImageUri:', processedImageUri);
-        
-        console.log('[出库单] 步骤2: 上传临时图片...');
+        console.log('[出库单] 步骤1: 上传临时图片（相册选择不裁剪不增强）...');
         const tempFileName = `temp-${Date.now()}`;
         const user = await getCurrentUser();
         const spaceId = user?.currentSpaceId || user?.spaceId || '';
-        const imageUrl = await uploadOutboundImageTempWithSpace(processedImageUri, tempFileName, spaceId);
+        const imageUrl = await uploadOutboundImageTempWithSpace(imageUri, tempFileName, spaceId);
         console.log('[出库单] 临时图片上传完成，imageUrl:', imageUrl);
         
         console.log('[出库单] 步骤3: 创建出库单记录...');
@@ -333,7 +327,7 @@ export default function OutboundScreen() {
         load({ full: true });
         
         console.log('[出库单] 步骤4: 启动后台识别处理...');
-        processOutboundInBackground(imageUrl, outboundId, processedImageUri)
+        processOutboundInBackground(imageUrl, outboundId, imageUri)
           .then(() => {
             console.log('[出库单] ✅ 后台处理成功，刷新列表');
             load({ full: true });
@@ -855,7 +849,7 @@ export default function OutboundScreen() {
                     {item.status === 'confirmed' ? (
                       <View style={styles.confirmedStatusContainer}>
                         <View style={styles.confirmedBadge}>
-                          <Ionicons name={item.inputType === 'audio' ? 'mic' : item.inputType === 'text' ? 'menu' : 'camera'} size={12} color="#fff" />
+                          <Ionicons name={item.inputType === 'audio' ? 'mic' : item.inputType === 'text' ? 'menu' : item.inputType === 'document' ? 'attach' : 'camera'} size={12} color="#fff" />
                         </View>
                       </View>
                     ) : (

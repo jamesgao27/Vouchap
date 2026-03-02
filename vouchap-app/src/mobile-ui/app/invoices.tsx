@@ -746,7 +746,7 @@ export default function InvoicesScreen() {
                     {item.status === 'confirmed' ? (
                       <View style={styles.confirmedStatusContainer}>
                         <View style={styles.confirmedBadge}>
-                          <Ionicons name={item.inputType === 'audio' ? 'mic' : item.inputType === 'text' ? 'menu' : 'document-text'} size={12} color="#fff" />
+                          <Ionicons name={item.inputType === 'audio' ? 'mic' : item.inputType === 'text' ? 'menu' : item.inputType === 'document' ? 'attach' : 'camera'} size={12} color="#fff" />
                         </View>
                         {item.createdByUser && (
                           <Text style={styles.confirmedByText}>

@@ -21,15 +21,20 @@ const POSSIBLE_MODELS = [
   'gemini-2.5-pro',
 ];
 
-async function downloadImageToBase64(imageUrl: string): Promise<{ base64: string; mimeType: string }> {
-  let mimeType = 'image/jpeg';
-  if (imageUrl.includes('.png')) mimeType = 'image/png';
-  else if (imageUrl.includes('.gif')) mimeType = 'image/gif';
-  else if (imageUrl.includes('.webp')) mimeType = 'image/webp';
+/** 下载图片或 PDF/文档为 base64，支持报税附件为文档时走同一套识别 prompt */
+async function downloadFileToBase64(fileUrl: string, mimeHint?: string): Promise<{ base64: string; mimeType: string }> {
+  let mimeType = mimeHint ?? 'image/jpeg';
+  if (!mimeHint) {
+    if (fileUrl.includes('.pdf')) mimeType = 'application/pdf';
+    else if (fileUrl.includes('.png')) mimeType = 'image/png';
+    else if (fileUrl.includes('.gif')) mimeType = 'image/gif';
+    else if (fileUrl.includes('.webp')) mimeType = 'image/webp';
+  }
+  const ext = mimeType === 'application/pdf' ? 'pdf' : 'jpg';
 
   if (Platform.OS === 'web') {
-    const res = await fetch(imageUrl, { mode: 'cors' });
-    if (!res.ok) throw new Error('Failed to fetch image from URL');
+    const res = await fetch(fileUrl, { mode: 'cors' });
+    if (!res.ok) throw new Error('Failed to fetch file from URL');
     const blob = await res.blob();
     const base64 = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
@@ -45,10 +50,10 @@ async function downloadImageToBase64(imageUrl: string): Promise<{ base64: string
   }
 
   const downloadResult = await FileSystem.downloadAsync(
-    imageUrl,
-    FileSystem.documentDirectory + `temp-tax-recognize-${Date.now()}.jpg`
+    fileUrl,
+    FileSystem.documentDirectory + `temp-tax-recognize-${Date.now()}.${ext}`
   );
-  if (!downloadResult.uri) throw new Error('Failed to download image from URL');
+  if (!downloadResult.uri) throw new Error('Failed to download file from URL');
   const base64 = await FileSystem.readAsStringAsync(downloadResult.uri, {
     encoding: FileSystem.EncodingType.Base64,
   });
@@ -66,13 +71,15 @@ export interface TaxFilingRecognitionResult {
 }
 
 /**
- * 使用报税识别提示词对图片进行识别，返回结构化结果（写回 attachment 用）。
+ * 使用报税识别提示词对图片或文档（PDF 等）进行识别，返回结构化结果（写回 attachment 用）。
+ * 文档与图片共用同一套识别规则与返回格式；mimeHint 用于文档时传入（如 application/pdf）。
  */
 export async function runTaxFilingRecognition(
   imageUrl: string,
   projectContext: TaxFilingProjectContext,
   todoContext?: TaxFilingTodoContext,
-  userInstructions?: string
+  userInstructions?: string,
+  mimeHint?: string
 ): Promise<TaxFilingRecognitionResult> {
   const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
   if (!currentApiKey || currentApiKey === 'placeholder-key') {
@@ -82,8 +89,8 @@ export async function runTaxFilingRecognition(
   }
 
   const prompt = buildTaxFilingRecognitionPrompt({ projectContext, todoContext, userInstructions });
-  const { base64, mimeType } = await downloadImageToBase64(imageUrl);
-  const imagePart = { inlineData: { data: base64, mimeType } };
+  const { base64, mimeType } = await downloadFileToBase64(imageUrl, mimeHint);
+  const filePart = { inlineData: { data: base64, mimeType } };
   const genAI = new GoogleGenerativeAI(currentApiKey);
   let availableModel: string | null = null;
   try {
@@ -95,7 +102,7 @@ export async function runTaxFilingRecognition(
   for (const modelName of modelsToTry) {
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent([prompt, imagePart]);
+      const result = await model.generateContent([prompt, filePart]);
       const text = result.response.text();
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON in response');

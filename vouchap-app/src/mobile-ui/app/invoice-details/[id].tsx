@@ -19,6 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getInvoiceById, saveInvoice, updateInvoiceItem } from '@/lib/invoices';
 import { supabase, uploadInvoiceImage } from '@/lib/supabase';
+import { processImageForUpload } from '@/lib/image-processor';
 import { getCategories } from '@/lib/categories';
 import { getPurposes } from '@/lib/purposes';
 import { getAccounts, mergeAccount } from '@/lib/accounts';
@@ -708,7 +709,11 @@ export default function InvoiceDetailsScreen() {
         aspect: [4, 3],
         quality: 0.8,
       });
-      if (!result.canceled && result.assets[0]) await uploadImage(result.assets[0].uri);
+      if (!result.canceled && result.assets[0]) {
+        const uri = result.assets[0].uri;
+        const processedUri = await processImageForUpload(uri, { autoCrop: true, quality: 0.85 });
+        await uploadImage(processedUri);
+      }
     } catch (error) {
       showToast('Failed to launch camera.', 'error');
     }

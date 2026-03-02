@@ -44,11 +44,16 @@ function StatusBadge({ label, color }: { label: string; color: string }) {
   );
 }
 
-/** 提交方式：图标 + 短文案，辨识度更高 */
-function InputTypeCell({ type }: { type?: 'image' | 'text' | 'audio' }) {
-  if (type === 'audio') return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Ionicons name="mic" size={16} color="#636E72" /><Text style={{ fontSize: 13, color: '#636E72' }}>Voice</Text></View>;
-  if (type === 'text') return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Ionicons name="document-text" size={16} color="#636E72" /><Text style={{ fontSize: 13, color: '#636E72' }}>Text</Text></View>;
-  return <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}><Ionicons name="camera" size={16} color="#636E72" /><Text style={{ fontSize: 13, color: '#636E72' }}>Image</Text></View>;
+/** 提交方式：四类 icon（camera/voice/text/attachment）。图片与拍照统一用 camera icon；attachment 仅 document 用 📎，尾随文案 Image/Doc */
+function InputTypeCell({ type }: { type?: import('@/types').InputType }) {
+  const row = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 4 };
+  const textStyle = { fontSize: 13, color: '#636E72' };
+  if (type === 'audio') return <View style={row}><Ionicons name="mic" size={16} color="#636E72" /><Text style={textStyle}>Voice</Text></View>;
+  if (type === 'text') return <View style={row}><Ionicons name="document-text" size={16} color="#636E72" /><Text style={textStyle}>Text</Text></View>;
+  if (type === 'camera') return <View style={row}><Ionicons name="camera" size={16} color="#636E72" /><Text style={textStyle}>Camera</Text></View>;
+  if (type === 'document') return <View style={row}><Ionicons name="attach" size={16} color="#636E72" /><Text style={textStyle}>Doc</Text></View>;
+  // image 或未设置（含旧数据）：统一用相机 icon + Image
+  return <View style={row}><Ionicons name="camera" size={16} color="#636E72" /><Text style={textStyle}>Image</Text></View>;
 }
 
 export interface ReceiptColumnOptions {
@@ -68,7 +73,7 @@ export function getReceiptColumns(opts: ReceiptColumnOptions): DataTableColumn<R
     { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
     { id: 'status', label: 'Status', minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
     { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '—'}</Text>, getSortValue: r => (r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '').toLowerCase() },
-    { id: 'inputType', label: 'Input', minWidth: 72, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
+    { id: 'inputType', label: 'Camera', minWidth: 72, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
     { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }}>{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
   ];
 }
@@ -90,7 +95,7 @@ export function getInvoiceColumns(opts: InvoiceColumnOptions): DataTableColumn<I
     { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
     { id: 'status', label: 'Status', minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
     { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '—'}</Text>, getSortValue: r => (r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '').toLowerCase() },
-    { id: 'inputType', label: 'Input', minWidth: 72, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
+    { id: 'inputType', label: 'Camera', minWidth: 72, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
     { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }}>{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
   ];
 }

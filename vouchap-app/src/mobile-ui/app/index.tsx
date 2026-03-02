@@ -537,7 +537,7 @@ export default function HomeScreen() {
 
       if (scannedImages && scannedImages.length > 0) {
         // 自动裁剪后直接处理，实现 Snap 即拍即传
-        processCapturedImage(scannedImages[0], false, type);
+        processCapturedImage(scannedImages[0], false, false, type);
       }
     } catch (error) {
       console.error('Document scan error:', error);
@@ -566,8 +566,7 @@ export default function HomeScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        // 从相册选择的图片通常没有裁剪，这里保留自动裁剪逻辑
-        processCapturedImage(result.assets[0].uri, true, type);
+        processCapturedImage(result.assets[0].uri, true, false, type);
       }
     } catch (error) {
       console.error('Image picker error:', error);
@@ -575,32 +574,26 @@ export default function HomeScreen() {
     }
   };
 
-  // autoCrop 参数：
-  // - 对于扫描得到的图片（已经在原生层做过裁剪），应传入 false，避免二次裁剪截断内容
-  // - 对于从相册选择的原始图片，可以传入 true，启用自动裁剪去除背景
-  const processCapturedImage = async (imageUri: string, autoCrop: boolean = true, type: 'receipt' | 'invoice' = 'receipt') => {
-    // 立即显示选单，后台处理上传
+  // fromGallery：true=相册/选择不裁剪不增强；false=实时拍摄/扫描。autoCrop：仅非相册时有效（扫描传 false）
+  const processCapturedImage = async (imageUri: string, fromGallery: boolean, autoCrop: boolean, type: 'receipt' | 'invoice' = 'receipt') => {
     setShowSuccessModal(true);
     setVoucherType(type);
     setLastReceiptId(null);
     setLastInvoiceId(null);
-    
-    // 后台异步处理（不阻塞 UI）
+
     (async () => {
       try {
-        console.log(`Processing captured image (${type}):`, imageUri);
+        console.log(`Processing captured image (${type}):`, imageUri, 'fromGallery:', fromGallery);
 
-        // 1. Process image (compress, optional auto-crop, etc)
-        const processedImageUri = await processImageForUpload(imageUri, {
-          autoCrop,
-          quality: 0.85,
-        });
-        console.log('Image processed:', processedImageUri);
+        let uriToUpload = imageUri;
+        if (!fromGallery) {
+          uriToUpload = await processImageForUpload(imageUri, { autoCrop, quality: 0.85 });
+          console.log('Image processed:', uriToUpload);
+        }
 
-        // 2. Upload to Supabase Storage (temp)，按当前 space_id 分文件夹
         const tempFileName = `temp-${Date.now()}`;
         const spaceId = currentSpace?.id ?? '';
-        const imageUrl = await uploadReceiptImageTempWithSpace(processedImageUri, tempFileName, spaceId);
+        const imageUrl = await uploadReceiptImageTempWithSpace(uriToUpload, tempFileName, spaceId);
         console.log('Image uploaded:', imageUrl);
 
         if (type === 'invoice') {
@@ -614,7 +607,7 @@ export default function HomeScreen() {
             status: 'pending',
             items: [],
             imageUrl: imageUrl,
-            inputType: 'image',
+            inputType: fromGallery ? 'image' : 'camera',
           }, true); // autoResolveDuplicate = true
           console.log('Invoice record created:', invoiceId);
           setLastInvoiceId(invoiceId);
@@ -650,12 +643,13 @@ export default function HomeScreen() {
             status: 'processing',
             items: [],
             imageUrl: imageUrl,
+            inputType: fromGallery ? 'image' : 'camera',
           });
           console.log('Receipt record created:', receiptId);
           setLastReceiptId(receiptId);
 
           // 4. Background processing with Gemini (async, don't block UI)
-          processReceiptInBackground(imageUrl, receiptId, processedImageUri)
+          processReceiptInBackground(imageUrl, receiptId, uriToUpload)
             .then(() => console.log('Background processing started'))
             .catch(err => console.error('Background processing failed:', err));
         }

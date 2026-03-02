@@ -6,7 +6,7 @@
 
 - 每个 bucket 只做一类用途；路径**至多两层**（一层为 space_id 或类型前缀，第二层为 temp 或文件名）。
 - 需要按 space 隔离的，用 `**{spaceId}/`** 作为第一层目录（无 spaceId 时用 `unknown`）。
-- 扩展名与 MIME 统一用 `getImageExtAndMime(uri)`，只允许 jpg/png/gif/webp。
+- 图片扩展名与 MIME 用 `getImageExtAndMime(uri)`（jpg/png/gif/webp）；报税附件等支持文档时用 `getFileExtAndMime(uri, opts?)`，支持 jpg/png/gif/webp 与 pdf/doc/docx。
 
 ---
 
@@ -20,7 +20,7 @@
 
 | 类型       | 路径格式                                           | 说明    |
 | -------- | ---------------------------------------------- | ----- |
-| 小票/发票 临时 | `{spaceId}/temp/{fileName}.{ext}`              | 识别前上传 |
+| 小票/发票/入库/出库 临时 | `{spaceId}/temp/{fileName}.{ext}`              | 识别前上传；ext 可为 jpg/png/gif/webp 或 pdf/doc/docx（文档仅上传不识别） |
 | 入库 临时    | `{spaceId}/temp/inbound_{tempFileName}.{ext}`  | 同上    |
 | 出库 临时    | `{spaceId}/temp/outbound_{tempFileName}.{ext}` | 同上    |
 | 小票 正式    | `{spaceId}/receipt_{receiptId}.{ext}`          | 确认后保存 |
@@ -62,7 +62,7 @@
 | 类型   | 路径格式                                | 说明                                           |
 | ---- | ----------------------------------- | -------------------------------------------- |
 | 项目封面 | `{spaceId}/cover_{projectId}.{ext}` | 从 receipts 迁入，与报税项目一致；spaceId 为 client space |
-| 报税附件 | `{spaceId}/{fileName}.{ext}`        | 如 `attach_xxx` 或调用方 tempFileName             |
+| 报税附件 | `{spaceId}/{fileName}.{ext}`        | 如 `attach_xxx`；ext 可为 jpg/png/gif/webp 或 pdf/doc/docx |
 
 
 ---

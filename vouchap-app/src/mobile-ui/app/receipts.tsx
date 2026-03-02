@@ -228,8 +228,7 @@ export default function ReceiptsScreen() {
 
       if (scannedImages && scannedImages.length > 0) {
         console.log(`✅ [scanDocument] 扫描成功，获得 ${scannedImages.length} 张图片`);
-        // 自动裁剪后直接处理，实现 Snap 即拍即传
-        processCapturedImage(scannedImages[0], false);
+        processCapturedImage(scannedImages[0], false, false);
       } else {
         console.log('⚠️ [scanDocument] 扫描完成但没有获得图片');
       }
@@ -266,9 +265,8 @@ export default function ReceiptsScreen() {
       console.log('✅ [pickImage] 相册选择器返回结果');
 
       if (!result.canceled && result.assets[0]) {
-        console.log('✅ [pickImage] 选择了图片，开始处理...');
-        // 从相册选择的图片通常未裁剪，这里保留自动裁剪逻辑
-        processCapturedImage(result.assets[0].uri, true);
+        console.log('✅ [pickImage] 选择了图片，直接上传原图（不裁剪不增强）');
+        processCapturedImage(result.assets[0].uri, true, true);
       } else {
         console.log('⚠️ [pickImage] 用户取消了选择');
       }
@@ -278,33 +276,30 @@ export default function ReceiptsScreen() {
     }
   };
 
-  // autoCrop 参数：
-  // - 扫描得到的图片（已在原生层裁剪）应传入 false，避免二次裁剪截断内容
-  // - 从相册选择的原始图片可以传入 true，启用自动裁剪去除背景
-  const processCapturedImage = async (imageUri: string, autoCrop: boolean = true) => {
-    console.log(`🖼️ [processCapturedImage] 开始处理图片，URI: ${imageUri}, autoCrop: ${autoCrop}`);
-    // 立即显示选单，后台处理上传
+  // fromGallery：true = 相册/选择文件，不裁剪不增强；false = 实时扫描/拍摄。autoCrop：仅实时拍摄时 true，扫描（原生已裁）传 false
+  const processCapturedImage = async (imageUri: string, fromGallery: boolean, autoCrop: boolean = true) => {
+    console.log(`🖼️ [processCapturedImage] URI: ${imageUri}, fromGallery: ${fromGallery}, autoCrop: ${autoCrop}`);
     setShowSuccessModal(true);
-    setLastReceiptId(null); // 初始为 null，上传完成后更新
+    setLastReceiptId(null);
     console.log('✅ [processCapturedImage] 成功模态框已显示');
-    
-    // 后台异步处理（不阻塞 UI）
+
     (async () => {
       try {
-        console.log('🔄 [processCapturedImage] 开始处理图片...');
-
-        console.log('🔄 [processCapturedImage] 调用 processImageForUpload...');
-        const processedImageUri = await processImageForUpload(imageUri, {
-          autoCrop,
-          quality: 0.85,
-        });
-        console.log('✅ [processCapturedImage] 图片处理完成:', processedImageUri);
-
-        console.log('🔄 [processCapturedImage] 开始上传图片...');
         const tempFileName = `temp-${Date.now()}`;
         const user = await getCurrentUser();
         const spaceId = user?.currentSpaceId || user?.spaceId || '';
-        const imageUrl = await uploadReceiptImageTempWithSpace(processedImageUri, tempFileName, spaceId);
+        let imageUrl: string;
+        let uriForBackground: string;
+        if (fromGallery) {
+          console.log('🔄 [processCapturedImage] 相册/选择文件，直接上传原图');
+          imageUrl = await uploadReceiptImageTempWithSpace(imageUri, tempFileName, spaceId);
+          uriForBackground = imageUri;
+        } else {
+          console.log('🔄 [processCapturedImage] 实时拍摄/扫描，进行边缘识别与裁剪优化');
+          const processedImageUri = await processImageForUpload(imageUri, { autoCrop, quality: 0.85 });
+          imageUrl = await uploadReceiptImageTempWithSpace(processedImageUri, tempFileName, spaceId);
+          uriForBackground = processedImageUri;
+        }
         console.log('✅ [processCapturedImage] 图片上传完成:', imageUrl);
 
         console.log('🔄 [processCapturedImage] 创建小票记录...');
@@ -317,20 +312,16 @@ export default function ReceiptsScreen() {
           status: 'processing',
           items: [],
           imageUrl: imageUrl,
+          inputType: fromGallery ? 'image' : 'camera',
         });
         console.log('✅ [processCapturedImage] 小票记录创建完成:', receiptId);
 
-        // 更新 receiptId，使 View Detail 可用
         setLastReceiptId(receiptId);
-        console.log('✅ [processCapturedImage] receiptId 已更新');
-        
-        // Refresh receipts list
         console.log('🔄 [processCapturedImage] 刷新小票列表...');
         loadReceipts();
 
-        // Background processing with Gemini (async, don't block UI)
         console.log('🔄 [processCapturedImage] 开始后台识别处理...');
-        processReceiptInBackground(imageUrl, receiptId, processedImageUri)
+        processReceiptInBackground(imageUrl, receiptId, uriForBackground)
           .then(() => {
             console.log('✅ [processCapturedImage] 后台识别处理完成');
             // Refresh again after processing
@@ -1245,6 +1236,7 @@ export default function ReceiptsScreen() {
                         name={
                           item.inputType === 'audio' ? 'mic' :
                           item.inputType === 'text' ? 'menu' :
+                          item.inputType === 'document' ? 'attach' :
                           'camera'
                         } 
                         size={12} 

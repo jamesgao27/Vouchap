@@ -67,19 +67,54 @@ function getImageExtAndMime(fileUri: string): { ext: string; mimeType: string } 
   return { ext: normalized === 'jpg' ? 'jpg' : normalized, mimeType };
 }
 
+/** 文档扩展名与 MIME 映射（tax-filing 附件支持 PDF、DOC 等） */
+const DOC_MIME_TO_EXT: Record<string, string> = {
+  'application/pdf': 'pdf',
+  'application/msword': 'doc',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+};
+const DOC_EXT_REG = /\.(pdf|docx?)$/i;
+
+/**
+ * 解析文件扩展名与 MIME，支持图片（jpg/png/gif/webp）与文档（pdf/doc/docx）。
+ * 当 opts 传入 fileName 或 mimeType 时优先使用（如 DocumentPicker 结果）。
+ */
+export function getFileExtAndMime(
+  fileUri: string,
+  opts?: { fileName?: string; mimeType?: string }
+): { ext: string; mimeType: string } {
+  if (opts?.mimeType && DOC_MIME_TO_EXT[opts.mimeType]) {
+    const ext = DOC_MIME_TO_EXT[opts.mimeType];
+    return { ext, mimeType: opts.mimeType };
+  }
+  const name = opts?.fileName ?? (fileUri.includes('/') ? fileUri.split('/').pop()?.split('?')[0] ?? '' : fileUri.split('?')[0] ?? '');
+  const docMatch = name.match(DOC_EXT_REG);
+  if (docMatch) {
+    const ext = docMatch[1].toLowerCase();
+    const mimeType = ext === 'pdf' ? 'application/pdf' : ext === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/msword';
+    return { ext, mimeType };
+  }
+  return getImageExtAndMime(fileUri);
+}
+
 // 上传图片到Supabase Storage（临时文件名，用于识别前上传）
 // 建议使用 uploadReceiptImageTempWithSpace 按 space_id 分文件夹存储
 export async function uploadReceiptImageTemp(fileUri: string, tempFileName: string): Promise<string> {
   return uploadReceiptImageTempWithSpace(fileUri, tempFileName, '');
 }
 
-/** 按 space_id 分文件夹上传到 receipts bucket，路径为 {spaceId}/temp/{tempFileName}.{ext}；expenses/income 新上传使用此方法 */
-export async function uploadReceiptImageTempWithSpace(fileUri: string, tempFileName: string, spaceId: string): Promise<string> {
+/** 按 space_id 分文件夹上传到 receipts bucket，路径为 {spaceId}/temp/{tempFileName}.{ext}；支持图片与 PDF/DOC 等文档；expenses/income/inbound/outbound 新上传使用此方法 */
+export async function uploadReceiptImageTempWithSpace(
+  fileUri: string,
+  tempFileName: string,
+  spaceId: string,
+  fileOpts?: { fileName?: string; mimeType?: string }
+): Promise<string> {
   try {
     let arrayBuffer: ArrayBuffer | Uint8Array;
     if (Platform.OS === 'web') {
       const res = await fetch(fileUri);
-      if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+      if (!res.ok) throw new Error(`Failed to fetch file: ${res.status}`);
       arrayBuffer = await res.arrayBuffer();
     } else {
       const base64 = await FileSystem.readAsStringAsync(fileUri, {
@@ -88,7 +123,7 @@ export async function uploadReceiptImageTempWithSpace(fileUri: string, tempFileN
       arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
     }
 
-    const { ext: fileExt, mimeType } = getImageExtAndMime(fileUri);
+    const { ext: fileExt, mimeType } = fileOpts ? getFileExtAndMime(fileUri, fileOpts) : getImageExtAndMime(fileUri);
     const fileName = `${tempFileName}.${fileExt}`;
     const folder = spaceId && spaceId.trim() ? spaceId.trim() : 'unknown';
     const filePath = `${folder}/temp/${fileName}`;
@@ -121,13 +156,18 @@ export async function uploadReceiptImageTempWithSpace(fileUri: string, tempFileN
   }
 }
 
-/** 税表模块：上传到 tax-filing bucket，路径为 {clientSpaceId}/{tempFileName}.{ext}；Web 支持 blob URL */
-export async function uploadTaxFilingFile(fileUri: string, tempFileName: string, clientSpaceId: string): Promise<string> {
+/** 税表模块：上传到 tax-filing bucket，路径为 {clientSpaceId}/{tempFileName}.{ext}；支持图片与 PDF/DOC 等文档；Web 支持 blob URL */
+export async function uploadTaxFilingFile(
+  fileUri: string,
+  tempFileName: string,
+  clientSpaceId: string,
+  fileOpts?: { fileName?: string; mimeType?: string }
+): Promise<string> {
   try {
     let arrayBuffer: ArrayBuffer | Uint8Array;
     if (Platform.OS === 'web') {
       const res = await fetch(fileUri);
-      if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
+      if (!res.ok) throw new Error(`Failed to fetch file: ${res.status}`);
       arrayBuffer = await res.arrayBuffer();
     } else {
       const base64 = await FileSystem.readAsStringAsync(fileUri, {
@@ -136,7 +176,7 @@ export async function uploadTaxFilingFile(fileUri: string, tempFileName: string,
       arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
     }
 
-    const { ext: fileExt, mimeType } = getImageExtAndMime(fileUri);
+    const { ext: fileExt, mimeType } = getFileExtAndMime(fileUri, fileOpts);
     const fileName = `${tempFileName}.${fileExt}`;
     const folder = clientSpaceId && clientSpaceId.trim() ? clientSpaceId.trim() : 'unknown';
     const filePath = `${folder}/${fileName}`;

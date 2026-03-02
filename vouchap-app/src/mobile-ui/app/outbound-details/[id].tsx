@@ -17,6 +17,7 @@ import DateTimePicker from '@react-native-community/datetimepicker';
 import * as ImagePicker from 'expo-image-picker';
 import { getOutboundById, saveOutbound, deleteOutbound } from '@/lib/outbound';
 import { supabase, uploadOutboundImage } from '@/lib/supabase';
+import { processImageForUpload } from '@/lib/image-processor';
 import { getCustomerOptions } from '@/lib/customer-supplier-list';
 import { mergeSupplier } from '@/lib/suppliers';
 import { mergeCustomer } from '@/lib/customers';
@@ -350,7 +351,9 @@ export default function OutboundDetailsScreen() {
         quality: 0.8,
       });
       if (!result.canceled && result.assets[0]) {
-        await uploadImage(result.assets[0].uri);
+        const uri = result.assets[0].uri;
+        const processedUri = await processImageForUpload(uri, { autoCrop: true, quality: 0.85 });
+        await uploadImage(processedUri);
       }
     } catch (error) {
       console.error('Error launching camera:', error);

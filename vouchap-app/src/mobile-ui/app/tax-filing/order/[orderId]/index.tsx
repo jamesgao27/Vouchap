@@ -33,7 +33,6 @@ import {
 } from '@/lib/firm';
 import { TODO_STATUS_LABEL, TODO_STATUS_COLOR } from '@/lib/constants/project-todo-status';
 import { uploadTaxFilingFile } from '@/lib/supabase';
-import { processImageForUpload } from '@/lib/image-processor';
 import * as ImagePicker from 'expo-image-picker';
 
 /** 税季标签颜色（与列表页一致） */
@@ -373,9 +372,8 @@ export default function OrderTodosScreen() {
         });
         if (result.canceled || !result.assets?.[0]?.uri) return;
         const imageUri = result.assets[0].uri;
-        const processedUri = await processImageForUpload(imageUri, { autoCrop: true, quality: 0.85 });
         const tempFileName = `order-task-${Date.now()}`;
-        const imageUrl = await uploadTaxFilingFile(processedUri, tempFileName, clientSpaceId);
+        const imageUrl = await uploadTaxFilingFile(imageUri, tempFileName, clientSpaceId);
         const createResult = await createProjectTodoAttachment(todoId, imageUrl, { status: 'PENDING_AI' });
         if ('error' in createResult) {
           const errMsg = createResult.error instanceof Error ? createResult.error.message : String(createResult.error);

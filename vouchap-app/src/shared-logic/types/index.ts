@@ -95,8 +95,8 @@ export interface ReceiptItem {
   confidence?: number; // AI识别置信度
 }
 
-// 提交方式类型
-export type InputType = 'image' | 'text' | 'audio';
+// 提交方式类型：camera=实时拍摄 image=上传图片 document=上传文档
+export type InputType = 'camera' | 'image' | 'text' | 'audio' | 'document';
 
 // 小票数据（支出单：对方为 Payee 收款方）
 export interface Receipt {
@@ -112,7 +112,7 @@ export interface Receipt {
   account?: Account; // 关联的账户对象（付款）
   status: ReceiptStatus;
   imageUrl?: string;
-  inputType?: InputType; // 提交方式：image（相机）、text（文字）、audio（语音）
+  inputType?: InputType; // 提交方式：camera/image/text/audio/document
   items: ReceiptItem[];
   createdAt?: string;
   updatedAt?: string;
@@ -364,7 +364,7 @@ export interface Outbound {
 }
 
 // 凭证记录类别：由列表页入口决定，不由大模型判断
-export type VoucherLogType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'attachments';
+export type VoucherLogType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'tax-filing';
 
 // Gemini识别结果（使用分类名称，后续会匹配到分类ID）
 export interface GeminiReceiptResult {

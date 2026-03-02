@@ -19,6 +19,7 @@ import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { getReceiptById, updateReceipt, updateReceiptItem } from '@/lib/database';
 import { supabase, uploadReceiptImage } from '@/lib/supabase';
+import { processImageForUpload } from '@/lib/image-processor';
 import { getCategories } from '@/lib/categories';
 import { getPurposes } from '@/lib/purposes';
 import { getAccounts, mergeAccount } from '@/lib/accounts';
@@ -692,7 +693,9 @@ export default function ReceiptDetailsScreen() {
         quality: 0.8,
       });
       if (!result.canceled && result.assets[0]) {
-        await uploadImage(result.assets[0].uri);
+        const uri = result.assets[0].uri;
+        const processedUri = await processImageForUpload(uri, { autoCrop: true, quality: 0.85 });
+        await uploadImage(processedUri);
       }
     } catch (error) {
       console.error('Error launching camera:', error);

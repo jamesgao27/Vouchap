@@ -16,9 +16,19 @@ function isSettingsPage(pathname: string): boolean {
   return ['entities-manage', 'accounts-manage', 'categories-manage', 'purposes-manage', 'skus-manage', 'warehouse-manage', 'management', 'space-manage'].includes(base);
 }
 
+/** 某些页面完全不显示 chat-to-log（右栏 + 气泡都关掉） */
+function isChatDisabledPath(pathname: string | null): boolean {
+  if (!pathname) return false;
+  // Dashboard（首页）
+  if (pathname === '/' || pathname === '/index') return true;
+  // 报税项目列表页：仅浏览，不支持 chat-to-log
+  if (pathname === '/tax-filing') return true;
+  return false;
+}
+
 function chatTypeFromPathname(pathname: string | null): ChatPanelType | null {
   if (!pathname) return null;
-  if (pathname.startsWith('/tax-filing')) return 'attachments';
+  if (pathname.startsWith('/tax-filing')) return 'tax-filing';
   if (pathname === '/receipts' || pathname.startsWith('/receipts/')) return 'receipt';
   if (pathname === '/invoices' || pathname.startsWith('/invoices/')) return 'invoice';
   if (pathname === '/inbound' || pathname.startsWith('/inbound/')) return 'inbound';
@@ -30,10 +40,33 @@ function chatTypeFromPathname(pathname: string | null): ChatPanelType | null {
 const IONICONS_FONT_URL =
   'https://cdn.jsdelivr.net/npm/@expo/vector-icons@15.0.3/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf';
 
+/** 不同页面的默认 chat 开关策略 */
+function defaultChatOpen(pathname: string | null): boolean {
+  if (!pathname) return false;
+  // 完全关闭 chat 的页面
+  if (isChatDisabledPath(pathname)) return false;
+  // 报税项目详情页：每次进入都默认打开右栏
+  if (pathname.startsWith('/tax-filing/project/')) return true;
+  // 费用、收入、库存列表页：默认打开右栏
+  if (pathname === '/receipts' || pathname.startsWith('/receipts/')) return true;
+  if (pathname === '/invoices' || pathname.startsWith('/invoices/')) return true;
+  if (pathname === '/inbound' || pathname.startsWith('/inbound/')) return true;
+  if (pathname === '/outbound' || pathname.startsWith('/outbound/')) return true;
+  // 其他页面默认关闭
+  return false;
+}
+
 function LayoutContent() {
   const pathname = usePathname();
   const showSidebar = Platform.OS === 'web' && shouldShowWebSidebar(pathname ?? '/');
-  const { open: chatOpen, setType: setChatType } = useChatPanel();
+  const { open: chatOpen, setOpen: setChatOpen, setType: setChatType } = useChatPanel();
+
+  // Web：根据不同页面应用默认的 chat 开关策略
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const openDefault = defaultChatOpen(pathname ?? null);
+    setChatOpen(openDefault);
+  }, [pathname, setChatOpen]);
 
   // Web：主区切换到不同列表时，chat-to-log 提交类别跟随切换
   useEffect(() => {
@@ -78,6 +111,8 @@ function LayoutContent() {
   const mainAreaStyle = [
     styles.mainArea,
   ];
+
+  const chatDisabled = Platform.OS === 'web' && isChatDisabledPath(pathname ?? '/');
 
   return (
     <View style={[styles.root, showSidebar && styles.webRow]}>
@@ -334,8 +369,8 @@ function LayoutContent() {
         />
       </Stack>
       </View>
-      {showSidebar && chatOpen && <WebChatPanel />}
-      {showSidebar && !chatOpen && Platform.OS === 'web' && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && !isSettingsPage(pathname ?? '') && (
+      {showSidebar && !chatDisabled && chatOpen && <WebChatPanel />}
+      {showSidebar && !chatDisabled && !chatOpen && Platform.OS === 'web' && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && !isSettingsPage(pathname ?? '') && (
         <WebChatFab type={chatTypeFromPathname(pathname ?? null) ?? 'receipt'} />
       )}
       <ToastHost />
