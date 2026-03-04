@@ -285,7 +285,8 @@ function TodoTree({
   onConfirmAddChild?: (parentId: string, parentType: ProjectTodoNode['type'], title: string) => void;
   onCancelAddChild?: () => void;
   onCancelTask?: (todoId: string) => void;
-  onRestoreTask?: (todoId: string) => void;
+  /** 恢复（从 canceled）或重启（从 completed）；传 initialResponsibleSide 以重置责任方 */
+  onRestoreTask?: (todoId: string, initialResponsibleSide: 'client' | 'firm') => void;
   onUploadFile?: (todoId: string) => void;
   onRemoveFile?: (todoId: string, attachmentId: string) => void;
   onHandoffTask?: (todoId: string, from: 'client' | 'firm', to: 'client' | 'firm', verb: string, newStatus?: ProjectTodoNode['status']) => void;
@@ -328,8 +329,15 @@ function TodoTree({
         const titleStyle =
           depth === 0 ? ts.treeTitleL0 : depth === 1 ? ts.treeTitleL1 : ts.treeTitleL2;
 
-        // row-level hover：用于显示 +（section/phase）或 -/restart / Upload / 提交按钮
-        const showRowIconsOnTouch = (onStartAddChild && canAddChild) || (isTask && (canUpload || canCancelRestore));
+        // 终止权限：client 仅能终止责任方为 client 的非 completed；firm 可终止所有非 completed
+        const canTerminateForRow =
+          node.status !== 'completed' &&
+          (viewerRole === 'firm' || (viewerRole === 'client' && node.type === 'client'));
+
+        // row-level hover：用于显示 +（section/phase）或 -/restart / Upload / 提交按钮；任务行在可终止/可重启时也显示
+        const showRowIconsOnTouch =
+          (onStartAddChild && canAddChild) ||
+          (isTask && (canUpload || canCancelRestore || canTerminateForRow || isCanceled || node.status === 'completed'));
         const showAddIcon = onStartAddChild && canAddChild && rowIdShowingAdd === node.id;
         const addIconInline = showAddIcon ? (
           <TouchableOpacity
@@ -428,16 +436,25 @@ function TodoTree({
 
         const showStatusVerb = rowIdShowingStatusVerb === node.id && handoffButtons.length > 0;
 
-        const statusColContent = nodeIsBlocked
+        // canceled 任务即使有 depends on 也显示 Canceled，不显示 Pending
+        const statusColContent = (isTask && isCanceled)
           ? (
+              <View style={[ts.statusPill, { backgroundColor: getStatusColor('canceled', node.type, viewerRole) }]}>
+                <Text style={ts.statusPillText} numberOfLines={1}>
+                  {getStatusLabel('canceled', node.type, viewerRole)}
+                </Text>
+              </View>
+            )
+          : nodeIsBlocked
+            ? (
             // 锁定阶段：只显示 Pending 灰色 pill，不暴露内部状态
             isTask ? (
               <View style={[ts.statusPill, ts.statusPillPending]}>
                 <Text style={ts.statusPillPendingText}>Pending</Text>
               </View>
             ) : null
-          )
-          : showStatusVerb
+              )
+            : showStatusVerb
             ? (
               <View style={ts.statusActionsRow}>
                 {handoffButtons.map((btn) => (
@@ -560,8 +577,9 @@ function TodoTree({
           return { depId, wbs: item?.wbs ?? '?', title: item?.title ?? '', status: st };
         });
 
+        // 终止：client 仅能终止当前责任方为 client 的非 completed 任务；firm 可终止所有非 completed 任务
         const CancelTaskSlot =
-          isTask && !isCanceled && onCancelTask && showTaskIcons && !nodeIsBlocked && canCancelRestore ? (
+          isTask && !isCanceled && onCancelTask && showTaskIcons && !nodeIsBlocked && canTerminateForRow ? (
             <Pressable style={ts.terminateTaskBtnHotzone} onPress={() => onCancelTask(node.id)}>
               <View style={ts.terminateTaskBtnIcon}>
                 <Ionicons name="remove-circle-outline" size={14} color="#E67E22" />
@@ -569,9 +587,20 @@ function TodoTree({
             </Pressable>
           ) : null;
 
+        // 重启（已终止）：双方都可重启 canceled 任务，无论有无 depends on
         const RestoreTaskSlot =
-          isTask && isCanceled && onRestoreTask && showTaskIcons && !nodeIsBlocked && canCancelRestore ? (
-            <Pressable style={ts.restoreTaskBtnHotzone} onPress={() => onRestoreTask(node.id)}>
+          isTask && isCanceled && onRestoreTask && showTaskIcons ? (
+            <Pressable style={ts.restoreTaskBtnHotzone} onPress={() => onRestoreTask(node.id, node.initialResponsibleSide)}>
+              <View style={ts.restoreTaskBtnIcon}>
+                <Ionicons name="refresh-circle-outline" size={14} color="#7DCEA0" />
+              </View>
+            </Pressable>
+          ) : null;
+
+        // 重启（已完成）：双方都可重启 completed 任务，重启时重置责任方为初始责任方
+        const RestartTaskSlot =
+          isTask && node.status === 'completed' && onRestoreTask && showTaskIcons ? (
+            <Pressable style={ts.restoreTaskBtnHotzone} onPress={() => onRestoreTask(node.id, node.initialResponsibleSide)}>
               <View style={ts.restoreTaskBtnIcon}>
                 <Ionicons name="refresh-circle-outline" size={14} color="#7DCEA0" />
               </View>
@@ -594,6 +623,7 @@ function TodoTree({
             {AddIconSlot}
             {CancelTaskSlot}
             {RestoreTaskSlot}
+            {RestartTaskSlot}
           </View>
         ) : (
           <View style={ts.titleColumnWrap}>
@@ -601,6 +631,7 @@ function TodoTree({
             {AddIconSlot}
             {CancelTaskSlot}
             {RestoreTaskSlot}
+            {RestartTaskSlot}
           </View>
         );
 
@@ -1152,8 +1183,8 @@ export function TaxFilingTodosView({
     await onRefresh();
   }, [onRefresh]);
 
-  const onRestoreTask = useCallback(async (todoId: string) => {
-    const { error: err } = await updateProjectTodo(todoId, { status: 'to_submit' });
+  const onRestoreTask = useCallback(async (todoId: string, initialResponsibleSide: 'client' | 'firm') => {
+    const { error: err } = await updateProjectTodo(todoId, { status: 'to_submit', type: initialResponsibleSide });
     if (err) {
       if (Platform.OS === 'web') window.alert('Restore failed: ' + (err.message ?? ''));
       else Alert.alert('Restore failed', err.message ?? '');
@@ -1605,7 +1636,7 @@ const ts = StyleSheet.create({
     alignItems: 'center',
     flexShrink: 0,
     gap: 6,
-    marginLeft: 12,
+    marginLeft: 20,
     minWidth: 100,
     alignSelf: 'stretch',
     justifyContent: 'flex-start',
