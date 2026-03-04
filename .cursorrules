@@ -16,3 +16,6 @@
 - `vouchap-app/ios/*/Info.plist`（CFBundleVersion、CFBundleShortVersionString）
 
 修改完成后自动执行 commit + push，提交信息格式：`发布版本号 X.X.X (Build X)`（X.X.X 为版本号，Build 后的 X 为 iOS CFBundleVersion / Android versionCode）。
+
+## 模型调用规则
+- `Always use the full capabilities of the selected model. Do not simplify logic or skip file structures for speed. I am okay with slow responses as long as the code is architecturally sound.

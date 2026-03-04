@@ -1016,7 +1016,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         // 优先用缓存，避免移动端 forceRefresh 时拿不到 currentSpaceId 导致多文件提交报 No space context
         let space = await getCurrentSpace(false);
         if (!space?.id) space = await getCurrentSpace(true);
-        const clientSpaceId = space?.id ?? '';
+        // firm 侧上传：优先使用 attachmentContext 中的 clientSpaceId，确保文件存到 client 的路径
+        const clientSpaceId = (chatPanel?.attachmentContext?.clientSpaceId || space?.id) ?? '';
         if (!clientSpaceId) {
           showToast('No space context.', 'error');
           setUploadingStagedIds(new Set());

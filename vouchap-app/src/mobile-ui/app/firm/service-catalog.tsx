@@ -204,7 +204,7 @@ export default function FirmServiceCatalogScreen() {
                         }}
                         style={styles.viewWbsLink}
                       >
-                        <Text style={styles.viewWbsLinkText}>View WBS</Text>
+                        <Text style={styles.viewWbsLinkText}>Configure ›</Text>
                       </TouchableOpacity>
                       <Ionicons
                         name={t.isPublished ? 'eye' : 'eye-off-outline'}

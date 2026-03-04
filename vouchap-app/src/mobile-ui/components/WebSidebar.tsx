@@ -150,7 +150,7 @@ export default function WebSidebar() {
               activeOpacity={0.7}
             >
               <Ionicons name="checkbox-outline" size={22} color={pathname.startsWith('/firm/engagements') ? '#6C5CE7' : '#2D3436'} />
-              <Text style={[styles.navText, pathname.startsWith('/firm/engagements') && styles.navTextActive]}>Engagements</Text>
+              <Text style={[styles.navText, pathname.startsWith('/firm/engagements') && styles.navTextActive]}>Orders</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.navItem, pathname.startsWith('/firm/service-catalog') && styles.navItemActive]}

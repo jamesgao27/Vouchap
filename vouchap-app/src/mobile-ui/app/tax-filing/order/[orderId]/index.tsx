@@ -97,7 +97,7 @@ const headerStyles = StyleSheet.create({
 });
 
 /** 状态优先级：越前越优先（收起时显示“最差”的那个） */
-const STATUS_PRIORITY = ['action_required', 'missing_info', 'under_review', 'flagged', 'success'] as const;
+const STATUS_PRIORITY = ['to_submit', 'missing_info', 'reviewing', 'in_progress', 'completed'] as const;
 
 function worstStatus(a: string, b: string): string {
   const ia = STATUS_PRIORITY.indexOf(a as any);
@@ -341,7 +341,7 @@ export default function OrderTodosScreen() {
 
   const onRestoreTask = useCallback(
     async (todoId: string) => {
-      const { error: err } = await updateProjectTodo(todoId, { status: 'action_required' });
+      const { error: err } = await updateProjectTodo(todoId, { status: 'to_submit' });
       if (err) {
         if (Platform.OS === 'web') window.alert('Restore failed: ' + (err.message ?? ''));
         else Alert.alert('Restore failed', err.message ?? '');

@@ -104,8 +104,8 @@ export interface ProjectInfoTabHandle {
   saveEditing: () => Promise<boolean>;
 }
 
-export const ProjectInfoTab = forwardRef<ProjectInfoTabHandle, { projectId: string }>(
-function ProjectInfoTabInner({ projectId }, ref) {
+export const ProjectInfoTab = forwardRef<ProjectInfoTabHandle, { projectId: string; mode?: 'client' | 'firm' }>(
+function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
   const [error, setError]               = useState<string | null>(null);
@@ -150,11 +150,13 @@ function ProjectInfoTabInner({ projectId }, ref) {
         getSpaceProjectTags(orderData.clientSpaceId).then(setAllSpaceTags);
       }
 
-      if (orderData.firmSpaceId) {
+      // firm 模式：显示 client 空间名；client 模式：显示 firm 空间名
+      const spaceIdToFetch = mode === 'firm' ? orderData.clientSpaceId : orderData.firmSpaceId;
+      if (spaceIdToFetch) {
         const { data: space } = await supabase
           .from('spaces')
           .select('name')
-          .eq('id', orderData.firmSpaceId)
+          .eq('id', spaceIdToFetch)
           .maybeSingle();
         setFirmName((space as any)?.name ?? '');
         setFirmDesc('');
@@ -500,8 +502,8 @@ function ProjectInfoTabInner({ projectId }, ref) {
           Card 3 — Firm & Order
       ══════════════════════════════════════════════ */}
       <View style={s.card}>
-        {/* ─── Firm ─── */}
-        <Text style={s.cardTitle}>Firm</Text>
+        {/* ─── Firm / Client ─── */}
+        <Text style={s.cardTitle}>{mode === 'firm' ? 'Client' : 'Firm'}</Text>
 
         <View style={s.infoRow}>
           <View style={s.infoIconWrap}>

@@ -164,11 +164,15 @@ function LayoutContent() {
         />
         <Stack.Screen 
           name="firm/engagements" 
-          options={{ title: 'Engagements', headerBackTitle: 'Back' }} 
+          options={{ title: 'Orders', headerBackTitle: 'Back' }} 
         />
         <Stack.Screen 
           name="firm/engagement/[id]" 
           options={{ title: 'Engagement', headerBackTitle: 'Back' }} 
+        />
+        <Stack.Screen 
+          name="firm/sku/[skuId]" 
+          options={{ headerShown: false }} 
         />
         <Stack.Screen 
           name="firm/service-catalog" 

@@ -6,7 +6,12 @@ import React, { createContext, useContext, useState, useCallback, useRef, useMem
 
 export type ChatPanelType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'tax-filing';
 
-export type AttachmentContext = { projectId?: string; todoId?: string };
+export type AttachmentContext = {
+  projectId?: string;
+  todoId?: string;
+  /** firm 侧上传时：强制使用 client 的 space_id 作为存储路径基准 */
+  clientSpaceId?: string;
+};
 
 export type StagedAttachmentFile = { id: string; uri: string; name?: string };
 

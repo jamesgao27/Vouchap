@@ -500,6 +500,12 @@ export interface FirmSkuItem {
   title: string;
   description?: string | null;
   sortOrder: number;
+  /**
+   * 可选前置节点 id（同 SKU 内的另一个 sku_item，通常是 section 或 phase 级别）。
+   * 非空时，表示该节点必须等前置节点完成（status=success）后才能解锁。
+   * 创建订单时，通过 oldIdToNewId 映射复制为对应的 project_todo.depends_on_id。
+   */
+  dependsOnId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -550,19 +556,21 @@ export interface FirmOrder {
 // 项目（订单下的清单项，由 sku_items 复制；进展状态以 order.status 为准）
 export type FirmProjectType = 'client' | 'firm';
 
-/** 待办/任务状态：Action Required, Missing Info, Under Review, Flagged, Success, Canceled */
+/** 待办/任务状态：To Submit, Reviewing, In Progress, Missing Info, Completed, Canceled */
 export type ProjectTodoStatus =
-  | 'action_required'  // 需客户行动
-  | 'missing_info'      // 资料不完整
-  | 'under_review'      // 审核中
-  | 'flagged'          // 有争议
-  | 'success'          // 已通过
+  | 'to_submit'       // 待提交（初始责任 / 撤回后）
+  | 'missing_info'    // 资料不完整 / 被退回
+  | 'reviewing'       // 已提交，待 firm 审核
+  | 'in_progress'     // 由 firm 接管处理中
+  | 'completed'       // firm 已确认完成
   | 'canceled';        // 已终止，不参与父级状态传导
 
 export interface FirmProject {
   id: string;
   orderId: string;
   type: FirmProjectType;
+  /** 初始责任方（用于判断是否允许 RETURN 等流转；通常与创建时 responsible_side 一致） */
+  initialResponsibleSide?: FirmProjectType;
   title: string;
   description?: string | null;
   status: ProjectTodoStatus;

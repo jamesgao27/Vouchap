@@ -119,7 +119,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
   return [
     {
       id: 'clientName',
-      label: '客户',
+      label: 'Client',
       minWidth: 140,
       getValue: (r) => (
         <Text style={cellText} numberOfLines={1}>
@@ -130,7 +130,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
     },
     {
       id: 'serviceItem',
-      label: '服务项',
+      label: 'Service',
       minWidth: 160,
       getValue: (r) => (
         <Text style={cellText} numberOfLines={1}>
@@ -141,14 +141,14 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
     },
     {
       id: 'createdAt',
-      label: '创建时间',
+      label: 'Created',
       minWidth: 110,
       getValue: (r) => <Text style={cellText}>{formatDate(r.createdAt)}</Text>,
       getSortValue: (r) => r.createdAt ?? '',
     },
     {
       id: 'source',
-      label: '来源',
+      label: 'Source',
       minWidth: 90,
       getValue: (r) => (
         <Text style={cellText} numberOfLines={1}>
@@ -159,7 +159,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
     },
     {
       id: 'status',
-      label: '进展状态',
+      label: 'Status',
       minWidth: 100,
       getValue: (r) => {
         const raw = r.status ?? '';
@@ -189,7 +189,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
     },
     {
       id: 'assigneeName',
-      label: '负责人',
+      label: 'Assignee',
       minWidth: 100,
       getValue: (r) => (
         <Text style={cellText} numberOfLines={1}>
@@ -200,7 +200,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
     },
     {
       id: 'updatedAt',
-      label: '更新时间',
+      label: 'Updated',
       minWidth: 120,
       getValue: (r) => <Text style={cellText}>{formatDateTime(r.updatedAt)}</Text>,
       getSortValue: (r) => r.updatedAt ?? '',
@@ -408,7 +408,7 @@ export default function FirmEngagementsScreen() {
   const tableEmptyMessage = useMemo(() => {
     if (loading && orders.length === 0) return 'Loading...';
     if (orders.length === 0)
-      return 'No engagements yet. Create from Service Catalog for clients.';
+      return 'No orders yet. Create from Service Catalog for clients.';
     if (searchedOrders.length === 0)
       return searchQuery.trim()
         ? `No results for "${searchQuery}"`

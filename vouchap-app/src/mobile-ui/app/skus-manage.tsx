@@ -541,12 +541,13 @@ export default function SkusManageScreen() {
       {mergeMode ? (
         <ScrollView style={styles.scrollView} contentContainerStyle={[styles.scrollContent, styles.scrollContentTop, styles.scrollContentWithBottomBar]}>
           <View style={styles.skusList}>
-            {sortedMergeDisplayRoots.map((root) => {
+            {sortedMergeDisplayRoots.map((root, index) => {
               const children = mergeHistoryData?.childrenByRootId?.get(root.id) ?? [];
               const expanded = expandedRootIds.has(root.id);
               const hasChildren = children.length > 0;
+              const rowBg = index % 2 === 0 ? '#FFFFFF' : '#F8F9FA';
               return (
-                <View key={root.id} style={styles.skuCard}>
+                <View key={root.id} style={[styles.skuCard, { backgroundColor: rowBg }]}>
                   <View style={[styles.mergeRowRoot, selectedSkuIds.has(root.id) && styles.skuRowSelected]}>
                     <TouchableOpacity style={styles.mergeRowSelectionArea} onPress={() => toggleSkuSelection(root.id)} activeOpacity={0.7}>
                       <View style={styles.checkboxContainer}>
@@ -617,8 +618,10 @@ export default function SkusManageScreen() {
                 <Text style={styles.emptyHint}>Link in inbound/outbound</Text>
               </View>
             ) : (
-              skus.map((item) => (
-                <View key={item.id} style={styles.skuCard}>
+              skus.map((item, index) => {
+                const rowBg = index % 2 === 0 ? '#FFFFFF' : '#F8F9FA';
+                return (
+              <View key={item.id} style={[styles.skuCard, { backgroundColor: rowBg }]}>
                   <TouchableOpacity style={styles.row} onPress={() => openEdit(item)} activeOpacity={0.7}>
                     <View style={styles.skuIndicator}>
                       <Ionicons name="cube-outline" size={16} color="#6C5CE7" />
@@ -641,7 +644,8 @@ export default function SkusManageScreen() {
                     </View>
                   </TouchableOpacity>
                 </View>
-              ))
+                );
+              })
             )}
             {showAddForm && (
               <View ref={addFormCardRef} style={styles.formCard}>

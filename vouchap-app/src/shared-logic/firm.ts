@@ -12,6 +12,7 @@ import type {
   FirmClientFollowUp,
   FirmOrder,
   FirmProject,
+  FirmProjectType,
   FirmOrderStatus,
   ProjectTodoStatus,
   FirmSku,
@@ -118,7 +119,7 @@ export async function getClientTodosForClientSpace(clientSpaceId: string): Promi
     .from('project_todos')
     .select('*')
     .in('project_id', projectIds)
-    .eq('type', 'client')
+    .eq('responsible_side', 'client')
     .order('sort_order', { ascending: true });
 
   if (itemsErr) {
@@ -221,6 +222,28 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
     skuName,
     skuDescription,
   };
+}
+
+/** 根据 client_space_id + firm_space_id 查客户展示名（用于订单详情顶栏 "Service for [client]"）；无 clients 记录时用 space 名称兜底 */
+export async function getClientDisplayName(
+  clientSpaceId: string,
+  firmSpaceId: string
+): Promise<string | null> {
+  const { data } = await supabase
+    .schema('firm')
+    .from('clients')
+    .select('display_name')
+    .eq('client_space_id', clientSpaceId)
+    .eq('firm_space_id', firmSpaceId)
+    .maybeSingle();
+  const fromClients = (data as any)?.display_name ?? null;
+  if (fromClients) return fromClients;
+  const { data: spaceRow } = await supabase
+    .from('spaces')
+    .select('name')
+    .eq('id', clientSpaceId)
+    .maybeSingle();
+  return (spaceRow as any)?.name ?? null;
 }
 
 /** 订单顶行展示（与列表页卡片一致）：projectName、firmName、dueAt、createdAt，用于 todos/info 页顶栏；税季用 dueAt ?? createdAt */
@@ -684,25 +707,27 @@ export async function confirmOrderAndCreateProjectTodos(
         parentId: row.parent_id ?? null,
         sortOrder: row.sort_order ?? 0,
         item_kind: row.item_kind ?? 'task',
-        type: row.type,
+        type: row.initial_responsible_side,
         title: row.title,
         description: row.description ?? null,
+        depends_on_id: row.depends_on_id ?? null,
       }))
     );
-    // 完整复制树形结构：phase、section、task 全部复制，parent_id 为直接父节点新 id
+
+    // 第一步：按深度优先顺序全量插入节点（不含 depends_on_id，避免前置节点尚未插入）
     const oldIdToNewId = new Map<string, string>();
     for (let i = 0; i < ordered.length; i++) {
       const row = ordered[i];
       const parent_id = row.parentId ? oldIdToNewId.get(row.parentId) ?? null : null;
       const isTask = (row.item_kind ?? 'task') === 'task';
-      const status: ProjectTodoStatus = isTask ? 'action_required' : 'success';
+      const status: ProjectTodoStatus = isTask ? 'to_submit' : 'completed';
       const itemKind = (row.item_kind ?? 'task') as 'phase' | 'section' | 'task';
       const { data: inserted, error: insertErr } = await supabase
         .from('project_todos')
         .insert({
           project_id: projectId,
           parent_id: parent_id,
-          type: row.type,
+          responsible_side: row.type,
           title: row.title,
           description: row.description ?? null,
           status,
@@ -714,6 +739,18 @@ export async function confirmOrderAndCreateProjectTodos(
       if (insertErr) return { error: new Error(insertErr.message) };
       const newId = (inserted as any)?.id;
       if (newId) oldIdToNewId.set(row.id, newId);
+    }
+
+    // 第二步：回填 depends_on_id（全部节点插入后，oldIdToNewId 已完整）
+    for (const row of ordered) {
+      if (!row.depends_on_id) continue;
+      const newTodoId = oldIdToNewId.get(row.id);
+      const newDepsId = oldIdToNewId.get(row.depends_on_id);
+      if (!newTodoId || !newDepsId) continue;
+      await supabase
+        .from('project_todos')
+        .update({ depends_on_id: newDepsId })
+        .eq('id', newTodoId);
     }
   }
 
@@ -811,19 +848,27 @@ export async function getOrderProjects(orderId: string): Promise<FirmProject[]> 
     console.error('getOrderProjects:', error);
     return [];
   }
-  return (data || []).map((row: any) => ({
-    id: row.id,
-    orderId: orderId,
-    type: row.type,
-    title: row.title,
-    description: row.description ?? null,
-    status: row.status,
-    sortOrder: row.sort_order ?? 0,
-    parentId: row.parent_id ?? null,
-    itemKind: row.item_kind ?? 'task',
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+  return (data || []).map((row: any) => {
+    const ids = Array.isArray(row.depends_on_ids) && row.depends_on_ids.length > 0
+      ? row.depends_on_ids.filter((x: unknown) => x != null)
+      : (row.depends_on_id != null ? [row.depends_on_id] : []);
+    return {
+      id: row.id,
+      orderId: orderId,
+      type: row.responsible_side,
+      initialResponsibleSide: row.initial_responsible_side ?? row.responsible_side,
+      title: row.title,
+      description: row.description ?? null,
+      status: row.status,
+      sortOrder: row.sort_order ?? 0,
+      parentId: row.parent_id ?? null,
+      itemKind: row.item_kind ?? 'task',
+      dependsOnId: ids[0] ?? null,
+      dependsOnIds: ids,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  });
 }
 
 /** 项目任务树节点（WBS）；排序与 SKU-items 一致：同级按 sort_order */
@@ -832,6 +877,8 @@ export interface ProjectTodoNode {
   orderId: string;
   parentId: string | null;
   type: FirmProject['type'];
+  /** 初始责任方（client/firm）；用于控制 RETURN 等动作是否可见 */
+  initialResponsibleSide: FirmProjectType;
   title: string;
   description?: string | null;
   status: FirmProject['status'];
@@ -839,6 +886,13 @@ export interface ProjectTodoNode {
   depth: number;
   /** phase / section / task；仅 task 可关联文件 */
   itemKind: 'phase' | 'section' | 'task';
+  /**
+   * 可选前置节点 id（同 order 内的另一个 project_todo）。dependsOnIds 为首项兼容。
+   * 非空时，该节点在 UI 层被视为"待解锁"直到所有前置节点 effectiveStatus 为 completed/canceled。
+   */
+  dependsOnId?: string | null;
+  /** 多前置依赖（与 dependsOnId 并存，dependsOnId = dependsOnIds[0]） */
+  dependsOnIds?: string[];
   children: ProjectTodoNode[];
   createdAt?: string;
   updatedAt?: string;
@@ -862,12 +916,15 @@ export async function getProjectTodosTree(orderId: string): Promise<ProjectTodoN
       orderId: item.orderId,
       parentId: item.parentId ?? null,
       type: item.type,
+      initialResponsibleSide: (item as any).initialResponsibleSide ?? item.type,
       title: item.title,
       description: item.description ?? null,
       status: item.status,
       sortOrder: item.sortOrder,
       depth,
       itemKind: (item as any).itemKind ?? 'task',
+      dependsOnId: (item as any).dependsOnId ?? null,
+      dependsOnIds: (item as any).dependsOnIds ?? ((item as any).dependsOnId != null ? [(item as any).dependsOnId] : []),
       children: buildChildren(item.id, depth + 1),
       createdAt: item.createdAt,
       updatedAt: item.updatedAt,
@@ -1003,9 +1060,8 @@ export async function getProjectDetail(orderId: string): Promise<{
   const taskCompleted = taskTodos.filter((t) => t.status === 'success').length;
   let clientName: string | undefined;
   let skuName: string | undefined;
-  if (order.clientSpaceId) {
-    const { data: c } = await supabase.schema('firm').from('clients').select('display_name').eq('client_space_id', order.clientSpaceId).eq('firm_space_id', order.firmSpaceId).maybeSingle();
-    clientName = (c as any)?.display_name;
+  if (order.clientSpaceId && order.firmSpaceId) {
+    clientName = (await getClientDisplayName(order.clientSpaceId, order.firmSpaceId)) ?? undefined;
   }
   const { data: sku } = await supabase.schema('firm').from('skus').select('name').eq('id', order.skuId).maybeSingle();
   skuName = (sku as any)?.name;
@@ -1104,10 +1160,10 @@ export async function createProjectTodo(params: {
     .insert({
       project_id: projectId,
       parent_id: params.parentId ?? null,
-      type: params.type,
+      responsible_side: params.type,
       title: params.title,
       description: params.description ?? null,
-      status: 'action_required',
+    status: 'to_submit',
       sort_order: params.sortOrder ?? nextOrder,
     })
     .select('id')
@@ -1122,7 +1178,7 @@ export async function createProjectTodo(params: {
 /** 更新项目任务 */
 export async function updateProjectTodo(
   todoId: string,
-  payload: { title?: string; description?: string | null; status?: FirmProject['status']; sortOrder?: number; parentId?: string | null }
+  payload: { title?: string; description?: string | null; status?: FirmProject['status']; sortOrder?: number; parentId?: string | null; type?: 'client' | 'firm' }
 ): Promise<{ error: Error | null }> {
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (payload.title !== undefined) updates.title = payload.title;
@@ -1130,12 +1186,66 @@ export async function updateProjectTodo(
   if (payload.status !== undefined) updates.status = payload.status;
   if (payload.sortOrder !== undefined) updates.sort_order = payload.sortOrder;
   if (payload.parentId !== undefined) updates.parent_id = payload.parentId;
+  if (payload.type !== undefined) updates.responsible_side = payload.type;
   const { error } = await supabase.from('project_todos').update(updates).eq('id', todoId);
   if (error) {
     console.error('updateProjectTodo:', error);
     return { error: error as Error };
   }
   return { error: null };
+}
+
+/**
+ * 为进行中的项目设置或清除某个 todo 节点的前置依赖（depends_on_ids 数组）。
+ * 传 null 或 [] = 清除；传 id 数组 = 设置多前置（调用方应保证无循环依赖）。
+ */
+export async function updateProjectTodoDependsOn(
+  todoId: string,
+  dependsOnIds: string[] | null,
+): Promise<{ error: Error | null }> {
+  const ids = dependsOnIds?.length ? dependsOnIds : [];
+  const payload: { depends_on_ids?: string[]; depends_on_id?: string | null; updated_at: string } = {
+    depends_on_ids: ids,
+    depends_on_id: ids[0] ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase
+    .from('project_todos')
+    .update(payload)
+    .eq('id', todoId);
+  if (error) return { error: new Error(error.message) };
+  return { error: null };
+}
+
+/** 记录项目任务责任方流转历史，并更新当前责任方；可选 newStatus 同步更新状态（如 Submit→Reviewing、Confirm→Completed）。责任方不变时（如 Confirm）不写历史。 */
+export async function changeProjectTodoResponsibleSide(params: {
+  todoId: string;
+  fromSide: FirmProjectType;
+  toSide: FirmProjectType;
+  note?: string | null;
+  newStatus?: FirmProject['status'];
+}): Promise<{ error: Error | null }> {
+  const cleanedNote = params.note && params.note.trim().length > 0 ? params.note.trim() : null;
+
+  if (params.fromSide !== params.toSide) {
+    const { error: histErr } = await supabase
+      .from('project_todo_responsible_history')
+      .insert({
+        project_todo_id: params.todoId,
+        from_side: params.fromSide,
+        to_side: params.toSide,
+        note: cleanedNote,
+      });
+    if (histErr) {
+      console.error('changeProjectTodoResponsibleSide history:', histErr);
+      return { error: histErr as Error };
+    }
+  }
+
+  const payload: { type?: FirmProjectType; status?: FirmProject['status'] } = {};
+  if (params.fromSide !== params.toSide) payload.type = params.toSide;
+  if (params.newStatus != null) payload.status = params.newStatus;
+  return await updateProjectTodo(params.todoId, payload);
 }
 
 /** 删除项目任务（Phase 1：仅允许叶子节点，即无子节点） */
@@ -1543,14 +1653,100 @@ export async function getSkuItems(skuId: string): Promise<FirmSkuItem[]> {
     skuId: row.sku_id,
     parentId: row.parent_id ?? null,
     itemKind: (row.item_kind ?? 'task') as 'phase' | 'section' | 'task',
-    type: row.type,
+    type: row.initial_responsible_side,
     title: row.title,
     description: row.description ?? null,
     sortOrder: row.sort_order ?? 0,
+    dependsOnId: row.depends_on_id ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
   return sortSkuItemsDepthFirst(mapped);
+}
+
+/**
+ * 设置或清除 sku_item 的前置依赖（depends_on_id）。
+ * 传 null 表示清除依赖（该 item 无前置条件，立即可操作）。
+ */
+export async function updateSkuItemDependsOn(
+  skuItemId: string,
+  dependsOnId: string | null,
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase
+    .schema('firm')
+    .from('sku_items')
+    .update({ depends_on_id: dependsOnId })
+    .eq('id', skuItemId);
+  if (error) return { error: new Error(error.message) };
+  return { error: null };
+}
+
+/** 新增 SKU item（阶段 / 分类 / 任务）；sortOrder 默认排到同级末尾 */
+export async function createSkuItem(params: {
+  skuId: string;
+  parentId?: string | null;
+  itemKind: 'phase' | 'section' | 'task';
+  type: 'client' | 'firm';
+  title: string;
+  description?: string | null;
+}): Promise<{ id: string | null; error: Error | null }> {
+  // 取同级末尾 sort_order
+  const q = supabase.schema('firm').from('sku_items').select('sort_order').eq('sku_id', params.skuId);
+  if (params.parentId) q.eq('parent_id', params.parentId); else q.is('parent_id', null);
+  const { data: siblings } = await q.order('sort_order', { ascending: false }).limit(1).maybeSingle();
+  const sortOrder = (siblings as any)?.sort_order != null ? (siblings as any).sort_order + 1 : 1;
+
+  const { data, error } = await supabase.schema('firm').from('sku_items').insert({
+    sku_id: params.skuId,
+    parent_id: params.parentId ?? null,
+    item_kind: params.itemKind,
+    initial_responsible_side: params.type,
+    title: params.title,
+    description: params.description ?? null,
+    sort_order: sortOrder,
+  }).select('id').maybeSingle();
+  if (error) {
+    console.error('createSkuItem:', error);
+    return { id: null, error: error as Error };
+  }
+  return { id: (data as any)?.id ?? null, error: null };
+}
+
+/** 更新 SKU item 字段 */
+export async function updateSkuItem(
+  itemId: string,
+  payload: {
+    title?: string;
+    description?: string | null;
+    type?: 'client' | 'firm';
+    itemKind?: 'phase' | 'section' | 'task';
+    sortOrder?: number;
+    parentId?: string | null;
+  }
+): Promise<{ error: Error | null }> {
+  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
+  if (payload.title !== undefined) updates.title = payload.title;
+  if (payload.description !== undefined) updates.description = payload.description;
+  if (payload.type !== undefined) updates.initial_responsible_side = payload.type;
+  if (payload.itemKind !== undefined) updates.item_kind = payload.itemKind;
+  if (payload.sortOrder !== undefined) updates.sort_order = payload.sortOrder;
+  if (payload.parentId !== undefined) updates.parent_id = payload.parentId;
+  const { error } = await supabase.schema('firm').from('sku_items').update(updates).eq('id', itemId);
+  if (error) {
+    console.error('updateSkuItem:', error);
+    return { error: error as Error };
+  }
+  return { error: null };
+}
+
+/** 删除 SKU item（会级联删除子节点，由数据库 ON DELETE CASCADE 保证） */
+export async function deleteSkuItem(itemId: string): Promise<{ error: Error | null }> {
+  const { error } = await supabase.schema('firm').from('sku_items').delete().eq('id', itemId);
+  if (error) {
+    console.error('deleteSkuItem:', error);
+    return { error: error as Error };
+  }
+  return { error: null };
 }
 
 /** Firm 空间：获取「模板」列表（兼容：即 SKU 列表，带 items 来自 sku_items） */

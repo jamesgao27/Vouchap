@@ -237,7 +237,7 @@ export default function CrmDashboardView() {
 
           {/* Orders by status (bar) */}
           <View style={styles.card}>
-            <Text style={styles.cardTitle}>Engagements by status</Text>
+            <Text style={styles.cardTitle}>Orders by status</Text>
             <View style={styles.chartContainer}>
               <OrderStatusBars
                 width={chartWidth}
