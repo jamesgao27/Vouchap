@@ -71,7 +71,7 @@ function buildTaskMatcherPrompt(context: TaxDocumentTaskMatcherContext, tasks: T
   const scenario = context.taxScenario || 'general tax';
   const taskList = tasks.map((t) => `- id: "${t.id}", title: "${t.title}"`).join('\n');
 
-  return `You are a North American tax document expert. Your task is to look at the provided image and decide which TASK from the list below this document best belongs to.
+  return `You are a North American tax document expert. Your task is to look at the provided image (THIS SINGLE DOCUMENT ONLY) and decide which TASK from the list below this document best belongs to. Association must match the correct task; do not confuse with other documents.
 
 Context: Jurisdiction ${jurisdiction}, tax scenario: ${scenario}.
 
@@ -79,14 +79,15 @@ Common document types you might see (for matching to task titles):
 - Canada: T4, T5, T4A, RRSP slip, donation receipt, financial statement, GST/HST, T2 schedules.
 - USA: W-2, 1099-INT, 1099-DIV, 1098, 1099-MISC, K-1, S-corp forms.
 
-TASK LIST (you must return one of these task ids):
+TASK LIST (you must return exactly one of these task ids; use the id verbatim):
 ${taskList}
 
 Instructions:
 1. Identify the document type/category from the image (e.g. T4, W-2, receipt, bank statement).
 2. Choose the task whose title best matches this document type. Use semantic matching: e.g. "T4" document -> task titled "T4 slips" or "Employment income (T4)" or similar.
-3. If no task clearly fits, pick the most general one (e.g. "Other documents" or the first task in the list).
+3. If no task clearly fits, pick the most general one (e.g. "Other documents" or the last task in the list).
 4. Return ONLY valid JSON, no markdown. Example: {"task_id": "uuid-here"}
+5. The association must correspond to the correct task for THIS document only.
 
 Output format: {"task_id": "<one of the ids from the list above>"}`;
 }

@@ -441,7 +441,7 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
 
   const [spacesRes, userSpacesRes, ordersRes, memberClientsRes, followUpsRes] = await Promise.all([
     supabase.from('spaces').select('id, name').in('id', spaceIds),
-    supabase.from('user_spaces').select('space_id, user_id').in('space_id', spaceIds).eq('is_admin', true),
+    supabase.from('user_spaces').select('space_id, user_id, is_admin').in('space_id', spaceIds),
     supabase.schema('firm').from('orders').select('client_space_id, status, due_at, created_at').eq('firm_space_id', firmSpaceId),
     supabase.schema('firm').from('member_clients').select('client_space_id, user_id').eq('firm_space_id', firmSpaceId),
     supabase
@@ -456,9 +456,18 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     spaceMap[s.id] = { name: s.name || '' };
   });
 
-  const spaceToUserId: Record<string, string> = {};
+  // 联系人：每个 client 空间优先取 is_admin=true 的用户，若无则取该空间任一成员，确保有订单的 client 能显示联系人/邮箱
+  const bySpace: Record<string, { user_id: string; is_admin: boolean }[]> = {};
   (userSpacesRes.data || []).forEach((us: any) => {
-    if (!spaceToUserId[us.space_id]) spaceToUserId[us.space_id] = us.user_id;
+    if (!bySpace[us.space_id]) bySpace[us.space_id] = [];
+    bySpace[us.space_id].push({ user_id: us.user_id, is_admin: us.is_admin === true });
+  });
+  const spaceToUserId: Record<string, string> = {};
+  Object.keys(bySpace).forEach((sid) => {
+    const list = bySpace[sid];
+    const admin = list.find((x) => x.is_admin);
+    const pick = admin || list[0];
+    if (pick) spaceToUserId[sid] = pick.user_id;
   });
 
   const orders = (ordersRes.data || []).map((r: any) => ({
@@ -512,7 +521,7 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
       ...c,
       assignedUserId: assigneeIds[0] ?? null,
       lastFollowUpAt: clientSpaceToLastFollowUp[c.clientSpaceId] ?? null,
-      name: c.displayName?.trim() || space?.name || c.clientSpaceId,
+      name: c.displayName?.trim() || space?.name || contactUser?.name || c.clientSpaceId,
       contactName: contactUser?.name ?? null,
       contactEmail: contactUser?.email ?? null,
       serviceStartAt: c.createdAt ?? null,
@@ -1376,16 +1385,17 @@ export async function createProjectTodoAttachment(
   return { id: (data as any).id };
 }
 
-/** 更新任务附件（识别完成后：summary、doc_type、extracted_data、status 从 PENDING_AI → PROCESSED/VERIFIED） */
+/** 更新任务附件（识别完成后：summary、doc_type、extracted_data、status 从 PENDING_AI → PROCESSED/VERIFIED；AI 纠正关联时可更新 project_todo_id） */
 export async function updateProjectTodoAttachment(
   attachmentId: string,
-  updates: { summary?: string | null; doc_type?: string | null; extracted_data?: unknown; status?: 'PENDING_AI' | 'PROCESSED' | 'VERIFIED' }
+  updates: { summary?: string | null; doc_type?: string | null; extracted_data?: unknown; status?: 'PENDING_AI' | 'PROCESSED' | 'VERIFIED'; project_todo_id?: string }
 ): Promise<{ ok: true } | { error: Error }> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (updates.summary !== undefined) payload.summary = updates.summary;
   if (updates.doc_type !== undefined) payload.doc_type = updates.doc_type;
   if (updates.extracted_data !== undefined) payload.extracted_data = updates.extracted_data;
   if (updates.status !== undefined) payload.status = updates.status;
+  if (updates.project_todo_id !== undefined) payload.project_todo_id = updates.project_todo_id;
   const { error } = await supabase
     .from('project_todo_attachments')
     .update(payload)

@@ -1092,13 +1092,19 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               removeFromStaged();
               appendMessages([loadingCardMsg, userMsg]);
               let summary: string | null = null;
+              let effectiveTodoId = todoId;
               try {
                 const taskTitle = attachmentTaskOptions.find((t) => t.id === todoId)?.title ?? '';
-                const recognition = await runTaxFilingRecognition(fileUrl, { country: (project?.taxCountry === 'USA' ? 'USA' : 'CANADA') as 'CANADA' | 'USA', taxScenario: project?.taxScenario ?? '' }, taskTitle ? { task: taskTitle } : undefined, userInstructions, isImage ? undefined : (file.mimeType ?? undefined));
-                await updateProjectTodoAttachment(attachmentId, { summary: recognition.summary, doc_type: recognition.doc_type, extracted_data: recognition.extracted_data, status: 'PROCESSED' });
+                const recognition = await runTaxFilingRecognition(fileUrl, { country: (project?.taxCountry === 'USA' ? 'USA' : 'CANADA') as 'CANADA' | 'USA', taxScenario: project?.taxScenario ?? '' }, taskTitle ? { task: taskTitle } : undefined, userInstructions, isImage ? undefined : (file.mimeType ?? undefined), attachmentTaskOptions);
+                if (recognition.suggested_task_id && recognition.suggested_task_id !== todoId && attachmentTaskOptions.some((t) => t.id === recognition.suggested_task_id)) {
+                  effectiveTodoId = recognition.suggested_task_id;
+                  await updateProjectTodoAttachment(attachmentId, { summary: recognition.summary, doc_type: recognition.doc_type, extracted_data: recognition.extracted_data, status: 'PROCESSED', project_todo_id: effectiveTodoId });
+                } else {
+                  await updateProjectTodoAttachment(attachmentId, { summary: recognition.summary, doc_type: recognition.doc_type, extracted_data: recognition.extracted_data, status: 'PROCESSED' });
+                }
                 summary = recognition.summary;
               } catch (_) {}
-              const previewPayload = { id: attachmentId, projectId, todoId, name, summary, imageUrl: fileUrl };
+              const previewPayload = { id: attachmentId, projectId, todoId: effectiveTodoId, name, summary, imageUrl: fileUrl };
               const previewMsg: Message = { id: `attach-preview-${attachmentId}`, text: '', isUser: false, timestamp: new Date(), attachmentPreview: previewPayload, voucherType: 'tax-filing' };
               setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMsg : m)));
               await saveChatLog({
@@ -1109,7 +1115,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 modelName: 'tax-filing',
                 prompt: userInstructions ? `Uploaded: ${name}. Note: ${userInstructions}` : `Uploaded: ${name}`,
                 response: '',
-                requestData: { todoId, fileName: name },
+                requestData: { todoId: effectiveTodoId, fileName: name },
                 responseData: { attachmentPreview: previewPayload },
                 success: true,
                 attachmentUrl: fileUrl,

@@ -48,7 +48,8 @@ Analyze the provided image/PDF, identify the document type, and extract structur
     "tax_year": "YYYY",
     "issuer": "Entity Name",
     "is_legible": true
-  }
+  },
+  "suggested_task_id": "OPTIONAL: only when task list is provided and this document clearly belongs to a different task than the current classification; must be one of the task ids from the list"
 }
 `;
 
@@ -107,18 +108,27 @@ function scenariosForContext(project: TaxFilingProjectContext, todo?: TaxFilingT
   return '\n# Specific Extraction Logic (Scenario-Based)\n' + scenarios.join('\n');
 }
 
+/** 项目 task 清单项（id + title），拼入提示词供 AI 关联时对应到正确 task */
+export interface TaxFilingTaskListItem {
+  id: string;
+  title: string;
+}
+
 /**
  * 构建带上下文的报税文件识别提示词（供 AI 调用方使用）。
  * - 若提供 todoContext：注入 Project + Todo（phase/section/task），并只保留与 project 国别/场景相关的部分。
+ * - 若提供 taskList：拼合项目完整 task 清单，要求 AI 返回数据关联时务必对应到对应 task，错位时通过 suggested_task_id 纠正。
  * - 若仅 projectContext：注入 Project（国别、报税场景），省略与项目无关的 scenario 细节可在此做精简。
  */
 export function buildTaxFilingRecognitionPrompt(opts: {
   projectContext: TaxFilingProjectContext;
   todoContext?: TaxFilingTodoContext;
+  /** 项目下全部 task 清单（id + title），拼入提示词以便 AI 关联到正确 task，避免多文件时错位 */
+  taskList?: TaxFilingTaskListItem[];
   /** 用户随文件一起提交的说明，纳入提示词以辅助识别 */
   userInstructions?: string;
 }): string {
-  const { projectContext, todoContext, userInstructions } = opts;
+  const { projectContext, todoContext, taskList, userInstructions } = opts;
   const scenarios = scenariosForContext(projectContext, todoContext);
 
   let contextBlock = `
@@ -134,6 +144,15 @@ export function buildTaxFilingRecognitionPrompt(opts: {
   } else {
     contextBlock += `
 - No specific task classification; extract according to the scenarios that match the jurisdiction and tax scenario above.
+`;
+  }
+  if (taskList && taskList.length > 0) {
+    contextBlock += `
+# Project task list (associate this document with the correct task)
+The following are the ONLY valid tasks for this project. When returning data, the association must match the correct task.
+If this document clearly belongs to a different task than the current classification above, set "suggested_task_id" in your JSON output to that task's id; otherwise omit suggested_task_id.
+Task list (id must be used exactly):
+${taskList.map((t) => `- id: "${t.id}", title: "${t.title}"`).join('\n')}
 `;
   }
   if (userInstructions?.trim()) {

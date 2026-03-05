@@ -1,14 +1,15 @@
 /**
  * 任务附件详情：原文件链接 + AI 识别内容（extracted_data / summary）
+ * Firm 侧打开时使用 signed URL 以便在 bucket 私有时也能查看 client 上传的附件。
  */
 import { useCallback, useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, ActivityIndicator, Linking, Platform } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { getProjectTodoAttachmentById } from '@/lib/firm';
+import { getTaxFilingViewUrl } from '@/lib/supabase';
 
 export default function OrderAttachmentScreen() {
   const { orderId, attachmentId } = useLocalSearchParams<{ orderId: string; attachmentId: string }>();
-  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [attachment, setAttachment] = useState<{
     id: string;
@@ -18,28 +19,41 @@ export default function OrderAttachmentScreen() {
     status: string;
     extracted_data: unknown;
   } | null>(null);
+  const [viewUrl, setViewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!attachmentId) return;
+    let cancelled = false;
     (async () => {
       setLoading(true);
       setError(null);
+      setViewUrl(null);
       try {
         const row = await getProjectTodoAttachmentById(attachmentId);
+        if (cancelled) return;
         setAttachment(row ?? null);
         if (!row) setError('Attachment not found');
+        else {
+          setLoading(false);
+          const url = await getTaxFilingViewUrl(row.attachment_url);
+          if (!cancelled) setViewUrl(url);
+        }
       } catch (e) {
-        setError(e instanceof Error ? e.message : 'Failed to load');
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : 'Failed to load');
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => { cancelled = true; };
   }, [attachmentId]);
 
   const openUrl = useCallback(() => {
-    if (attachment?.attachment_url) Linking.openURL(attachment.attachment_url);
-  }, [attachment?.attachment_url]);
+    const url = viewUrl ?? attachment?.attachment_url;
+    if (url) Linking.openURL(url);
+  }, [attachment?.attachment_url, viewUrl]);
 
   if (loading) {
     return (
@@ -57,6 +71,7 @@ export default function OrderAttachmentScreen() {
   }
 
   const isImage = /\.(jpg|jpeg|png|gif|webp)/i.test(attachment.attachment_url) || attachment.attachment_url.includes('storage');
+  const imageUri = viewUrl ?? attachment.attachment_url;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
@@ -68,7 +83,7 @@ export default function OrderAttachmentScreen() {
       ) : null}
       <Text style={styles.status}>Status: {attachment.status}</Text>
       {isImage ? (
-        <Image source={{ uri: attachment.attachment_url }} style={styles.image} resizeMode="contain" />
+        <Image source={{ uri: imageUri }} style={styles.image} resizeMode="contain" />
       ) : null}
       <Text style={styles.linkLabel}>File link:</Text>
       <Text style={styles.link} onPress={openUrl} selectable>

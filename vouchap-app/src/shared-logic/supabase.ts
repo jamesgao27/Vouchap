@@ -208,6 +208,42 @@ export async function uploadTaxFilingFile(
   }
 }
 
+/** 从 tax-filing 的 storage URL 中解析出 bucket 内路径（即 createSignedUrl 需要的 path） */
+function parseTaxFilingStoragePath(attachmentUrl: string): string | null {
+  if (!attachmentUrl || typeof attachmentUrl !== 'string') return null;
+  try {
+    // 支持格式: .../storage/v1/object/public/tax-filing/spaceId/file.ext 或 .../tax-filing/spaceId/file.ext
+    const withStorage = attachmentUrl.match(/\/storage\/v1\/object\/(?:public\/)?tax-filing\/([^?]+)/);
+    if (withStorage?.[1]) return decodeURIComponent(withStorage[1].replace(/\/+$/, ''));
+    const onlyBucket = attachmentUrl.match(/\/tax-filing\/([^?]+)/);
+    if (onlyBucket?.[1]) return decodeURIComponent(onlyBucket[1].replace(/\/+$/, ''));
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 获取报税附件的可查看 URL：若为本站 tax-filing bucket，则返回带签名的 URL，便于 firm 侧（及 bucket 私有时）正常打开；
+ * 否则返回原 URL。
+ */
+export async function getTaxFilingViewUrl(attachmentUrl: string): Promise<string> {
+  const path = parseTaxFilingStoragePath(attachmentUrl);
+  if (!path) return attachmentUrl;
+  try {
+    const { data, error } = await supabase.storage.from(TAX_FILING_BUCKET).createSignedUrl(path, 3600);
+    if (error) {
+      console.warn('[getTaxFilingViewUrl] createSignedUrl error:', error.message, { path });
+      return attachmentUrl;
+    }
+    if (!data?.signedUrl) return attachmentUrl;
+    return data.signedUrl;
+  } catch (e) {
+    console.warn('[getTaxFilingViewUrl] createSignedUrl exception:', e);
+    return attachmentUrl;
+  }
+}
+
 /** 上传小票正式图到 receipts，路径 {spaceId}/receipt_{receiptId}.{ext}；支持 Web blob/file URI */
 export async function uploadReceiptImage(fileUri: string, receiptId: string, spaceId: string): Promise<string> {
   try {
