@@ -145,7 +145,6 @@ export interface ProjectDetailViewProps {
   clientSpaceId: string;
   onRefresh: () => Promise<void>;
   createProjectTodo: typeof import('@/lib/firm').createProjectTodo;
-  onFilePress?: (fileId: string) => void;
   /** Firm onboarding */
   skuInfo?: ProjectSkuInfo | null;
   skuTodos?: TodoRow[];
@@ -169,7 +168,6 @@ export function ProjectDetailView({
   clientSpaceId,
   onRefresh,
   createProjectTodo,
-  onFilePress,
   skuInfo,
   skuTodos = [],
   onConfirmOrder,
@@ -179,6 +177,7 @@ export function ProjectDetailView({
 
   useLayoutEffect(() => {
     navigation.setOptions({
+      headerBackButtonVisible: true,
       headerTitle: () => <ProjectDetailHeaderTitle header={header} />,
     });
   }, [navigation, header.title, header.subtitle, header.taxSeasonYear, header.status?.label]);
@@ -190,6 +189,7 @@ export function ProjectDetailView({
   useLayoutEffect(() => {
     if (!showHeaderTabToggle) return;
     navigation.setOptions({
+      headerBackButtonVisible: true,
       headerRight: () => (
         <TouchableOpacity
           onPress={toggleTab}
@@ -206,7 +206,7 @@ export function ProjectDetailView({
       ),
     });
     return () => {
-      navigation.setOptions({ headerRight: undefined });
+      navigation.setOptions({ headerBackButtonVisible: true, headerRight: undefined });
     };
   }, [navigation, showHeaderTabToggle, activeTab, toggleTab]);
 
@@ -330,7 +330,6 @@ export function ProjectDetailView({
           orderId={orderId}
           clientSpaceId={clientSpaceId}
           viewerRole={viewerRole}
-          onFilePress={onFilePress}
           onRefresh={onRefresh}
           createProjectTodo={createProjectTodo}
         />

@@ -125,6 +125,7 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
   const [tagInput, setTagInput]               = useState('');
   const [allSpaceTags, setAllSpaceTags]       = useState<string[]>([]);
   const [uploadingCover, setUploadingCover]   = useState(false);
+  const [editTaxSeasonYear, setEditTaxSeasonYear] = useState<string>('');
 
   const load = useCallback(async () => {
     if (!projectId) return;
@@ -145,6 +146,15 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
       setEditTaxCountry(projectData.taxCountry ?? '');
       setEditTaxScenario(projectData.taxScenario ?? '');
       setEditTags(projectData.tags ?? []);
+
+      // 税季：默认使用项目已保存的 taxSeasonYear；若为空则回退到订单的 dueAt/createdAt 推断
+      const derivedYear =
+        orderData.dueAt || orderData.createdAt
+          ? new Date((orderData.dueAt || orderData.createdAt)!).getFullYear()
+          : null;
+      const initialYear =
+        projectData.taxSeasonYear != null ? projectData.taxSeasonYear : derivedYear;
+      setEditTaxSeasonYear(initialYear != null ? String(initialYear) : '');
 
       if (orderData.clientSpaceId) {
         getSpaceProjectTags(orderData.clientSpaceId).then(setAllSpaceTags);
@@ -207,6 +217,10 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
         taxCountry: editTaxCountry.trim() || null,
         taxScenario: editTaxScenario.trim() || null,
         tags: editTags.length > 0 ? editTags : null,
+        taxSeasonYear: (() => {
+          const y = parseInt(editTaxSeasonYear.trim(), 10);
+          return Number.isFinite(y) ? y : null;
+        })(),
       });
       if (err) throw err;
       setEditing(false);
@@ -219,7 +233,7 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
     } finally {
       setSaving(false);
     }
-  }, [project?.id, editName, editDesc, editImageUrl, editTaxCountry, editTaxScenario, editTags, load]);
+  }, [project?.id, editName, editDesc, editImageUrl, editTaxCountry, editTaxScenario, editTags, editTaxSeasonYear, load]);
 
   const handleCancelEdit = useCallback(() => {
     if (!project) return;
@@ -250,8 +264,11 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
   };
   const removeTag = (t: string) => setEditTags((p) => p.filter((x) => x !== t));
 
-  const taxSeasonYear = order?.dueAt || order?.createdAt
-    ? new Date((order.dueAt || order.createdAt)!).getFullYear() : null;
+  const derivedTaxSeasonYear = order?.dueAt || order?.createdAt
+    ? new Date((order.dueAt || order.createdAt)!).getFullYear()
+    : null;
+  const taxSeasonYear =
+    project.taxSeasonYear != null ? project.taxSeasonYear : derivedTaxSeasonYear;
   const stageConfig = order ? (STAGE_CONFIG[order.status] ?? STAGE_CONFIG.onboarding) : null;
 
   if (loading) {
@@ -348,19 +365,65 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
       <View style={s.card}>
         <Text style={s.cardTitle}>Classification</Text>
 
-        {/* Tax season — 彩色 pill（只读） */}
+        {/* Tax season — 彩色 pill；编辑态支持选择/自定义年份 */}
         <View style={s.cfRow}>
           <View style={s.cfTagCol}>
             <Text style={s.cfLabel}>Tax season</Text>
           </View>
           <View style={s.cfValueCol}>
-            {taxSeasonYear != null
-              ? (
-                <View style={[s.taxSeasonPill, { backgroundColor: getTaxSeasonColor(taxSeasonYear) }]}>
-                  <Text style={s.taxSeasonPillText}>{taxSeasonYear}</Text>
+            {editing ? (
+              <View style={[s.optionRow, { alignItems: 'flex-start' }]}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                  {(() => {
+                    const base = derivedTaxSeasonYear ?? new Date().getFullYear();
+                    const candidates = Array.from(new Set([base - 1, base, base + 1]));
+                    return candidates.map((y) => (
+                      <TouchableOpacity
+                        key={y}
+                        style={[
+                          s.optChip,
+                          String(y) === editTaxSeasonYear.trim() && s.optChipActive,
+                        ]}
+                        onPress={() => setEditTaxSeasonYear(String(y))}
+                        activeOpacity={0.7}
+                      >
+                        <Text
+                          style={[
+                            s.optChipText,
+                            String(y) === editTaxSeasonYear.trim() && s.optChipTextActive,
+                          ]}
+                        >
+                          {y}
+                        </Text>
+                      </TouchableOpacity>
+                    ));
+                  })()}
                 </View>
-              )
-              : <Text style={s.cfEmptyTag}>—</Text>}
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <Text style={[s.cfLabel, { marginRight: 4 }]}>Custom</Text>
+                  <TextInput
+                    style={[s.tagsInput, { flex: 0, minWidth: 80, maxWidth: 100 }]}
+                    value={editTaxSeasonYear}
+                    onChangeText={setEditTaxSeasonYear}
+                    placeholder="YYYY"
+                    placeholderTextColor="#B2BEC3"
+                    keyboardType="numeric"
+                    maxLength={4}
+                  />
+                </View>
+              </View>
+            ) : taxSeasonYear != null ? (
+              <View
+                style={[
+                  s.taxSeasonPill,
+                  { backgroundColor: getTaxSeasonColor(taxSeasonYear) },
+                ]}
+              >
+                <Text style={s.taxSeasonPillText}>{taxSeasonYear}</Text>
+              </View>
+            ) : (
+              <Text style={s.cfEmptyTag}>—</Text>
+            )}
           </View>
         </View>
 
@@ -373,20 +436,34 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
           </View>
           <View style={s.cfValueCol}>
             {editing
-              ? <View style={s.optionRow}>
-                  {TAX_COUNTRY_OPTIONS.map((opt) => (
-                    <TouchableOpacity
-                      key={opt.value || '_c'}
-                      style={[s.optChip, editTaxCountry === opt.value && s.optChipActive]}
-                      onPress={() => setEditTaxCountry(opt.value)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[s.optChipText, editTaxCountry === opt.value && s.optChipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+              ? (
+                <View style={s.optionRow}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                    {TAX_COUNTRY_OPTIONS.map((opt) => (
+                      <TouchableOpacity
+                        key={opt.value || '_c'}
+                        style={[s.optChip, editTaxCountry === opt.value && s.optChipActive]}
+                        onPress={() => setEditTaxCountry(opt.value)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[s.optChipText, editTaxCountry === opt.value && s.optChipTextActive]}>
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={[s.cfLabel, { marginRight: 4 }]}>Custom</Text>
+                    <TextInput
+                      style={[s.tagsInput, { flex: 1, maxWidth: 220 }]}
+                      value={editTaxCountry}
+                      onChangeText={setEditTaxCountry}
+                      placeholder="Enter jurisdiction…"
+                      placeholderTextColor="#B2BEC3"
+                    />
+                  </View>
                 </View>
+              )
               : project.taxCountry
                   ? (() => { const [bg, fg] = getTagColor(project.taxCountry); return <View style={[s.valueTagPill, { backgroundColor: bg }]}><Text style={[s.valueTagText, { color: fg }]}>{project.taxCountry}</Text></View>; })()
                   : <Text style={s.cfEmptyTag}>—</Text>}
@@ -402,20 +479,34 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
           </View>
           <View style={s.cfValueCol}>
             {editing
-              ? <View style={s.optionRow}>
-                  {TAX_SCENARIO_OPTIONS.map((opt) => (
-                    <TouchableOpacity
-                      key={opt.value || '_s'}
-                      style={[s.optChip, editTaxScenario === opt.value && s.optChipActive]}
-                      onPress={() => setEditTaxScenario(opt.value)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[s.optChipText, editTaxScenario === opt.value && s.optChipTextActive]}>
-                        {opt.label}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+              ? (
+                <View style={s.optionRow}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                    {TAX_SCENARIO_OPTIONS.map((opt) => (
+                      <TouchableOpacity
+                        key={opt.value || '_s'}
+                        style={[s.optChip, editTaxScenario === opt.value && s.optChipActive]}
+                        onPress={() => setEditTaxScenario(opt.value)}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[s.optChipText, editTaxScenario === opt.value && s.optChipTextActive]}>
+                          {opt.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text style={[s.cfLabel, { marginRight: 4 }]}>Custom</Text>
+                    <TextInput
+                      style={[s.tagsInput, { flex: 1, maxWidth: 220 }]}
+                      value={editTaxScenario}
+                      onChangeText={setEditTaxScenario}
+                      placeholder="Enter scenario…"
+                      placeholderTextColor="#B2BEC3"
+                    />
+                  </View>
                 </View>
+              )
               : project.taxScenario
                   ? (() => { const [bg, fg] = getTagColor(project.taxScenario); return <View style={[s.valueTagPill, { backgroundColor: bg }]}><Text style={[s.valueTagText, { color: fg }]}>{project.taxScenario}</Text></View>; })()
                   : <Text style={s.cfEmptyTag}>—</Text>}

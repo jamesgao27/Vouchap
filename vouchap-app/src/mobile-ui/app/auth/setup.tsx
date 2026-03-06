@@ -63,7 +63,11 @@ export default function ClientSetupScreen() {
 
     if (infoRes.error || !infoRes.info) {
       setStatus('error');
-      setErrorMessage(infoRes.error?.message ?? 'Invalid or expired invite link.');
+      // 与 Invite history 中 Inactive 一致：落地页对已关闭/过期/达上限的邀请显示已失效
+      const message =
+        infoRes.error?.message ??
+        (token ? '此邀请已失效，无法继续使用。' : 'Invalid or expired invite link.');
+      setErrorMessage(message);
       return;
     }
 
@@ -157,7 +161,9 @@ export default function ClientSetupScreen() {
               <View style={styles.iconWrapError}>
                 <Ionicons name="alert-circle-outline" size={40} color="#E74C3C" />
               </View>
-              <Text style={styles.errorTitle}>Invalid or expired link</Text>
+              <Text style={styles.errorTitle}>
+                {errorMessage.includes('已失效') ? '此邀请已失效' : 'Invalid or expired link'}
+              </Text>
               <Text style={styles.errorMessage}>{errorMessage}</Text>
             </View>
             <View style={styles.cardBody}>

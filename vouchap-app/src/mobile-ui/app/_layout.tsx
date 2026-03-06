@@ -28,6 +28,9 @@ function isChatDisabledPath(pathname: string | null): boolean {
 
 function chatTypeFromPathname(pathname: string | null): ChatPanelType | null {
   if (!pathname) return null;
+  // 报税相关路径：firm 订单列表 / 详情 以及 tax-filing 项目路由，统一映射为 tax-filing
+  if (pathname === '/firm/todos' || pathname.startsWith('/firm/todos/')) return 'tax-filing';
+  if (pathname === '/firm/engagements' || pathname.startsWith('/firm/engagement/')) return 'tax-filing';
   if (pathname.startsWith('/tax-filing')) return 'tax-filing';
   if (pathname === '/receipts' || pathname.startsWith('/receipts/')) return 'receipt';
   if (pathname === '/invoices' || pathname.startsWith('/invoices/')) return 'invoice';
@@ -168,7 +171,7 @@ function LayoutContent() {
         />
         <Stack.Screen 
           name="firm/engagement/[id]" 
-          options={{ title: 'Engagement', headerBackTitle: 'Back' }} 
+          options={{ title: '', headerBackTitle: 'Back', headerBackButtonVisible: true }} 
         />
         <Stack.Screen 
           name="firm/sku/[skuId]" 

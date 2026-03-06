@@ -2,18 +2,18 @@
  * 订单/项目详情：Stack 内两页
  * - index: 顶栏为页面顶栏（由 index 内 setOptions 设为项目名），避免显示路径 "tax-filing/order/[orderId]"
  * - info: 项目信息
+ * 附件详情已改为大浮窗（FileDetailModal），不再单独路由。
  */
 import { Stack } from 'expo-router';
 
 export default function OrderDetailLayout() {
   return (
-    <Stack screenOptions={{ headerShown: true }}>
+    <Stack screenOptions={{ headerShown: true, headerBackButtonVisible: true }}>
       <Stack.Screen
         name="index"
         options={{ title: '', headerTitle: '' }}
       />
       <Stack.Screen name="info" />
-      <Stack.Screen name="attachment/[attachmentId]" options={{ title: 'Attachment' }} />
     </Stack>
   );
 }

@@ -47,6 +47,23 @@ const STATUS_COLOR: Record<string, string> = {
   cancelled: '#B2BEC3',
 };
 
+// 与报税项目 Info 页相同的标签配色
+const TAG_PALETTE: [string, string][] = [
+  ['#E3F2FD', '#1E88E5'],  // blue
+  ['#E8F5E9', '#2ECC71'],  // green
+  ['#FFF3E0', '#E67E22'],  // amber
+  ['#FCE4EC', '#E91E63'],  // rose
+  ['#E0F7FA', '#00ACC1'],  // teal
+  ['#FFF8E1', '#F9A825'],  // yellow
+  ['#F3E5F5', '#9C27B0'],  // purple
+];
+
+function getTagColor(tag: string): [string, string] {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) & 0xffff;
+  return TAG_PALETTE[hash % TAG_PALETTE.length];
+}
+
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—';
   try {
@@ -86,11 +103,38 @@ function formatDateTime(iso: string | null | undefined): string {
   }
 }
 
+function getCategoryTags(row: FirmOrderWithDetails): string[] {
+  const tags: string[] = [];
+  const dateForYear = row.dueAt || row.createdAt || null;
+  const explicitYear = row.taxSeasonYear != null ? row.taxSeasonYear : null;
+  if (explicitYear != null) {
+    tags.push(String(explicitYear));
+  } else if (dateForYear) {
+    try {
+      const y = new Date(dateForYear).getFullYear();
+      if (!Number.isNaN(y)) tags.push(String(y));
+    } catch {
+      // ignore
+    }
+  }
+  if (row.taxCountry) tags.push(row.taxCountry);
+  if (row.taxScenario) tags.push(row.taxScenario);
+  if (Array.isArray(row.tags)) {
+    for (const t of row.tags) {
+      if (t && typeof t === 'string') tags.push(t);
+    }
+  }
+  return tags;
+}
+
+function formatCategory(row: FirmOrderWithDetails): string {
+  const parts = getCategoryTags(row);
+  return parts.length > 0 ? parts.join(' · ') : '—';
+}
+
 /** 服务项：年度 + SKU 名称 */
 function serviceItemLabel(row: FirmOrderWithDetails): string {
-  const year = row.dueAt || row.createdAt;
-  const y = year ? new Date(year).getFullYear() : new Date().getFullYear();
-  return `${y} · ${row.skuName || '—'}`;
+  return row.skuName || '—';
 }
 
 function matchQuery(q: string, row: FirmOrderWithDetails): boolean {
@@ -101,12 +145,14 @@ function matchQuery(q: string, row: FirmOrderWithDetails): boolean {
   const source = (row.source || '').toLowerCase();
   const status = (row.status || '').toLowerCase();
   const assignee = (row.assigneeName || '').toLowerCase();
+  const category = formatCategory(row).toLowerCase();
   return (
     client.includes(lower) ||
     sku.includes(lower) ||
     source.includes(lower) ||
     status.includes(lower) ||
-    assignee.includes(lower)
+    assignee.includes(lower) ||
+    category.includes(lower)
   );
 }
 
@@ -140,6 +186,48 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
       getSortValue: (r) => serviceItemLabel(r).toLowerCase(),
     },
     {
+      id: 'category',
+      label: 'Classification',
+      minWidth: 200,
+      getValue: (r) => (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+          {(() => {
+            const tags = getCategoryTags(r);
+            if (tags.length === 0) {
+              return <Text style={[cellText, { color: '#95A5A6' }]}>—</Text>;
+            }
+            return tags.map((t) => {
+              const [bg, fg] = getTagColor(t);
+              return (
+                <View
+                  key={t}
+                  style={{
+                    paddingHorizontal: 8,
+                    paddingVertical: 2,
+                    borderRadius: 999,
+                    backgroundColor: bg,
+                    alignSelf: 'flex-start',
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      fontWeight: '500',
+                      color: fg,
+                    }}
+                    numberOfLines={1}
+                  >
+                    {t}
+                  </Text>
+                </View>
+              );
+            });
+          })()}
+        </View>
+      ),
+      getSortValue: (r) => formatCategory(r).toLowerCase(),
+    },
+    {
       id: 'createdAt',
       label: 'Created',
       minWidth: 110,
@@ -150,6 +238,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
       id: 'source',
       label: 'Source',
       minWidth: 90,
+      visible: false,
       getValue: (r) => (
         <Text style={cellText} numberOfLines={1}>
           {r.source || '—'}

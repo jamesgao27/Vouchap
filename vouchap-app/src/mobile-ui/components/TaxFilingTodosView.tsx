@@ -5,7 +5,6 @@
  * 调用方只需提供：
  *   - tree / orderId / clientSpaceId
  *   - createProjectTodo（创建子节点）
- *   - onFilePress（点击附件详情时跳转）
  *   - onRefresh（任何操作后告知父级树已更新）
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -28,9 +27,14 @@ import {
   getAttachmentsByProjectTodoIds,
   createProjectTodoAttachment,
   deleteProjectTodoAttachment,
+  updateProjectTodoAttachment,
+  getProjectTodoAttachmentWithContext,
+  getProjectTodoAttachmentById,
+  getProjectByOrderId,
   updateProjectTodo,
   updateProjectTodoDependsOn,
   changeProjectTodoResponsibleSide,
+  deleteProjectTodoWithChildren,
   type ProjectTodoNode,
   type ProjectTodoReceiptSummary,
 } from '@/lib/firm';
@@ -39,8 +43,13 @@ import {
   getStatusLabel,
   getStatusColor,
 } from '@/lib/constants/project-todo-status';
-import { uploadTaxFilingFile } from '@/lib/supabase';
+import { supabase, uploadTaxFilingFile } from '@/lib/supabase';
+import { getCurrentUser } from '@/lib/auth';
 import * as ImagePicker from 'expo-image-picker';
+import { FileDetailModal } from '@/components/FileDetailModal';
+import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
+import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
+import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition-retry';
 
 // ──────────────────────────────────────────────────
 // 常量 & 工具函数
@@ -48,6 +57,25 @@ import * as ImagePicker from 'expo-image-picker';
 
 const TREE_ROW_BG_EVEN = '#FFFFFF';
 const TREE_ROW_BG_ODD = '#F8F9FA';
+
+/** 根据 URL 或 docType 返回文件类型图标名 */
+function getFileFormatIcon(url: string | null | undefined, docType: string | null | undefined): 'document-text' | 'image' | 'document' {
+  const ext = (url ? url.split(/[#?]/)[0].split('.').pop()?.toLowerCase() : '') ?? '';
+  if (ext === 'pdf') return 'document-text';
+  if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'].includes(ext)) return 'image';
+  if (docType) return 'document-text';
+  return 'document';
+}
+
+function formatFileDate(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch {
+    return '—';
+  }
+}
 
 const STATUS_PRIORITY = ['to_submit', 'missing_info', 'reviewing', 'in_progress', 'completed'] as const;
 
@@ -125,6 +153,61 @@ function useNodeStats(nodes: ProjectTodoNode[]) {
 }
 
 // ──────────────────────────────────────────────────
+// AddPhaseInputRow（点击 Add a phase 后显示，录入名称并聚焦）
+// ──────────────────────────────────────────────────
+
+function AddPhaseInputRow({
+  onConfirm,
+  onCancel,
+  contentMaxWidth,
+}: {
+  onConfirm: (title: string) => void;
+  onCancel: () => void;
+  contentMaxWidth?: number;
+}) {
+  const [title, setTitle] = useState('');
+  const inputRef = useRef<TextInput>(null);
+  const titleRef = useRef(title);
+  titleRef.current = title;
+  useEffect(() => {
+    const t = setTimeout(() => inputRef.current?.focus(), 100);
+    return () => clearTimeout(t);
+  }, []);
+
+  const handleConfirm = useCallback(() => {
+    onConfirm(titleRef.current);
+  }, [onConfirm]);
+
+  const inputRowStyle = contentMaxWidth != null
+    ? [ts.addPhaseInputRow, { maxWidth: contentMaxWidth }]
+    : ts.addPhaseInputRow;
+
+  return (
+    <View style={ts.addPhaseRow}>
+      <View style={inputRowStyle}>
+        <TextInput
+          ref={inputRef}
+          style={ts.addPhaseInput}
+          value={title}
+          onChangeText={setTitle}
+          placeholder="New phase name"
+          placeholderTextColor="#95A5A6"
+          returnKeyType="done"
+          onSubmitEditing={handleConfirm}
+          blurOnSubmit
+        />
+        <Pressable style={ts.cancelAddBtn} onPress={onCancel} hitSlop={8}>
+          <Ionicons name="close-outline" size={16} color="#95A5A6" />
+        </Pressable>
+        <Pressable style={ts.confirmAddBtn} onPress={handleConfirm} hitSlop={8}>
+          <Ionicons name="checkmark-outline" size={16} color="#6C5CE7" />
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
+// ──────────────────────────────────────────────────
 // PendingAddRow
 // ──────────────────────────────────────────────────
 
@@ -160,8 +243,11 @@ function PendingAddRow({
     onConfirm(titleRef.current);
   }, [onConfirm]);
 
-  const indent = depth * 14;
+  const isTaskDepth = depth >= 2;
+  // phase / section 用 depth 缩进；真正的 task 再额外缩进一大截，肉眼可见
+  const indent = depth * 14 + (isTaskDepth ? 24 : 0);
   const titleFontSize = depth === 0 ? 15 : depth === 1 ? 14 : 13;
+  const addPlaceholder = depth === 0 ? 'New section name' : 'New task name';
   return (
     <View style={ts.treeRowWrap}>
       <View style={[ts.treeRow, ts.pendingAddRow, { backgroundColor: rowBg }]}>
@@ -177,7 +263,7 @@ function PendingAddRow({
               style={[ts.pendingAddInput, { fontSize: titleFontSize }]}
               value={title}
               onChangeText={setTitle}
-              placeholder="New item name"
+              placeholder={addPlaceholder}
               placeholderTextColor="#95A5A6"
               returnKeyType="done"
               onSubmitEditing={handleConfirm}
@@ -220,7 +306,6 @@ function TodoTree({
   onSetDependsOn,
   onToggleCollapse,
   onToggleTaskFiles,
-  onFilePress,
   rowIdShowingAdd,
   setRowIdShowingAdd,
   addIconHighlightedRowId,
@@ -234,13 +319,17 @@ function TodoTree({
   onRestoreTask,
   onUploadFile,
   onRemoveFile,
+  onRequestMoveFile,
+  onFileRowPress,
   onHandoffTask,
+  onRequestDeletePhase,
   phaseAndSectionWithWbs,
   rowFileColHoverId,
   setRowFileColHoverId,
   hideFileColTimeoutRef,
   rowIdShowingStatusVerb,
   setRowIdShowingStatusVerb,
+  onRetryRecognizeFile,
 }: {
   nodes: ProjectTodoNode[];
   depth: number;
@@ -267,7 +356,6 @@ function TodoTree({
   phaseAndSectionWithWbs: { id: string; wbs: string; title: string }[];
   onToggleCollapse: (id: string) => void;
   onToggleTaskFiles: (id: string) => void;
-  onFilePress?: (attachmentId: string) => void;
   rowIdShowingAdd?: string | null;
   setRowIdShowingAdd?: (id: string | null) => void;
   addIconHighlightedRowId?: string | null;
@@ -289,9 +377,17 @@ function TodoTree({
   onRestoreTask?: (todoId: string, initialResponsibleSide: 'client' | 'firm') => void;
   onUploadFile?: (todoId: string) => void;
   onRemoveFile?: (todoId: string, attachmentId: string) => void;
+  /** 长按文件行时请求移动到其他 task，由父组件弹选单并调用 updateProjectTodoAttachment */
+  onRequestMoveFile?: (attachmentId: string, fromTodoId: string) => void;
+  /** 文件识别失败或卡住时，点击重试识别 */
+  onRetryRecognizeFile?: (attachmentId: string) => void;
+  /** 点击文件行时打开大浮窗展示文件详情（缩略图 + 识别内容） */
+  onFileRowPress?: (attachmentId: string, todoId: string) => void;
   onHandoffTask?: (todoId: string, from: 'client' | 'firm', to: 'client' | 'firm', verb: string, newStatus?: ProjectTodoNode['status']) => void;
+  /** 仅 phase 行：点击带圈 - 时请求删除该 phase 及所有子级（浮窗二次确认） */
+  onRequestDeletePhase?: (phaseId: string, phaseTitle: string) => void;
 }) {
-  const indent = depth * 14;
+  const baseIndent = depth * 14;
   const { taskTotal, taskSuccess, effectiveStatus } = nodeStats;
   const [activeDepChipId, setActiveDepChipId] = useState<string | null>(null);
   const [depsControlsNodeId, setDepsControlsNodeId] = useState<string | null>(null);
@@ -304,6 +400,8 @@ function TodoTree({
         const hasChildren = node.children.length > 0;
         const isCollapsed = collapsed.has(node.id);
         const isTask = node.itemKind === 'task';
+        // task 相比同级 section 再整体右移一段距离，明显区分层级
+        const indent = baseIndent + (isTask ? 24 : 0);
         const filesExpanded = taskFilesExpanded.has(node.id);
         const files = taskFilesMap[node.id] ?? [];
 
@@ -356,6 +454,25 @@ function TodoTree({
           </TouchableOpacity>
         ) : null;
 
+        /** 仅 phase 行：与 + 同区域触摸出现，带圈 - 用于删除该 phase 及所有子级 */
+        const showDeletePhaseIcon =
+          depth === 0 &&
+          node.itemKind === 'phase' &&
+          rowIdShowingAdd === node.id &&
+          onRequestDeletePhase != null;
+        const deletePhaseIconInline = showDeletePhaseIcon ? (
+          <TouchableOpacity
+            style={ts.deletePhaseIconWrap}
+            onPress={() => onRequestDeletePhase(node.id, node.title)}
+            activeOpacity={0.6}
+            hitSlop={8}
+          >
+            <View style={ts.deletePhaseIconBtn}>
+              <Ionicons name="remove" size={8} color="#FFF" />
+            </View>
+          </TouchableOpacity>
+        ) : null;
+
         const showTaskIcons = rowIdShowingAdd === node.id;
 
         // zone2：文件计数列 + 右侧空白，单独控制 Upload 按钮显示
@@ -379,7 +496,11 @@ function TodoTree({
               <View style={ts.progressFilesColInner}>
                 <TouchableOpacity
                   style={ts.filesToggle}
-                  onPress={() => onToggleTaskFiles(node.id)}
+                  onPress={() => {
+                    // 没有关联文件时不展开附件区
+                    if (files.length === 0) return;
+                    onToggleTaskFiles(node.id);
+                  }}
                   activeOpacity={0.7}
                 >
                   <Ionicons name={filesExpanded ? 'document' : 'document-outline'} size={14} color="#6C5CE7" />
@@ -557,6 +678,14 @@ function TodoTree({
           >
             {titleContentOnly}
           </TouchableOpacity>
+        ) : isTask && files.length > 0 ? (
+          <TouchableOpacity
+            style={ts.titleHotzone}
+            onPress={() => onToggleTaskFiles(node.id)}
+            activeOpacity={0.85}
+          >
+            {titleContentOnly}
+          </TouchableOpacity>
         ) : (
           <View style={ts.titleHotzone}>{titleContentOnly}</View>
         );
@@ -565,6 +694,11 @@ function TodoTree({
         const AddIconSlot = onStartAddChild && !isTask ? (
           <View style={[ts.addIconSlot, { width: ADD_ICON_SLOT_WIDTH }]} pointerEvents="box-none">
             {addIconInline}
+          </View>
+        ) : null;
+        const RemovePhaseIconSlot = showDeletePhaseIcon ? (
+          <View style={[ts.addIconSlot, ts.deletePhaseIconSlot]} pointerEvents="box-none">
+            {deletePhaseIconInline}
           </View>
         ) : null;
 
@@ -621,6 +755,7 @@ function TodoTree({
           <View style={ts.titleColumnWrap} {...showAddHandlers}>
             {TitleCell}
             {AddIconSlot}
+            {RemovePhaseIconSlot}
             {CancelTaskSlot}
             {RestoreTaskSlot}
             {RestartTaskSlot}
@@ -629,6 +764,7 @@ function TodoTree({
           <View style={ts.titleColumnWrap}>
             {TitleCell}
             {AddIconSlot}
+            {RemovePhaseIconSlot}
             {CancelTaskSlot}
             {RestoreTaskSlot}
             {RestartTaskSlot}
@@ -702,7 +838,9 @@ function TodoTree({
         const rowContainerStyle = [
           ts.treeRow,
           { backgroundColor: rowBg },
+          // section 行：标准分割线；task 行：更弱一点的分割线
           node.itemKind === 'section' && { borderTopWidth: 1, borderTopColor: '#E9ECEF' },
+          isTask && { borderTopWidth: 1, borderTopColor: '#F3F4F6' },
           crossRoleAccent,
         ];
 
@@ -789,7 +927,6 @@ function TodoTree({
                 onSetDependsOn={onSetDependsOn}
                 onToggleCollapse={onToggleCollapse}
                 onToggleTaskFiles={onToggleTaskFiles}
-                onFilePress={onFilePress}
                 rowIdShowingAdd={rowIdShowingAdd}
                 setRowIdShowingAdd={setRowIdShowingAdd}
                 addIconHighlightedRowId={addIconHighlightedRowId}
@@ -803,6 +940,9 @@ function TodoTree({
                 onRestoreTask={onRestoreTask}
                 onUploadFile={onUploadFile}
                 onRemoveFile={onRemoveFile}
+                onRequestMoveFile={onRequestMoveFile}
+                onRetryRecognizeFile={onRetryRecognizeFile}
+                onFileRowPress={onFileRowPress}
                 onHandoffTask={onHandoffTask}
                 phaseAndSectionWithWbs={phaseAndSectionWithWbs}
                 rowFileColHoverId={rowFileColHoverId}
@@ -828,64 +968,88 @@ function TodoTree({
                 onCancel={onCancelAddChild}
               />
             )}
-            {isTask && filesExpanded && (
-              <View style={[ts.filesBlock, { marginLeft: 12 + indent + 24 }]}>
-                {files.length === 0 ? (
-                  <Text style={ts.filesEmpty}>No files linked yet</Text>
-                ) : (
-                  <View style={ts.attachmentCardsWrap}>
-                    {(files as ProjectTodoReceiptSummary[]).map((f) => (
-                      <TouchableOpacity
-                        key={f.id}
-                        style={ts.attachmentCard}
-                        onPress={() => onFilePress?.(f.id)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={ts.attachmentCardTop}>
-                          {f.imageUrl ? (
-                            <Image source={{ uri: f.imageUrl }} style={ts.attachmentCardThumb} resizeMode="cover" />
-                          ) : (
-                            <View style={[ts.attachmentCardThumb, ts.attachmentCardThumbPlaceholder]}>
-                              <Ionicons name="document-outline" size={20} color="#95A5A6" />
+            {isTask && filesExpanded && files.length > 0 && (
+              <View
+                style={[
+                  ts.filesBlock,
+                  {
+                    // 与任务行相同的左右留白：左 4 + 右 12，背景贯通整个 phase 容器内部宽度
+                    marginLeft: 4,
+                    marginRight: 12,
+                    // 斑马色：行是浅灰时附件区用白色，行为白色时附件区用浅灰
+                    backgroundColor: rowBg === TREE_ROW_BG_EVEN ? TREE_ROW_BG_ODD : TREE_ROW_BG_EVEN,
+                  },
+                ]}
+              >
+                {files.length === 0 ? null : (
+                  // 让文件卡片整体缩进，与任务名称左边缘对齐：
+                  // 12（任务内部缩进起点） + indent（phase/section/task 层级缩进） + 24（chevron + WBS 区宽度）
+                  <View style={{ paddingLeft: 12 + indent + 24, paddingRight: 0 }}>
+                    <View style={ts.fileTable}>
+                      {(files as ProjectTodoReceiptSummary[]).map((f, fileIdx) => {
+                        const fileRowBg = fileIdx % 2 === 0 ? TREE_ROW_BG_EVEN : TREE_ROW_BG_ODD;
+                        const status = f.status ?? 'PENDING_AI';
+                        const isProcessing = status === 'PENDING_AI' || status === 'PROCESSING';
+                        const canShowRetryIcon = status === 'FAILED_ONCE' || status === 'FAILED_TWICE';
+                        const displayName =
+                          f.docType ??
+                          (status === 'FAILED_ONCE'
+                            ? 'Recognition failed (1/3)'
+                            : status === 'FAILED_TWICE'
+                            ? 'Recognition failed (2/3)'
+                            : status === 'FAILED_FINAL'
+                            ? 'Recognition failed (3/3)'
+                            : isProcessing
+                            ? 'Processing…'
+                            : 'Attachment');
+                        return (
+                          <TouchableOpacity
+                            key={f.id}
+                            style={[ts.fileRow, { backgroundColor: fileRowBg }, fileIdx === (files as ProjectTodoReceiptSummary[]).length - 1 && ts.fileRowLast]}
+                            onPress={() => onFileRowPress?.(f.id, node.id)}
+                            activeOpacity={0.8}
+                          >
+                            <View style={ts.fileColIcon}>
+                              <Ionicons name={getFileFormatIcon(f.imageUrl ?? null, f.docType)} size={18} color="#6C5CE7" />
                             </View>
-                          )}
-                          <View style={ts.attachmentCardBody}>
-                            {f.docType ? (
-                              <View style={ts.attachmentCardDocType}>
-                                <Text style={ts.attachmentCardDocTypeText} numberOfLines={1}>{f.docType}</Text>
+                            <View style={ts.fileColNameDesc}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                                <Text style={ts.fileRowName} numberOfLines={1}>{displayName}</Text>
+                                {canShowRetryIcon && (
+                                  <Pressable
+                                    style={ts.restoreTaskBtnHotzone}
+                                    onPress={() => onRetryRecognizeFile?.(f.id)}
+                                    hitSlop={8}
+                                  >
+                                    <View style={ts.restoreTaskBtnIcon}>
+                                      <Ionicons name="refresh-circle-outline" size={14} color="#7DCEA0" />
+                                    </View>
+                                  </Pressable>
+                                )}
                               </View>
-                            ) : f.status === 'PENDING_AI' ? (
-                              <Text style={ts.attachmentCardPending}>Processing…</Text>
-                            ) : null}
-                            <Text style={ts.attachmentCardSummary} numberOfLines={2}>{f.name || 'Attachment'}</Text>
-                            {(f.extractedPreview?.length ?? 0) > 0 && (
-                              <View style={ts.attachmentCardPreview}>
-                                {f.extractedPreview!.slice(0, 4).map((p, i) => (
-                                  <Text key={i} style={ts.attachmentCardPreviewLine} numberOfLines={1}>
-                                    {p.label}: {p.value}
-                                  </Text>
-                                ))}
-                              </View>
-                            )}
-                          </View>
-                          <View style={ts.attachmentCardTrailing}>
-                            {onRemoveFile ? (
-                              <Pressable
-                                style={ts.fileRowRemoveBtn}
-                                onPress={(e) => {
-                                  e.stopPropagation();
-                                  onRemoveFile(node.id, f.id);
-                                }}
+                            </View>
+                            <Text style={ts.fileColTime} numberOfLines={1}>{formatFileDate(f.createdAt)}</Text>
+                            <Text style={ts.fileColUploader} numberOfLines={1}>{f.uploaderName ?? '—'}</Text>
+                            <View style={ts.fileRowActions}>
+                              <TouchableOpacity
+                                style={ts.fileRowActionBtn}
+                                onPress={() => onRemoveFile?.(node.id, f.id)}
                                 hitSlop={8}
                               >
-                                <Ionicons name="close-circle-outline" size={18} color="#95A5A6" />
-                              </Pressable>
-                            ) : null}
-                            <Ionicons name="chevron-forward" size={14} color="#95A5A6" />
-                          </View>
-                        </View>
-                      </TouchableOpacity>
-                    ))}
+                                <Ionicons name="trash-outline" size={18} color="#E74C3C" />
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={ts.fileRowActionBtn}
+                                onPress={() => onRequestMoveFile?.(f.id, node.id)}
+                                hitSlop={8}
+                              >
+                                <Ionicons name="arrow-redo-outline" size={18} color="#6C5CE7" />
+                              </TouchableOpacity>
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
                   </View>
                 )}
               </View>
@@ -913,8 +1077,6 @@ export interface TaxFilingTodosViewProps {
    *   'firm'   — firm 用户，可操作全部，client todos 显示等待状态文案
    */
   viewerRole: 'client' | 'firm';
-  /** 点击附件卡片时的跳转处理（留 undefined 则仅展示不可点击） */
-  onFilePress?: (attachmentId: string) => void;
   /** 任何操作后父级刷新树（addChild / cancelTask 等） */
   onRefresh: () => Promise<void>;
   createProjectTodo: (params: {
@@ -924,7 +1086,10 @@ export interface TaxFilingTodosViewProps {
     title: string;
     description?: string | null;
     sortOrder?: number;
+    itemKind?: 'phase' | 'section' | 'task';
   }) => Promise<{ id: string | null; error: Error | null }>;
+  /** 可选：点击「Add a phase」时回调，不传则不显示该入口 */
+  onAddPhase?: () => void;
 }
 
 export function TaxFilingTodosView({
@@ -932,9 +1097,9 @@ export function TaxFilingTodosView({
   orderId,
   clientSpaceId,
   viewerRole,
-  onFilePress,
   onRefresh,
   createProjectTodo,
+  onAddPhase,
 }: TaxFilingTodosViewProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [taskFilesExpanded, setTaskFilesExpanded] = useState<Set<string>>(new Set());
@@ -960,6 +1125,17 @@ export function TaxFilingTodosView({
     note: string;
     newStatus?: ProjectTodoNode['status'];
   } | null>(null);
+  /** 长按文件行「移动到其他 task」：attachmentId + 当前所属 todoId */
+  const [moveFileContext, setMoveFileContext] = useState<{ attachmentId: string; fromTodoId: string } | null>(null);
+  /** Move-file 浮窗内当前选中的目标 task id（仅 task 可选） */
+  const [moveFileTargetTodoId, setMoveFileTargetTodoId] = useState<string | null>(null);
+  const [selectedFileForModal, setSelectedFileForModal] = useState<{ attachmentId: string; todoId: string } | null>(null);
+
+  // 当前树引用：供 Realtime 回调中使用，避免闭包拿到旧值
+  const treeRef = useRef<ProjectTodoNode[]>(tree);
+  useEffect(() => {
+    treeRef.current = tree;
+  }, [tree]);
 
   // 初始化/树变化时加载附件
   useEffect(() => {
@@ -967,6 +1143,72 @@ export function TaxFilingTodosView({
     if (taskIds.length === 0) { setTaskFilesMap({}); return; }
     getAttachmentsByProjectTodoIds(taskIds).then(setTaskFilesMap).catch(() => {});
   }, [tree]);
+
+  // Supabase Realtime：project_todos / project_todo_attachments 变更时局部自动刷新
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    let todosChannel: ReturnType<typeof supabase.channel> | null = null;
+    let attachmentsChannel: ReturnType<typeof supabase.channel> | null = null;
+    let refreshTreeTimeout: ReturnType<typeof setTimeout> | null = null;
+    let refreshFilesTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const setupRealtime = async () => {
+      try {
+        const project = await getProjectByOrderId(orderId);
+        if (!project) return;
+        const projectId = project.id;
+
+        const debouncedRefreshTree = () => {
+          if (refreshTreeTimeout) clearTimeout(refreshTreeTimeout);
+          refreshTreeTimeout = setTimeout(() => {
+            onRefresh().catch(() => {});
+          }, 300);
+        };
+
+        const debouncedRefreshFiles = () => {
+          if (refreshFilesTimeout) clearTimeout(refreshFilesTimeout);
+          refreshFilesTimeout = setTimeout(() => {
+            const currentTree = treeRef.current;
+            const taskIds = collectTaskIds(currentTree);
+            if (taskIds.length === 0) {
+              setTaskFilesMap({});
+              return;
+            }
+            getAttachmentsByProjectTodoIds(taskIds).then(setTaskFilesMap).catch(() => {});
+          }, 300);
+        };
+
+        todosChannel = supabase
+          .channel(`project-todos-${projectId}`)
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'project_todos', filter: `project_id=eq.${projectId}` },
+            () => debouncedRefreshTree()
+          )
+          .subscribe();
+
+        attachmentsChannel = supabase
+          .channel(`project-todo-attachments-${projectId}`)
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'project_todo_attachments' },
+            () => debouncedRefreshFiles()
+          )
+          .subscribe();
+      } catch (e) {
+        console.warn('TaxFilingTodosView Realtime setup failed', e);
+      }
+    };
+
+    setupRealtime();
+
+    return () => {
+      if (refreshTreeTimeout) clearTimeout(refreshTreeTimeout);
+      if (refreshFilesTimeout) clearTimeout(refreshFilesTimeout);
+      if (todosChannel) supabase.removeChannel(todosChannel);
+      if (attachmentsChannel) supabase.removeChannel(attachmentsChannel);
+    };
+  }, [orderId, onRefresh]);
 
   const nodeStats = useNodeStats(tree);
 
@@ -1143,6 +1385,84 @@ export function TaxFilingTodosView({
     }
   }, []);
 
+  const onRetryRecognizeFile = useCallback(
+    async (attachmentId: string) => {
+      try {
+        const ctx = await getProjectTodoAttachmentWithContext(attachmentId);
+        if (!ctx) {
+          if (Platform.OS === 'web') window.alert('Could not load attachment context.');
+          else Alert.alert('Retry failed', 'Could not load attachment context.');
+          return;
+        }
+        const { attachment, project, todoContext } = ctx;
+        const latest = await getProjectTodoAttachmentById(attachmentId);
+        const currentStatus = latest?.status ?? attachment.status;
+        const currentFailCount =
+          latest?.recognition_fail_count != null ? Number(latest.recognition_fail_count) || 0 : 0;
+
+        if (currentStatus === 'PROCESSED' || currentStatus === 'VERIFIED') {
+          if (Platform.OS === 'web') window.alert('Recognition already completed for this file.');
+          else Alert.alert('Retry not needed', 'Recognition already completed for this file.');
+          return;
+        }
+        if (currentFailCount >= 3 || currentStatus === 'FAILED_FINAL') {
+          if (Platform.OS === 'web') window.alert('Recognition has already failed 3 times.');
+          else Alert.alert('Retry not allowed', 'Recognition has already failed 3 times.');
+          return;
+        }
+
+        const projectContext = {
+          country: (project.taxCountry === 'USA' ? 'USA' : 'CANADA') as 'CANADA' | 'USA',
+          taxScenario: project.taxScenario ?? '',
+        };
+
+        // 标记为处理中
+        await updateProjectTodoAttachment(attachmentId, { status: 'PROCESSING' });
+
+        try {
+          const recognition = await runTaxFilingRecognition(
+            attachment.attachment_url,
+            projectContext,
+            todoContext,
+          );
+          const result = await updateProjectTodoAttachment(attachmentId, {
+            summary: recognition.summary,
+            doc_type: recognition.doc_type,
+            extracted_data: recognition.extracted_data,
+            status: 'PROCESSED',
+            recognition_fail_count: 0,
+          });
+          if ('error' in result) {
+            const msg = result.error.message ?? 'Could not update attachment.';
+            if (Platform.OS === 'web') window.alert('Retry failed: ' + msg);
+            else Alert.alert('Retry failed', msg);
+            return;
+          }
+        } catch (e) {
+          const failCount = Math.min(currentFailCount + 1, 3);
+          const failStatus =
+            failCount >= 3 ? 'FAILED_FINAL' : failCount === 2 ? 'FAILED_TWICE' : 'FAILED_ONCE';
+          await updateProjectTodoAttachment(attachmentId, {
+            status: failStatus,
+            recognition_fail_count: failCount,
+          });
+          const msg = e instanceof Error ? e.message : String(e);
+          if (Platform.OS === 'web') window.alert('Retry failed: ' + msg);
+          else Alert.alert('Retry failed', msg);
+          return;
+        }
+
+        await refreshFiles(tree);
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (Platform.OS === 'web') window.alert('Retry failed: ' + msg);
+        else Alert.alert('Retry failed', msg);
+      } finally {
+      }
+    },
+    [tree, refreshFiles]
+  );
+
   const onStartAddChild = useCallback((parentId: string) => {
     if (hideAddTimeoutRef.current) { clearTimeout(hideAddTimeoutRef.current); hideAddTimeoutRef.current = null; }
     setRowIdShowingAdd(null);
@@ -1154,7 +1474,8 @@ export function TaxFilingTodosView({
     const trimmed = (title ?? '').trim();
     if (!trimmed) { setPendingParentId(null); return; }
     try {
-      const { error: err } = await createProjectTodo({ orderId, parentId, type: parentType, title: trimmed });
+      const creatorSide: ProjectTodoNode['type'] = viewerRole;
+      const { error: err } = await createProjectTodo({ orderId, parentId, type: creatorSide, title: trimmed });
       if (err) {
         const msg = err.message ?? 'Could not create item.';
         if (Platform.OS === 'web') window.alert('Save failed: ' + msg);
@@ -1169,9 +1490,72 @@ export function TaxFilingTodosView({
       if (Platform.OS === 'web') window.alert('Save failed: ' + msg);
       else Alert.alert('Save failed', msg);
     }
-  }, [orderId, createProjectTodo, onRefresh]);
+  }, [orderId, createProjectTodo, onRefresh, viewerRole]);
 
   const onCancelAddChild = useCallback(() => setPendingParentId(null), []);
+
+  const [pendingAddPhase, setPendingAddPhase] = useState(false);
+
+  /** 确认新 phase 名称后创建根级 phase 并刷新树 */
+  const handleConfirmAddPhase = useCallback(async (title: string) => {
+    const trimmed = (title ?? '').trim();
+    if (!trimmed) {
+      setPendingAddPhase(false);
+      return;
+    }
+    setPendingAddPhase(false);
+    try {
+      const { error: err } = await createProjectTodo({
+        orderId,
+        parentId: null,
+        type: 'firm',
+        title: trimmed,
+        itemKind: 'phase',
+      });
+      if (err) {
+        const msg = err.message ?? 'Could not create phase.';
+        if (Platform.OS === 'web') window.alert('Save failed: ' + msg);
+        else Alert.alert('Save failed', msg);
+        return;
+      }
+      await onRefresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (Platform.OS === 'web') window.alert('Save failed: ' + msg);
+      else Alert.alert('Save failed', msg);
+    }
+  }, [orderId, createProjectTodo, onRefresh]);
+
+  /** 删除 phase 及所有子级并刷新 */
+  const handleConfirmDeletePhase = useCallback(async (phaseId: string) => {
+    try {
+      const { error: err } = await deleteProjectTodoWithChildren(phaseId);
+      if (err) {
+        const msg = err.message ?? 'Could not delete phase.';
+        if (Platform.OS === 'web') window.alert('Delete failed: ' + msg);
+        else Alert.alert('Delete failed', msg);
+        return;
+      }
+      await onRefresh();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (Platform.OS === 'web') window.alert('Delete failed: ' + msg);
+      else Alert.alert('Delete failed', msg);
+    }
+  }, [onRefresh]);
+
+  /** 请求删除 phase：弹出统一二次确认浮窗（ConfirmModalHost），确认后执行删除 */
+  const handleRequestDeletePhase = useCallback(
+    (phaseId: string, _phaseTitle: string) => {
+      showConfirmDestructiveDialog(
+        'Delete phase',
+        'Are you sure you want to delete this phase and all its sections and tasks? This cannot be undone.',
+        () => handleConfirmDeletePhase(phaseId),
+        { confirmLabel: 'Delete' }
+      );
+    },
+    [handleConfirmDeletePhase]
+  );
 
   const onCancelTask = useCallback(async (todoId: string) => {
     const { error: err } = await updateProjectTodo(todoId, { status: 'canceled' });
@@ -1208,37 +1592,137 @@ export function TaxFilingTodosView({
     [],
   );
 
-  const onUploadFile = useCallback(async (todoId: string) => {
-    try {
-      const { status } = await (ImagePicker.requestMediaLibraryPermissionsAsync?.() ?? Promise.resolve({ status: 'granted' }));
-      if (status !== 'granted' && status !== 'undetermined') {
-        if (Platform.OS === 'web') window.alert('Need photo library permission to upload.');
-        else Alert.alert('Permission', 'Need photo library permission to upload.');
-        return;
+  const onUploadFile = useCallback(
+    async (todoId: string) => {
+      try {
+        const { status } =
+          (await (ImagePicker.requestMediaLibraryPermissionsAsync?.() ??
+            Promise.resolve({ status: 'granted' }))) || {};
+        if (status !== 'granted' && status !== 'undetermined') {
+          if (Platform.OS === 'web') window.alert('Need photo library permission to upload.');
+          else Alert.alert('Permission', 'Need photo library permission to upload.');
+          return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Images,
+          allowsEditing: false,
+          quality: 0.9,
+        });
+        if (result.canceled || !result.assets?.[0]?.uri) return;
+        const imageUri = result.assets[0].uri;
+        const imageUrl = await uploadTaxFilingFile(imageUri, `order-task-${Date.now()}`, clientSpaceId);
+
+        let uploaderName: string | null = null;
+        const user = await getCurrentUser();
+        if (user?.name?.trim()) {
+          uploaderName = user.name.trim();
+        } else {
+          const {
+            data: { user: authUser },
+          } = await supabase.auth.getUser();
+          if (authUser) {
+            const fromMeta = (
+              authUser.user_metadata?.name ?? authUser.email?.split('@')[0] ?? ''
+            )
+              .toString()
+              .trim();
+            if (fromMeta) uploaderName = fromMeta;
+          }
+        }
+
+        const createResult = await createProjectTodoAttachment(todoId, imageUrl, {
+          status: 'PENDING_AI',
+          uploader_name: uploaderName,
+        });
+        if ('error' in createResult) {
+          const errMsg =
+            createResult.error instanceof Error
+              ? createResult.error.message
+              : String(createResult.error);
+          if (Platform.OS === 'web') window.alert('Link failed: ' + errMsg);
+          else Alert.alert('Link failed', errMsg);
+          return;
+        }
+
+        const attachmentId = createResult.id;
+
+        // 先标记为处理中，避免长时间停留在 PENDING_AI
+        await updateProjectTodoAttachment(attachmentId, { status: 'PROCESSING', recognition_fail_count: 0 });
+
+        // 拉取上下文，构造识别所需的 project / task 信息
+        const ctx = await getProjectTodoAttachmentWithContext(attachmentId);
+        if (!ctx) {
+          // 若上下文加载失败，只保留「处理中」状态，不再继续重试
+          await onRefresh();
+          setTaskFilesExpanded((prev) => new Set(prev).add(todoId));
+          return;
+        }
+
+        const { attachment, project, todoContext } = ctx;
+        const projectContext = {
+          country: (project.taxCountry === 'USA' ? 'USA' : 'CANADA') as 'CANADA' | 'USA',
+          taxScenario: project.taxScenario ?? '',
+        };
+
+        const recognizeFn = () =>
+          runTaxFilingRecognition(attachment.attachment_url, projectContext, todoContext);
+
+        const recognitionResult = await runWithRecognitionRetry(recognizeFn, {
+          maxAttempts: 3,
+          delayMs: 1500,
+        });
+
+        if (!recognitionResult.success) {
+          const latest = await getProjectTodoAttachmentById(attachmentId);
+          const currentFailCount =
+            latest?.recognition_fail_count != null ? Number(latest.recognition_fail_count) || 0 : 0;
+          const nextFailCount = Math.min(currentFailCount + 1, 3);
+          const nextStatus =
+            nextFailCount >= 3
+              ? 'FAILED_FINAL'
+              : nextFailCount === 2
+              ? 'FAILED_TWICE'
+              : 'FAILED_ONCE';
+
+          await updateProjectTodoAttachment(attachmentId, {
+            status: nextStatus,
+            recognition_fail_count: nextFailCount,
+          });
+
+          const errText = recognitionResult.isContentQuality
+            ? 'Content unclear or not recognized. Please resubmit.'
+            : getUserFacingMessage(recognitionResult);
+          if (Platform.OS === 'web') window.alert(`Recognition failed: ${errText}`);
+          else Alert.alert('Recognition failed', errText);
+        } else {
+          const recognition = recognitionResult.result as Awaited<
+            ReturnType<typeof runTaxFilingRecognition>
+          >;
+          const result = await updateProjectTodoAttachment(attachmentId, {
+            summary: recognition.summary,
+            doc_type: recognition.doc_type,
+            extracted_data: recognition.extracted_data,
+            status: 'PROCESSED',
+            recognition_fail_count: 0,
+          });
+          if ('error' in result) {
+            const msg = result.error.message ?? 'Could not update attachment.';
+            if (Platform.OS === 'web') window.alert('Recognition save failed: ' + msg);
+            else Alert.alert('Recognition save failed', msg);
+          }
+        }
+
+        // 刷新树与文件列表：确保文件计数 / 状态行内即时更新
+        await onRefresh();
+        setTaskFilesExpanded((prev) => new Set(prev).add(todoId));
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        if (Platform.OS === 'web') window.alert('Upload failed: ' + msg);
+        else Alert.alert('Upload failed', msg);
       }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false,
-        quality: 0.9,
-      });
-      if (result.canceled || !result.assets?.[0]?.uri) return;
-      const imageUri = result.assets[0].uri;
-      const imageUrl = await uploadTaxFilingFile(imageUri, `order-task-${Date.now()}`, clientSpaceId);
-      const createResult = await createProjectTodoAttachment(todoId, imageUrl, { status: 'PENDING_AI' });
-      if ('error' in createResult) {
-        const errMsg = createResult.error instanceof Error ? createResult.error.message : String(createResult.error);
-        if (Platform.OS === 'web') window.alert('Link failed: ' + errMsg);
-        else Alert.alert('Link failed', errMsg);
-        return;
-      }
-      await onRefresh();
-      setTaskFilesExpanded((prev) => new Set(prev).add(todoId));
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (Platform.OS === 'web') window.alert('Upload failed: ' + msg);
-      else Alert.alert('Upload failed', msg);
-    }
-  }, [clientSpaceId, onRefresh]);
+    },
+    [clientSpaceId, onRefresh]
+  );
 
   const onRemoveFile = useCallback(async (todoId: string, attachmentId: string) => {
     const { error } = await deleteProjectTodoAttachment(attachmentId);
@@ -1250,12 +1734,58 @@ export function TaxFilingTodosView({
     await refreshFiles(tree);
   }, [tree, refreshFiles]);
 
+  const onRequestMoveFile = useCallback((attachmentId: string, fromTodoId: string) => {
+    setMoveFileContext({ attachmentId, fromTodoId });
+  }, []);
+
+  const onFileRowPress = useCallback((attachmentId: string, todoId: string) => {
+    setSelectedFileForModal({ attachmentId, todoId });
+  }, []);
+
+  const onConfirmMoveFile = useCallback(async (targetTodoId: string) => {
+    if (!moveFileContext) return;
+    const attachmentId = moveFileContext.attachmentId;
+    setMoveFileContext(null);
+    const result = await updateProjectTodoAttachment(attachmentId, { project_todo_id: targetTodoId });
+    if ('error' in result) {
+      if (Platform.OS === 'web') window.alert('Move failed: ' + (result.error.message ?? ''));
+      else Alert.alert('Move failed', result.error.message ?? '');
+      return;
+    }
+    await refreshFiles(tree);
+    setTaskFilesExpanded((prev) => new Set(prev).add(targetTodoId));
+  }, [moveFileContext, tree, refreshFiles]);
+
   if (tree.length === 0) {
     return (
       <View style={ts.root}>
-        <View style={ts.emptyWrap}>
-          <Text style={ts.emptyText}>No tasks yet</Text>
-        </View>
+        <ScrollView style={ts.scroll} contentContainerStyle={ts.scrollContent}>
+          <View style={ts.emptyWrap}>
+            <Text style={ts.emptyText}>No tasks yet</Text>
+          </View>
+          <View style={ts.phaseBlocksWrap}>
+            <View style={ts.phaseBlock}>
+              {pendingAddPhase ? (
+                <AddPhaseInputRow
+                  onConfirm={handleConfirmAddPhase}
+                  onCancel={() => setPendingAddPhase(false)}
+                  contentMaxWidth={maxLeftBlockWidth + 4 - 62}
+                />
+              ) : (
+                <Pressable
+                  style={ts.addPhaseRow}
+                  onPress={() => (onAddPhase ? onAddPhase() : setPendingAddPhase(true))}
+                  accessibilityLabel="Add a phase"
+                >
+                  <View style={ts.addPhaseIconWrap}>
+                    <Ionicons name="add-circle" size={20} color="#6C5CE7" />
+                  </View>
+                  <Text style={ts.addPhaseText}>Add a phase</Text>
+                </Pressable>
+              )}
+            </View>
+          </View>
+        </ScrollView>
       </View>
     );
   }
@@ -1285,7 +1815,6 @@ export function TaxFilingTodosView({
                 onSetDependsOn={handleSetDependsOn}
                 onToggleCollapse={toggleCollapse}
                 onToggleTaskFiles={toggleTaskFiles}
-                onFilePress={onFilePress}
                 rowIdShowingAdd={rowIdShowingAdd}
                 setRowIdShowingAdd={setRowIdShowingAdd}
                 addIconHighlightedRowId={addIconHighlightedRowId}
@@ -1299,7 +1828,10 @@ export function TaxFilingTodosView({
                 onRestoreTask={onRestoreTask}
                 onUploadFile={onUploadFile}
                 onRemoveFile={onRemoveFile}
+                onRequestMoveFile={onRequestMoveFile}
+                onFileRowPress={onFileRowPress}
                 onHandoffTask={onHandoffTask}
+                onRequestDeletePhase={handleRequestDeletePhase}
                 phaseAndSectionWithWbs={phaseAndSectionWithWbs}
                 rowFileColHoverId={rowFileColHoverId}
                 setRowFileColHoverId={setRowFileColHoverId}
@@ -1309,13 +1841,185 @@ export function TaxFilingTodosView({
               />
             </View>
           ))}
+          <View style={ts.phaseBlock}>
+            {pendingAddPhase ? (
+              <AddPhaseInputRow
+                onConfirm={handleConfirmAddPhase}
+                onCancel={() => setPendingAddPhase(false)}
+                contentMaxWidth={maxLeftBlockWidth + 4 - 62}
+              />
+            ) : (
+              <Pressable
+                style={ts.addPhaseRow}
+                onPress={() => (onAddPhase ? onAddPhase() : setPendingAddPhase(true))}
+                accessibilityLabel="Add a phase"
+              >
+                <View style={ts.addPhaseIconWrap}>
+                  <Ionicons name="add-circle" size={20} color="#6C5CE7" />
+                </View>
+                <Text style={ts.addPhaseText}>Add a phase</Text>
+              </Pressable>
+            )}
+          </View>
         </View>
       </ScrollView>
+
+      {/* 点击文件行：大浮窗展示文件（左侧缩略图，右侧识别内容） */}
+      {selectedFileForModal && (() => {
+        const list = taskFilesMap[selectedFileForModal.todoId] ?? [];
+        const file = list.find((x) => x.id === selectedFileForModal.attachmentId);
+        if (!file) return null;
+        return (
+          <FileDetailModal
+            file={file}
+            onClose={() => setSelectedFileForModal(null)}
+          />
+        );
+      })()}
+
+      {/* 移动文件到其他 task：复用「Depends on」浮窗的分组 + 缩进样式，仅 task 可选，选择后点 Done 执行 */}
+      {moveFileContext && (() => {
+        const renderMoveTargets = (nodes: ProjectTodoNode[], depth: number): React.ReactNode[] => {
+          return nodes.flatMap((node) => {
+            const isTask = node.itemKind === 'task';
+            const isSource = node.id === moveFileContext.fromTodoId;
+            const selectable = isTask && !isSource;
+            const selected = moveFileTargetTodoId === node.id;
+            const rowKey = node.id;
+
+            // phase 行左对齐；section 稍微缩进；task 在 section 基础上再多缩进一档
+            const rowIndentStyle =
+              depth === 0
+                ? null
+                : isTask
+                ? { marginLeft: 32 }
+                : { marginLeft: 16 };
+
+            const row = (
+              <Pressable
+                key={rowKey}
+                style={[
+                  ts.depsPickerRow,
+                  depth === 0 ? ts.depsPickerPhaseRow : ts.depsPickerSectionRow,
+                  rowIndentStyle,
+                  selectable ? ts.movePickerSelectableRow : ts.movePickerDisabledRow,
+                  selected && ts.depsPickerRowActive,
+                ]}
+                onPress={
+                  selectable
+                    ? () => setMoveFileTargetTodoId((prev) => (prev === node.id ? null : node.id))
+                    : undefined
+                }
+                disabled={!selectable}
+              >
+                <Text
+                  style={[
+                    depth === 0 ? ts.depsPickerPhaseText : ts.depsPickerRowText,
+                    selectable && !selected && ts.movePickerSelectableText,
+                    !selectable && ts.movePickerDisabledText,
+                    selected && ts.depsPickerRowTextActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {allNodesWbsMap[node.id] ?? ''}  {node.title}
+                </Text>
+                {selectable && selected ? (
+                  <Ionicons name="checkmark-circle" size={16} color="#6C5CE7" />
+                ) : null}
+              </Pressable>
+            );
+
+            const children = node.children.length > 0 ? renderMoveTargets(node.children, depth + 1) : [];
+            return [row, ...children];
+          });
+        };
+
+        const handleDone = () => {
+          if (!moveFileTargetTodoId) return;
+          onConfirmMoveFile(moveFileTargetTodoId);
+        };
+
+        return (
+          <View style={ts.depsPickerOverlay} pointerEvents="box-none">
+            <Pressable
+              style={ts.depsPickerBackdrop}
+              onPress={() => {
+                setMoveFileContext(null);
+                setMoveFileTargetTodoId(null);
+              }}
+            />
+            <View style={ts.depsPickerCard}>
+              <Text style={ts.depsPickerTitle}>Move file to another task</Text>
+              <Text style={ts.depsPickerSubtitle}>Select a task to associate with:</Text>
+              <ScrollView style={ts.depsPickerList} nestedScrollEnabled>
+                {renderMoveTargets(tree, 0)}
+              </ScrollView>
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
+                <TouchableOpacity
+                  style={ts.depsPickerSecondaryBtn}
+                  onPress={() => {
+                    setMoveFileContext(null);
+                    setMoveFileTargetTodoId(null);
+                  }}
+                >
+                  <Text style={ts.depsPickerSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[ts.depsPickerDoneBtn, !moveFileTargetTodoId && { opacity: 0.5 }]}
+                  onPress={handleDone}
+                  disabled={!moveFileTargetTodoId}
+                >
+                  <Text style={ts.depsPickerDoneText}>Done</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        );
+      })()}
 
       {/* 前置依赖选单浮窗：section 缩进列表，None 外可多选（持久化取首项） */}
       {depsPanelNodeId && (() => {
         const currentNode = allNodesFlat.find((n) => n.id === depsPanelNodeId);
         if (!currentNode) return null;
+        const byId = new Map(allNodesFlat.map((n) => [n.id, n]));
+        const childrenById = new Map<string, string[]>();
+        allNodesFlat.forEach((n) => {
+          if (!n.parentId) return;
+          const arr = childrenById.get(n.parentId) ?? [];
+          arr.push(n.id);
+          childrenById.set(n.parentId, arr);
+        });
+        // 当前任务的上级 phase / section 不允许作为前置
+        const blockedAncestorIds = new Set<string>();
+        let parentId: string | null | undefined = currentNode.parentId;
+        while (parentId) {
+          blockedAncestorIds.add(parentId);
+          const parentNode = byId.get(parentId);
+          parentId = parentNode?.parentId ?? null;
+        }
+        // 若某节点已通过「显式 depends_on 链路 + WBS 层级（上级天然依赖下级）」能到达 currentNode，则将其设为前置会产生循环，需禁用
+        const canReachCurrentFrom = (startId: string): boolean => {
+          const visited = new Set<string>();
+          const stack: string[] = [startId];
+          while (stack.length > 0) {
+            const id = stack.pop()!;
+            if (!visited.add(id)) continue;
+            if (id === currentNode.id) return true;
+            const node = byId.get(id);
+            if (!node) continue;
+            const deps: string[] =
+              ((node as any).dependsOnIds as string[] | undefined) ??
+              ((node as any).dependsOnId ? [(node as any).dependsOnId as string] : []);
+            deps.forEach((d) => stack.push(d));
+            // 上级天然 depends on 下级：在循环检测里视为 parent -> children 的隐式依赖
+            const children = childrenById.get(id);
+            children?.forEach((childId) => stack.push(childId));
+          }
+          return false;
+        };
+        const isDisabledCandidate = (id: string): boolean =>
+          blockedAncestorIds.has(id) || canReachCurrentFrom(id);
+
         const toggleSection = (id: string) => {
           setDepsPickerSelectedIds((prev) =>
             prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -1341,7 +2045,7 @@ export function TaxFilingTodosView({
             <View style={ts.depsPickerCard}>
               <Text style={ts.depsPickerTitle} numberOfLines={2}>{allNodesWbsMap[currentNode.id] ?? ''}  {currentNode.title}</Text>
               <Text style={ts.depsPickerSubtitle} numberOfLines={2}>
-                depends on the completion of following sections:
+                needs to depend on the completion of following sections:
               </Text>
               <Pressable
                 style={[ts.depsPickerRow, ts.depsPickerNoneRow, depsPickerSelectedIds.length === 0 && ts.depsPickerRowActive]}
@@ -1350,32 +2054,59 @@ export function TaxFilingTodosView({
                   setDepsPickerSelectedIds([]);
                 }}
               >
-                <Text style={[ts.depsPickerRowText, depsPickerSelectedIds.length === 0 && ts.depsPickerRowTextActive]}>None</Text>
+                <Text style={[ts.depsPickerRowText, ts.movePickerSelectableText, depsPickerSelectedIds.length === 0 && ts.depsPickerRowTextActive]}>None</Text>
               </Pressable>
               <ScrollView style={ts.depsPickerList} nestedScrollEnabled>
                 {depsPickerGrouped.map((group) => {
                   const phaseSelected = depsPickerSelectedIds.includes(group.phase.id);
                   const sectionIds = group.sections.map((s) => s.id);
+                  const phaseDisabled = isDisabledCandidate(group.phase.id);
                   return (
                   <View key={group.phase.id} style={ts.depsPickerGroup}>
                     <Pressable
-                      style={[ts.depsPickerRow, ts.depsPickerPhaseRow, phaseSelected && ts.depsPickerRowActive]}
-                      onPress={() => togglePhase(group.phase.id, sectionIds)}
+                      style={[
+                        ts.depsPickerRow,
+                        ts.depsPickerPhaseRow,
+                        phaseDisabled ? ts.movePickerDisabledRow : ts.movePickerSelectableRow,
+                        phaseSelected && ts.depsPickerRowActive,
+                      ]}
+                      onPress={phaseDisabled ? undefined : () => togglePhase(group.phase.id, sectionIds)}
+                      disabled={phaseDisabled}
                     >
-                      <Text style={[ts.depsPickerPhaseText, phaseSelected && ts.depsPickerRowTextActive]}>
+                      <Text
+                        style={[
+                          ts.depsPickerPhaseText,
+                          phaseDisabled ? ts.movePickerDisabledText : ts.movePickerSelectableText,
+                          phaseSelected && ts.depsPickerRowTextActive,
+                        ]}
+                      >
                         {group.phase.wbs}  {group.phase.title}
                       </Text>
                       {phaseSelected ? <Ionicons name="checkmark-circle" size={16} color="#6C5CE7" /> : null}
                     </Pressable>
                     {group.sections.map((sec) => {
                       const selected = depsPickerSelectedIds.includes(sec.id);
+                      const disabled = isDisabledCandidate(sec.id);
                       return (
                         <Pressable
                           key={sec.id}
-                          style={[ts.depsPickerRow, ts.depsPickerSectionRow, selected && ts.depsPickerRowActive]}
-                          onPress={() => toggleSection(sec.id)}
+                          style={[
+                            ts.depsPickerRow,
+                            ts.depsPickerSectionRow,
+                            disabled ? ts.movePickerDisabledRow : ts.movePickerSelectableRow,
+                            selected && ts.depsPickerRowActive,
+                          ]}
+                          onPress={disabled ? undefined : () => toggleSection(sec.id)}
+                          disabled={disabled}
                         >
-                          <Text style={[ts.depsPickerRowText, selected && ts.depsPickerRowTextActive]} numberOfLines={1}>
+                          <Text
+                            style={[
+                              ts.depsPickerRowText,
+                              disabled ? ts.movePickerDisabledText : ts.movePickerSelectableText,
+                              selected && ts.depsPickerRowTextActive,
+                            ]}
+                            numberOfLines={1}
+                          >
                             {sec.wbs}  {sec.title}
                           </Text>
                           {selected ? <Ionicons name="checkmark-circle" size={16} color="#6C5CE7" /> : null}
@@ -1386,9 +2117,17 @@ export function TaxFilingTodosView({
                   );
                 })}
               </ScrollView>
-              <TouchableOpacity style={ts.depsPickerDoneBtn} onPress={onConfirmDeps}>
-                <Text style={ts.depsPickerDoneText}>Done</Text>
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
+                <TouchableOpacity
+                  style={ts.depsPickerSecondaryBtn}
+                  onPress={() => setDepsPanelNodeId(null)}
+                >
+                  <Text style={ts.depsPickerSecondaryText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={ts.depsPickerDoneBtn} onPress={onConfirmDeps}>
+                  <Text style={ts.depsPickerDoneText}>Done</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
         );
@@ -1466,6 +2205,35 @@ const ts = StyleSheet.create({
     borderColor: '#DEE2E6',
     overflow: 'hidden',
   },
+  /** 与 phase 标题左端对齐：左留白(62) + icon(20) + gap(6) = 88，与 phase 标题起点一致 */
+  addPhaseRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingRight: 12,
+    paddingLeft: 62,
+    minHeight: 40,
+  },
+  addPhaseIconWrap: { marginRight: 6 },
+  addPhaseText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#6C5CE7',
+  },
+  addPhaseInputRow: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0, gap: 6 },
+  addPhaseInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#2D3436',
+    paddingVertical: 2,
+    paddingLeft: 10,
+    paddingRight: 0,
+    minHeight: 24,
+    minWidth: 60,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+    borderRadius: 4,
+  },
   emptyWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   emptyText: { fontSize: 15, color: '#636E72' },
   treeRowWrap: {},
@@ -1526,10 +2294,13 @@ const ts = StyleSheet.create({
     fontSize: 14,
     color: '#2D3436',
     paddingVertical: 2,
-    paddingHorizontal: 0,
+    paddingLeft: 10,
+    paddingRight: 0,
     minHeight: 24,
     minWidth: 60,
-    borderWidth: 0,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+    borderRadius: 4,
   },
   cancelAddBtn: { padding: 2, marginRight: 2, minWidth: 28, minHeight: 28, justifyContent: 'center', alignItems: 'center', cursor: 'pointer' } as any,
   confirmAddBtn: { padding: 2, minWidth: 28, minHeight: 28, justifyContent: 'center', alignItems: 'center', cursor: 'pointer' } as any,
@@ -1597,8 +2368,35 @@ const ts = StyleSheet.create({
   },
   filesToggle: { flexDirection: 'row', alignItems: 'center' },
   filesToggleText: { fontSize: 12, color: '#6C5CE7', marginLeft: 2 },
-  filesBlock: { paddingVertical: 8, paddingRight: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+  filesBlock: {
+    paddingTop: 0,
+    paddingBottom: 6,
+    paddingRight: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+  },
   filesEmpty: { fontSize: 13, color: '#95A5A6', fontStyle: 'italic' },
+  fileTable: { borderWidth: 1, borderColor: '#E9ECEF', borderRadius: 8, overflow: 'hidden' },
+  fileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F1F5F9',
+    gap: 8,
+    minHeight: 36,
+  },
+  fileColIcon: { width: 24, alignItems: 'center', justifyContent: 'center', marginRight: 2 },
+  fileColNameDesc: { flex: 1, minWidth: 0, marginRight: 8 },
+  // 文件名称弱化：字号略小、颜色略灰、权重降低
+  fileRowName: { fontSize: 12, fontWeight: '500', color: '#636E72' },
+  fileRowDesc: { fontSize: 11, color: '#636E72', marginTop: 2 },
+  fileColTime: { fontSize: 11, color: '#636E72', width: 64, textAlign: 'right', marginRight: 6 },
+  fileColUploader: { fontSize: 11, color: '#636E72', width: 52, textAlign: 'right', marginRight: 4 },
+  fileRowActions: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  fileRowActionBtn: { padding: 4, justifyContent: 'center', alignItems: 'center' },
+  fileRowLast: { borderBottomWidth: 0 },
   attachmentCardsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   attachmentCard: {
     minWidth: 200,
@@ -1728,7 +2526,7 @@ const ts = StyleSheet.create({
   depsPickerList: { maxHeight: 460, marginBottom: 12 },
   depsPickerGroup: { marginBottom: 4 },
   // 统一 phase 行与普通行的高度和左右内距
-  depsPickerPhaseRow: { paddingVertical: 8, paddingHorizontal: 10 },
+  depsPickerPhaseRow: { paddingVertical: 6, paddingHorizontal: 10 },
   depsPickerPhaseText: {
     fontSize: 13,
     lineHeight: 18,
@@ -1739,7 +2537,7 @@ const ts = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 8,
+    paddingVertical: 6,
     paddingHorizontal: 10,
     borderRadius: 8,
     borderWidth: 1,
@@ -1747,7 +2545,7 @@ const ts = StyleSheet.create({
     backgroundColor: '#F8F9FA',
     marginBottom: 2,
   },
-  depsPickerNoneRow: { marginTop: 2, marginBottom: 8 },
+  depsPickerNoneRow: { marginTop: 2, marginBottom: 4 },
   depsPickerSectionRow: { marginLeft: 16 },
   depsPickerRowActive: { borderColor: '#6C5CE7', backgroundColor: 'rgba(108,92,231,0.08)' },
   depsPickerRowText: {
@@ -1761,6 +2559,22 @@ const ts = StyleSheet.create({
   depsPickerRowTextActive: {
     color: '#6C5CE7',
   },
+  // Move-file 浮窗：可选项行（task）更亮、更突出
+  movePickerSelectableRow: {
+    backgroundColor: '#FFFFFF',
+    borderColor: '#E5E7FF',
+  },
+  movePickerSelectableText: {
+    color: '#2D3436',
+  },
+  // Move-file 浮窗：不可选项（phase、源 task）整体弱化
+  movePickerDisabledRow: {
+    // 只做轻微弱化，避免影响可读性
+    opacity: 0.75,
+  },
+  movePickerDisabledText: {
+    color: '#2D3436',
+  },
   depsPickerDoneBtn: {
     alignSelf: 'flex-end',
     paddingVertical: 8,
@@ -1769,6 +2583,25 @@ const ts = StyleSheet.create({
     borderRadius: 8,
   },
   depsPickerDoneText: { fontSize: 13, color: '#FFF', fontWeight: '600' },
+  depsPickerSecondaryBtn: {
+    alignSelf: 'flex-end',
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: '#F1F3F5',
+  },
+  depsPickerSecondaryText: { fontSize: 13, color: '#636E72', fontWeight: '500' },
+  /** Phase 行删除图标：红底白标，与 + 同 marginTop 对齐；槽宽收窄、无左间距，使 - 与 + 的间距与名称与 + 一致 */
+  deletePhaseIconSlot: { width: 14, marginLeft: 0 },
+  deletePhaseIconWrap: { padding: 0, marginLeft: 0, marginTop: 2 },
+  deletePhaseIconBtn: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#E74C3C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   depsPickerChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   depsPickerChip: {
     paddingHorizontal: 10,

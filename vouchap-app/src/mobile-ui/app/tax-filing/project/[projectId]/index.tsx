@@ -92,13 +92,6 @@ export default function ProjectTodosScreen() {
   const [infoEditing, setInfoEditing] = useState(false);
   const infoTabRef = useRef<ProjectInfoTabHandle>(null);
 
-  const goToFileDetail = useCallback(
-    (attachmentId: string) => {
-      if (projectId) router.push(`/tax-filing/project/${projectId}/attachment/${attachmentId}`);
-    },
-    [projectId, router]
-  );
-
   // 根据路由参数初始化：从列表卡片的 Edit 进入时，直接落在 Info 页签并进入编辑态
   useEffect(() => {
     if (tab === 'info') {
@@ -165,7 +158,6 @@ export default function ProjectTodosScreen() {
         setTree(todosTree);
       }}
       createProjectTodo={createProjectTodo}
-      onFilePress={goToFileDetail}
     />
   );
 }

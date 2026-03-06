@@ -28,9 +28,11 @@ import {
   createProjectTodo,
   updateProjectTodo,
   createProjectTodoAttachment,
+  getProjectTodoAttachmentById,
   type ProjectTodoNode,
   type ProjectTodoReceiptSummary,
 } from '@/lib/firm';
+import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 import { TODO_STATUS_LABEL, TODO_STATUS_COLOR } from '@/lib/constants/project-todo-status';
 import { uploadTaxFilingFile } from '@/lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
@@ -283,7 +285,7 @@ export default function OrderTodosScreen() {
         const { error: err } = await createProjectTodo({
           orderId,
           parentId,
-          type: parentType,
+          type: 'client',
           title: trimmed,
         });
         if (err) {
@@ -400,18 +402,40 @@ export default function OrderTodosScreen() {
     router.push(`/tax-filing/order/${orderId}/info`);
   }, [orderId, router]);
 
-  const goToFileDetail = useCallback(
-    (attachmentId: string) => {
-      router.push(`/tax-filing/order/${orderId}/attachment/${attachmentId}`);
-    },
-    [orderId, router]
-  );
+  const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null);
+  const [attachmentDetailForModal, setAttachmentDetailForModal] = useState<FileDetailModalFile | null>(null);
+  useEffect(() => {
+    if (!selectedAttachmentId) {
+      setAttachmentDetailForModal(null);
+      return;
+    }
+    let cancelled = false;
+    getProjectTodoAttachmentById(selectedAttachmentId).then((raw) => {
+      if (cancelled) return;
+      if (!raw) {
+        setSelectedAttachmentId(null);
+        return;
+      }
+      setAttachmentDetailForModal({
+        id: raw.id,
+        name: raw.summary ?? undefined,
+        imageUrl: raw.attachment_url,
+        docType: raw.doc_type ?? undefined,
+        status: raw.status,
+        extracted_data: raw.extracted_data,
+      });
+    }).catch(() => {
+      if (!cancelled) setSelectedAttachmentId(null);
+    });
+    return () => { cancelled = true; };
+  }, [selectedAttachmentId]);
 
   const dateForYear = header?.dueAt || header?.createdAt || null;
   const taxSeasonYear = dateForYear ? new Date(dateForYear).getFullYear() : null;
   const navigation = useNavigation();
   useLayoutEffect(() => {
     navigation.setOptions({
+      headerBackButtonVisible: true,
       headerTitle: () => (
         <OrderTodosHeaderTitle
           projectName={header?.projectName ?? ''}
@@ -448,6 +472,12 @@ export default function OrderTodosScreen() {
 
   return (
     <View style={styles.container}>
+      {attachmentDetailForModal ? (
+        <FileDetailModal
+          file={attachmentDetailForModal}
+          onClose={() => { setSelectedAttachmentId(null); setAttachmentDetailForModal(null); }}
+        />
+      ) : null}
       {header?.status === 'onboarding' ? (
         <View style={styles.emptyWrap}>
           <Text style={styles.emptyText}>Accept the order to see checklist</Text>
@@ -483,7 +513,7 @@ export default function OrderTodosScreen() {
                       maxLeftBlockWidth={maxLeftBlockWidth}
                       onToggleCollapse={toggleCollapse}
                       onToggleTaskFiles={toggleTaskFiles}
-                      onFilePress={goToFileDetail}
+                      onFilePress={(id) => setSelectedAttachmentId(id)}
                       rowIdShowingAdd={rowIdShowingAdd}
                       setRowIdShowingAdd={setRowIdShowingAdd}
                       addIconHighlightedRowId={addIconHighlightedRowId}

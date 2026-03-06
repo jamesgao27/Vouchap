@@ -570,6 +570,11 @@ export interface FirmOrderWithDetails extends FirmOrder {
   source: string;
   /** 负责人：创建人姓名或 email，无则 — */
   assigneeName: string | null;
+  /** 报税分类：项目维度上的国家 / 场景 / 自定义标签（来自 projects.tax_country / tax_scenario / tags） */
+  taxCountry?: string | null;
+  taxScenario?: string | null;
+  tags?: string[] | null;
+  taxSeasonYear?: number | null;
 }
 
 /** Firm 空间：获取订单列表（含客户名、SKU 名、来源、负责人），用于表格展示 */
@@ -583,13 +588,18 @@ export async function getFirmOrdersWithDetails(
   const clientSpaceIds = [...new Set(orders.map((o) => o.clientSpaceId))];
   const skuIds = [...new Set(orders.map((o) => o.skuId))];
   const createdByIds = [...new Set(orders.map((o) => o.createdBy).filter(Boolean))] as string[];
+  const orderIds = [...new Set(orders.map((o) => o.id))];
 
-  const [spacesRes, skusRes, usersRes] = await Promise.all([
+  const [spacesRes, skusRes, usersRes, projectsRes] = await Promise.all([
     supabase.from('spaces').select('id, name').in('id', clientSpaceIds),
     supabase.schema('firm').from('skus').select('id, name').in('id', skuIds),
     createdByIds.length > 0
       ? supabase.from('users').select('id, name, email').in('id', createdByIds)
       : Promise.resolve({ data: [] as any[] }),
+    supabase
+      .from('projects')
+      .select('order_id, tax_country, tax_scenario, tags')
+      .in('order_id', orderIds),
   ]);
 
   const spaceMap: Record<string, string> = {};
@@ -605,15 +615,35 @@ export async function getFirmOrdersWithDetails(
     userMap[u.id] = { name: u.name ?? null, email: u.email || '' };
   });
 
+  const projectMap: Record<
+    string,
+    { taxCountry: string | null; taxScenario: string | null; tags: string[] | null; taxSeasonYear: number | null }
+  > = {};
+  (projectsRes.data || []).forEach((p: any) => {
+    const orderId = p.order_id as string | undefined;
+    if (!orderId) return;
+    projectMap[orderId] = {
+      taxCountry: p.tax_country ?? null,
+      taxScenario: p.tax_scenario ?? null,
+      tags: Array.isArray(p.tags) ? (p.tags as string[]) : null,
+      taxSeasonYear: typeof p.tax_season_year === 'number' ? p.tax_season_year : null,
+    };
+  });
+
   return orders.map((o) => {
     const creator = o.createdBy ? userMap[o.createdBy] : null;
     const assigneeName = creator ? (creator.name || creator.email || null) : null;
+    const project = projectMap[o.id];
     return {
       ...o,
       clientName: spaceMap[o.clientSpaceId] ?? o.clientSpaceId,
       skuName: skuMap[o.skuId] ?? o.skuId,
       source: 'Manual',
       assigneeName,
+      taxCountry: project?.taxCountry ?? null,
+      taxScenario: project?.taxScenario ?? null,
+      tags: project?.tags ?? null,
+      taxSeasonYear: project?.taxSeasonYear ?? null,
     };
   });
 }
@@ -729,7 +759,10 @@ export async function confirmOrderAndCreateProjectTodos(
       const row = ordered[i];
       const parent_id = row.parentId ? oldIdToNewId.get(row.parentId) ?? null : null;
       const isTask = (row.item_kind ?? 'task') === 'task';
-      const status: ProjectTodoStatus = isTask ? 'to_submit' : 'completed';
+      // initial_responsible_side=firm → in_progress，client → to_submit；非 task 保持 completed
+      const status: ProjectTodoStatus = isTask
+        ? (row.type === 'firm' ? 'in_progress' : 'to_submit')
+        : 'completed';
       const itemKind = (row.item_kind ?? 'task') as 'phase' | 'section' | 'task';
       const { data: inserted, error: insertErr } = await supabase
         .from('project_todos')
@@ -782,13 +815,14 @@ export interface FirmProjectInfo {
   taxCountry?: string | null;
   taxScenario?: string | null;
   tags?: string[] | null;
+  taxSeasonYear?: number | null;
 }
 
 /** 根据 orderId 获取 project 信息（确认订单后才有） */
 export async function getProjectByOrderId(orderId: string): Promise<FirmProjectInfo | null> {
   const { data, error } = await supabase
     .from('projects')
-    .select('id, order_id, name, description, image_url, status, start_at, end_at, created_at, updated_at, tax_country, tax_scenario')
+    .select('id, order_id, name, description, image_url, status, start_at, end_at, created_at, updated_at, tax_country, tax_scenario, tax_season_year')
     .eq('order_id', orderId)
     .maybeSingle();
 
@@ -807,14 +841,65 @@ export async function getProjectByOrderId(orderId: string): Promise<FirmProjectI
     updatedAt: row.updated_at,
     taxCountry: row.tax_country ?? null,
     taxScenario: row.tax_scenario ?? null,
+    taxSeasonYear: row.tax_season_year ?? null,
   };
+}
+
+/** Firm 订单：仅更新 updated_at，用于「Updated」列跟踪项目内任何变更 */
+async function touchFirmOrderUpdatedAt(orderId: string | null | undefined): Promise<void> {
+  if (!orderId) return;
+  try {
+    await supabase
+      .schema('firm')
+      .from('orders')
+      .update({ updated_at: new Date().toISOString() })
+      .eq('id', orderId);
+  } catch (e) {
+    console.error('touchFirmOrderUpdatedAt:', e);
+  }
+}
+
+async function touchFirmOrderUpdatedAtByProjectId(projectId: string | null | undefined): Promise<void> {
+  if (!projectId) return;
+  const { data, error } = await supabase
+    .from('projects')
+    .select('order_id')
+    .eq('id', projectId)
+    .maybeSingle();
+  if (error || !data) return;
+  const orderId = (data as any).order_id as string | undefined;
+  await touchFirmOrderUpdatedAt(orderId);
+}
+
+async function touchFirmOrderUpdatedAtByTodoId(todoId: string | null | undefined): Promise<void> {
+  if (!todoId) return;
+  const { data, error } = await supabase
+    .from('project_todos')
+    .select('project_id')
+    .eq('id', todoId)
+    .maybeSingle();
+  if (error || !data) return;
+  const projectId = (data as any).project_id as string | undefined;
+  await touchFirmOrderUpdatedAtByProjectId(projectId);
+}
+
+async function touchFirmOrderUpdatedAtByAttachmentId(attachmentId: string | null | undefined): Promise<void> {
+  if (!attachmentId) return;
+  const { data, error } = await supabase
+    .from('project_todo_attachments')
+    .select('project_todo_id')
+    .eq('id', attachmentId)
+    .maybeSingle();
+  if (error || !data) return;
+  const todoId = (data as any).project_todo_id as string | undefined;
+  await touchFirmOrderUpdatedAtByTodoId(todoId);
 }
 
 /** 根据 projectId 获取 project 信息（client 侧以 project 为主体的路由用） */
 export async function getProjectById(projectId: string): Promise<FirmProjectInfo | null> {
   const { data, error } = await supabase
     .from('projects')
-    .select('id, order_id, name, description, image_url, status, start_at, end_at, created_at, updated_at, tax_country, tax_scenario, tags')
+    .select('id, order_id, name, description, image_url, status, start_at, end_at, created_at, updated_at, tax_country, tax_scenario, tags, tax_season_year')
     .eq('id', projectId)
     .maybeSingle();
 
@@ -834,6 +919,7 @@ export async function getProjectById(projectId: string): Promise<FirmProjectInfo
     taxCountry: row.tax_country ?? null,
     taxScenario: row.tax_scenario ?? null,
     tags: (row.tags as string[] | null) ?? [],
+    taxSeasonYear: row.tax_season_year ?? null,
   };
 }
 
@@ -1097,6 +1183,7 @@ export async function updateProject(
     taxCountry?: string | null;
     taxScenario?: string | null;
     tags?: string[] | null;
+    taxSeasonYear?: number | null;
   }
 ): Promise<{ error: Error | null }> {
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -1109,11 +1196,13 @@ export async function updateProject(
   if (payload.taxCountry !== undefined) updates.tax_country = payload.taxCountry;
   if (payload.taxScenario !== undefined) updates.tax_scenario = payload.taxScenario;
   if (payload.tags !== undefined) updates.tags = payload.tags;
+  if (payload.taxSeasonYear !== undefined) updates.tax_season_year = payload.taxSeasonYear;
   const { error } = await supabase.from('projects').update(updates).eq('id', projectId);
   if (error) {
     console.error('updateProject:', error);
     return { error: error as Error };
   }
+  await touchFirmOrderUpdatedAtByProjectId(projectId);
   return { error: null };
 }
 
@@ -1145,7 +1234,7 @@ export async function getSpaceProjectTags(clientSpaceId: string): Promise<string
   return [...seen].sort();
 }
 
-/** 新增项目任务（todo） */
+/** 新增项目任务（todo）；可为 phase / section / task，缺省为 task */
 export async function createProjectTodo(params: {
   orderId: string;
   parentId?: string | null;
@@ -1153,6 +1242,8 @@ export async function createProjectTodo(params: {
   title: string;
   description?: string | null;
   sortOrder?: number;
+  /** phase / section / task，缺省 task */
+  itemKind?: 'phase' | 'section' | 'task';
 }): Promise<{ id: string | null; error: Error | null }> {
   const projectId = await getProjectIdByOrderId(params.orderId);
   if (!projectId) return { id: null, error: new Error('Project not found') };
@@ -1164,15 +1255,23 @@ export async function createProjectTodo(params: {
   else q.is('parent_id', null);
   const maxOrder = await q.order('sort_order', { ascending: false }).limit(1).maybeSingle();
   const nextOrder = (maxOrder.data as any)?.sort_order != null ? (maxOrder.data as any).sort_order + 1 : 1;
+  const kind = params.itemKind ?? 'task';
+  const isFirmSide = params.type === 'firm';
+  const status: FirmProject['status'] =
+    kind === 'task'
+      ? (isFirmSide ? 'in_progress' : 'to_submit')
+      : 'completed';
   const { data, error } = await supabase
     .from('project_todos')
     .insert({
       project_id: projectId,
       parent_id: params.parentId ?? null,
       responsible_side: params.type,
+      initial_responsible_side: params.type,
       title: params.title,
       description: params.description ?? null,
-    status: 'to_submit',
+      status,
+      item_kind: kind,
       sort_order: params.sortOrder ?? nextOrder,
     })
     .select('id')
@@ -1181,6 +1280,7 @@ export async function createProjectTodo(params: {
     console.error('createProjectTodo:', error);
     return { id: null, error: error as Error };
   }
+  await touchFirmOrderUpdatedAt(params.orderId);
   return { id: (data as any)?.id ?? null, error: null };
 }
 
@@ -1201,6 +1301,7 @@ export async function updateProjectTodo(
     console.error('updateProjectTodo:', error);
     return { error: error as Error };
   }
+  await touchFirmOrderUpdatedAtByTodoId(todoId);
   return { error: null };
 }
 
@@ -1223,6 +1324,7 @@ export async function updateProjectTodoDependsOn(
     .update(payload)
     .eq('id', todoId);
   if (error) return { error: new Error(error.message) };
+  await touchFirmOrderUpdatedAtByTodoId(todoId);
   return { error: null };
 }
 
@@ -1263,9 +1365,29 @@ export async function deleteProjectTodo(todoId: string): Promise<{ error: Error 
   if (children && (children as any[]).length > 0) {
     return { error: new Error('Only leaf tasks can be deleted') };
   }
+  // 先记录所属订单，后续用于刷新 Updated 字段
+  await touchFirmOrderUpdatedAtByTodoId(todoId);
   const { error } = await supabase.from('project_todos').delete().eq('id', todoId);
   if (error) {
     console.error('deleteProjectTodo:', error);
+    return { error: error as Error };
+  }
+  return { error: null };
+}
+
+/** 删除 phase 及其所有子级（先递归删除子节点，再删本节点） */
+export async function deleteProjectTodoWithChildren(todoId: string): Promise<{ error: Error | null }> {
+  // 记录一次所属订单，整个子树删除后统一刷新 Updated
+  await touchFirmOrderUpdatedAtByTodoId(todoId);
+  const { data: children } = await supabase.from('project_todos').select('id').eq('parent_id', todoId);
+  for (const row of children ?? []) {
+    const childId = (row as { id: string }).id;
+    const err = await deleteProjectTodoWithChildren(childId);
+    if (err.error) return err;
+  }
+  const { error } = await supabase.from('project_todos').delete().eq('id', todoId);
+  if (error) {
+    console.error('deleteProjectTodoWithChildren:', error);
     return { error: error as Error };
   }
   return { error: null };
@@ -1284,11 +1406,17 @@ export interface ProjectTodoReceiptSummary {
   imageUrl?: string | null;
   docType?: string | null;
   status?: string;
+  /** 识别失败次数（后端列 recognition_fail_count，用于前端展示「失败/再次失败/三次失败」） */
+  failCount?: number;
   /** 识别结果摘要字段，用于列表卡片展示（currency、tax_year、issuer 等） */
   extractedPreview?: AttachmentPreviewField[];
+  /** 上传时间（ISO 字符串） */
+  createdAt?: string | null;
+  /** 上传者姓名（纯文本，表 uploader_name），用于行内展示 */
+  uploaderName?: string | null;
 }
 
-function buildExtractedPreview(extracted_data: unknown): AttachmentPreviewField[] {
+export function buildExtractedPreview(extracted_data: unknown): AttachmentPreviewField[] {
   if (!extracted_data || typeof extracted_data !== 'object') return [];
   const obj = extracted_data as Record<string, unknown>;
   const out: AttachmentPreviewField[] = [];
@@ -1322,18 +1450,39 @@ function buildExtractedPreview(extracted_data: unknown): AttachmentPreviewField[
 export async function getAttachmentsByProjectTodoId(projectTodoId: string): Promise<ProjectTodoReceiptSummary[]> {
   const { data: rows, error } = await supabase
     .from('project_todo_attachments')
-    .select('id, attachment_url, summary, status, doc_type, extracted_data')
+    .select('id, attachment_url, summary, status, doc_type, extracted_data, created_at, uploader_name, recognition_fail_count')
     .eq('project_todo_id', projectTodoId)
     .order('created_at', { ascending: true });
   if (error || !rows?.length) return [];
-  return (rows as any[]).map((r) => ({
-    id: r.id,
-    name: r.summary?.trim() || (r.status === 'PENDING_AI' ? 'Processing...' : 'Attachment'),
-    imageUrl: r.attachment_url ?? null,
-    docType: r.doc_type ?? null,
-    status: r.status ?? 'PENDING_AI',
-    extractedPreview: buildExtractedPreview(r.extracted_data),
-  }));
+  return (rows as any[]).map((r) => {
+    const status: string = r.status ?? 'PENDING_AI';
+    const failCount: number = typeof r.recognition_fail_count === 'number' ? r.recognition_fail_count : 0;
+    let name: string;
+    if (r.summary && String(r.summary).trim()) {
+      name = String(r.summary).trim();
+    } else if (status === 'PENDING_AI' || status === 'PROCESSING') {
+      name = 'Processing...';
+    } else if (status === 'FAILED_ONCE') {
+      name = 'Recognition failed (1/3)';
+    } else if (status === 'FAILED_TWICE') {
+      name = 'Recognition failed (2/3)';
+    } else if (status === 'FAILED_FINAL') {
+      name = 'Recognition failed (3/3)';
+    } else {
+      name = 'Attachment';
+    }
+    return {
+      id: r.id,
+      name,
+      imageUrl: r.attachment_url ?? null,
+      docType: r.doc_type ?? null,
+      status,
+      failCount,
+      extractedPreview: buildExtractedPreview(r.extracted_data),
+      createdAt: r.created_at ?? null,
+      uploaderName: r.uploader_name ?? null,
+    };
+  });
 }
 
 /** 批量获取多个 project_todo 关联的附件（key = todoId） */
@@ -1343,7 +1492,7 @@ export async function getAttachmentsByProjectTodoIds(
   if (projectTodoIds.length === 0) return {};
   const { data: rows, error } = await supabase
     .from('project_todo_attachments')
-    .select('id, project_todo_id, attachment_url, summary, status, doc_type, extracted_data')
+    .select('id, project_todo_id, attachment_url, summary, status, doc_type, extracted_data, created_at, uploader_name, recognition_fail_count')
     .in('project_todo_id', projectTodoIds)
     .order('created_at', { ascending: true });
   if (error || !rows?.length) return {};
@@ -1352,23 +1501,51 @@ export async function getAttachmentsByProjectTodoIds(
   (rows as any[]).forEach((r) => {
     const todoId = r.project_todo_id;
     if (!out[todoId]) out[todoId] = [];
+    const status: string = r.status ?? 'PENDING_AI';
+    const failCount: number = typeof r.recognition_fail_count === 'number' ? r.recognition_fail_count : 0;
+    let name: string;
+    if (r.summary && String(r.summary).trim()) {
+      name = String(r.summary).trim();
+    } else if (status === 'PENDING_AI' || status === 'PROCESSING') {
+      name = 'Processing...';
+    } else if (status === 'FAILED_ONCE') {
+      name = 'Recognition failed (1/3)';
+    } else if (status === 'FAILED_TWICE') {
+      name = 'Recognition failed (2/3)';
+    } else if (status === 'FAILED_FINAL') {
+      name = 'Recognition failed (3/3)';
+    } else {
+      name = 'Attachment';
+    }
     out[todoId].push({
       id: r.id,
-      name: r.summary?.trim() || (r.status === 'PENDING_AI' ? 'Processing...' : 'Attachment'),
+      name,
       imageUrl: r.attachment_url ?? null,
       docType: r.doc_type ?? null,
-      status: r.status ?? 'PENDING_AI',
+      status,
+      failCount,
       extractedPreview: buildExtractedPreview(r.extracted_data),
+      createdAt: r.created_at ?? null,
+      uploaderName: r.uploader_name ?? null,
     });
   });
   return out;
 }
 
 /** 创建任务附件（上传文件到任务后调用）；attachment_url 为 Storage 公网 URL */
+export type ProjectTodoAttachmentStatus =
+  | 'PENDING_AI'
+  | 'PROCESSING'
+  | 'FAILED_ONCE'
+  | 'FAILED_TWICE'
+  | 'FAILED_FINAL'
+  | 'PROCESSED'
+  | 'VERIFIED';
+
 export async function createProjectTodoAttachment(
   projectTodoId: string,
   attachmentUrl: string,
-  opts?: { status?: 'PENDING_AI' | 'PROCESSED' | 'VERIFIED'; summary?: string; doc_type?: string }
+  opts?: { status?: ProjectTodoAttachmentStatus; summary?: string; doc_type?: string; uploader_name?: string | null }
 ): Promise<{ id: string } | { error: Error }> {
   const { data, error } = await supabase
     .from('project_todo_attachments')
@@ -1378,17 +1555,26 @@ export async function createProjectTodoAttachment(
       status: opts?.status ?? 'PENDING_AI',
       summary: opts?.summary ?? null,
       doc_type: opts?.doc_type ?? null,
+      uploader_name: opts?.uploader_name ?? null,
     })
     .select('id')
     .single();
   if (error) return { error: new Error(error.message) };
+  await touchFirmOrderUpdatedAtByTodoId(projectTodoId);
   return { id: (data as any).id };
 }
 
 /** 更新任务附件（识别完成后：summary、doc_type、extracted_data、status 从 PENDING_AI → PROCESSED/VERIFIED；AI 纠正关联时可更新 project_todo_id） */
 export async function updateProjectTodoAttachment(
   attachmentId: string,
-  updates: { summary?: string | null; doc_type?: string | null; extracted_data?: unknown; status?: 'PENDING_AI' | 'PROCESSED' | 'VERIFIED'; project_todo_id?: string }
+  updates: {
+    summary?: string | null;
+    doc_type?: string | null;
+    extracted_data?: unknown;
+    status?: ProjectTodoAttachmentStatus;
+    project_todo_id?: string;
+    recognition_fail_count?: number;
+  }
 ): Promise<{ ok: true } | { error: Error }> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (updates.summary !== undefined) payload.summary = updates.summary;
@@ -1396,16 +1582,19 @@ export async function updateProjectTodoAttachment(
   if (updates.extracted_data !== undefined) payload.extracted_data = updates.extracted_data;
   if (updates.status !== undefined) payload.status = updates.status;
   if (updates.project_todo_id !== undefined) payload.project_todo_id = updates.project_todo_id;
+  if (updates.recognition_fail_count !== undefined) payload.recognition_fail_count = updates.recognition_fail_count;
   const { error } = await supabase
     .from('project_todo_attachments')
     .update(payload)
     .eq('id', attachmentId);
   if (error) return { error: new Error(error.message) };
+  await touchFirmOrderUpdatedAtByAttachmentId(attachmentId);
   return { ok: true };
 }
 
 /** 删除任务附件 */
 export async function deleteProjectTodoAttachment(attachmentId: string): Promise<{ error: Error | null }> {
+  await touchFirmOrderUpdatedAtByAttachmentId(attachmentId);
   const { error } = await supabase
     .from('project_todo_attachments')
     .delete()
@@ -1420,10 +1609,18 @@ export async function deleteProjectTodoAttachment(attachmentId: string): Promise
 /** 获取单条任务附件（用于详情页） */
 export async function getProjectTodoAttachmentById(
   attachmentId: string
-): Promise<{ id: string; attachment_url: string; summary: string | null; doc_type: string | null; status: string; extracted_data: unknown } | null> {
+): Promise<{
+  id: string;
+  attachment_url: string;
+  summary: string | null;
+  doc_type: string | null;
+  status: string;
+  extracted_data: unknown;
+  recognition_fail_count?: number;
+} | null> {
   const { data, error } = await supabase
     .from('project_todo_attachments')
-    .select('id, attachment_url, summary, doc_type, status, extracted_data')
+    .select('id, attachment_url, summary, doc_type, status, extracted_data, recognition_fail_count')
     .eq('id', attachmentId)
     .maybeSingle();
   if (error || !data) return null;
@@ -1435,12 +1632,13 @@ export async function getProjectTodoAttachmentById(
     doc_type: r.doc_type ?? null,
     status: r.status ?? 'PENDING_AI',
     extracted_data: r.extracted_data ?? null,
+    recognition_fail_count: r.recognition_fail_count ?? 0,
   };
 }
 
 /** 获取附件及其项目/任务上下文，供历史 PENDING_AI 识别：用 project 的 tax_country/tax_scenario + todo 的 phase/section/task 构建提示词后调用 updateProjectTodoAttachment */
 export async function getProjectTodoAttachmentWithContext(attachmentId: string): Promise<{
-  attachment: { id: string; attachment_url: string; status: string };
+  attachment: { id: string; attachment_url: string; status: string; recognition_fail_count?: number };
   project: { taxCountry: string | null; taxScenario: string | null };
   todoContext: { phase?: string; section?: string; task?: string };
 } | null> {
@@ -1858,6 +2056,29 @@ export async function updateFirmClientStatus(
   return { error: error ? new Error(error.message) : null };
 }
 
+/** Firm 空间成员（用于 Assign 选单）：id=user_id, name/email 来自 public.users */
+export type FirmSpaceMember = { id: string; name: string | null; email: string | null };
+
+/** 获取 Firm 空间下所有成员（user_spaces + users），用于负责人选单 */
+export async function getFirmSpaceMembers(firmSpaceId: string): Promise<FirmSpaceMember[]> {
+  const { data: usRows, error: usErr } = await supabase
+    .from('user_spaces')
+    .select('user_id')
+    .eq('space_id', firmSpaceId);
+  if (usErr || !usRows?.length) return [];
+  const userIds = [...new Set((usRows as { user_id: string }[]).map((r) => r.user_id))];
+  const { data: users, error: uErr } = await supabase
+    .from('users')
+    .select('id, name, email')
+    .in('id', userIds);
+  if (uErr || !users?.length) return [];
+  return (users as { id: string; name: string | null; email: string | null }[]).map((u) => ({
+    id: u.id,
+    name: u.name ?? null,
+    email: u.email ?? null,
+  }));
+}
+
 /** 更新客户负责人 */
 export async function updateFirmClientAssignee(
   clientId: string,
@@ -1930,7 +2151,9 @@ export async function updateProjectStatus(
     .from('project_todos')
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', projectId);
-  return { error: error ? new Error(error.message) : null };
+  if (error) return { error: new Error(error.message) };
+  await touchFirmOrderUpdatedAtByTodoId(projectId);
+  return { error: null };
 }
 
 /** 更新订单状态（整单提交/确认） */
