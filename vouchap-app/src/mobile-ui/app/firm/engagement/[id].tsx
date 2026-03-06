@@ -14,7 +14,6 @@ import {
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,18 +23,17 @@ import {
   getProjectTodosTree,
   getProjectById,
   createProjectTodo,
-  updateOrderStatus,
   getSkuById,
   getSkuItems,
   getClientDisplayName,
   type ProjectTodoNode,
   type FirmOrderById,
 } from '@/lib/firm';
+import type { FirmSkuItem } from '@/types';
 import { withWbsCodes, type ProjectSkuInfo, type TodoRow } from '@/components/ProjectSkuDetail';
 import { ProjectDetailView, type ProjectDetailHeader } from '@/components/ProjectDetailView';
 import { ProjectInfoTab, type ProjectInfoTabHandle } from '../../tax-filing/project/[projectId]/info';
 import { useChatPanel } from '../../../contexts/ChatPanelContext';
-import { showToast } from '@/lib/toast';
 
 // ── 订单状态显示配置 ──
 const ORDER_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -61,8 +59,9 @@ export default function FirmEngagementDetailScreen() {
   const [clientSpaceId, setClientSpaceId] = useState<string>('');
   const [skuInfo, setSkuInfo]           = useState<ProjectSkuInfo | null>(null);
   const [skuTodos, setSkuTodos]         = useState<TodoRow[]>([]);
+  const [skuItems, setSkuItems]         = useState<FirmSkuItem[]>([]);
   const [tree, setTree]                 = useState<ProjectTodoNode[]>([]);
-  const [confirming, setConfirming]     = useState(false);
+  const [skuDetailForInfo, setSkuDetailForInfo] = useState<{ taxCountry?: string | null; taxScenario?: string | null } | null>(null);
 
   // Tabs
   const [activeTab, setActiveTab]       = useState<'todos' | 'info'>('todos');
@@ -75,7 +74,7 @@ export default function FirmEngagementDetailScreen() {
     setError(null);
     try {
       const ord = await getOrderById(orderId);
-      if (!ord) { setError('Order not found'); setLoading(false); return; }
+      if (!ord) { setError('Engagement not found'); setLoading(false); return; }
       setOrder(ord);
       setClientSpaceId(ord.clientSpaceId ?? '');
 
@@ -88,7 +87,9 @@ export default function FirmEngagementDetailScreen() {
             : Promise.resolve(null),
         ]);
         setSkuInfo(sku ? { name: sku.name, description: sku.description, imageUrl: sku.imageUrl } : { name: 'Service' });
+        setSkuDetailForInfo(sku ? { taxCountry: sku.taxCountry ?? null, taxScenario: sku.taxScenario ?? null } : null);
         setSkuTodos(withWbsCodes(items));
+        setSkuItems(items);
         setClientName(clientDisplayName ?? '');
       } else {
         const detail = await getProjectDetail(orderId);
@@ -135,35 +136,6 @@ export default function FirmEngagementDetailScreen() {
     }
   }, [activeTab, infoEditing]);
 
-  // ── 确认订单（onboarding → collecting） ──
-  const handleConfirm = useCallback(async () => {
-    if (!orderId) return;
-    Alert.alert(
-      'Confirm Order',
-      'This will activate the project and create all tasks from the service template.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Confirm',
-          style: 'default',
-          onPress: async () => {
-            setConfirming(true);
-            try {
-              const { error: err } = await updateOrderStatus(orderId, 'collecting');
-              if (err) throw err;
-              showToast('Order confirmed', 'success');
-              await loadData();
-            } catch {
-              showToast('Failed to confirm order', 'error');
-            } finally {
-              setConfirming(false);
-            }
-          },
-        },
-      ]
-    );
-  }, [orderId, loadData]);
-
   // ── Loading / Error ──
   if (loading) {
     return (
@@ -189,7 +161,7 @@ export default function FirmEngagementDetailScreen() {
   const dateForYear = order.dueAt || order.createdAt;
   const taxYear = dateForYear ? new Date(dateForYear).getFullYear() : null;
   const detailHeader: ProjectDetailHeader = {
-    title: order.skuName ?? 'Order',
+    title: order.skuName ?? 'Engagement',
     subtitle: clientName ? `Service for ${clientName}` : '',
     taxSeasonYear: taxYear,
     status: statusCfg,
@@ -216,8 +188,8 @@ export default function FirmEngagementDetailScreen() {
       createProjectTodo={createProjectTodo}
       skuInfo={skuInfo}
       skuTodos={skuTodos}
-      onConfirmOrder={handleConfirm}
-      confirming={confirming}
+      skuItems={skuItems}
+      skuDetailForInfo={skuDetailForInfo}
     />
   );
 }

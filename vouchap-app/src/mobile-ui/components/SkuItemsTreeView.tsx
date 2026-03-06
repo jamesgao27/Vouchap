@@ -156,7 +156,8 @@ function SkuRow({
   const hasChildren = children.length > 0;
   const isTask = item.itemKind === 'task';
   const kindColors = KIND_COLOR[item.itemKind] ?? KIND_COLOR.task;
-  const typeColors = TYPE_COLOR[item.type] ?? TYPE_COLOR.client;
+  const side = item.type ?? 'client';
+  const typeColors = TYPE_COLOR[side] ?? TYPE_COLOR.client;
 
   // 依赖行号
   const currentDepsWbs = item.dependsOnId ? (idToWbsMap.get(item.dependsOnId) ?? '') : '';
@@ -246,17 +247,7 @@ function SkuRow({
     </TouchableOpacity>
   );
 
-  const AddIconSlot = !isTask ? (
-    <View style={[ts.addIconSlot, { width: ADD_ICON_SLOT_WIDTH }]} pointerEvents="box-none">
-      {showAddIcon ? (
-        <Pressable onPress={() => onStartAdd(item.id)} style={{ padding: 2 }}>
-          <Ionicons name="add-circle" size={18} color="#6C5CE7" />
-        </Pressable>
-      ) : null}
-    </View>
-  ) : null;
-
-  // Kind / Type 下拉切换（与 todos 的 role/status 列一致：点击弹出选项）
+  // Kind / Type：Kind 仍用选单，责任方（Type）点击循环切换（与 todos 的 role/status 列一致：点击弹出选项）
   const openKindPicker = () => {
     Alert.alert(
       'Kind',
@@ -268,15 +259,10 @@ function SkuRow({
     );
   };
 
-  const openTypePicker = () => {
-    Alert.alert(
-      'Type',
-      undefined,
-      (['client', 'firm'] as const).map((t) => ({
-        text: t,
-        onPress: () => onEditType(item.id, t),
-      })),
-    );
+  // 责任方：点击循环切换 client ↔ firm，无需浮层/选单
+  const cycleType = () => {
+    const next = (side === 'client' ? 'firm' : 'client') as 'client' | 'firm';
+    onEditType(item.id, next);
   };
 
   // 与 TaxFilingTodosView 完全一致的列结构：无 progress/status，Kind 列 = roleCol，Type 列 = statusCol，尾部 = deps + delete
@@ -289,12 +275,37 @@ function SkuRow({
     </Pressable>
   );
   const typeColContent = (
-    <Pressable style={ts.typeCol} onPress={openTypePicker}>
+    <Pressable style={ts.typeCol} onPress={cycleType}>
       <View style={[ts.typePill, { backgroundColor: typeColors.bg }]}>
-        <Text style={[ts.typePillText, { color: typeColors.text }]} numberOfLines={1}>{item.type}</Text>
+        <Text style={[ts.typePillText, { color: typeColors.text }]} numberOfLines={1}>{side}</Text>
       </View>
     </Pressable>
   );
+  // phase/section：左侧与 add 同区显示 - 标（删除）；task：尾部用 - 标删除（非 cancel）
+  const deleteMinusIcon = (
+    <TouchableOpacity
+      style={ts.deletePhaseIconWrap}
+      onPress={() => onDelete(item.id)}
+      activeOpacity={0.6}
+      hitSlop={8}
+    >
+      <View style={ts.deletePhaseIconBtn}>
+        <Ionicons name="remove" size={8} color="#FFF" />
+      </View>
+    </TouchableOpacity>
+  );
+  const addIconSlotContent = !isTask ? (
+    <View style={[ts.addIconSlot, { width: ADD_ICON_SLOT_WIDTH }]} pointerEvents="box-none">
+      <View style={ts.addAndDeleteRow}>
+        {showAddIcon ? (
+          <Pressable onPress={() => onStartAdd(item.id)} style={{ padding: 2 }}>
+            <Ionicons name="add-circle" size={18} color="#6C5CE7" />
+          </Pressable>
+        ) : null}
+        {deleteMinusIcon}
+      </View>
+    </View>
+  ) : null;
   const trailingColContent = (
     <View style={ts.trailingCol}>
       {!isTask && (
@@ -312,9 +323,7 @@ function SkuRow({
           />
         </View>
       )}
-      <Pressable style={ts.deleteIconBtn} onPress={() => onDelete(item.id)} hitSlop={8}>
-        <Ionicons name="trash-outline" size={13} color="#E17055" />
-      </Pressable>
+      {isTask ? deleteMinusIcon : null}
     </View>
   );
 
@@ -336,7 +345,7 @@ function SkuRow({
         </View>
         <View style={[ts.titleColumnWrap]}>
           {titleCell}
-          {AddIconSlot}
+          {addIconSlotContent}
           <View style={ts.titleColumnTrailing} {...addHandlers} />
         </View>
       </View>
@@ -568,6 +577,16 @@ const ts = StyleSheet.create({
     borderBottomColor: '#6C5CE7', paddingVertical: 1,
   },
   addIconSlot: { width: 24, height: 20, justifyContent: 'center', alignItems: 'center' },
+  addAndDeleteRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  deletePhaseIconWrap: { padding: 0, marginLeft: 0, marginTop: 2 },
+  deletePhaseIconBtn: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#E74C3C',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 
   // ── PendingAdd（与 client project-todos 一致）──
   pendingAddRow: { minHeight: 40 },

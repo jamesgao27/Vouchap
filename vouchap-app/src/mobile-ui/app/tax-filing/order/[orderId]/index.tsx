@@ -29,12 +29,17 @@ import {
   updateProjectTodo,
   createProjectTodoAttachment,
   getProjectTodoAttachmentById,
+  confirmOrderAndCreateProjectTodos,
+  updateOrderStatus,
+  getSkuItems,
   type ProjectTodoNode,
   type ProjectTodoReceiptSummary,
 } from '@/lib/firm';
+import type { FirmSkuItem } from '@/types';
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 import { TODO_STATUS_LABEL, TODO_STATUS_COLOR } from '@/lib/constants/project-todo-status';
 import { uploadTaxFilingFile } from '@/lib/supabase';
+import { showToast } from '@/lib/toast';
 import * as ImagePicker from 'expo-image-picker';
 
 /** 税季标签颜色（与列表页一致） */
@@ -168,6 +173,7 @@ export default function OrderTodosScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [order, setOrder] = useState<Awaited<ReturnType<typeof getOrderById>>>(null);
   const [header, setHeader] = useState<{ projectName: string; firmName: string; dueAt: string | null; createdAt: string | null; status: string } | null>(null);
   /** 当前订单的 client space_id，用于税表上传路径 tax-filing/{clientSpaceId}/... */
   const [clientSpaceId, setClientSpaceId] = useState<string>('');
@@ -178,6 +184,8 @@ export default function OrderTodosScreen() {
   const [taskFilesExpanded, setTaskFilesExpanded] = useState<Set<string>>(new Set());
   /** 每个 task 关联的文件列表（receipt 摘要），点击行进入 receipt 详情 */
   const [taskFilesMap, setTaskFilesMap] = useState<Record<string, ProjectTodoReceiptSummary[]>>({});
+  /** onboarding 时展示的 SKU checklist（只读） */
+  const [skuItems, setSkuItems] = useState<FirmSkuItem[]>([]);
 
   const load = useCallback(async () => {
     if (!orderId) return;
@@ -186,14 +194,17 @@ export default function OrderTodosScreen() {
     try {
       const order = await getOrderById(orderId);
       if (!order) {
-        setError('Order not found');
+        setError('Engagement not found');
         return;
       }
+      setOrder(order);
       setClientSpaceId(order.clientSpaceId ?? '');
       const headerData = await getOrderHeaderForClient(orderId);
       setHeader(headerData ?? null);
       if (order.status === 'onboarding') {
         setTree([]);
+        const items = order.skuId ? await getSkuItems(order.skuId) : [];
+        setSkuItems(items);
         setLoading(false);
         return;
       }
@@ -214,6 +225,16 @@ export default function OrderTodosScreen() {
   }, [load]);
 
   const nodeStats = useNodeStats(tree);
+
+  /** onboarding 时 SKU 项的深度（用于只读 checklist 缩进） */
+  const skuItemsWithDepth = useMemo(() => {
+    const idToDepth = new Map<string, number>();
+    for (const i of skuItems) {
+      const d = i.parentId == null ? 0 : (idToDepth.get(i.parentId) ?? 0) + 1;
+      idToDepth.set(i.id, d);
+    }
+    return skuItems.map((item) => ({ item, depth: idToDepth.get(item.id) ?? 0 }));
+  }, [skuItems]);
 
   /** (n/m) 与文件计数合并为一列，保证两类指示器同列对齐 */
   const PROGRESS_FILES_COL_WIDTH = 52;
@@ -402,6 +423,49 @@ export default function OrderTodosScreen() {
     router.push(`/tax-filing/order/${orderId}/info`);
   }, [orderId, router]);
 
+  const [rejecting, setRejecting] = useState(false);
+  const [accepting, setAccepting] = useState(false);
+  const handleRejectOrder = useCallback(async () => {
+    if (!orderId) return;
+    if (Platform.OS === 'web' && !window.confirm('Reject this order? You can\'t undo this.')) return;
+    if (Platform.OS !== 'web') {
+      Alert.alert('Reject order', 'Reject this order? You can\'t undo this.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Reject', style: 'destructive', onPress: () => doReject() },
+      ]);
+      return;
+    }
+    await doReject();
+    async function doReject() {
+      setRejecting(true);
+      const { error } = await updateOrderStatus(orderId, 'cancelled');
+      setRejecting(false);
+      if (error) {
+        showToast(error.message ?? 'Failed to reject', 'error');
+        return;
+      }
+      showToast('Order rejected', 'success');
+      router.back();
+    }
+  }, [orderId, router]);
+  const handleAcceptOrder = useCallback(async () => {
+    if (!orderId) return;
+    setAccepting(true);
+    const { error } = await confirmOrderAndCreateProjectTodos(orderId);
+    setAccepting(false);
+    if (error) {
+      showToast(error.message ?? 'Failed to accept', 'error');
+      return;
+    }
+    showToast('Order accepted', 'success');
+    const project = await getProjectByOrderId(orderId);
+    if (project?.id) {
+      router.replace(`/tax-filing/project/${project.id}`);
+    } else {
+      load();
+    }
+  }, [orderId, router, load]);
+
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null);
   const [attachmentDetailForModal, setAttachmentDetailForModal] = useState<FileDetailModalFile | null>(null);
   useEffect(() => {
@@ -430,26 +494,52 @@ export default function OrderTodosScreen() {
     return () => { cancelled = true; };
   }, [selectedAttachmentId]);
 
-  const dateForYear = header?.dueAt || header?.createdAt || null;
+  const dateForYear = header?.dueAt || header?.createdAt || order?.dueAt || order?.createdAt || null;
   const taxSeasonYear = dateForYear ? new Date(dateForYear).getFullYear() : null;
   const navigation = useNavigation();
+  const isOnboarding = (order?.status === 'onboarding') || (header?.status === 'onboarding');
   useLayoutEffect(() => {
     navigation.setOptions({
       headerBackButtonVisible: true,
       headerTitle: () => (
         <OrderTodosHeaderTitle
-          projectName={header?.projectName ?? ''}
+          projectName={header?.projectName ?? order?.skuName ?? ''}
           firmName={header?.firmName ?? ''}
           taxSeasonYear={taxSeasonYear ?? null}
         />
       ),
-      headerRight: () => (
-        <TouchableOpacity onPress={goToInfo} style={{ padding: 8 }} hitSlop={8}>
-          <Ionicons name="settings-outline" size={22} color="#636E72" />
-        </TouchableOpacity>
-      ),
+      headerRight: () =>
+        isOnboarding ? (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+            <TouchableOpacity onPress={goToInfo} style={{ padding: 8 }} hitSlop={8}>
+              <Ionicons name="information-circle-outline" size={22} color="#636E72" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleRejectOrder}
+              disabled={rejecting || accepting}
+              style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#FFE5E5' }}
+            >
+              <Text style={{ color: '#C0392B', fontWeight: '600', fontSize: 14 }}>Reject</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleAcceptOrder}
+              disabled={rejecting || accepting}
+              style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#6C5CE7' }}
+            >
+              {accepting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>Accept</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <TouchableOpacity onPress={goToInfo} style={{ padding: 8 }} hitSlop={8}>
+            <Ionicons name="settings-outline" size={22} color="#636E72" />
+          </TouchableOpacity>
+        ),
     });
-  }, [navigation, header, taxSeasonYear, goToInfo]);
+  }, [navigation, header, order, taxSeasonYear, isOnboarding, goToInfo, handleRejectOrder, handleAcceptOrder, rejecting, accepting]);
 
   if (loading) {
     return (
@@ -478,10 +568,30 @@ export default function OrderTodosScreen() {
           onClose={() => { setSelectedAttachmentId(null); setAttachmentDetailForModal(null); }}
         />
       ) : null}
-      {header?.status === 'onboarding' ? (
-        <View style={styles.emptyWrap}>
-          <Text style={styles.emptyText}>Accept the order to see checklist</Text>
-        </View>
+      {isOnboarding ? (
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+          <View style={styles.treeCard}>
+            {skuItems.length === 0 ? (
+              <View style={styles.emptyRow}>
+                <Text style={styles.emptyRowText}>No checklist items</Text>
+              </View>
+            ) : (
+              skuItemsWithDepth.map(({ item, depth }) => {
+                const kindLabel = item.itemKind === 'phase' ? 'Phase' : item.itemKind === 'section' ? 'Section' : 'Task';
+                return (
+                  <View
+                    key={item.id}
+                    style={[styles.treeRowWrap, { paddingLeft: 12 + depth * 14, backgroundColor: '#FFF' }]}
+                  >
+                    <Text style={[styles.treeRowTitle, { fontSize: depth === 0 ? 15 : depth === 1 ? 14 : 13 }]} numberOfLines={2}>
+                      [{kindLabel}] {item.title}
+                    </Text>
+                  </View>
+                );
+              })
+            )}
+          </View>
+        </ScrollView>
       ) : (
         <>
           <View style={styles.operationBar}>

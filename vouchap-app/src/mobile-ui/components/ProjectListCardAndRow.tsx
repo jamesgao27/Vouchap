@@ -1,0 +1,736 @@
+/**
+ * 项目/服务列表 — 卡片与列表行（client 项目列表与 firm Service Catalog 完全复用）
+ * 样式与交互一致；仅数据与行动按钮文案不同（如 Accept and start / 发布）。
+ */
+import { useEffect, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Image,
+  Platform,
+  Animated,
+} from 'react-native';
+import Svg, { Path } from 'react-native-svg';
+import { Ionicons } from '@expo/vector-icons';
+
+export const GRID_GAP = 16;
+export const LIST_ROW_MIN_HEIGHT = 92;
+export const LIST_STATUS_WRAP_WIDTH = 92;
+export const ACTION_ROW_HEIGHT = 40;
+const CORNER_PIN_ORANGE = '#ff7711';
+const CORNER_PIN_WHITE_TRANSPARENT = 'rgba(255,255,255,0.88)';
+export const LIST_ACTION_GRAY = '#636E72';
+
+export interface ProjectListCardItem {
+  id: string;
+  displayName: string;
+  imageUrl: string | null;
+  /** 可选左侧 tag（如税季年份） */
+  tagPill?: { label: string; color: string } | null;
+  statusLabel: string;
+  statusColor: string;
+  /** 可选左上角状态角标（如 Draft/Private/Published 的首字母） */
+  statusCorner?: { label: string; bg: string } | null;
+  footerText?: string | null;
+  /** 可选分类标签（如 Jurisdiction / Scenario），用于 SKU Service Template 卡片与列表行 */
+  classificationTags?: { label: string; bg: string; fg: string }[] | null;
+  /** 有则显示进度条（非 action 时） */
+  progress?: { completed: number; total: number } | null;
+  /** 有则显示底部/右侧行动按钮 */
+  action?: { label: string; onPress: () => void; confirming: boolean } | null;
+}
+
+function PinToTopIcon({ size = 24, color = '#ff7711' }: { size?: number; color?: string }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M5 6h14M12 20V10M12 10l-4 4M12 10l4 4" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
+function IndeterminateProgressBar() {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(anim, { toValue: 1, duration: 1200, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0, duration: 0, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [anim]);
+  const translateX = anim.interpolate({ inputRange: [0, 1], outputRange: [0, 260] });
+  return (
+    <View style={s.indeterminateTrack} pointerEvents="none">
+      <Animated.View style={[s.indeterminateFill, { transform: [{ translateX }] }]} />
+    </View>
+  );
+}
+
+export function ProjectListCard({
+  item,
+  onPress,
+  onSettings,
+  isPinned,
+  onTogglePin,
+  cardWidth,
+}: {
+  item: ProjectListCardItem;
+  onPress: () => void;
+  onSettings?: () => void;
+  isPinned?: boolean;
+  onTogglePin?: () => void;
+  cardWidth?: number;
+}) {
+  const [hover, setHover] = useState(false);
+  const showEdit = Platform.OS === 'web' ? hover : true;
+  const progress = item.progress && item.progress.total > 0
+    ? Math.round((item.progress.completed / item.progress.total) * 100)
+    : 0;
+  const showProgress = !item.action && item.progress && item.progress.total > 0;
+
+  return (
+    <View
+      style={[s.cardWrap, cardWidth != null && { width: cardWidth }]}
+      onMouseEnter={Platform.OS === 'web' ? () => setHover(true) : undefined}
+      onMouseLeave={Platform.OS === 'web' ? () => setHover(false) : undefined}
+    >
+      <TouchableOpacity
+        style={[s.card, hover && s.cardHover]}
+        onPress={onPress}
+        activeOpacity={0.85}
+      >
+        <View style={s.cardCoverWrap}>
+          {item.imageUrl ? (
+            <Image source={{ uri: item.imageUrl }} style={s.cardCoverImg} resizeMode="cover" />
+          ) : (
+            <View style={s.cardCoverPlaceholder}>
+              <Ionicons name="document-text-outline" size={32} color="#B2BEC3" />
+            </View>
+          )}
+          {item.statusCorner && (
+            <View style={s.statusCornerWrap} pointerEvents="none">
+              <View style={[s.statusCornerTriangle, { backgroundColor: item.statusCorner.bg }]} />
+              <View style={s.statusCornerLabelWrap}>
+                <Text style={s.statusCornerLabel}>{item.statusCorner.label}</Text>
+              </View>
+            </View>
+          )}
+          {onTogglePin != null && (isPinned || hover) && (
+            <View style={s.cornerPinWrap} pointerEvents="box-none">
+              <View
+                style={[
+                  s.cornerPinTriangle,
+                  { backgroundColor: isPinned ? CORNER_PIN_ORANGE : CORNER_PIN_WHITE_TRANSPARENT },
+                ]}
+                pointerEvents="none"
+              />
+              <TouchableOpacity
+                style={s.cornerPinTouchable}
+                onPress={(e) => { e.stopPropagation(); onTogglePin(); }}
+                hitSlop={0}
+                activeOpacity={0.85}
+              >
+                <PinToTopIcon size={28} color={isPinned ? '#FFF' : CORNER_PIN_ORANGE} />
+              </TouchableOpacity>
+            </View>
+          )}
+          {onSettings != null && showEdit && (
+            <View style={s.cardEditCornerWrap} pointerEvents="box-none">
+              <View style={[s.cardEditCornerTriangle, { backgroundColor: CORNER_PIN_WHITE_TRANSPARENT }]} pointerEvents="none" />
+              <TouchableOpacity
+                style={s.cardEditCornerTouchable}
+                onPress={(e) => { e.stopPropagation(); onSettings(); }}
+                hitSlop={0}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="create-outline" size={22} color={CORNER_PIN_ORANGE} />
+              </TouchableOpacity>
+            </View>
+          )}
+        </View>
+        <View style={s.cardInfo}>
+          <View style={s.cardRowTitle}>
+            <Text style={s.cardTitle} numberOfLines={2} ellipsizeMode="tail">
+              {item.displayName}
+            </Text>
+          </View>
+          <View style={s.cardRowTagRow}>
+            {item.tagPill ? (
+              <View style={[s.taxSeasonPill, { backgroundColor: item.tagPill.color }]}>
+                <Text style={s.taxSeasonPillText}>{item.tagPill.label}</Text>
+              </View>
+            ) : (
+              <View />
+            )}
+            {!item.statusCorner && (
+              <View style={[s.statusPill, { backgroundColor: item.statusColor }]}>
+                <Text style={s.statusPillText}>{item.statusLabel}</Text>
+              </View>
+            )}
+          </View>
+          {item.classificationTags && item.classificationTags.length > 0 ? (
+            <View style={s.classificationRow}>
+              {item.classificationTags.map((tag) => (
+                <View key={tag.label} style={[s.classificationPill, { backgroundColor: tag.bg }]}>
+                  <Text style={[s.classificationPillText, { color: tag.fg }]}>{tag.label}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={s.classificationRowPlaceholder} />
+          )}
+          {item.footerText ? (
+            <View style={s.cardRowFooter}>
+              <View />
+              <Text style={s.cardFirmName} numberOfLines={1}>{item.footerText}</Text>
+            </View>
+          ) : null}
+          {showProgress && item.progress && (
+            <View style={s.cardRowProgress}>
+              <View style={s.progressBarTrack}>
+                <View style={[s.progressBarFill, { width: `${progress}%` }]} />
+              </View>
+              <Text style={s.progressTextRight}>
+                {item.progress.completed}/{item.progress.total} · {progress}%
+              </Text>
+            </View>
+          )}
+        </View>
+        {item.action && (
+          <View style={s.acceptBtnWrap}>
+            {item.action.confirming ? (
+              <View style={s.acceptBtnProgress}>
+                <IndeterminateProgressBar />
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={s.acceptBtn}
+                onPress={(e) => { e.stopPropagation(); item.action!.onPress(); }}
+                activeOpacity={0.8}
+              >
+                <Text style={s.acceptBtnText}>{item.action.label}</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+export function ProjectListRow({
+  item,
+  onPress,
+  onSettings,
+  isPinned,
+  onTogglePin,
+}: {
+  item: ProjectListCardItem;
+  onPress: () => void;
+  onSettings?: () => void;
+  isPinned?: boolean;
+  onTogglePin?: () => void;
+}) {
+  const [hover, setHover] = useState(false);
+  const showEdit = Platform.OS === 'web' ? hover : true;
+  const progress = item.progress && item.progress.total > 0
+    ? Math.round((item.progress.completed / item.progress.total) * 100)
+    : 0;
+
+  return (
+    <View
+      style={s.listRowWrap}
+      onMouseEnter={Platform.OS === 'web' ? () => setHover(true) : undefined}
+      onMouseLeave={Platform.OS === 'web' ? () => setHover(false) : undefined}
+    >
+      <TouchableOpacity style={s.listRow} onPress={onPress} activeOpacity={0.7}>
+        {onTogglePin != null && (isPinned || hover) && (
+          <View style={s.listRowCornerPinWrap} pointerEvents="box-none">
+            <View
+              style={[
+                s.listRowCornerPinTriangle,
+                { backgroundColor: isPinned ? CORNER_PIN_ORANGE : CORNER_PIN_WHITE_TRANSPARENT },
+              ]}
+              pointerEvents="none"
+            />
+            <TouchableOpacity
+              style={s.listRowCornerPinTouchable}
+              onPress={(e) => { e.stopPropagation(); onTogglePin(); }}
+              hitSlop={0}
+              activeOpacity={0.85}
+            >
+              <PinToTopIcon size={18} color={isPinned ? '#FFF' : LIST_ACTION_GRAY} />
+            </TouchableOpacity>
+          </View>
+        )}
+        <View style={s.listEditWrap}>
+          {onSettings != null && showEdit ? (
+            <TouchableOpacity
+              onPress={(e) => { e.stopPropagation(); onSettings(); }}
+              hitSlop={6}
+              activeOpacity={0.8}
+              style={s.listActionBtn}
+            >
+              <Ionicons name="create-outline" size={18} color={LIST_ACTION_GRAY} />
+            </TouchableOpacity>
+          ) : null}
+        </View>
+        {item.statusCorner ? (
+          <View style={s.listRowCornerPinWrap} pointerEvents="none">
+            <View style={[s.listRowCornerPinTriangle, { backgroundColor: item.statusCorner.bg }]} />
+            <View style={s.listRowCornerStatusLabelWrap}>
+              <Text style={s.listStatusCornerLabel}>{item.statusCorner.label}</Text>
+            </View>
+          </View>
+        ) : null}
+        <View style={s.listCoverWrap}>
+          {item.imageUrl ? (
+            <Image source={{ uri: item.imageUrl }} style={s.listCoverImg} resizeMode="cover" />
+          ) : (
+            <View style={s.listCoverPlaceholder}>
+              <Ionicons name="document-text-outline" size={24} color="#B2BEC3" />
+            </View>
+          )}
+        </View>
+        <View style={s.listBody}>
+          <View style={s.listRow1}>
+            {item.tagPill ? (
+              <View style={[s.listTaxPill, { backgroundColor: item.tagPill.color }]}>
+                <Text style={s.listTaxPillText}>{item.tagPill.label}</Text>
+              </View>
+            ) : null}
+            <View style={s.listTitleWrap}>
+              <Text style={s.listTitle} numberOfLines={1} ellipsizeMode="tail">
+                {item.displayName}
+              </Text>
+            </View>
+          </View>
+          {item.classificationTags && item.classificationTags.length > 0 ? (
+            <View style={s.listClassificationRow}>
+              {item.classificationTags.map((tag) => (
+                <View key={tag.label} style={[s.listClassificationPill, { backgroundColor: tag.bg }]}>
+                  <Text style={[s.listClassificationPillText, { color: tag.fg }]}>{tag.label}</Text>
+                </View>
+              ))}
+            </View>
+          ) : (
+            <View style={s.listClassificationRowPlaceholder} />
+          )}
+          <View style={s.listRow2}>
+            <View style={s.listStatusWrap}>
+              {!item.statusCorner && (
+                <View style={[s.listStatusPill, { backgroundColor: item.statusColor }]}>
+                  <Text style={s.listStatusPillText}>{item.statusLabel}</Text>
+                </View>
+              )}
+            </View>
+            {item.footerText ? (
+              <Text style={s.listFirmName} numberOfLines={1} ellipsizeMode="tail">
+                {item.footerText}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+        <View style={s.listRightSlot}>
+          {item.action ? (
+            item.action.confirming ? (
+              <View style={s.listAcceptProgress}>
+                <IndeterminateProgressBar />
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={s.listAcceptBtn}
+                onPress={(e) => { e.stopPropagation(); item.action!.onPress(); }}
+                activeOpacity={0.8}
+              >
+                <Text style={s.acceptBtnText}>{item.action.label}</Text>
+              </TouchableOpacity>
+            )
+          ) : item.progress && item.progress.total > 0 ? (
+            <View style={s.listProgressBlock}>
+              <View style={s.listProgressTrack}>
+                <View style={[s.progressBarFill, { width: `${progress}%` }]} />
+              </View>
+              <Text style={s.listProgressText}>
+                {item.progress.completed}/{item.progress.total} · {progress}%
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const s = StyleSheet.create({
+  cardWrap: { width: '100%', maxWidth: 320 },
+  card: {
+    width: '100%',
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+  },
+  cardHover: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.14,
+    shadowRadius: 12,
+    ...(Platform.OS === 'android' ? { elevation: 8 } : {}),
+  },
+  cardCoverWrap: { width: '100%', aspectRatio: 1, backgroundColor: '#E9ECEF', overflow: 'hidden', position: 'relative' },
+  cardCoverImg: { width: '100%', height: '100%' },
+  cardCoverPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 120 },
+  statusCornerWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 132,
+    height: 132,
+    overflow: 'hidden',
+  },
+  statusCornerTriangle: {
+    position: 'absolute',
+    top: -66,
+    left: -66,
+    width: 132,
+    height: 132,
+    transform: [{ rotate: '-45deg' }],
+  },
+  statusCornerLabelWrap: {
+    position: 'absolute',
+    top: 24,
+    left: -6,
+    width: 80,
+    minHeight: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    transform: [{ rotate: '-45deg' }],
+  },
+  statusCornerLabel: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#FFF',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 2,
+  },
+  cornerPinWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 132,
+    height: 132,
+    overflow: 'hidden',
+  },
+  cornerPinTriangle: {
+    position: 'absolute',
+    top: -66,
+    left: -66,
+    width: 132,
+    height: 132,
+    transform: [{ rotate: '-45deg' }],
+  },
+  cornerPinIconWrap: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cornerPinTouchable: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardEditCornerWrap: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: 132,
+    height: 132,
+    overflow: 'hidden',
+  },
+  cardEditCornerTriangle: {
+    position: 'absolute',
+    top: -66,
+    left: 66,
+    width: 132,
+    height: 132,
+    transform: [{ rotate: '45deg' }],
+  },
+  cardEditCornerIconWrap: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardEditCornerTouchable: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 48,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardInfo: { padding: 12 },
+  cardRowTitle: { marginBottom: 6, minHeight: 40, overflow: 'hidden' },
+  cardRowTagRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  cardTitle: { fontSize: 15, fontWeight: '600', color: '#2D3436', lineHeight: 20 },
+  taxSeasonPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  taxSeasonPillText: { fontSize: 12, color: '#FFF', fontWeight: '600' },
+  cardRowProgress: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 12,
+    marginBottom: 0,
+    minHeight: ACTION_ROW_HEIGHT,
+  },
+  progressBarTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#E9ECEF', overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: '#00B894', borderRadius: 3 },
+  progressTextRight: { fontSize: 12, color: '#636E72', marginLeft: 4 },
+  classificationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    minHeight: 20,
+    marginTop: 2,
+  },
+  classificationRowPlaceholder: { minHeight: 20, marginTop: 2 },
+  classificationPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  classificationPillText: { fontSize: 11, fontWeight: '500' },
+  cardRowFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
+  statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  statusPillText: { fontSize: 12, color: '#FFF', fontWeight: '600' },
+  cardFirmName: { fontSize: 11, color: '#95A5A6', maxWidth: '85%', textAlign: 'right' },
+  acceptBtnWrap: {
+    height: ACTION_ROW_HEIGHT,
+    marginTop: 0,
+    marginHorizontal: 12,
+    marginBottom: 12,
+    justifyContent: 'center',
+  },
+  acceptBtn: {
+    height: ACTION_ROW_HEIGHT,
+    backgroundColor: '#6C5CE7',
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web'
+      ? { shadowColor: '#6C5CE7', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.35, shadowRadius: 6 }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 4 } : {}),
+  },
+  acceptBtnProgress: { height: ACTION_ROW_HEIGHT, justifyContent: 'center', paddingHorizontal: 12 },
+  acceptBtnText: { color: '#FFF', fontWeight: '700', fontSize: 15 },
+  indeterminateTrack: {
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: '#E9ECEF',
+    overflow: 'hidden',
+    width: '100%',
+  },
+  indeterminateFill: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: 80,
+    backgroundColor: '#00B894',
+    borderRadius: 2,
+  },
+  list: { gap: 1, backgroundColor: '#E9ECEF', borderRadius: 12, overflow: 'hidden' },
+  listRowWrap: { width: '100%' },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: LIST_ROW_MIN_HEIGHT,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFF',
+    position: 'relative',
+  },
+  listEditWrap: {
+    width: 28,
+    minWidth: 28,
+    alignSelf: 'stretch',
+    marginLeft: -12,
+    paddingLeft: 2,
+    paddingTop: 32,
+  },
+  listActionBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  listCoverWrap: {
+    width: 64,
+    height: 64,
+    marginLeft: 4,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: '#E9ECEF',
+    position: 'relative',
+  },
+  listCoverImg: { width: '100%', height: '100%' },
+  listCoverPlaceholder: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
+  listStatusCornerWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 80,
+    height: 80,
+    overflow: 'hidden',
+  },
+  listStatusCornerTriangle: {
+    position: 'absolute',
+    top: -40,
+    left: -40,
+    width: 80,
+    height: 80,
+    transform: [{ rotate: '-45deg' }],
+  },
+  listStatusCornerLabelWrap: {
+    position: 'absolute',
+    top: 7,
+    left: -14,
+    width: 56,
+    minHeight: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ rotate: '-45deg' }],
+  },
+  listStatusCornerLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFF',
+    textShadowColor: 'rgba(0,0,0,0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 1,
+  },
+  listRowCornerPinWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 72,
+    height: 72,
+    overflow: 'hidden',
+    zIndex: 1,
+  },
+  listRowCornerPinTriangle: {
+    position: 'absolute',
+    top: -36,
+    left: -36,
+    width: 72,
+    height: 72,
+    transform: [{ rotate: '-45deg' }],
+  },
+  listRowCornerPinIconWrap: {
+    position: 'absolute',
+    top: 2,
+    left: 2,
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listRowCornerPinTouchable: {
+    position: 'absolute',
+    top: 2,
+    left: 2,
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listRowCornerStatusLabelWrap: {
+    position: 'absolute',
+    top: 14,
+    left: -4,
+    width: 48,
+    minHeight: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    transform: [{ rotate: '-45deg' }],
+  },
+  listBody: { flex: 1, marginLeft: 12, minWidth: 0, justifyContent: 'center', paddingVertical: 6 },
+  listRow1: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  listClassificationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    minHeight: 18,
+    marginBottom: 4,
+  },
+  listClassificationRowPlaceholder: { minHeight: 18, marginBottom: 4 },
+  listClassificationPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  listClassificationPillText: { fontSize: 10, fontWeight: '500' },
+  listRow2: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  listTaxPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6 },
+  listTaxPillText: { fontSize: 12, color: '#FFF', fontWeight: '600' },
+  listTitleWrap: { flex: 1, minWidth: 0, overflow: 'hidden' },
+  listTitle: { fontSize: 15, fontWeight: '600', color: '#2D3436', lineHeight: 20 },
+  listStatusWrap: { width: LIST_STATUS_WRAP_WIDTH, minWidth: LIST_STATUS_WRAP_WIDTH },
+  listStatusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 6, alignSelf: 'flex-start' },
+  listStatusPillText: { fontSize: 12, color: '#FFF', fontWeight: '600' },
+  listFirmName: { fontSize: 12, color: '#95A5A6', flex: 1, minWidth: 0 },
+  listRightSlot: {
+    width: '40%',
+    minWidth: 120,
+    marginLeft: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  listProgressBlock: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  listProgressTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#E9ECEF', overflow: 'hidden' },
+  listProgressText: { fontSize: 12, color: '#636E72' },
+  listAcceptBtn: {
+    width: '100%',
+    maxWidth: 200,
+    height: ACTION_ROW_HEIGHT,
+    backgroundColor: '#6C5CE7',
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web'
+      ? { shadowColor: '#6C5CE7', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4 }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 4 } : {}),
+  },
+  listAcceptProgress: {
+    width: '100%',
+    height: ACTION_ROW_HEIGHT,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+});
+
+export const projectListStyles = s;

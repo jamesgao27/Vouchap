@@ -264,13 +264,6 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
   };
   const removeTag = (t: string) => setEditTags((p) => p.filter((x) => x !== t));
 
-  const derivedTaxSeasonYear = order?.dueAt || order?.createdAt
-    ? new Date((order.dueAt || order.createdAt)!).getFullYear()
-    : null;
-  const taxSeasonYear =
-    project.taxSeasonYear != null ? project.taxSeasonYear : derivedTaxSeasonYear;
-  const stageConfig = order ? (STAGE_CONFIG[order.status] ?? STAGE_CONFIG.onboarding) : null;
-
   if (loading) {
     return (
       <View style={s.centered}>
@@ -287,6 +280,12 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
     );
   }
 
+  const derivedTaxSeasonYear = order.dueAt || order.createdAt
+    ? new Date((order.dueAt || order.createdAt)!).getFullYear()
+    : null;
+  const taxSeasonYear =
+    project.taxSeasonYear != null ? project.taxSeasonYear : derivedTaxSeasonYear;
+  const stageConfig = STAGE_CONFIG[order.status] ?? STAGE_CONFIG.onboarding;
   const displayImageUrl = editing ? editImageUrl : project.imageUrl;
 
   return (

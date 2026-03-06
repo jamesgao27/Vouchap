@@ -11,6 +11,8 @@ import {
   ActivityIndicator,
   Image,
   TextInput,
+  Alert,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +21,8 @@ import {
   getOrderById,
   getProjectByOrderId,
   updateProject,
+  updateOrderStatus,
+  confirmOrderAndCreateProjectTodos,
   type FirmProjectInfo,
 } from '@/lib/firm';
 import { supabase, uploadProjectCover } from '@/lib/supabase';
@@ -49,6 +53,10 @@ export default function OrderInfoScreen() {
   const [editTags, setEditTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
   const [uploadingCover, setUploadingCover] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [accepting, setAccepting] = useState(false);
+
+  const isOnboarding = order?.status === 'onboarding';
 
   const load = useCallback(async () => {
     if (!orderId) return;
@@ -65,7 +73,7 @@ export default function OrderInfoScreen() {
       }
       setOrder(orderData);
       setProject(projectData ?? null);
-      setEditName(projectData?.name ?? '');
+      setEditName(projectData?.name ?? orderData?.skuName ?? '');
       setEditImageUrl(projectData?.imageUrl ?? null);
       setEditTags([]);
       if (orderData.firmSpaceId) {
@@ -86,6 +94,48 @@ export default function OrderInfoScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const handleRejectOrder = useCallback(async () => {
+    if (!orderId) return;
+    if (Platform.OS === 'web' && !window.confirm('Reject this order? You can\'t undo this.')) return;
+    if (Platform.OS !== 'web') {
+      Alert.alert('Reject order', 'Reject this order? You can\'t undo this.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Reject', style: 'destructive', onPress: () => doReject() },
+      ]);
+      return;
+    }
+    await doReject();
+    async function doReject() {
+      setRejecting(true);
+      const { error } = await updateOrderStatus(orderId, 'cancelled');
+      setRejecting(false);
+      if (error) {
+        showToast(error.message ?? 'Failed to reject', 'error');
+        return;
+      }
+      showToast('Order rejected', 'success');
+      router.back();
+    }
+  }, [orderId, router]);
+
+  const handleAcceptOrder = useCallback(async () => {
+    if (!orderId) return;
+    setAccepting(true);
+    const { error } = await confirmOrderAndCreateProjectTodos(orderId);
+    setAccepting(false);
+    if (error) {
+      showToast(error.message ?? 'Failed to accept', 'error');
+      return;
+    }
+    showToast('Order accepted', 'success');
+    const project = await getProjectByOrderId(orderId);
+    if (project?.id) {
+      router.replace(`/tax-filing/project/${project.id}`);
+    } else {
+      load();
+    }
+  }, [orderId, router, load]);
 
   const handlePickImage = useCallback(async () => {
     try {
@@ -165,7 +215,30 @@ export default function OrderInfoScreen() {
           <Ionicons name="arrow-back" size={24} color="#2D3436" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Project info</Text>
-        {editing ? (
+        {isOnboarding ? (
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              onPress={handleRejectOrder}
+              disabled={rejecting || accepting}
+              style={styles.headerRejectBtn}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.headerRejectBtnText}>Reject</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={handleAcceptOrder}
+              disabled={rejecting || accepting}
+              style={styles.headerAcceptBtn}
+              activeOpacity={0.7}
+            >
+              {accepting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.headerAcceptBtnText}>Accept</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        ) : editing ? (
           <TouchableOpacity
             style={styles.headerSave}
             onPress={handleSave}
@@ -194,9 +267,9 @@ export default function OrderInfoScreen() {
           <Text style={styles.sectionLabel}>Cover</Text>
           <TouchableOpacity
             style={styles.coverWrap}
-            onPress={editing && !uploadingCover ? handlePickImage : undefined}
-            activeOpacity={editing ? 0.8 : 1}
-            disabled={!editing || uploadingCover}
+            onPress={!isOnboarding && editing && !uploadingCover ? handlePickImage : undefined}
+            activeOpacity={!isOnboarding && editing ? 0.8 : 1}
+            disabled={isOnboarding || !editing || uploadingCover}
           >
             {editImageUrl ? (
               <Image source={{ uri: editImageUrl }} style={styles.coverImg} resizeMode="cover" />
@@ -208,7 +281,7 @@ export default function OrderInfoScreen() {
                   <Ionicons name="image-outline" size={40} color="#B2BEC3" />
                 )}
                 <Text style={styles.coverPlaceholderText}>
-                  {uploadingCover ? 'Uploading…' : editing ? 'Tap to change' : 'No cover'}
+                  {uploadingCover ? 'Uploading…' : !isOnboarding && editing ? 'Tap to change' : 'No cover'}
                 </Text>
               </View>
             )}
@@ -217,7 +290,7 @@ export default function OrderInfoScreen() {
 
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>Project name</Text>
-          {editing ? (
+          {!isOnboarding && editing ? (
             <TextInput
               style={styles.input}
               value={editName}
@@ -226,7 +299,7 @@ export default function OrderInfoScreen() {
               placeholderTextColor="#95A5A6"
             />
           ) : (
-            <Text style={styles.value}>{project?.name ?? '—'}</Text>
+            <Text style={styles.value}>{project?.name ?? (editName || '—')}</Text>
           )}
         </View>
 
@@ -244,7 +317,7 @@ export default function OrderInfoScreen() {
               </View>
             ))}
           </View>
-          {editing && (
+          {!isOnboarding && editing && (
             <View style={styles.tagInputRow}>
               <TextInput
                 style={styles.tagInput}
@@ -328,6 +401,11 @@ const styles = StyleSheet.create({
   headerEdit: { padding: 8 },
   headerSave: { padding: 8, minWidth: 56, alignItems: 'flex-end' },
   headerSaveText: { fontSize: 16, color: '#6C5CE7', fontWeight: '600' },
+  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  headerRejectBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#FFE5E5' },
+  headerRejectBtnText: { color: '#C0392B', fontWeight: '600', fontSize: 14 },
+  headerAcceptBtn: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#6C5CE7' },
+  headerAcceptBtnText: { color: '#fff', fontWeight: '600', fontSize: 14 },
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 40 },
   section: { marginBottom: 24 },

@@ -176,7 +176,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
     },
     {
       id: 'serviceItem',
-      label: 'Service',
+      label: 'Engagement',
       minWidth: 160,
       getValue: (r) => (
         <Text style={cellText} numberOfLines={1}>
@@ -484,7 +484,7 @@ export default function FirmEngagementsScreen() {
         title: sec.title,
         data: sortRowsByColumn(sec.data, col, sortDirection),
         count: sec.data.length,
-        countLabel: 'orders',
+        countLabel: 'engagements',
       })),
     [groupedSections, sortKey, sortDirection, orderColumns, sortRowsByColumn]
   );
@@ -497,11 +497,11 @@ export default function FirmEngagementsScreen() {
   const tableEmptyMessage = useMemo(() => {
     if (loading && orders.length === 0) return 'Loading...';
     if (orders.length === 0)
-      return 'No orders yet. Create from Service Catalog for clients.';
+      return 'No engagements yet. Create from Service Catalog for clients.';
     if (searchedOrders.length === 0)
       return searchQuery.trim()
         ? `No results for "${searchQuery}"`
-        : `No orders match status "${filterStatus === 'all' ? 'all' : STATUS_LABEL[filterStatus] ?? filterStatus}".`;
+        : `No engagements match status "${filterStatus === 'all' ? 'all' : STATUS_LABEL[filterStatus] ?? filterStatus}".`;
     return 'No data';
   }, [loading, orders.length, searchedOrders.length, searchQuery, filterStatus]);
 
@@ -510,7 +510,7 @@ export default function FirmEngagementsScreen() {
     if (
       typeof window !== 'undefined' &&
       !window.confirm(
-        `Cancel ${selectedOrderIds.length} selected order(s)? Status will be set to Cancelled.`
+        `Cancel ${selectedOrderIds.length} selected engagement(s)? Status will be set to Cancelled.`
       )
     )
       return;
@@ -626,7 +626,7 @@ export default function FirmEngagementsScreen() {
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>{section.title}</Text>
                 <View style={styles.sectionHeaderRight}>
-                  <Text style={styles.sectionCount}>{section.data.length} orders</Text>
+                  <Text style={styles.sectionCount}>{section.data.length} engagements</Text>
                 </View>
               </View>
             );
@@ -668,7 +668,7 @@ export default function FirmEngagementsScreen() {
               ) : (
                 <Ionicons name="close-circle-outline" size={18} color="#fff" />
               )}
-              <Text style={styles.bulkBtnText}>Cancel orders</Text>
+              <Text style={styles.bulkBtnText}>Cancel engagements</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.bulkBtnClear}

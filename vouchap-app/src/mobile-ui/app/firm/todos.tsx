@@ -49,13 +49,13 @@ export default function FirmOrdersScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Orders</Text>
-      <Text style={styles.subtitle}>Service orders across clients</Text>
+      <Text style={styles.title}>Engagements</Text>
+      <Text style={styles.subtitle}>Engagements across clients</Text>
       {loading ? (
         <ActivityIndicator size="large" color="#6C5CE7" style={styles.loader} />
       ) : orders.length === 0 ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>No orders yet. Create from Service Catalog for clients.</Text>
+          <Text style={styles.emptyText}>No engagements yet. Create from Service Catalog for clients.</Text>
         </View>
       ) : (
         <View style={styles.list}>

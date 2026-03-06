@@ -520,6 +520,8 @@ export interface FirmSku {
   imageUrl?: string | null;
   /** 是否发布（客户可见） */
   isPublished?: boolean;
+  /** 模板状态：与分类独立，draft=不可选用, private=内部可用, published=已发布 */
+  templateStatus?: 'draft' | 'private' | 'published' | null;
   /** 关联的 sku_items 数量（统计字段） */
   itemsCount?: number;
   /** 报税辖区：CANADA | USA，用于识别提示词与 Project 对齐 */

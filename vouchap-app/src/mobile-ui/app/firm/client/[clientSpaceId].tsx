@@ -105,6 +105,17 @@ export default function FirmClientDetailScreen() {
     [orders, skus],
   );
 
+  const selectableSkus = useMemo(
+    () => skus.filter((s) => (s.templateStatus != null ? s.templateStatus !== 'draft' : (s.isPublished === true || !!s.taxCountry || !!s.taxScenario))),
+    [skus],
+  );
+
+  useEffect(() => {
+    if (selectedSkuId && !selectableSkus.some((s) => s.id === selectedSkuId)) {
+      setSelectedSkuId(selectableSkus[0]?.id ?? null);
+    }
+  }, [selectableSkus, selectedSkuId]);
+
   const handleCreateOrder = useCallback(async () => {
     if (!client || !selectedSkuId) return;
     const space = await getCurrentSpace();
@@ -201,8 +212,8 @@ export default function FirmClientDetailScreen() {
           <TouchableOpacity
             style={styles.sectionActionBtn}
             onPress={() => {
-              if (skus.length > 0 && !selectedSkuId) {
-                setSelectedSkuId(skus[0].id);
+              if (selectableSkus.length > 0 && !selectedSkuId) {
+                setSelectedSkuId(selectableSkus[0].id);
               }
             }}
           >
@@ -231,11 +242,11 @@ export default function FirmClientDetailScreen() {
               })
             )}
 
-            {skus.length > 0 && (
+            {selectableSkus.length > 0 && (
               <View style={styles.newOrderBox}>
                 <Text style={styles.newOrderTitle}>Create new order</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.skuScroll}>
-                  {skus.map((sku) => (
+                  {selectableSkus.map((sku) => (
                     <TouchableOpacity
                       key={sku.id}
                       style={[

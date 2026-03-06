@@ -330,6 +330,9 @@ function TodoTree({
   rowIdShowingStatusVerb,
   setRowIdShowingStatusVerb,
   onRetryRecognizeFile,
+  catalogMode = false,
+  onCatalogDeleteItem,
+  onCatalogUpdateType,
 }: {
   nodes: ProjectTodoNode[];
   depth: number;
@@ -386,6 +389,10 @@ function TodoTree({
   onHandoffTask?: (todoId: string, from: 'client' | 'firm', to: 'client' | 'firm', verb: string, newStatus?: ProjectTodoNode['status']) => void;
   /** 仅 phase 行：点击带圈 - 时请求删除该 phase 及所有子级（浮窗二次确认） */
   onRequestDeletePhase?: (phaseId: string, phaseTitle: string) => void;
+  /** Catalog 模式：隐藏状态/文件列，task 的 - 为删除，责任方可点击切换 */
+  catalogMode?: boolean;
+  onCatalogDeleteItem?: (itemId: string) => void;
+  onCatalogUpdateType?: (itemId: string, type: 'client' | 'firm') => void;
 }) {
   const baseIndent = depth * 14;
   const { taskTotal, taskSuccess, effectiveStatus } = nodeStats;
@@ -432,32 +439,53 @@ function TodoTree({
           node.status !== 'completed' &&
           (viewerRole === 'firm' || (viewerRole === 'client' && node.type === 'client'));
 
-        // row-level hover：用于显示 +（section/phase）或 -/restart / Upload / 提交按钮；任务行在可终止/可重启时也显示
+        // phase/section 判定（section 用 depth===1 兜底）
+        const isPhaseOrSectionRow = node.itemKind === 'phase' || node.itemKind === 'section' || (depth === 1 && !isTask);
+        // row-level hover：用于显示 +（section/phase）或 -/restart / Upload / 提交按钮；任务行在可终止/可重启时也显示；catalog 模式 task 显示删除
         const showRowIconsOnTouch =
           (onStartAddChild && canAddChild) ||
-          (isTask && (canUpload || canCancelRestore || canTerminateForRow || isCanceled || node.status === 'completed'));
-        const showAddIcon = onStartAddChild && canAddChild && rowIdShowingAdd === node.id;
-        const addIconInline = showAddIcon ? (
-          <TouchableOpacity
-            style={ts.addChildBtn}
-            onPress={() => onStartAddChild(node.id)}
-            onPressIn={() => setAddIconHighlightedRowId?.(node.id)}
-            onPressOut={() => setAddIconHighlightedRowId?.(null)}
-            activeOpacity={0.6}
-            hitSlop={8}
-          >
-            <Ionicons
-              name={addIconHighlightedRowId === node.id ? 'add-circle' : 'add-circle-outline'}
-              size={14}
-              color={addIconHighlightedRowId === node.id ? '#6C5CE7' : '#95A5A6'}
-            />
-          </TouchableOpacity>
-        ) : null;
+          (isTask && (catalogMode ? !!onCatalogDeleteItem : (canUpload || canCancelRestore || canTerminateForRow || isCanceled || node.status === 'completed'))) ||
+          (onRequestDeletePhase != null && isPhaseOrSectionRow);
 
-        /** 仅 phase 行：与 + 同区域触摸出现，带圈 - 用于删除该 phase 及所有子级 */
+        // phase 上 +Section，section 上 +Task；其他非 task 节点兜底为 Child
+        const addChildLabel =
+          node.itemKind === 'phase'
+            ? 'Section'
+            : node.itemKind === 'section'
+            ? 'Task'
+            : 'Child';
+
+        const showAddIcon = onStartAddChild && canAddChild && rowIdShowingAdd === node.id;
+        const addChildButton =
+          onStartAddChild && canAddChild && showRowIconsOnTouch && showAddIcon ? (
+            <TouchableOpacity
+              style={ts.addChildPill}
+              onPress={() => onStartAddChild(node.id)}
+              onPressIn={() => setAddIconHighlightedRowId?.(node.id)}
+              onPressOut={() => setAddIconHighlightedRowId?.(null)}
+              activeOpacity={0.7}
+              hitSlop={8}
+            >
+              <Ionicons
+                name={addIconHighlightedRowId === node.id ? 'add-circle' : 'add-circle-outline'}
+                size={14}
+                color="#6C5CE7"
+              />
+              <Text
+                style={[
+                  ts.addChildPillText,
+                  addIconHighlightedRowId === node.id && ts.addChildPillTextActive,
+                ]}
+                numberOfLines={1}
+              >
+                {addChildLabel}
+              </Text>
+            </TouchableOpacity>
+          ) : null;
+
+        /** phase / section 行：与 + 同区域触摸出现，带圈 - 用于删除该节点及所有子级 */
         const showDeletePhaseIcon =
-          depth === 0 &&
-          node.itemKind === 'phase' &&
+          isPhaseOrSectionRow &&
           rowIdShowingAdd === node.id &&
           onRequestDeletePhase != null;
         const deletePhaseIconInline = showDeletePhaseIcon ? (
@@ -488,7 +516,9 @@ function TodoTree({
             }
           : undefined;
 
-        const progressColContent = (
+        const progressColContent = catalogMode ? (
+          <View style={ts.progressFilesCol} />
+        ) : (
           <View style={ts.progressFilesCol} {...(fileColHoverHandlers as any)}>
             {showNm ? (
               <Text style={ts.nmText} numberOfLines={1}>{success}/{total}</Text>
@@ -557,8 +587,8 @@ function TodoTree({
 
         const showStatusVerb = rowIdShowingStatusVerb === node.id && handoffButtons.length > 0;
 
-        // canceled 任务即使有 depends on 也显示 Canceled，不显示 Pending
-        const statusColContent = (isTask && isCanceled)
+        // catalog 模式不显示状态列
+        const statusColContent = catalogMode ? null : (isTask && isCanceled)
           ? (
               <View style={[ts.statusPill, { backgroundColor: getStatusColor('canceled', node.type, viewerRole) }]}>
                 <Text style={ts.statusPillText} numberOfLines={1}>
@@ -628,17 +658,30 @@ function TodoTree({
           ? { onPress: onCollapsePress, activeOpacity: 0.85 as const }
           : undefined;
 
-        // 责任方标签放在任务名称前（与标题同一行），不再单独成列
+        // 责任方标签放在任务名称前（与标题同一行）；catalog 模式下可点击切换 client/firm
         const roleBadgeInline = isTask && !isCanceled ? (
-          <View
-            style={[
-              ts.roleBadgeInlineWrap,
-              ts.roleBadge,
-              nodeIsBlocked ? ts.roleBadgePending : (node.type === 'firm' ? ts.roleBadgeFirm : ts.roleBadgeClient),
-            ]}
-          >
-            <Text style={ts.roleBadgeText}>{node.type === 'firm' ? 'Firm' : 'Client'}</Text>
-          </View>
+          catalogMode && onCatalogUpdateType ? (
+            <Pressable
+              style={[
+                ts.roleBadgeInlineWrap,
+                ts.roleBadge,
+                node.type === 'firm' ? ts.roleBadgeFirm : ts.roleBadgeClient,
+              ]}
+              onPress={() => onCatalogUpdateType(node.id, node.type === 'client' ? 'firm' : 'client')}
+            >
+              <Text style={ts.roleBadgeText}>{node.type === 'firm' ? 'Firm' : 'Client'}</Text>
+            </Pressable>
+          ) : (
+            <View
+              style={[
+                ts.roleBadgeInlineWrap,
+                ts.roleBadge,
+                nodeIsBlocked ? ts.roleBadgePending : (node.type === 'firm' ? ts.roleBadgeFirm : ts.roleBadgeClient),
+              ]}
+            >
+              <Text style={ts.roleBadgeText}>{node.type === 'firm' ? 'Firm' : 'Client'}</Text>
+            </View>
+          )
         ) : null;
 
         const titleContentOnly = (
@@ -671,10 +714,15 @@ function TodoTree({
           </View>
         );
 
+        const titleCellShowAddHandlers =
+          showRowIconsOnTouch && isPhaseOrSectionRow
+            ? { onTouchStart: showRowIconsOnTouchStart, onTouchEnd: showRowIconsOnTouchEnd }
+            : undefined;
         const TitleCell = onCollapsePress ? (
           <TouchableOpacity
             style={ts.titleHotzone}
             {...(collapseHandlers as any)}
+            {...titleCellShowAddHandlers}
           >
             {titleContentOnly}
           </TouchableOpacity>
@@ -686,6 +734,10 @@ function TodoTree({
           >
             {titleContentOnly}
           </TouchableOpacity>
+        ) : titleCellShowAddHandlers ? (
+          <TouchableOpacity style={ts.titleHotzone} {...titleCellShowAddHandlers} activeOpacity={1}>
+            {titleContentOnly}
+          </TouchableOpacity>
         ) : (
           <View style={ts.titleHotzone}>{titleContentOnly}</View>
         );
@@ -693,7 +745,7 @@ function TodoTree({
         const ADD_ICON_SLOT_WIDTH = 24;
         const AddIconSlot = onStartAddChild && !isTask ? (
           <View style={[ts.addIconSlot, { width: ADD_ICON_SLOT_WIDTH }]} pointerEvents="box-none">
-            {addIconInline}
+            {addChildButton}
           </View>
         ) : null;
         const RemovePhaseIconSlot = showDeletePhaseIcon ? (
@@ -711,8 +763,8 @@ function TodoTree({
           return { depId, wbs: item?.wbs ?? '?', title: item?.title ?? '', status: st };
         });
 
-        // 终止：client 仅能终止当前责任方为 client 的非 completed 任务；firm 可终止所有非 completed 任务
-        const CancelTaskSlot =
+        // 终止：client 仅能终止当前责任方为 client 的非 completed 任务；firm 可终止所有非 completed 任务；catalog 模式下 task 的 - 为删除
+        const CancelTaskSlot = !catalogMode &&
           isTask && !isCanceled && onCancelTask && showTaskIcons && !nodeIsBlocked && canTerminateForRow ? (
             <Pressable style={ts.terminateTaskBtnHotzone} onPress={() => onCancelTask(node.id)}>
               <View style={ts.terminateTaskBtnIcon}>
@@ -720,9 +772,17 @@ function TodoTree({
               </View>
             </Pressable>
           ) : null;
+        const CatalogDeleteTaskSlot =
+          catalogMode && isTask && onCatalogDeleteItem && showTaskIcons ? (
+            <Pressable style={ts.terminateTaskBtnHotzone} onPress={() => onCatalogDeleteItem(node.id)}>
+              <View style={ts.deletePhaseIconBtn}>
+                <Ionicons name="remove" size={8} color="#FFF" />
+              </View>
+            </Pressable>
+          ) : null;
 
-        // 重启（已终止）：双方都可重启 canceled 任务，无论有无 depends on
-        const RestoreTaskSlot =
+        // 重启（已终止）：双方都可重启 canceled 任务；catalog 模式不显示
+        const RestoreTaskSlot = !catalogMode &&
           isTask && isCanceled && onRestoreTask && showTaskIcons ? (
             <Pressable style={ts.restoreTaskBtnHotzone} onPress={() => onRestoreTask(node.id, node.initialResponsibleSide)}>
               <View style={ts.restoreTaskBtnIcon}>
@@ -731,8 +791,8 @@ function TodoTree({
             </Pressable>
           ) : null;
 
-        // 重启（已完成）：双方都可重启 completed 任务，重启时重置责任方为初始责任方
-        const RestartTaskSlot =
+        // 重启（已完成）：双方都可重启 completed 任务；catalog 模式不显示
+        const RestartTaskSlot = !catalogMode &&
           isTask && node.status === 'completed' && onRestoreTask && showTaskIcons ? (
             <Pressable style={ts.restoreTaskBtnHotzone} onPress={() => onRestoreTask(node.id, node.initialResponsibleSide)}>
               <View style={ts.restoreTaskBtnIcon}>
@@ -754,18 +814,20 @@ function TodoTree({
         const TitleColumnWrap = showAddHandlers ? (
           <View style={ts.titleColumnWrap} {...showAddHandlers}>
             {TitleCell}
-            {AddIconSlot}
             {RemovePhaseIconSlot}
+            {AddIconSlot}
             {CancelTaskSlot}
+            {CatalogDeleteTaskSlot}
             {RestoreTaskSlot}
             {RestartTaskSlot}
           </View>
         ) : (
           <View style={ts.titleColumnWrap}>
             {TitleCell}
-            {AddIconSlot}
             {RemovePhaseIconSlot}
+            {AddIconSlot}
             {CancelTaskSlot}
+            {CatalogDeleteTaskSlot}
             {RestoreTaskSlot}
             {RestartTaskSlot}
           </View>
@@ -845,29 +907,15 @@ function TodoTree({
         ];
 
         // task 行前置依赖列：文案 "Depends on" + 多标签（每标签用该条目状态色）+ 入口
-        const showDepsControls = depsControlsNodeId === node.id;
+        const showDepsControls = true;
         const TaskDepsCol = isTask ? (
           <Pressable
             style={ts.taskDepsCol}
-            onHoverIn={() => setDepsControlsNodeId(node.id)}
-            onHoverOut={() => {
-              setDepsControlsNodeId(null);
-              setActiveDepChipId(null);
-            }}
-            onTouchStart={() => setDepsControlsNodeId(node.id)}
-            onTouchEnd={() => {
-              setDepsControlsNodeId(null);
-              setActiveDepChipId(null);
-            }}
             onPress={() => {
-              if (depChipInfos.length > 0 || showDepsControls) {
-                setDepsPanelNodeId(isDepsOpen ? null : node.id);
-              }
+              setDepsPanelNodeId(isDepsOpen ? null : node.id);
             }}
           >
-            {(depChipInfos.length > 0 || showDepsControls) && (
-              <Text style={ts.taskDepsLabel}>Depends on</Text>
-            )}
+            <Text style={ts.taskDepsLabel}>Depends on</Text>
             {depChipInfos.length > 0 ? (
               <View style={ts.taskDepsChipsWrap}>
                 {depChipInfos.map((info: { depId: string; wbs: string; title: string; status: string }) => {
@@ -883,7 +931,7 @@ function TodoTree({
                 })}
               </View>
             ) : null}
-            {!nodeIsBlocked && showDepsControls && (
+            {!nodeIsBlocked && (
               <View style={ts.taskDepsTrigger}>
                 <Ionicons name="add-circle-outline" size={12} color="#B2BEC3" />
               </View>
@@ -944,12 +992,16 @@ function TodoTree({
                 onRetryRecognizeFile={onRetryRecognizeFile}
                 onFileRowPress={onFileRowPress}
                 onHandoffTask={onHandoffTask}
+                onRequestDeletePhase={onRequestDeletePhase}
                 phaseAndSectionWithWbs={phaseAndSectionWithWbs}
                 rowFileColHoverId={rowFileColHoverId}
                 setRowFileColHoverId={setRowFileColHoverId}
                 hideFileColTimeoutRef={hideFileColTimeoutRef}
                 rowIdShowingStatusVerb={rowIdShowingStatusVerb}
                 setRowIdShowingStatusVerb={setRowIdShowingStatusVerb}
+                catalogMode={catalogMode}
+                onCatalogDeleteItem={onCatalogDeleteItem}
+                onCatalogUpdateType={onCatalogUpdateType}
               />
             )}
             {pendingParentId === node.id && onConfirmAddChild && onCancelAddChild && (
@@ -1068,9 +1120,10 @@ function TodoTree({
 export interface TaxFilingTodosViewProps {
   /** 当前已加载的 todos 树（父组件持有） */
   tree: ProjectTodoNode[];
-  orderId: string;
-  /** 文件上传时的存储路径 space，firm 侧传 client 的 space_id */
-  clientSpaceId: string;
+  /** 项目订单 id；catalog 模式下可不传（不加载附件、不订阅 Realtime） */
+  orderId?: string;
+  /** 文件上传时的存储路径 space；catalog 模式下可不传 */
+  clientSpaceId?: string;
   /**
    * 当前查看者角色：决定状态文案语义和操作权限。
    *   'client' — client 用户，只有自己归属(type=client)的 todo 可完整操作
@@ -1090,16 +1143,31 @@ export interface TaxFilingTodosViewProps {
   }) => Promise<{ id: string | null; error: Error | null }>;
   /** 可选：点击「Add a phase」时回调，不传则不显示该入口 */
   onAddPhase?: () => void;
+  /**
+   * Catalog 模式（如 firm SKU 配置）：隐藏状态列与操作按钮、隐藏文件计数与 Upload；
+   * Task 的「-」为删除（onCatalogDeleteItem），名称前责任方可点击切换（onCatalogUpdateType）。
+   */
+  catalogMode?: boolean;
+  /** Catalog 模式：删除条目（task/phase/section） */
+  onCatalogDeleteItem?: (itemId: string) => void;
+  /** Catalog 模式：切换 task 责任方 client ↔ firm */
+  onCatalogUpdateType?: (itemId: string, type: 'client' | 'firm') => void;
+  /** Catalog 模式：phase/section 行点击删除时由外部处理（确认后递归删 sku_item） */
+  onRequestDeletePhase?: (phaseId: string, phaseTitle: string) => void;
 }
 
 export function TaxFilingTodosView({
   tree,
-  orderId,
-  clientSpaceId,
+  orderId = '',
+  clientSpaceId = '',
   viewerRole,
   onRefresh,
   createProjectTodo,
   onAddPhase,
+  catalogMode = false,
+  onCatalogDeleteItem,
+  onCatalogUpdateType,
+  onRequestDeletePhase: onRequestDeletePhaseProp,
 }: TaxFilingTodosViewProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [taskFilesExpanded, setTaskFilesExpanded] = useState<Set<string>>(new Set());
@@ -1137,16 +1205,17 @@ export function TaxFilingTodosView({
     treeRef.current = tree;
   }, [tree]);
 
-  // 初始化/树变化时加载附件
+  // 初始化/树变化时加载附件（catalog 模式不加载）
   useEffect(() => {
+    if (catalogMode) { setTaskFilesMap({}); return; }
     const taskIds = collectTaskIds(tree);
     if (taskIds.length === 0) { setTaskFilesMap({}); return; }
     getAttachmentsByProjectTodoIds(taskIds).then(setTaskFilesMap).catch(() => {});
-  }, [tree]);
+  }, [tree, catalogMode]);
 
-  // Supabase Realtime：project_todos / project_todo_attachments 变更时局部自动刷新
+  // Supabase Realtime：project_todos / project_todo_attachments 变更时局部自动刷新（catalog 模式不订阅）
   useEffect(() => {
-    if (Platform.OS === 'web') return;
+    if (catalogMode || Platform.OS === 'web' || !orderId) return;
     let todosChannel: ReturnType<typeof supabase.channel> | null = null;
     let attachmentsChannel: ReturnType<typeof supabase.channel> | null = null;
     let refreshTreeTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -1831,13 +1900,16 @@ export function TaxFilingTodosView({
                 onRequestMoveFile={onRequestMoveFile}
                 onFileRowPress={onFileRowPress}
                 onHandoffTask={onHandoffTask}
-                onRequestDeletePhase={handleRequestDeletePhase}
+                onRequestDeletePhase={onRequestDeletePhaseProp ?? handleRequestDeletePhase}
                 phaseAndSectionWithWbs={phaseAndSectionWithWbs}
                 rowFileColHoverId={rowFileColHoverId}
                 setRowFileColHoverId={setRowFileColHoverId}
                 hideFileColTimeoutRef={hideFileColTimeoutRef}
                 rowIdShowingStatusVerb={rowIdShowingStatusVerb}
                 setRowIdShowingStatusVerb={setRowIdShowingStatusVerb}
+                catalogMode={catalogMode}
+                onCatalogDeleteItem={onCatalogDeleteItem}
+                onCatalogUpdateType={onCatalogUpdateType}
               />
             </View>
           ))}
@@ -2283,10 +2355,26 @@ const ts = StyleSheet.create({
   restoreTaskBtnHotzone: { alignSelf: 'stretch', justifyContent: 'center', marginLeft: 2, cursor: 'pointer', minWidth: 20 } as any,
   terminateTaskBtnIcon: { height: 20, width: 20, justifyContent: 'center', alignItems: 'center', transform: [{ translateY: 1 }] },
   restoreTaskBtnIcon: { height: 20, width: 20, justifyContent: 'center', alignItems: 'center', transform: [{ translateY: 1 }] },
-  addIconSlot: { width: 24, height: 20, justifyContent: 'center', alignItems: 'center' },
+  addIconSlot: { width: 96, height: 20, justifyContent: 'center', alignItems: 'flex-start', marginLeft: 8 },
   wbsColText: { fontSize: 11, color: '#95A5A6', fontWeight: '500' },
   titleColumnTrailingInner: { flex: 1, minWidth: 0 },
   addChildBtn: { padding: 0, marginLeft: 0, marginTop: 2 },
+  addChildPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    marginTop: 3,
+  },
+  addChildPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#6C5CE7',
+  },
+  addChildPillTextActive: {
+    color: '#4C33C7',
+  },
   pendingAddRow: { minHeight: 40 },
   pendingAddInputRow: { flex: 1, flexDirection: 'row', alignItems: 'center', minWidth: 0, gap: 6 },
   pendingAddInput: {
@@ -2591,8 +2679,8 @@ const ts = StyleSheet.create({
     backgroundColor: '#F1F3F5',
   },
   depsPickerSecondaryText: { fontSize: 13, color: '#636E72', fontWeight: '500' },
-  /** Phase 行删除图标：红底白标，与 + 同 marginTop 对齐；槽宽收窄、无左间距，使 - 与 + 的间距与名称与 + 一致 */
-  deletePhaseIconSlot: { width: 14, marginLeft: 0 },
+  /** Phase 行删除图标：红底白标，与 + 同 marginTop 对齐；名称与 -、- 与 + 的间距略增 */
+  deletePhaseIconSlot: { width: 14, marginLeft: 8 },
   deletePhaseIconWrap: { padding: 0, marginLeft: 0, marginTop: 2 },
   deletePhaseIconBtn: {
     width: 12,

@@ -285,23 +285,26 @@ export async function getOrderHeaderForClient(orderId: string): Promise<{
   };
 }
 
-/** 根据 skuId 获取 SKU 基本信息（名称、说明、封面、报税辖区与场景） */
-export async function getSkuById(skuId: string): Promise<{ name: string; description?: string | null; imageUrl?: string | null; taxCountry?: string | null; taxScenario?: string | null } | null> {
+/** 根据 skuId 获取 SKU 基本信息（名称、说明、封面、报税辖区与场景、发布状态、模板状态） */
+export async function getSkuById(skuId: string): Promise<{ name: string; description?: string | null; imageUrl?: string | null; taxCountry?: string | null; taxScenario?: string | null; isPublished?: boolean; templateStatus?: 'draft' | 'private' | 'published' | null } | null> {
   const { data, error } = await supabase
     .schema('firm')
     .from('skus')
-    .select('name, description, image_url, tax_country, tax_scenario')
+    .select('name, description, image_url, tax_country, tax_scenario, is_published, template_status')
     .eq('id', skuId)
     .maybeSingle();
 
   if (error || !data) return null;
   const row = data as any;
+  const templateStatus = row.template_status === 'draft' || row.template_status === 'private' || row.template_status === 'published' ? row.template_status : null;
   return {
     name: row.name ?? '',
     description: row.description ?? null,
     imageUrl: row.image_url ?? null,
     taxCountry: row.tax_country ?? null,
     taxScenario: row.tax_scenario ?? null,
+    isPublished: row.is_published ?? false,
+    templateStatus: templateStatus ?? undefined,
   };
 }
 
@@ -1782,22 +1785,48 @@ export async function getFirmSkus(firmSpaceId: string): Promise<FirmSku[]> {
     }
   }
 
-  return rows.map((row: any) => ({
-    id: row.id,
-    firmSpaceId: row.firm_space_id,
-    name: row.name,
-    description: row.description ?? undefined,
-    imageUrl: row.image_url ?? null,
-    isPublished: row.is_published ?? false,
-    itemsCount: itemsCountMap[row.id] ?? 0,
-    taxCountry: row.tax_country ?? null,
-    taxScenario: row.tax_scenario ?? null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+  return rows.map((row: any) => {
+    const templateStatus = row.template_status === 'draft' || row.template_status === 'private' || row.template_status === 'published' ? row.template_status : null;
+    return {
+      id: row.id,
+      firmSpaceId: row.firm_space_id,
+      name: row.name,
+      description: row.description ?? undefined,
+      imageUrl: row.image_url ?? null,
+      isPublished: row.is_published ?? false,
+      templateStatus: templateStatus ?? undefined,
+      itemsCount: itemsCountMap[row.id] ?? 0,
+      taxCountry: row.tax_country ?? null,
+      taxScenario: row.tax_scenario ?? null,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  });
 }
 
-/** Firm 空间：更新 SKU（名称、介绍、封面图、报税国别与场景） */
+/** Firm 空间：删除单个服务 SKU 及其关联的 sku_items */
+export async function deleteFirmSku(firmSkuId: string): Promise<void> {
+  // 先删 sku_items，再删 skus（即使数据库有 ON DELETE CASCADE，这里也显式清理，避免残留）
+  const { error: itemsErr } = await supabase
+    .schema('firm')
+    .from('sku_items')
+    .delete()
+    .eq('sku_id', firmSkuId);
+  if (itemsErr) {
+    console.error('deleteFirmSku sku_items:', itemsErr);
+  }
+
+  const { error } = await supabase
+    .schema('firm')
+    .from('skus')
+    .delete()
+    .eq('id', firmSkuId);
+  if (error) {
+    console.error('deleteFirmSku skus:', error);
+  }
+}
+
+/** Firm 空间：更新 SKU（名称、介绍、封面图、报税国别与场景、模板状态） */
 export async function updateFirmSku(
   skuId: string,
   payload: {
@@ -1805,6 +1834,7 @@ export async function updateFirmSku(
     description?: string | null;
     imageUrl?: string | null;
     isPublished?: boolean;
+    templateStatus?: 'draft' | 'private' | 'published';
     taxCountry?: string | null;
     taxScenario?: string | null;
   }
@@ -1813,7 +1843,12 @@ export async function updateFirmSku(
   if (payload.name !== undefined) updates.name = payload.name;
   if (payload.description !== undefined) updates.description = payload.description;
   if (payload.imageUrl !== undefined) updates.image_url = payload.imageUrl;
-  if (payload.isPublished !== undefined) updates.is_published = payload.isPublished;
+  if (payload.templateStatus !== undefined) {
+    updates.template_status = payload.templateStatus;
+    updates.is_published = payload.templateStatus === 'published';
+  } else if (payload.isPublished !== undefined) {
+    updates.is_published = payload.isPublished;
+  }
   if (payload.taxCountry !== undefined) updates.tax_country = payload.taxCountry;
   if (payload.taxScenario !== undefined) updates.tax_scenario = payload.taxScenario;
   const { error } = await supabase

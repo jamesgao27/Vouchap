@@ -1,5 +1,6 @@
 /**
- * Firm - Service Catalog: 平铺多列宫格卡片，海报样式（封面图 + 名称 + 介绍），支持每个服务包编辑（图片、介绍）。
+ * Firm - Service Catalog: 完全复用 client 侧项目列表的卡片/列表（ProjectListCardAndRow），样式与交互一致。
+ * 点击卡片/行进入 SKU 详情（Info Tab），列表末尾提供「New service」入口。
  */
 import { useEffect, useState, useCallback } from 'react';
 import {
@@ -9,48 +10,108 @@ import {
   ScrollView,
   ActivityIndicator,
   TouchableOpacity,
-  TextInput,
-  Image,
   Platform,
   RefreshControl,
   useWindowDimensions,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getCurrentSpace } from '@/lib/auth';
-import { getFirmTemplates, updateFirmSku } from '@/lib/firm';
-import { uploadFirmSkuImage } from '@/lib/supabase';
-import RightSidePanel from '@/components/RightSidePanel';
-import type { FirmTemplate } from '@/types';
+import { getFirmSkus, updateFirmSku } from '@/lib/firm';
+import { supabase } from '@/lib/supabase';
+import {
+  ProjectListCard,
+  ProjectListRow,
+  GRID_GAP,
+  LIST_ROW_MIN_HEIGHT,
+  projectListStyles,
+  type ProjectListCardItem,
+} from '@/components/ProjectListCardAndRow';
+import type { FirmSku } from '@/types';
 
-const CARD_MIN_WIDTH = 240;   // 160 * 1.5
-const CARD_MAX_WIDTH = 360;   // 220 * 1.5
-const GRID_GAP = 16;
-/** 图片区域：1/POSTER_ASPECT 为 width/height，POSTER_ASPECT 越大图片越高 */
-const POSTER_ASPECT = 4 / 3;
+const CARD_MAX_WIDTH = 320;
+
+// 与 SKU Info 页的标签配色保持一致的调色板与 hash 映射
+const TAG_PALETTE: [string, string][] = [
+  ['#EDE9FD', '#6C5CE7'],
+  ['#E3F2FD', '#1E88E5'],
+  ['#E8F5E9', '#27AE60'],
+  ['#FFF3E0', '#E67E22'],
+  ['#FCE4EC', '#E91E63'],
+  ['#E8EAF6', '#3F51B5'],
+  ['#E0F7FA', '#00838F'],
+  ['#FFF8E1', '#F9A825'],
+];
+function getTagColor(s: string): [string, string] {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xfffff;
+  return TAG_PALETTE[Math.abs(h) % TAG_PALETTE.length]!;
+}
+
+type ViewMode = 'grid' | 'list';
+
+function skuToItem(
+  sku: FirmSku,
+): ProjectListCardItem {
+  const isPublished = sku.isPublished === true;
+  const hasSetup = !!sku.taxCountry || !!sku.taxScenario;
+
+  let statusLabel: 'Draft' | 'Private' | 'Published';
+  let statusColor: string;
+  if (sku.templateStatus === 'draft' || sku.templateStatus === 'private' || sku.templateStatus === 'published') {
+    statusLabel = sku.templateStatus === 'published' ? 'Published' : sku.templateStatus === 'private' ? 'Private' : 'Draft';
+    statusColor = statusLabel === 'Published' ? '#00B894' : statusLabel === 'Private' ? '#0984E3' : '#636E72';
+  } else if (isPublished) {
+    statusLabel = 'Published';
+    statusColor = '#00B894';
+  } else if (hasSetup) {
+    statusLabel = 'Private';
+    statusColor = '#0984E3';
+  } else {
+    statusLabel = 'Draft';
+    statusColor = '#636E72';
+  }
+
+  const classificationTags: { label: string; bg: string; fg: string }[] = [];
+  if (sku.taxCountry) {
+    const [bg, fg] = getTagColor(sku.taxCountry);
+    classificationTags.push({ label: sku.taxCountry, bg, fg });
+  }
+  if (sku.taxScenario) {
+    const [bg, fg] = getTagColor(sku.taxScenario);
+    classificationTags.push({ label: sku.taxScenario, bg, fg });
+  }
+
+  let statusCorner: { label: string; bg: string } | null = null;
+  if (statusLabel === 'Draft') {
+    statusCorner = { label: 'Draft', bg: statusColor };
+  } else if (statusLabel === 'Private') {
+    statusCorner = { label: 'Private', bg: statusColor };
+  } else if (statusLabel === 'Published') {
+    statusCorner = { label: 'Published', bg: statusColor };
+  }
+
+  return {
+    id: sku.id,
+    displayName: sku.name ?? '—',
+    imageUrl: sku.imageUrl ?? null,
+    tagPill: null,
+    statusLabel,
+    statusColor,
+    statusCorner,
+    classificationTags: classificationTags.length > 0 ? classificationTags : null,
+    footerText: null,
+    progress: null,
+    action: null,
+  };
+}
 
 export default function FirmServiceCatalogScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [templates, setTemplates] = useState<FirmTemplate[]>([]);
-  const [editingSku, setEditingSku] = useState<FirmTemplate | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editDescription, setEditDescription] = useState('');
-  const [editImageUri, setEditImageUri] = useState<string | null>(null);
-  const [editTaxCountry, setEditTaxCountry] = useState<string>('');
-  const [editTaxScenario, setEditTaxScenario] = useState<string>('');
-  const [saving, setSaving] = useState(false);
-
-  const TAX_COUNTRY_OPTIONS = [{ value: '', label: '—' }, { value: 'CANADA', label: 'Canada' }, { value: 'USA', label: 'USA' }];
-  const TAX_SCENARIO_OPTIONS = [
-    { value: '', label: '—' },
-    { value: 'T1', label: 'T1' },
-    { value: 'T2', label: 'T2' },
-    { value: '1040', label: '1040' },
-    { value: '1120-S', label: '1120-S' },
-  ];
+  const [skus, setSkus] = useState<FirmSku[]>([]);
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const { width: windowWidth } = useWindowDimensions();
 
   const loadData = useCallback(async (forceRefresh = false) => {
@@ -59,8 +120,8 @@ export default function FirmServiceCatalogScreen() {
       router.replace('/');
       return;
     }
-    const list = await getFirmTemplates(space.id);
-    setTemplates(list);
+    const list = await getFirmSkus(space.id);
+    setSkus(list);
   }, [router]);
 
   useEffect(() => {
@@ -71,73 +132,62 @@ export default function FirmServiceCatalogScreen() {
     })();
   }, [loadData]);
 
+  useFocusEffect(
+    useCallback(() => {
+      loadData(true);
+    }, [loadData]),
+  );
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     await loadData(true);
     setRefreshing(false);
   }, [loadData]);
 
-  const openEdit = useCallback((t: FirmTemplate) => {
-    setEditingSku(t);
-    setEditName(t.name);
-    setEditDescription(t.description ?? '');
-    setEditImageUri(null);
-    setEditTaxCountry(t.taxCountry ?? '');
-    setEditTaxScenario(t.taxScenario ?? '');
-  }, []);
+  const openEdit = useCallback((s: FirmSku) => {
+    router.push(`/firm/sku/${s.id}?tab=info&edit=1`);
+  }, [router]);
 
-  const pickImage = useCallback(async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
-        aspect: [3, 4],
-        quality: 0.9,
-      });
-      if (!result.canceled && result.assets[0]) {
-        setEditImageUri(result.assets[0].uri);
-      }
-    } catch (e) {
-      if (typeof window !== 'undefined') window.alert('Failed to pick image.');
-    }
-  }, []);
+  const goToDetail = useCallback((sku: FirmSku) => {
+    router.push(`/firm/sku/${sku.id}`);
+  }, [router]);
 
-  const saveEdit = useCallback(async () => {
-    if (!editingSku) return;
-    setSaving(true);
+  const handleCreateSku = useCallback(async () => {
     try {
-      let imageUrl: string | null = editingSku.imageUrl ?? null;
-      if (editImageUri) {
-        const url = await uploadFirmSkuImage(editImageUri, editingSku.id);
-        imageUrl = url;
-      }
-      const { error } = await updateFirmSku(editingSku.id, {
-        name: editName.trim() || editingSku.name,
-        description: editDescription.trim() || null,
-        imageUrl: imageUrl ?? undefined,
-      });
-      if (error) {
-        if (typeof window !== 'undefined') window.alert(error.message);
+      const space = await getCurrentSpace(true);
+      if (!space?.id || space.kind !== 'firm') return;
+      const { data, error } = await supabase
+        .schema('firm')
+        .from('skus')
+        .insert({
+          firm_space_id: space.id,
+          name: 'New Template',
+          description: null,
+          image_url: null,
+          is_published: false,
+          template_status: 'draft',
+        })
+        .select('*')
+        .single();
+      if (error || !data) {
+        if (typeof window !== 'undefined') window.alert('Failed to create service');
         return;
       }
-      setEditingSku(null);
-      await loadData(true);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
-      if (typeof window !== 'undefined') window.alert(msg || 'Save failed');
-    } finally {
-      setSaving(false);
+      router.push(`/firm/sku/${data.id}?tab=todos&edit=1&isNew=1`);
+    } catch {
+      if (typeof window !== 'undefined') window.alert('Failed to create service');
     }
-  }, [editingSku, editName, editDescription, editImageUri, editTaxCountry, editTaxScenario, loadData]);
+  }, [loadData, router]);
 
   const numColumns = Platform.select({
-    web: Math.max(2, Math.floor((windowWidth - 48) / (CARD_MIN_WIDTH + GRID_GAP))),
+    web: Math.max(2, Math.floor((windowWidth - 48) / (200 + GRID_GAP))),
     default: 2,
   });
   const cardWidth =
     Platform.OS === 'web'
       ? Math.min(CARD_MAX_WIDTH, (windowWidth - 48 - GRID_GAP * (numColumns - 1)) / numColumns)
       : (windowWidth - 40 - GRID_GAP) / 2;
+  const listStyle = projectListStyles.list;
 
   return (
     <ScrollView
@@ -146,166 +196,86 @@ export default function FirmServiceCatalogScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <Text style={styles.subtitle}>
-        Here you can edit the standard service content and document checklist of the service packages you offer to clients, and publish them to Vouchap's service marketplace.
+        Manage your Service Catalog: edit each Service Template and its document checklist.
       </Text>
       {loading ? (
         <ActivityIndicator size="large" color="#6C5CE7" style={styles.loader} />
-      ) : templates.length === 0 ? (
+      ) : skus.length === 0 ? (
         <View style={styles.empty}>
           <Text style={styles.emptyText}>
-            No service catalog yet. Add in Supabase firm.skus and firm.sku_items.
+            No Service Templates yet. Create one to build your catalog and checklists.
           </Text>
         </View>
       ) : (
-        <View style={styles.grid}>
-          {templates.map((t) => {
-            const imageUrl = t.imageUrl ?? null;
-            return (
+        <>
+          <View style={styles.header}>
+            <Text style={styles.sectionTitle}>Service Templates</Text>
+            <View style={styles.viewToggle}>
               <TouchableOpacity
-                key={t.id}
-                style={[styles.card, { width: cardWidth }]}
-                activeOpacity={0.85}
-                onPress={() => openEdit(t)}
+                style={[styles.viewToggleBtn, viewMode === 'grid' && styles.viewToggleBtnActive]}
+                onPress={() => setViewMode('grid')}
+                activeOpacity={0.7}
               >
-                <View style={[styles.posterImageWrap, { aspectRatio: 1 / POSTER_ASPECT }]}>
-                  {imageUrl ? (
-                    <Image source={{ uri: imageUrl }} style={styles.posterImage} resizeMode="cover" />
-                  ) : (
-                    <View style={styles.posterPlaceholder}>
-                      <Ionicons name="image-outline" size={40} color="#B2BEC3" />
-                      <Text style={styles.posterPlaceholderText}>Cover</Text>
-                    </View>
-                  )}
-                </View>
-                <View style={styles.posterBody}>
-                  <View style={styles.posterBodyContent}>
-                    <Text style={styles.cardTitle} numberOfLines={1} ellipsizeMode="tail">
-                      {t.name}
-                    </Text>
-                    {t.description ? (
-                      <Text style={styles.cardDesc} numberOfLines={3} ellipsizeMode="tail">
-                        {t.description}
-                      </Text>
-                    ) : null}
-                    {(t.taxCountry || t.taxScenario) ? (
-                      <Text style={styles.cardTaxBadge} numberOfLines={1}>
-                        {[t.taxCountry, t.taxScenario].filter(Boolean).join(' · ')}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <View style={styles.itemRow}>
-                    <Text style={styles.itemCount}>Items: {t.items?.length ?? 0}</Text>
-                    <View style={styles.itemRowRight}>
-                      <TouchableOpacity
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        onPress={(e) => {
-                          e?.stopPropagation?.();
-                          router.push(`/firm/sku/${t.id}`);
-                        }}
-                        style={styles.viewWbsLink}
-                      >
-                        <Text style={styles.viewWbsLinkText}>Configure ›</Text>
-                      </TouchableOpacity>
-                      <Ionicons
-                        name={t.isPublished ? 'eye' : 'eye-off-outline'}
-                        size={18}
-                        color={t.isPublished ? '#27AE60' : '#95A5A6'}
-                      />
-                    </View>
-                  </View>
+                <Ionicons name="grid-outline" size={20} color={viewMode === 'grid' ? '#6C5CE7' : '#636E72'} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.viewToggleBtn, viewMode === 'list' && styles.viewToggleBtnActive]}
+                onPress={() => setViewMode('list')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="list" size={22} color={viewMode === 'list' ? '#6C5CE7' : '#636E72'} />
+              </TouchableOpacity>
+            </View>
+          </View>
+          {viewMode === 'list' ? (
+            <View style={listStyle}>
+              {skus.map((s) => {
+                const item = skuToItem(s);
+                return (
+                  <ProjectListRow
+                    key={s.id}
+                    item={item}
+                    onPress={() => goToDetail(s)}
+                    onSettings={() => openEdit(s)}
+                  />
+                );
+              })}
+              <TouchableOpacity style={styles.addListRow} onPress={handleCreateSku} activeOpacity={0.8}>
+                <View style={styles.addListRowSpacer} />
+                <View style={styles.addListRowContent}>
+                  <Ionicons name="add-circle-outline" size={26} color="#6C5CE7" />
+                  <Text style={styles.addListRowText}>New Template</Text>
                 </View>
               </TouchableOpacity>
-            );
-          })}
-        </View>
-      )}
-
-      <RightSidePanel
-        visible={!!editingSku}
-        title="Edit Service Catalog"
-        onClose={() => setEditingSku(null)}
-      >
-        {editingSku && (
-          <>
-            <TouchableOpacity style={styles.editImageWrap} onPress={pickImage} activeOpacity={0.8}>
-              {editImageUri ? (
-                <Image source={{ uri: editImageUri }} style={styles.editImage} resizeMode="cover" />
-              ) : editingSku.imageUrl ? (
-                <Image
-                  source={{ uri: editingSku.imageUrl }}
-                  style={styles.editImage}
-                  resizeMode="cover"
-                />
-              ) : (
-                <View style={styles.editImagePlaceholder}>
-                  <Ionicons name="image-outline" size={48} color="#B2BEC3" />
-                  <Text style={styles.editImagePlaceholderText}>Tap to add cover</Text>
+            </View>
+          ) : (
+            <View style={styles.grid}>
+              {skus.map((s) => {
+                const item = skuToItem(s);
+                return (
+                  <ProjectListCard
+                    key={s.id}
+                    item={item}
+                    cardWidth={cardWidth}
+                    onPress={() => goToDetail(s)}
+                    onSettings={() => openEdit(s)}
+                  />
+                );
+              })}
+              <TouchableOpacity
+                style={[styles.addCardWrap, { width: cardWidth }]}
+                onPress={handleCreateSku}
+                activeOpacity={0.85}
+              >
+                <View style={styles.addCardInner}>
+                  <Ionicons name="add-circle-outline" size={26} color="#6C5CE7" />
+                  <Text style={styles.addCardText}>New Template</Text>
                 </View>
-              )}
-            </TouchableOpacity>
-            <Text style={styles.editLabel}>Name</Text>
-            <TextInput
-              style={styles.editInput}
-              value={editName}
-              onChangeText={setEditName}
-              placeholder="Service catalog name"
-              placeholderTextColor="#95A5A6"
-            />
-            <Text style={styles.editLabel}>Intro / Description</Text>
-            <TextInput
-              style={[styles.editInput, styles.editInputMultiline]}
-              value={editDescription}
-              onChangeText={setEditDescription}
-              placeholder="Short intro or description"
-              placeholderTextColor="#95A5A6"
-              multiline
-              numberOfLines={3}
-            />
-            <Text style={styles.editLabel}>报税辖区 (Tax jurisdiction)</Text>
-            <View style={styles.editOptionRow}>
-              {TAX_COUNTRY_OPTIONS.map((opt) => (
-                <TouchableOpacity
-                  key={opt.value || '_'}
-                  style={[styles.editOptionBtn, editTaxCountry === opt.value && styles.editOptionBtnActive]}
-                  onPress={() => setEditTaxCountry(opt.value)}
-                >
-                  <Text style={[styles.editOptionBtnText, editTaxCountry === opt.value && styles.editOptionBtnTextActive]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              </TouchableOpacity>
             </View>
-            <Text style={styles.editLabel}>报税场景 (Tax scenario)</Text>
-            <View style={styles.editOptionRowWrap}>
-              {TAX_SCENARIO_OPTIONS.map((opt) => (
-                <TouchableOpacity
-                  key={opt.value || '_'}
-                  style={[styles.editOptionBtn, editTaxScenario === opt.value && styles.editOptionBtnActive]}
-                  onPress={() => setEditTaxScenario(opt.value)}
-                >
-                  <Text style={[styles.editOptionBtnText, editTaxScenario === opt.value && styles.editOptionBtnTextActive]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <TouchableOpacity
-              style={[styles.saveBtn, saving && styles.saveBtnDisabled]}
-              onPress={saveEdit}
-              disabled={saving}
-            >
-              {saving ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="checkmark" size={20} color="#fff" />
-                  <Text style={styles.saveBtnText}>Save</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </>
-        )}
-      </RightSidePanel>
+          )}
+        </>
+      )}
     </ScrollView>
   );
 }
@@ -315,155 +285,65 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   subtitle: { fontSize: 14, color: '#636E72', marginBottom: 24 },
   loader: { marginTop: 40 },
-  empty: { marginTop: 24 },
+  empty: { marginTop: 24, alignItems: 'flex-start', gap: 12 },
   emptyText: { fontSize: 14, color: '#95A5A6' },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: GRID_GAP,
-  },
-  card: {
-    backgroundColor: '#FFF',
-    borderRadius: 12,
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  posterImageWrap: {
-    width: '100%',
-    backgroundColor: '#E9ECEF',
-  },
-  posterImage: {
-    width: '100%',
-    height: '100%',
-  },
-  posterPlaceholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  posterPlaceholderText: { fontSize: 12, color: '#95A5A6', marginTop: 4 },
-  posterBody: {
-    padding: 18,
-    height: 140,
-    flexDirection: 'column',
-    justifyContent: 'space-between',
-  },
-  posterBodyContent: { flex: 1, minHeight: 80, overflow: 'hidden' },
-  cardTitle: { fontSize: 14, fontWeight: '600', color: '#2D3436', lineHeight: 20 },
-  cardDesc: { fontSize: 13, color: '#636E72', marginTop: 6, lineHeight: 18 },
-  cardTaxBadge: { fontSize: 11, color: '#6C5CE7', marginTop: 4 },
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  addFirstBtn: {
     marginTop: 8,
-  },
-  itemRowRight: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  itemCount: { fontSize: 11, color: '#95A5A6' },
-  viewWbsLink: { paddingVertical: 4, paddingHorizontal: 0 },
-  viewWbsLinkText: { fontSize: 12, color: '#6C5CE7', fontWeight: '500' },
-  modalOverlay: {
-    flex: 1,
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    backgroundColor: 'transparent',
-  },
-  modalBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0,0,0,0.4)',
-  },
-  modalSheet: {
-    width: 400,
-    maxWidth: '90%',
-    height: '100%',
-    backgroundColor: '#FFF',
-    borderTopLeftRadius: 16,
-    borderBottomLeftRadius: 16,
-    padding: 20,
-    paddingBottom: 40,
-    shadowColor: '#000',
-    shadowOffset: { width: -4, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  modalHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  modalTitle: { fontSize: 18, fontWeight: '600', color: '#2D3436' },
-  modalBody: { flex: 1, minHeight: 0 },
-  modalBodyContent: { paddingBottom: 24 },
-  editImageWrap: {
-    width: '100%',
-    aspectRatio: 3 / 4,
-    maxHeight: 200,
-    backgroundColor: '#E9ECEF',
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginBottom: 16,
-  },
-  editImage: { width: '100%', height: '100%' },
-  editImagePlaceholder: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  editImagePlaceholderText: { fontSize: 14, color: '#95A5A6', marginTop: 8 },
-  editLabel: { fontSize: 14, fontWeight: '500', color: '#2D3436', marginBottom: 6 },
-  editInput: {
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 16,
-    color: '#2D3436',
-    marginBottom: 16,
-  },
-  editInputMultiline: { minHeight: 80, textAlignVertical: 'top' },
-  editOptionRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
-  },
-  editOptionRowWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 16,
-  },
-  editOptionBtn: {
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    backgroundColor: '#FFF',
-  },
-  editOptionBtnActive: {
-    borderColor: '#6C5CE7',
-    backgroundColor: '#F0EEFF',
-  },
-  editOptionBtnText: { fontSize: 14, color: '#636E72' },
-  editOptionBtnTextActive: { color: '#6C5CE7', fontWeight: '600' },
-  saveBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
+    gap: 6,
     backgroundColor: '#6C5CE7',
-    paddingVertical: 14,
-    borderRadius: 10,
-    marginTop: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
   },
-  saveBtnDisabled: { opacity: 0.6 },
-  saveBtnText: { fontSize: 16, fontWeight: '600', color: '#fff' },
+  addFirstBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#2D3436' },
+  viewToggle: { flexDirection: 'row', gap: 4 },
+  viewToggleBtn: { padding: 8, borderRadius: 8 },
+  viewToggleBtnActive: { backgroundColor: '#EDE9FE' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },
+  addCardWrap: {
+    maxWidth: CARD_MAX_WIDTH,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    borderStyle: 'dashed',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#FBFCFF',
+  },
+  addCardInner: {
+    width: '100%',
+    height: '100%',
+    minHeight: 180,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+  },
+  addCardText: { fontSize: 14, fontWeight: '600', color: '#6C5CE7' },
+  addListRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: LIST_ROW_MIN_HEIGHT,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    backgroundColor: '#FFF',
+    borderTopWidth: 1,
+    borderTopColor: '#E9ECEF',
+  },
+  addListRowSpacer: {
+    width: 28,
+    minWidth: 28,
+    marginLeft: -12,
+    marginRight: 0,
+  },
+  addListRowContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginLeft: 4 + 64 + 12,
+  },
+  addListRowText: { fontSize: 14, fontWeight: '600', color: '#6C5CE7' },
 });

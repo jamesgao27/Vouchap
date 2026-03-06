@@ -466,7 +466,10 @@ export default function FirmClientsScreen() {
     setInviteExpiresInDays(7);
     if (!firmSpaceId) return;
     if (inviteSkus.length === 0) {
-      const skus = await getFirmSkus(firmSpaceId);
+      const all = await getFirmSkus(firmSpaceId);
+      const skus = all.filter(
+        (s) => (s.templateStatus != null ? s.templateStatus !== 'draft' : (s.isPublished === true || !!s.taxCountry || !!s.taxScenario))
+      );
       setInviteSkus(skus);
       if (skus.length > 0) {
         setInviteSkuId((prev) => prev ?? skus[0].id);
@@ -480,7 +483,7 @@ export default function FirmClientsScreen() {
     setInviteHistoryLoading(true);
     setInviteHistoryError(null);
 
-    const [historyRes, skus] = await Promise.all([
+    const [historyRes, allSkus] = await Promise.all([
       getFirmClientInviteHistory(firmSpaceId),
       inviteSkus.length === 0 ? getFirmSkus(firmSpaceId) : Promise.resolve(null),
     ]);
@@ -493,7 +496,10 @@ export default function FirmClientsScreen() {
       setInviteHistory(historyRes.invites);
     }
 
-    if (skus && Array.isArray(skus)) {
+    if (allSkus && Array.isArray(allSkus)) {
+      const skus = allSkus.filter(
+        (s) => (s.templateStatus != null ? s.templateStatus !== 'draft' : (s.isPublished === true || !!s.taxCountry || !!s.taxScenario))
+      );
       setInviteSkus(skus);
     }
   }, [firmSpaceId, inviteSkus.length]);
@@ -851,15 +857,15 @@ export default function FirmClientsScreen() {
       >
         <View style={styles.inviteHeader}>
           <Text style={styles.inviteSubtitle}>
-            Step 1: choose a Service catalog for this engagement.{'\n'}Step 2: configure invite expiry and share the link / QR code.
+            Step 1: choose a Service Template for this engagement.{'\n'}Step 2: configure invite expiry and share the link / QR code.
           </Text>
         </View>
         <View style={styles.inviteBodyRow}>
           <View style={styles.inviteLeftColumn}>
-            <Text style={styles.inviteSectionTitle}>Step 1 · Select Service catalog</Text>
+            <Text style={styles.inviteSectionTitle}>Step 1 · Select Service Template</Text>
             <View style={styles.inviteSkuTable}>
               <View style={styles.inviteSkuHeaderRow}>
-                <Text style={[styles.inviteSkuHeaderText, { flex: 1.6 }]}>Service catalog</Text>
+                <Text style={[styles.inviteSkuHeaderText, { flex: 1.6 }]}>Service Template</Text>
                 <Text style={[styles.inviteSkuHeaderText, { flex: 2 }]}>Description</Text>
                 <Text style={[styles.inviteSkuHeaderText, { width: 60, textAlign: 'right' }]}>Items</Text>
               </View>
@@ -910,7 +916,7 @@ export default function FirmClientsScreen() {
                   </TouchableOpacity>
                 ))}
                 {inviteSkus.length === 0 && (
-                  <Text style={styles.inviteHintText}>Please configure Service catalog in the Firm module first.</Text>
+                  <Text style={styles.inviteHintText}>Please configure Service Catalog in the Firm module first.</Text>
                 )}
               </ScrollView>
             </View>
@@ -1028,7 +1034,7 @@ export default function FirmClientsScreen() {
         <View style={styles.inviteHistoryContainer}>
           <View style={styles.inviteHeader}>
             <Text style={styles.inviteSubtitle}>
-              Review all open invites sent by this firm, including initiator, Service catalog, expiry and how many client spaces joined.
+              Review all open invites sent by this firm, including initiator, Service Template, expiry and how many client spaces joined.
             </Text>
           </View>
           {inviteHistoryLoading ? (
@@ -1040,7 +1046,7 @@ export default function FirmClientsScreen() {
               <View style={styles.inviteHistoryTable}>
                 <View style={[styles.inviteSkuHeaderRow, styles.inviteHistoryHeaderRow]}>
                   <View style={styles.inviteHistoryColService}>
-                    <Text style={styles.inviteSkuHeaderText}>Service catalog</Text>
+                    <Text style={styles.inviteSkuHeaderText}>Service Template</Text>
                   </View>
                   <View style={styles.inviteHistoryColExpiry}>
                     <Text style={styles.inviteSkuHeaderText}>Expiry</Text>

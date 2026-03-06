@@ -10,13 +10,45 @@ import {
   ScrollView,
   TouchableOpacity,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { TaxFilingTodosView } from '@/components/TaxFilingTodosView';
 import { ProjectInfoTab, type ProjectInfoTabHandle } from '../app/tax-filing/project/[projectId]/info';
 import type { ProjectTodoNode } from '@/lib/firm';
+import type { FirmSkuItem } from '@/types';
 import type { ProjectSkuInfo, TodoRow } from '@/components/ProjectSkuDetail';
+
+/** 将 sku_items 转为 TaxFilingTodosView 所需的 ProjectTodoNode 树（与 firm/sku/[skuId] 一致） */
+function skuItemsToProjectTodoTree(items: FirmSkuItem[]): ProjectTodoNode[] {
+  const byParent = new Map<string | null, FirmSkuItem[]>();
+  items.forEach((it) => {
+    const k = it.parentId ?? null;
+    if (!byParent.has(k)) byParent.set(k, []);
+    byParent.get(k)!.push(it);
+  });
+  for (const list of byParent.values()) list.sort((a, b) => a.sortOrder - b.sortOrder);
+  function build(parentKey: string | null, depth: number): ProjectTodoNode[] {
+    const list = byParent.get(parentKey) ?? [];
+    return list.map((it) => ({
+      id: it.id,
+      orderId: '',
+      parentId: it.parentId ?? null,
+      type: it.type,
+      initialResponsibleSide: it.type,
+      title: it.title,
+      description: it.description ?? null,
+      status: 'in_progress' as const,
+      sortOrder: it.sortOrder,
+      depth,
+      itemKind: it.itemKind,
+      dependsOnId: it.dependsOnId ?? null,
+      children: build(it.id, depth + 1),
+    }));
+  }
+  return build(null, 0);
+}
 
 const TAX_SEASON_COLORS = [
   '#6C5CE7', '#E17055', '#00B894', '#0984E3', '#FDCB6E',
@@ -148,8 +180,10 @@ export interface ProjectDetailViewProps {
   /** Firm onboarding */
   skuInfo?: ProjectSkuInfo | null;
   skuTodos?: TodoRow[];
-  onConfirmOrder?: () => void;
-  confirming?: boolean;
+  /** Firm onboarding：SKU 项树，用于与 SKU 详情一致的树形展示（优先于 skuTodos 表格） */
+  skuItems?: FirmSkuItem[];
+  /** Firm onboarding Info 页只读：Classification 用（与 SKU 详情一致） */
+  skuDetailForInfo?: { taxCountry?: string | null; taxScenario?: string | null } | null;
 }
 
 export function ProjectDetailView({
@@ -170,8 +204,8 @@ export function ProjectDetailView({
   createProjectTodo,
   skuInfo,
   skuTodos = [],
-  onConfirmOrder,
-  confirming = false,
+  skuItems,
+  skuDetailForInfo,
 }: ProjectDetailViewProps) {
   const navigation = useNavigation();
 
@@ -212,41 +246,27 @@ export function ProjectDetailView({
 
   return (
     <View style={sharedStyles.container}>
-      {/* 操作行 */}
+      {/* 操作行：Firm onboarding 与已确认态一致，仅 Todos | Info 双 tab，无 Confirm/Edit */}
       <View style={sharedStyles.operationBar}>
-        {isOnboarding && viewerRole === 'firm' ? (
+        <View style={sharedStyles.tabGroup}>
           <TouchableOpacity
-            style={[sharedStyles.opBtn, sharedStyles.opBtnPrimary, confirming && sharedStyles.opBtnDisabled]}
-            onPress={onConfirmOrder}
-            disabled={confirming}
+            style={[sharedStyles.tabChip, activeTab === 'todos' && sharedStyles.tabChipActive]}
+            onPress={() => { setActiveTab('todos'); setInfoEditing(false); }}
             activeOpacity={0.8}
           >
-            {confirming ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Ionicons name="checkmark-circle-outline" size={16} color="#fff" />
-            )}
-            <Text style={sharedStyles.opBtnPrimaryText}>{confirming ? 'Confirming…' : 'Confirm order'}</Text>
+            <Text style={[sharedStyles.tabChipText, activeTab === 'todos' && sharedStyles.tabChipTextActive]}>Todos</Text>
           </TouchableOpacity>
-        ) : (
-          <>
-            <View style={sharedStyles.tabGroup}>
-              <TouchableOpacity
-                style={[sharedStyles.tabChip, activeTab === 'todos' && sharedStyles.tabChipActive]}
-                onPress={() => { setActiveTab('todos'); setInfoEditing(false); }}
-                activeOpacity={0.8}
-              >
-                <Text style={[sharedStyles.tabChipText, activeTab === 'todos' && sharedStyles.tabChipTextActive]}>Todos</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[sharedStyles.tabChip, activeTab === 'info' && sharedStyles.tabChipActive]}
-                onPress={() => setActiveTab('info')}
-                activeOpacity={0.8}
-              >
-                <Text style={[sharedStyles.tabChipText, activeTab === 'info' && sharedStyles.tabChipTextActive]}>Info</Text>
-              </TouchableOpacity>
-            </View>
+          <TouchableOpacity
+            style={[sharedStyles.tabChip, activeTab === 'info' && sharedStyles.tabChipActive]}
+            onPress={() => setActiveTab('info')}
+            activeOpacity={0.8}
+          >
+            <Text style={[sharedStyles.tabChipText, activeTab === 'info' && sharedStyles.tabChipTextActive]}>Info</Text>
+          </TouchableOpacity>
+        </View>
 
+        {!isOnboarding || viewerRole !== 'firm' ? (
+          <>
             {activeTab === 'todos' && (
               <TouchableOpacity style={sharedStyles.operationBtn} onPress={() => {}} activeOpacity={0.7}>
                 <Ionicons name="download-outline" size={16} color="#6C5CE7" />
@@ -285,7 +305,7 @@ export function ProjectDetailView({
               </View>
             )}
           </>
-        )}
+        ) : null}
       </View>
 
       {/* 内容区 */}
@@ -294,24 +314,72 @@ export function ProjectDetailView({
           <Text style={sharedStyles.emptyText}>Accept the order to see checklist</Text>
         </View>
       ) : isOnboarding && viewerRole === 'firm' ? (
-        <ScrollView style={sharedStyles.scroll} contentContainerStyle={sharedStyles.scrollContent}>
-          {skuInfo && (
+        activeTab === 'todos' ? (
+          skuItems && skuItems.length > 0 ? (
+            <TaxFilingTodosView
+              tree={skuItemsToProjectTodoTree(skuItems)}
+              orderId=""
+              clientSpaceId=""
+              viewerRole="firm"
+              onRefresh={async () => {}}
+              createProjectTodo={async () => ({ id: null, error: null })}
+              catalogMode
+            />
+          ) : (
+            <ScrollView style={sharedStyles.scroll} contentContainerStyle={sharedStyles.scrollContent}>
+              <Text style={sharedStyles.sectionTitle}>Work breakdown (WBS)</Text>
+              <SkuWbsPreview todos={skuTodos} />
+            </ScrollView>
+          )
+        ) : (
+          <ScrollView style={sharedStyles.scroll} contentContainerStyle={sharedStyles.scrollContent}>
+            {skuInfo && (
+              <View style={sharedStyles.skuInfoCard}>
+                <View style={sharedStyles.skuInfoHeroRow}>
+                  {skuInfo.imageUrl ? (
+                    <Image source={{ uri: skuInfo.imageUrl }} style={sharedStyles.skuInfoCover} resizeMode="cover" />
+                  ) : (
+                    <View style={sharedStyles.skuInfoCoverPlaceholder}>
+                      <Ionicons name="image-outline" size={30} color="#BDC3C7" />
+                    </View>
+                  )}
+                  <View style={sharedStyles.skuInfoHeroMeta}>
+                    <Text style={sharedStyles.skuInfoName} numberOfLines={3}>{skuInfo.name}</Text>
+                    {skuInfo.description ? (
+                      <Text style={sharedStyles.skuInfoDesc} numberOfLines={5}>{skuInfo.description}</Text>
+                    ) : (
+                      <Text style={sharedStyles.skuInfoDescEmpty}>No description</Text>
+                    )}
+                  </View>
+                </View>
+              </View>
+            )}
             <View style={sharedStyles.skuInfoCard}>
-              <Text style={sharedStyles.skuInfoName}>{skuInfo.name}</Text>
-              {skuInfo.description ? (
-                <Text style={sharedStyles.skuInfoDesc}>{skuInfo.description}</Text>
-              ) : null}
+              <Text style={sharedStyles.skuInfoCardTitle}>Classification</Text>
+              <View style={sharedStyles.skuInfoCfRow}>
+                <View style={sharedStyles.skuInfoCfTagCol}><Text style={sharedStyles.skuInfoCfLabel}>Jurisdiction</Text></View>
+                <View style={sharedStyles.skuInfoCfValueCol}>
+                  {skuDetailForInfo?.taxCountry ? (
+                    <View style={[sharedStyles.skuInfoValuePill, { backgroundColor: '#EDE9FD' }]}>
+                      <Text style={[sharedStyles.skuInfoValuePillText, { color: '#6C5CE7' }]}>{skuDetailForInfo.taxCountry}</Text>
+                    </View>
+                  ) : <Text style={sharedStyles.skuInfoCfEmpty}>—</Text>}
+                </View>
+              </View>
+              <View style={sharedStyles.skuInfoDivider} />
+              <View style={sharedStyles.skuInfoCfRow}>
+                <View style={sharedStyles.skuInfoCfTagCol}><Text style={sharedStyles.skuInfoCfLabel}>Scenario</Text></View>
+                <View style={sharedStyles.skuInfoCfValueCol}>
+                  {skuDetailForInfo?.taxScenario ? (
+                    <View style={[sharedStyles.skuInfoValuePill, { backgroundColor: '#E3F2FD' }]}>
+                      <Text style={[sharedStyles.skuInfoValuePillText, { color: '#1E88E5' }]}>{skuDetailForInfo.taxScenario}</Text>
+                    </View>
+                  ) : <Text style={sharedStyles.skuInfoCfEmpty}>—</Text>}
+                </View>
+              </View>
             </View>
-          )}
-          <Text style={sharedStyles.sectionTitle}>Work breakdown (WBS)</Text>
-          <SkuWbsPreview todos={skuTodos} />
-          <View style={sharedStyles.confirmNote}>
-            <Ionicons name="information-circle-outline" size={16} color="#636E72" />
-            <Text style={sharedStyles.confirmNoteText}>
-              Confirming the order will activate the project and generate all tasks for the client.
-            </Text>
-          </View>
-        </ScrollView>
+          </ScrollView>
+        )
       ) : activeTab === 'info' ? (
         projectId ? (
           <ProjectInfoTab
@@ -414,6 +482,20 @@ const sharedStyles = StyleSheet.create({
   },
   skuInfoName: { fontSize: 18, fontWeight: '700', color: '#2D3436', marginBottom: 6 },
   skuInfoDesc: { fontSize: 14, color: '#636E72', lineHeight: 20 },
+  skuInfoHeroRow: { flexDirection: 'row', gap: 14, alignItems: 'flex-start', marginBottom: 8 },
+  skuInfoCover: { width: 88, height: 88, borderRadius: 10, backgroundColor: '#E9ECEF' },
+  skuInfoCoverPlaceholder: { width: 88, height: 88, borderRadius: 10, backgroundColor: '#E9ECEF', justifyContent: 'center', alignItems: 'center' },
+  skuInfoHeroMeta: { flex: 1, gap: 6, paddingTop: 2 },
+  skuInfoDescEmpty: { fontSize: 13, color: '#B2BEC3', fontStyle: 'italic' },
+  skuInfoCardTitle: { fontSize: 11, fontWeight: '700', color: '#95A5A6', textTransform: 'uppercase', letterSpacing: 0.7, marginBottom: 10 },
+  skuInfoCfRow: { flexDirection: 'row', alignItems: 'center', minHeight: 44, paddingHorizontal: 4, gap: 16 },
+  skuInfoCfTagCol: { width: 90, alignItems: 'flex-end', justifyContent: 'center', flexShrink: 0 },
+  skuInfoCfLabel: { fontSize: 13, fontWeight: '500', color: '#636E72' },
+  skuInfoCfValueCol: { flex: 1, alignItems: 'flex-start', justifyContent: 'center' },
+  skuInfoValuePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
+  skuInfoValuePillText: { fontSize: 12, fontWeight: '600' },
+  skuInfoCfEmpty: { fontSize: 13, color: '#B2BEC3' },
+  skuInfoDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#E9ECEF' },
   sectionTitle: { fontSize: 14, fontWeight: '600', color: '#636E72', marginBottom: 10 },
   skuTable: {
     backgroundColor: '#fff',
