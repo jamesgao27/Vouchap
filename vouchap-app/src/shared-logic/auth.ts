@@ -232,12 +232,18 @@ export async function getCurrentSpace(forceRefresh: boolean = false): Promise<Sp
       return null;
     }
 
+    let firmStatus: 'pending' | 'approved' | undefined;
+    if ((data.kind as string) === 'firm') {
+      const { data: firmRow } = await supabase.schema('firm').from('firms').select('status').eq('space_id', data.id).maybeSingle();
+      firmStatus = (firmRow?.status as 'pending' | 'approved') ?? undefined;
+    }
+
     const space: Space = {
       id: data.id,
       name: data.name,
       address: data.address,
       kind: (data.kind as 'client' | 'firm') || 'client',
-      firmStatus: data.firm_status ?? undefined,
+      firmStatus,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     };
@@ -289,6 +295,17 @@ export async function getUserSpaces(): Promise<UserSpace[]> {
 
     console.log('getUserSpaces: Found', data.length, 'spaces for user', authUser.id);
 
+    const firmSpaceIds = data.filter((row: any) => row.spaces?.kind === 'firm').map((row: any) => row.spaces.id);
+    let firmStatusBySpaceId: Record<string, 'pending' | 'approved'> = {};
+    if (firmSpaceIds.length > 0) {
+      const { data: firmRows } = await supabase.schema('firm').from('firms').select('space_id, status').in('space_id', firmSpaceIds);
+      if (firmRows) {
+        firmRows.forEach((r: { space_id: string; status: string }) => {
+          firmStatusBySpaceId[r.space_id] = r.status as 'pending' | 'approved';
+        });
+      }
+    }
+
     const result = data.map((row: any) => ({
       id: row.id,
       userId: row.user_id,
@@ -298,7 +315,7 @@ export async function getUserSpaces(): Promise<UserSpace[]> {
         name: row.spaces.name,
         address: row.spaces.address,
         kind: (row.spaces.kind as 'client' | 'firm') || 'client',
-        firmStatus: row.spaces.firm_status ?? undefined,
+        firmStatus: row.spaces.kind === 'firm' ? (firmStatusBySpaceId[row.spaces.id] ?? undefined) : undefined,
         createdAt: row.spaces.created_at,
         updatedAt: row.spaces.updated_at,
       } : undefined,
@@ -513,21 +530,16 @@ export async function createSpace(
       expiresIn: session.expires_at ? Math.floor((session.expires_at * 1000 - Date.now()) / 1000) : null,
     });
 
-    // 创建家庭/空间
+    // 创建家庭/空间（firm 状态与证明由 RPC 写入 firm.firms，spaces 仅存 kind）
     const insertData: {
       name: string;
       address?: string;
       kind?: 'client' | 'firm';
-      firm_status?: 'pending' | 'approved' | null;
-      verification_attachment_url?: string | null;
     } = { name, kind };
     if (address && address.trim()) {
       insertData.address = address.trim();
     }
-    if (kind === 'firm') {
-      insertData.firm_status = 'pending';
-      insertData.verification_attachment_url = options!.verificationAttachmentUrl!.trim();
-    }
+    const verificationUrl = kind === 'firm' ? options!.verificationAttachmentUrl!.trim() : null;
     
     // 添加详细的调试信息
     console.log('Attempting to create space:', {
@@ -604,11 +616,11 @@ export async function createSpace(
       p_space_address: insertData.address || null,
       p_user_id: currentUser.id,
       p_kind: insertData.kind ?? 'client',
-      p_firm_verification_url: insertData.verification_attachment_url ?? null,
+      p_firm_verification_url: verificationUrl ?? null,
     });
 
     if (!rpcError && rpcSpaceId) {
-      // RPC 成功，查询创建的 space
+      // RPC 成功，查询创建的 space（firm 状态在 firm.firms，需单独取）
       const { data: fetchedSpace, error: fetchError } = await supabase
         .from('spaces')
         .select('*')
@@ -819,12 +831,18 @@ export async function createSpace(
       }
     }
 
+    let firmStatus: 'pending' | 'approved' | undefined;
+    if ((spaceData.kind as string) === 'firm') {
+      const { data: firmRow } = await supabase.schema('firm').from('firms').select('status').eq('space_id', spaceData.id).maybeSingle();
+      firmStatus = (firmRow?.status as 'pending' | 'approved') ?? undefined;
+    }
+
     const space: Space = {
       id: spaceData.id,
       name: spaceData.name,
       address: spaceData.address,
       kind: (spaceData.kind as 'client' | 'firm') || 'client',
-      firmStatus: spaceData.firm_status ?? undefined,
+      firmStatus,
       createdAt: spaceData.created_at,
       updatedAt: spaceData.updated_at,
     };
