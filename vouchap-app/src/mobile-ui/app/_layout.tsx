@@ -1,11 +1,13 @@
 import { Stack, usePathname } from 'expo-router';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, Platform, Text } from 'react-native';
 import * as Font from 'expo-font';
 import { validateSupabaseConfig } from '@/lib/supabase';
+import { getCurrentSpace } from '@/lib/auth';
 import { ToastHost } from '@/components/ToastHost';
 import { ConfirmModalHost } from '@/components/ConfirmModalHost';
 import WebSidebar, { shouldShowWebSidebar } from '@/components/WebSidebar';
+import { FirmPendingOverlay } from '@/components/FirmPendingOverlay';
 import WebChatFab from '@/components/WebChatFab';
 import WebChatPanel from '@/components/WebChatPanel';
 import { ChatPanelProvider, useChatPanel, type ChatPanelType } from '../contexts/ChatPanelContext';
@@ -63,6 +65,28 @@ function LayoutContent() {
   const pathname = usePathname();
   const showSidebar = Platform.OS === 'web' && shouldShowWebSidebar(pathname ?? '/');
   const { open: chatOpen, setOpen: setChatOpen, setType: setChatType } = useChatPanel();
+  const [currentSpace, setCurrentSpace] = useState<{ kind?: string; firmStatus?: string } | null>(null);
+
+  const loadSpace = useCallback(async () => {
+    try {
+      const space = await getCurrentSpace();
+      setCurrentSpace(space ?? null);
+    } catch {
+      setCurrentSpace(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !showSidebar) return;
+    loadSpace();
+  }, [loadSpace, showSidebar, pathname]);
+
+  const isFirmPending =
+    Platform.OS === 'web' &&
+    showSidebar &&
+    currentSpace?.kind === 'firm' &&
+    currentSpace?.firmStatus !== 'approved';
+  const showFirmPendingOverlay = isFirmPending && (pathname === '/' || pathname === '/index' || (pathname?.startsWith('/firm')));
 
   // Web：根据不同页面应用默认的 chat 开关策略
   useEffect(() => {
@@ -121,6 +145,9 @@ function LayoutContent() {
     <View style={[styles.root, showSidebar && styles.webRow]}>
       {showSidebar && <WebSidebar />}
       <View style={mainAreaStyle}>
+      {showFirmPendingOverlay ? (
+        <FirmPendingOverlay />
+      ) : (
       <Stack screenOptions={{ contentStyle: { flex: 1 } }}>
         <Stack.Screen 
           name="index" 
@@ -375,6 +402,7 @@ function LayoutContent() {
           }} 
         />
       </Stack>
+      )}
       </View>
       {showSidebar && !chatDisabled && chatOpen && <WebChatPanel />}
       {showSidebar && !chatDisabled && !chatOpen && Platform.OS === 'web' && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && !isSettingsPage(pathname ?? '') && (

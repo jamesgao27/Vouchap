@@ -26,7 +26,17 @@ function getPreviewType(url: string | null | undefined, docType: string | null |
   return 'other';
 }
 
-const WebView = Platform.OS === 'web' ? null : require('react-native-webview').WebView;
+// 原生端若未链接 react-native-webview（如 Expo Go），require 会抛 RNCWebViewModule；避免顶层 require 导致整应用崩溃
+const WebView =
+  Platform.OS === 'web'
+    ? null
+    : (() => {
+        try {
+          return require('react-native-webview').WebView;
+        } catch {
+          return null;
+        }
+      })();
 
 export interface FileDetailModalFile {
   id: string;

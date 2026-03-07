@@ -200,12 +200,6 @@ export default function FirmServiceCatalogScreen() {
       </Text>
       {loading ? (
         <ActivityIndicator size="large" color="#6C5CE7" style={styles.loader} />
-      ) : skus.length === 0 ? (
-        <View style={styles.empty}>
-          <Text style={styles.emptyText}>
-            No Service Templates yet. Create one to build your catalog and checklists.
-          </Text>
-        </View>
       ) : (
         <>
           <View style={styles.header}>
@@ -285,19 +279,6 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   subtitle: { fontSize: 14, color: '#636E72', marginBottom: 24 },
   loader: { marginTop: 40 },
-  empty: { marginTop: 24, alignItems: 'flex-start', gap: 12 },
-  emptyText: { fontSize: 14, color: '#95A5A6' },
-  addFirstBtn: {
-    marginTop: 8,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#6C5CE7',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 999,
-  },
-  addFirstBtnText: { fontSize: 14, fontWeight: '600', color: '#fff' },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   sectionTitle: { fontSize: 18, fontWeight: '600', color: '#2D3436' },
   viewToggle: { flexDirection: 'row', gap: 4 },

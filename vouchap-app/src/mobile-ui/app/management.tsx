@@ -602,7 +602,7 @@ export default function ManagementScreen() {
                 style={styles.createSpaceButton}
                 onPress={() => {
                   setShowSpaceSwitch(false);
-                  setShowCreateModal(true);
+                  router.push('/setup-space');
                 }}
                 disabled={switching}
               >

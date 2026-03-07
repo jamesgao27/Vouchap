@@ -146,6 +146,9 @@ export interface UserSpace {
 // 空间类型：client 普通客户空间，firm 服务端/事务所空间
 export type SpaceKind = 'client' | 'firm';
 
+/** Firm 审核状态：pending 待审核，approved 已开通 */
+export type FirmStatus = 'pending' | 'approved';
+
 // 空间账户
 export interface Space {
   id: string;
@@ -153,6 +156,8 @@ export interface Space {
   address?: string;
   /** 空间类型，缺省为 client */
   kind?: SpaceKind;
+  /** 仅 kind=firm 时有效：pending 待审核，approved 已开通 */
+  firmStatus?: FirmStatus | null;
   createdAt?: string;
   updatedAt?: string;
 }

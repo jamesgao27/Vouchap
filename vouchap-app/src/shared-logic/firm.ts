@@ -1867,14 +1867,14 @@ export async function updateFirmSku(
   return { error: null };
 }
 
-/** 将预设 SKU（preset_skus + preset_sku_items）复制到指定 firm 空间；仅该空间成员可调用。locale 可选：'zh' | 'en'，默认 'zh' */
+/** 将预设 SKU（preset_skus + preset_sku_items）复制到指定 firm 空间；仅该空间成员可调用。
+ * 当前 DB 为单参数 apply_preset_skus_to_firm(p_firm_space_id)，复制全部 preset 行；locale 保留供日后多语言版本使用。 */
 export async function applyPresetSkusToFirm(
   firmSpaceId: string,
-  locale: 'zh' | 'en' = 'zh'
+  _locale?: 'zh' | 'en'
 ): Promise<{ error: Error | null }> {
   const { error } = await supabase.rpc('apply_preset_skus_to_firm', {
     p_firm_space_id: firmSpaceId,
-    p_locale: locale,
   });
   if (error) {
     console.error('applyPresetSkusToFirm:', error);

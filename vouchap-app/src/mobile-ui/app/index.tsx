@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Modal, ActivityIndicator, ScrollView, TextInput, useWindowDimensions, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Modal, ActivityIndicator, ScrollView, TextInput, useWindowDimensions, Platform, Linking } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,6 +23,7 @@ import { showChoiceDialog } from '@/lib/confirmDialog';
 import Svg, { Path, Rect, G, Circle, Text as SvgText } from 'react-native-svg';
 import WebDashboardView from '@/components/WebDashboardView';
 import CrmDashboardView from '@/components/CrmDashboardView';
+import { FirmPendingOverlay } from '@/components/FirmPendingOverlay';
 import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
 import { getFirmClientsWithDetails, getFirmOrders } from '@/lib/firm';
 import type { ClientDisplayStatus } from '@/types';
@@ -691,7 +692,9 @@ export default function HomeScreen() {
     return null;
   }
 
-  // Web 端：左侧栏由 _layout 提供；firm 展示 CRM-Dashboard（前端为 Dashboard），否则展示报表落地页
+  const isFirmPending = currentSpace?.kind === 'firm' && currentSpace?.firmStatus !== 'approved';
+
+  // Web 端：firm 待审核遮罩由 _layout 统一处理（含首页及所有 /firm/* 子模块），此处仅渲染已审核内容
   if (Platform.OS === 'web') {
     return (
       <View style={styles.container}>
@@ -747,8 +750,10 @@ export default function HomeScreen() {
       </View>
       
       <View style={styles.content}>
-        {currentSpace?.kind === 'firm' ? (
-          /* Firm 空间：两个统计图表 */
+        {isFirmPending ? (
+          <FirmPendingOverlay />
+        ) : currentSpace?.kind === 'firm' ? (
+          /* Firm 空间（已审核通过）：两个统计图表 */
           (() => {
             const chartWidth = Math.min(screenWidth - 40, 360);
             const pieSize = Math.min(chartWidth, 200);
@@ -899,7 +904,7 @@ export default function HomeScreen() {
         )}
       </View>
 
-      {currentSpace?.kind === 'firm' ? (
+      {currentSpace?.kind === 'firm' && !isFirmPending ? (
         <View style={styles.buttonsRow}>
           <TouchableOpacity style={[styles.secondaryButton, styles.thirdWidthButton, styles.firmBottomIconButton]} onPress={() => router.push('/firm/clients')} accessibilityLabel="Clients">
             <Ionicons name="people" size={26} color="#6C5CE7" />
@@ -911,7 +916,7 @@ export default function HomeScreen() {
             <Ionicons name="library" size={26} color="#6C5CE7" />
           </TouchableOpacity>
         </View>
-      ) : (
+      ) : currentSpace?.kind !== 'firm' ? (
         <>
           <View style={styles.buttonsRow}>
             <TouchableOpacity style={[styles.secondaryButton, styles.halfWidthButton]} onPress={() => router.push('/invoices')}>
@@ -940,7 +945,7 @@ export default function HomeScreen() {
             </View>
           )}
         </>
-      )}
+      ) : null}
       </ScrollView>
 
       {/* Space Switch Modal */}
@@ -1005,7 +1010,7 @@ export default function HomeScreen() {
                 style={styles.createHouseholdButton}
                 onPress={() => {
                   setShowSpaceSwitch(false);
-                  setShowCreateModal(true);
+                  router.push('/setup-space');
                 }}
                 disabled={switching}
               >

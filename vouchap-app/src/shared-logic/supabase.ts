@@ -156,6 +156,41 @@ export async function uploadReceiptImageTempWithSpace(
   }
 }
 
+/** Firm 注册：上传验证机构附件到 receipts bucket，路径 firm-verification/{userId}/{fileName}.{ext}；支持图片与 PDF/DOC；注册 firm 时必填 */
+export async function uploadFirmVerificationFile(
+  fileUri: string,
+  userId: string,
+  fileOpts?: { fileName?: string; mimeType?: string }
+): Promise<string> {
+  try {
+    let arrayBuffer: ArrayBuffer | Uint8Array;
+    if (Platform.OS === 'web') {
+      const res = await fetch(fileUri);
+      if (!res.ok) throw new Error(`Failed to fetch file: ${res.status}`);
+      arrayBuffer = await res.arrayBuffer();
+    } else {
+      const base64 = await FileSystem.readAsStringAsync(fileUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    }
+    const { ext: fileExt, mimeType } = getFileExtAndMime(fileUri, fileOpts);
+    const fileName = `verification_${Date.now()}.${fileExt}`;
+    const folder = userId && userId.trim() ? userId.trim() : 'unknown';
+    const filePath = `firm-verification/${folder}/${fileName}`;
+    const uploadPayload = arrayBuffer instanceof ArrayBuffer ? arrayBuffer : (arrayBuffer as Uint8Array).buffer;
+    const { error } = await supabase.storage
+      .from(STORAGE_BUCKET)
+      .upload(filePath, uploadPayload, { contentType: mimeType, upsert: true });
+    if (error) throw error;
+    const { data: { publicUrl } } = supabase.storage.from(STORAGE_BUCKET).getPublicUrl(filePath);
+    return publicUrl;
+  } catch (error) {
+    console.error('Error uploading firm verification file:', error);
+    throw error;
+  }
+}
+
 /** 税表模块：上传到 tax-filing bucket，路径为 {clientSpaceId}/{tempFileName}.{ext}；支持图片与 PDF/DOC 等文档；Web 支持 blob URL */
 export async function uploadTaxFilingFile(
   fileUri: string,

@@ -1,6 +1,7 @@
 import { supabase, validateSupabaseConfig } from './supabase';
 import { User, Space, UserSpace } from '@/types';
 import { createDefaultCategoriesAndAccounts } from './auth-helper';
+import { applyPresetSkusToFirm } from './firm';
 import Constants from 'expo-constants';
 import { getCachedUser, updateCachedUser, getCachedSpace, updateCachedSpace } from './auth-cache';
 
@@ -236,6 +237,7 @@ export async function getCurrentSpace(forceRefresh: boolean = false): Promise<Sp
       name: data.name,
       address: data.address,
       kind: (data.kind as 'client' | 'firm') || 'client',
+      firmStatus: data.firm_status ?? undefined,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
     };
@@ -296,6 +298,7 @@ export async function getUserSpaces(): Promise<UserSpace[]> {
         name: row.spaces.name,
         address: row.spaces.address,
         kind: (row.spaces.kind as 'client' | 'firm') || 'client',
+        firmStatus: row.spaces.firm_status ?? undefined,
         createdAt: row.spaces.created_at,
         updatedAt: row.spaces.updated_at,
       } : undefined,
@@ -395,9 +398,27 @@ export async function setCurrentSpace(spaceId: string): Promise<{ error: Error |
   }
 }
 
+/** 创建空间选项：kind=firm 时需传 verificationAttachmentUrl（验证机构附件 URL） */
+export type CreateSpaceOptions = {
+  kind?: 'client' | 'firm';
+  verificationAttachmentUrl?: string;
+};
+
 // 创建新空间并加入
-export async function createSpace(name: string, address?: string): Promise<{ space: Space | null; error: Error | null }> {
+export async function createSpace(
+  name: string,
+  address?: string,
+  options?: CreateSpaceOptions
+): Promise<{ space: Space | null; error: Error | null }> {
   try {
+    const kind = options?.kind ?? 'client';
+    if (kind === 'firm') {
+      const url = options?.verificationAttachmentUrl?.trim();
+      if (!url) {
+        return { space: null, error: new Error('Firm registration requires a verification document.') };
+      }
+    }
+
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser) {
       return { space: null, error: new Error('Not authenticated') };
@@ -492,16 +513,27 @@ export async function createSpace(name: string, address?: string): Promise<{ spa
       expiresIn: session.expires_at ? Math.floor((session.expires_at * 1000 - Date.now()) / 1000) : null,
     });
 
-    // 创建家庭
-    const insertData: { name: string; address?: string } = { name };
+    // 创建家庭/空间
+    const insertData: {
+      name: string;
+      address?: string;
+      kind?: 'client' | 'firm';
+      firm_status?: 'pending' | 'approved' | null;
+      verification_attachment_url?: string | null;
+    } = { name, kind };
     if (address && address.trim()) {
       insertData.address = address.trim();
+    }
+    if (kind === 'firm') {
+      insertData.firm_status = 'pending';
+      insertData.verification_attachment_url = options!.verificationAttachmentUrl!.trim();
     }
     
     // 添加详细的调试信息
     console.log('Attempting to create space:', {
       name: insertData.name,
       address: insertData.address,
+      kind: insertData.kind,
       userId: authUser.id,
       userEmail: authUser.email,
       hasSession: !!session,
@@ -563,18 +595,18 @@ export async function createSpace(name: string, address?: string): Promise<{ spa
       expiresIn: finalSession.expires_at ? Math.floor((finalSession.expires_at * 1000 - Date.now()) / 1000) : null,
     });
     
-    // 尝试使用 RPC 函数插入（如果存在，可以绕过 RLS）
-    // 如果 RPC 函数不存在，会回退到直接插入
+    // 优先使用 RPC：服务端以 postgres 插入 spaces/user_spaces，并在 firm 时执行 apply_preset_skus_to_firm，与之前可成功创建 firm 的路径一致
     let spaceData = null;
     let spaceError = null;
-    
-    // 先尝试使用 RPC 函数（如果存在）
+
     const { data: rpcSpaceId, error: rpcError } = await supabase.rpc('create_space_with_user', {
       p_space_name: insertData.name,
       p_space_address: insertData.address || null,
       p_user_id: currentUser.id,
+      p_kind: insertData.kind ?? 'client',
+      p_firm_verification_url: insertData.verification_attachment_url ?? null,
     });
-    
+
     if (!rpcError && rpcSpaceId) {
       // RPC 成功，查询创建的 space
       const { data: fetchedSpace, error: fetchError } = await supabase
@@ -589,19 +621,24 @@ export async function createSpace(name: string, address?: string): Promise<{ spa
         spaceError = fetchError;
       }
     } else {
-      // RPC 失败或不存在，尝试直接插入
-      // 检查是否是函数不存在的错误（42883）还是其他错误
-      const isFunctionNotFound = rpcError?.code === '42883' || rpcError?.message?.includes('function') || rpcError?.message?.includes('does not exist');
-      
-      if (rpcError && !isFunctionNotFound) {
-        // RPC 函数存在但执行失败，记录错误但继续尝试直接插入
-        console.warn('RPC function error (will try direct insert):', rpcError.message, rpcError.code);
-      } else if (isFunctionNotFound) {
-        console.log('RPC function not available, trying direct insert...');
-      } else {
-        console.log('RPC returned no data, trying direct insert...');
+      // RPC 失败或未返回 id，尝试直接插入兜底
+      // 仅当 PostgreSQL 42883（函数不存在）时视为“函数未部署”，避免把 RPC 内 42501 等错误误判为函数不存在
+      const isFunctionNotFound = rpcError?.code === '42883';
+      if (rpcError) {
+        console.warn('RPC create_space_with_user result:', { code: rpcError.code, message: rpcError.message, details: rpcError.details });
+        if (rpcError.code === '42501') {
+          // RPC 内已因 RLS 失败，直接插入多半也会失败；优先把 RPC 错误抛给用户并提示修 definer 策略
+          spaceError = rpcError;
+          spaceData = null;
+          // 下面统一走 42501 的报错分支，不再尝试直接插入
+        }
       }
-      
+      if (!spaceError && (isFunctionNotFound || !rpcError)) {
+        if (isFunctionNotFound) console.log('RPC function not available (42883), trying direct insert...');
+        else if (!rpcError) console.log('RPC returned no data, trying direct insert...');
+      }
+
+      if (!spaceError) {
       // 直接插入 spaces 表
       const insertResult = await supabase
         .from('spaces')
@@ -648,6 +685,7 @@ export async function createSpace(name: string, address?: string): Promise<{ spa
           }
         }
       }
+      } // end if (!spaceError) direct-insert 兜底
     }
     
     // 如果直接插入失败，记录详细的请求信息
@@ -655,19 +693,24 @@ export async function createSpace(name: string, address?: string): Promise<{ spa
     }
 
     if (spaceError) {
-      // 详细记录错误信息
-      console.error('Space creation error details:', {
+      // 完整错误对象（含 code/message/details/hint 等）打到控制台，便于排查
+      const fullErrorPayload = {
         code: spaceError.code,
         message: spaceError.message,
         details: spaceError.details,
         hint: spaceError.hint,
         userId: authUser.id,
         userEmail: authUser.email,
-      });
-      
+      };
+      console.error('Space creation error details:', fullErrorPayload);
+      try {
+        console.error('Space creation full error (JSON):', JSON.stringify(spaceError, null, 2));
+      } catch (_) {
+        console.error('Space creation full error (fallback):', String(spaceError));
+      }
+
       // 如果是 RLS 错误，提供详细的错误信息和修复建议
       if (spaceError.code === '42501' || spaceError.message?.includes('row-level security') || spaceError.message?.includes('permission denied')) {
-        
         // 解析 JWT token 检查 role
         let tokenRole = 'unknown';
         try {
@@ -681,18 +724,21 @@ export async function createSpace(name: string, address?: string): Promise<{ spa
         } catch (e) {
           console.error('Failed to parse JWT token:', e);
         }
-        
-        
-        return { 
-          space: null, 
+        const extraLines: string[] = [];
+        extraLines.push(`当前 JWT role: ${tokenRole}`);
+        if (spaceError.details) extraLines.push(`details: ${spaceError.details}`);
+        if (spaceError.hint) extraLines.push(`hint: ${spaceError.hint}`);
+        const isFirm = insertData.kind === 'firm';
+        return {
+          space: null,
           error: new Error(
             `无法创建空间：数据库安全策略错误 (错误代码: ${spaceError.code})。` +
-            `\n\n请执行以下脚本之一修复 RLS 策略：` +
-            `\n1. fix-households-insert-direct.sql (使用 authenticated 角色)` +
-            `\n2. fix-households-insert-public.sql (使用 public 角色)` +
+            `\n\n请在 Supabase SQL Editor 中执行 fix-spaces-insert.sql（含 spaces、user_spaces、firm.skus/firm.sku_items）。` +
+            (isFirm ? `\n若先出现 RPC 400 再报此错误，说明 create_space_with_user 内被 RLS 拦截，请确认该函数拥有者为 postgres 且已执行上述脚本。` : '') +
             `\n\n错误详情: ${spaceError.message}` +
-            `\n\n提示: 如果策略已设置为 public 仍然失败，请检查策略是否正确创建，并查看 Supabase SQL Editor 中的验证查询结果。`
-          ) 
+            (extraLines.length ? '\n' + extraLines.join('\n') : '') +
+            `\n\n完整错误见控制台 "RPC create_space_with_user result" 或 "Space creation error details"。`
+          ),
         };
       }
       
@@ -754,12 +800,23 @@ export async function createSpace(name: string, address?: string): Promise<{ spa
       // 不阻止流程，用户可以稍后手动选择
     }
 
-    // 创建默认分类和账户
-    try {
-      await createDefaultCategoriesAndAccounts(spaceData.id);
-    } catch (error) {
-      console.warn('Failed to create default categories and accounts:', error);
-      // 不阻止流程，用户可以稍后手动创建
+    // Firm 空间：从 preset_skus 复制到本 firm 的 skus（服务端 create_space_with_user 已执行，此处为兜底；apply 幂等故重复调用安全）
+    if (spaceData.kind === 'firm') {
+      const { error: presetErr } = await applyPresetSkusToFirm(spaceData.id);
+      if (presetErr) {
+        console.error('applyPresetSkusToFirm failed (firm may have no preset templates):', presetErr?.message ?? presetErr, presetErr);
+        // 不回滚空间创建；若服务端已应用则无影响；若未应用可到 Service Catalog 手动新建模板
+      }
+    }
+
+    // 创建默认分类和账户（仅 client 空间需要，firm 不创建）
+    if (spaceData.kind !== 'firm') {
+      try {
+        await createDefaultCategoriesAndAccounts(spaceData.id);
+      } catch (error) {
+        console.warn('Failed to create default categories and accounts:', error);
+        // 不阻止流程，用户可以稍后手动创建
+      }
     }
 
     const space: Space = {
@@ -767,6 +824,7 @@ export async function createSpace(name: string, address?: string): Promise<{ spa
       name: spaceData.name,
       address: spaceData.address,
       kind: (spaceData.kind as 'client' | 'firm') || 'client',
+      firmStatus: spaceData.firm_status ?? undefined,
       createdAt: spaceData.created_at,
       updatedAt: spaceData.updated_at,
     };

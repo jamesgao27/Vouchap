@@ -685,11 +685,9 @@ export async function createSpace(name: string, address?: string): Promise<{ spa
           space: null, 
           error: new Error(
             `无法创建空间：数据库安全策略错误 (错误代码: ${spaceError.code})。` +
-            `\n\n请执行以下脚本之一修复 RLS 策略：` +
-            `\n1. fix-households-insert-direct.sql (使用 authenticated 角色)` +
-            `\n2. fix-households-insert-public.sql (使用 public 角色)` +
-            `\n\n错误详情: ${spaceError.message}` +
-            `\n\n提示: 如果策略已设置为 public 仍然失败，请检查策略是否正确创建，并查看 Supabase SQL Editor 中的验证查询结果。`
+            `\n\n请在 Supabase SQL Editor 中执行 fix-spaces-insert.sql 修复 spaces 表 RLS。` +
+            `\n（注：households 已废弃，勿执行 fix-households-insert-*.sql）` +
+            `\n\n错误详情: ${spaceError.message}`
           ) 
         };
       }

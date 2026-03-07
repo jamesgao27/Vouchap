@@ -122,7 +122,7 @@ export default function WebSidebar() {
         </Text>
       </TouchableOpacity>
 
-      {/* 主导航：firm 仅展示 Dashboard + 四宫格；普通 space 展示 Dashboard / Expenses / Income / AI Inventory / 报税 */}
+      {/* 主导航：firm 时完整展示 Insights + Clients + Engagements + Service Catalog（待审核时主内容区为遮罩）；普通 space 展示 Dashboard / Expenses / Income / AI Inventory / 报税 */}
       <View style={styles.nav}>
         {!spaceLoaded ? null : currentSpace?.kind === 'firm' ? (
           <>

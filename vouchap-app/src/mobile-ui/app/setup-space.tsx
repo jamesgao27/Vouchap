@@ -9,16 +9,20 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Alert,
+  Image,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { createSpace, getCurrentUser, getUserSpaces, signOut, isAuthenticated } from '@/lib/auth';
 import { getPendingInvitationsForUser, acceptInvitation, declineInvitation, SpaceInvitation } from '@/lib/space-invitations';
-import { supabase } from '@/lib/supabase';
+import { supabase, uploadFirmVerificationFile } from '@/lib/supabase';
 import { initializeAuthCache } from '@/lib/auth-cache';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive, confirmThen } from '@/lib/alertWeb';
+import * as ImagePicker from 'expo-image-picker';
 
 export default function SetupHouseholdScreen() {
   const router = useRouter();
@@ -32,6 +36,8 @@ export default function SetupHouseholdScreen() {
   const [accepting, setAccepting] = useState(false);
   const [newSpaceName, setNewSpaceName] = useState('');
   const [newSpaceAddress, setNewSpaceAddress] = useState('');
+  const [spaceKind, setSpaceKind] = useState<'client' | 'firm'>('client');
+  const [verificationFileUri, setVerificationFileUri] = useState<string | null>(null);
   const [mode, setMode] = useState<'invite' | 'create'>('invite'); // 'invite' 显示邀请，'create' 显示创建表单
 
   // 认证检查：未登录时重定向到登录页（若带 redirect+token 则传给 login 以便登录后回到 auth/setup）
@@ -179,17 +185,57 @@ export default function SetupHouseholdScreen() {
     );
   };
 
+  const pickVerificationFile = async () => {
+    if (Platform.OS !== 'web') {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync?.();
+      if (status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow photo library access to select the verification document.');
+        return;
+      }
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: false,
+    });
+    if (!result.canceled && result.assets?.[0]?.uri) {
+      setVerificationFileUri(result.assets[0].uri);
+    }
+  };
+
   const handleCreateSpace = async () => {
     if (!newSpaceName.trim()) {
       showToast('Please enter space name', 'error');
       return;
     }
+    if (spaceKind === 'firm' && !verificationFileUri) {
+      showToast('Firm registration requires a verification document (e.g. practice certificate).', 'error');
+      return;
+    }
 
     setCreating(true);
     try {
+      let verificationUrl: string | undefined;
+      if (spaceKind === 'firm' && verificationFileUri) {
+        const user = await getCurrentUser();
+        if (!user) {
+          showToast('Please sign in first', 'error');
+          setCreating(false);
+          return;
+        }
+        try {
+          verificationUrl = await uploadFirmVerificationFile(verificationFileUri, user.id);
+        } catch (uploadErr) {
+          console.error('Upload firm verification file:', uploadErr);
+          showToast('Verification document upload failed. Please try again.', 'error');
+          setCreating(false);
+          return;
+        }
+      }
+
       const { space, error } = await createSpace(
         newSpaceName.trim(),
-        newSpaceAddress.trim() || undefined
+        newSpaceAddress.trim() || undefined,
+        spaceKind === 'firm' ? { kind: 'firm', verificationAttachmentUrl: verificationUrl } : undefined
       );
 
       if (error) {
@@ -214,8 +260,10 @@ export default function SetupHouseholdScreen() {
         const updatedUser = await getCurrentUser(); // 不强制刷新，使用缓存或快速查询
         await initializeAuthCache(updatedUser, space);
         
-        // 若从 auth/setup 过来创建空间，创建完成后带回 token 继续设置
         setCreating(false);
+        if (spaceKind === 'firm') {
+          showToast('Firm space created. It will be activated after approval.', 'success');
+        }
         if (params.redirect === '/auth/setup' && params.token) {
           router.replace({ pathname: '/auth/setup', params: { token: params.token } });
         } else {
@@ -263,6 +311,158 @@ export default function SetupHouseholdScreen() {
     );
   }
 
+  const isWeb = Platform.OS === 'web';
+
+  if (isWeb) {
+    return (
+      <KeyboardAvoidingView style={stylesWeb.container} behavior={undefined}>
+        <StatusBar style="dark" />
+        <View style={stylesWeb.bg}>
+          <View style={stylesWeb.orb1Wrap}>
+            <LinearGradient
+              colors={['rgba(108, 92, 231, 0.2)', 'rgba(108, 92, 231, 0.06)', 'transparent']}
+              locations={[0, 0.5, 1]}
+              start={{ x: 0.5, y: 0.5 }}
+              end={{ x: 1, y: 1 }}
+              style={stylesWeb.orb1}
+            />
+          </View>
+          <View style={stylesWeb.orb2Wrap}>
+            <LinearGradient
+              colors={['rgba(162, 155, 254, 0.15)', 'rgba(162, 155, 254, 0.04)', 'transparent']}
+              locations={[0, 0.5, 1]}
+              start={{ x: 0.5, y: 0.5 }}
+              end={{ x: 0, y: 0 }}
+              style={stylesWeb.orb2}
+            />
+          </View>
+        </View>
+        <ScrollView
+          contentContainerStyle={stylesWeb.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={stylesWeb.card}>
+            <TouchableOpacity style={stylesWeb.backBtn} onPress={() => router.back()}>
+              <Ionicons name="arrow-back" size={24} color="#2D3436" />
+            </TouchableOpacity>
+            <View style={stylesWeb.header}>
+              <View style={stylesWeb.logoRow}>
+                <Image source={require('../../../assets/icon.png')} style={stylesWeb.logoImg} resizeMode="contain" />
+                <Text style={stylesWeb.brandName}>Vouchap</Text>
+              </View>
+              <View style={stylesWeb.iconContainer}>
+                <View style={stylesWeb.circle}>
+                  <Ionicons name="home" size={48} color="#6C5CE7" />
+                </View>
+              </View>
+              <Text style={stylesWeb.title}>Setup Space</Text>
+              <Text style={stylesWeb.subtitle}>Create your space to get started</Text>
+            </View>
+
+            {mode === 'create' && (
+              <View style={stylesWeb.form}>
+                <Text style={stylesWeb.sectionLabel}>Space type</Text>
+                <View style={stylesWeb.spaceKindRow}>
+                  <TouchableOpacity
+                    style={[stylesWeb.spaceKindOption, spaceKind === 'client' && stylesWeb.spaceKindOptionSelected]}
+                    onPress={() => { setSpaceKind('client'); setVerificationFileUri(null); }}
+                  >
+                    <Ionicons name={spaceKind === 'client' ? 'radio-button-on' : 'radio-button-off'} size={22} color={spaceKind === 'client' ? '#6C5CE7' : '#BDC3C7'} />
+                    <Text style={[stylesWeb.spaceKindText, spaceKind === 'client' && stylesWeb.spaceKindTextSelected]}>Client</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[stylesWeb.spaceKindOption, spaceKind === 'firm' && stylesWeb.spaceKindOptionSelected]}
+                    onPress={() => setSpaceKind('firm')}
+                  >
+                    <Ionicons name={spaceKind === 'firm' ? 'radio-button-on' : 'radio-button-off'} size={22} color={spaceKind === 'firm' ? '#6C5CE7' : '#BDC3C7'} />
+                    <Text style={[stylesWeb.spaceKindText, spaceKind === 'firm' && stylesWeb.spaceKindTextSelected]}>Firm</Text>
+                  </TouchableOpacity>
+                </View>
+                {spaceKind === 'firm' && (
+                  <View style={stylesWeb.verificationSection}>
+                    <Text style={stylesWeb.verificationLabel}>Verification document * (e.g. practice certificate)</Text>
+                    <Text style={stylesWeb.verificationHint}>Firm features will be enabled after approval.</Text>
+                    <TouchableOpacity style={stylesWeb.verificationButton} onPress={pickVerificationFile}>
+                      <Ionicons name="document-attach-outline" size={20} color="#6C5CE7" />
+                      <Text style={stylesWeb.verificationButtonText}>
+                        {verificationFileUri ? 'Document selected. Tap to change' : 'Select image to upload'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                <Text style={stylesWeb.label}>Space Name *</Text>
+                <View style={stylesWeb.inputWrapper}>
+                  <Ionicons name="home-outline" size={20} color="#636E72" style={stylesWeb.inputIcon} />
+                  <TextInput
+                    style={stylesWeb.input}
+                    placeholder="Space Name"
+                    placeholderTextColor="#95A5A6"
+                    value={newSpaceName}
+                    onChangeText={setNewSpaceName}
+                    editable={!creating}
+                  />
+                </View>
+
+                <Text style={stylesWeb.label}>Address (Optional)</Text>
+                <View style={[stylesWeb.inputWrapper, stylesWeb.addressInputWrapper]}>
+                  <Ionicons name="location-outline" size={20} color="#636E72" style={stylesWeb.inputIcon} />
+                  <TextInput
+                    style={[stylesWeb.input, stylesWeb.addressInput]}
+                    placeholder="Address"
+                    placeholderTextColor="#95A5A6"
+                    value={newSpaceAddress}
+                    onChangeText={setNewSpaceAddress}
+                    multiline
+                    textAlignVertical="top"
+                    editable={!creating}
+                  />
+                </View>
+
+                <TouchableOpacity
+                  style={[stylesWeb.btnWrap, creating && stylesWeb.btnDisabled]}
+                  onPress={handleCreateSpace}
+                  disabled={creating || !newSpaceName.trim() || (spaceKind === 'firm' && !verificationFileUri)}
+                  activeOpacity={0.9}
+                >
+                  <LinearGradient
+                    colors={['#6C5CE7', '#A29BFE']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={stylesWeb.mainBtn}
+                  >
+                    {creating ? (
+                      <ActivityIndicator color="#fff" />
+                    ) : (
+                      <Text style={stylesWeb.mainBtnText}>Create Space</Text>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {pendingInvitations.length > 0 && (
+              <TouchableOpacity
+                style={stylesWeb.invitationsButton}
+                onPress={() => router.push('/handle-invitations')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="mail-outline" size={20} color="#6C5CE7" />
+                <Text style={stylesWeb.invitationsButtonText}>Invitations ({pendingInvitations.length})</Text>
+              </TouchableOpacity>
+            )}
+
+            <TouchableOpacity style={stylesWeb.signOutButton} onPress={handleSignOut} activeOpacity={0.7}>
+              <Ionicons name="log-out-outline" size={20} color="#E74C3C" />
+              <Text style={stylesWeb.signOutButtonText}>Sign Out</Text>
+            </TouchableOpacity>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -287,6 +487,36 @@ export default function SetupHouseholdScreen() {
         {/* 创建模式 - 首位展示 */}
         {mode === 'create' && (
           <View style={styles.createSection}>
+            <Text style={styles.sectionLabel}>Space type</Text>
+            <View style={styles.spaceKindRow}>
+              <TouchableOpacity
+                style={[styles.spaceKindOption, spaceKind === 'client' && styles.spaceKindOptionSelected]}
+                onPress={() => { setSpaceKind('client'); setVerificationFileUri(null); }}
+              >
+                <Ionicons name={spaceKind === 'client' ? 'radio-button-on' : 'radio-button-off'} size={22} color={spaceKind === 'client' ? '#6C5CE7' : '#BDC3C7'} />
+                <Text style={[styles.spaceKindText, spaceKind === 'client' && styles.spaceKindTextSelected]}>Client</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.spaceKindOption, spaceKind === 'firm' && styles.spaceKindOptionSelected]}
+                onPress={() => setSpaceKind('firm')}
+              >
+                <Ionicons name={spaceKind === 'firm' ? 'radio-button-on' : 'radio-button-off'} size={22} color={spaceKind === 'firm' ? '#6C5CE7' : '#BDC3C7'} />
+                <Text style={[styles.spaceKindText, spaceKind === 'firm' && styles.spaceKindTextSelected]}>Firm</Text>
+              </TouchableOpacity>
+            </View>
+            {spaceKind === 'firm' && (
+              <View style={styles.verificationSection}>
+                <Text style={styles.verificationLabel}>Verification document * (e.g. practice certificate, for review)</Text>
+                <Text style={styles.verificationHint}>Firm features will be enabled after approval.</Text>
+                <TouchableOpacity style={styles.verificationButton} onPress={pickVerificationFile}>
+                  <Ionicons name="document-attach-outline" size={20} color="#6C5CE7" />
+                  <Text style={styles.verificationButtonText}>
+                    {verificationFileUri ? 'Document selected. Tap to change' : 'Select image to upload'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             <View style={styles.inputContainer}>
               <Ionicons name="home-outline" size={20} color="#636E72" style={styles.inputIcon} />
               <TextInput
@@ -314,14 +544,14 @@ export default function SetupHouseholdScreen() {
             <TouchableOpacity
               style={[styles.createButton, creating && styles.buttonDisabled]}
               onPress={handleCreateSpace}
-              disabled={creating || !newSpaceName.trim()}
+              disabled={creating || !newSpaceName.trim() || (spaceKind === 'firm' && !verificationFileUri)}
             >
-            {creating ? (
-              <ActivityIndicator color="#fff" />
-            ) : (
-              <Text style={styles.createButtonText}>Create Space</Text>
-            )}
-          </TouchableOpacity>
+              {creating ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <Text style={styles.createButtonText}>Create Space</Text>
+              )}
+            </TouchableOpacity>
           </View>
         )}
 
@@ -352,6 +582,52 @@ export default function SetupHouseholdScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+const stylesWeb = StyleSheet.create({
+  container: { flex: 1 },
+  bg: { ...StyleSheet.absoluteFillObject, backgroundColor: '#F8F9FA', overflow: 'visible' },
+  orb1Wrap: { position: 'absolute', width: 800, height: 500, top: -150, left: '50%', marginLeft: -400, borderRadius: 400, overflow: 'hidden' },
+  orb1: { width: '100%', height: '100%', borderRadius: 400 },
+  orb2Wrap: { position: 'absolute', width: 600, height: 480, bottom: -80, right: -100, borderRadius: 300, overflow: 'hidden' },
+  orb2: { width: '100%', height: '100%', borderRadius: 300 },
+  scrollContent: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 },
+  card: { width: '100%', maxWidth: 440, backgroundColor: '#FFFFFF', borderRadius: 32, padding: 32, borderWidth: 1, borderColor: '#E9ECEF', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 4 },
+  backBtn: { position: 'absolute', left: 24, top: 24, zIndex: 1, padding: 4 },
+  header: { alignItems: 'center', marginBottom: 24 },
+  logoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 16 },
+  logoImg: { width: 48, height: 48 },
+  brandName: { fontSize: 24, fontWeight: '800', color: '#2D3436', letterSpacing: -0.5 },
+  iconContainer: { marginBottom: 12 },
+  circle: { width: 88, height: 88, borderRadius: 44, backgroundColor: '#E9ECEF', justifyContent: 'center', alignItems: 'center', alignSelf: 'center' },
+  title: { fontSize: 24, fontWeight: '800', color: '#2D3436', marginBottom: 8 },
+  subtitle: { fontSize: 15, color: '#636E72', textAlign: 'center' },
+  form: { gap: 16 },
+  sectionLabel: { fontSize: 14, fontWeight: '600', color: '#2D3436', marginLeft: 4 },
+  spaceKindRow: { flexDirection: 'row', gap: 12 },
+  spaceKindOption: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: '#E9ECEF', backgroundColor: '#F8F9FA' },
+  spaceKindOptionSelected: { borderColor: '#6C5CE7', backgroundColor: 'rgba(108, 92, 231, 0.06)' },
+  spaceKindText: { fontSize: 15, color: '#636E72' },
+  spaceKindTextSelected: { color: '#6C5CE7', fontWeight: '600' },
+  verificationSection: { marginTop: 4 },
+  verificationLabel: { fontSize: 13, fontWeight: '600', color: '#636E72', marginBottom: 4 },
+  verificationHint: { fontSize: 12, color: '#95A5A6', marginBottom: 8 },
+  verificationButton: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 14, paddingHorizontal: 16, borderRadius: 16, borderWidth: 1, borderColor: '#E9ECEF', backgroundColor: '#F8F9FA', borderStyle: 'dashed' },
+  verificationButtonText: { fontSize: 15, color: '#6C5CE7', fontWeight: '500' },
+  label: { fontSize: 14, fontWeight: '500', color: '#2D3436', marginLeft: 4 },
+  inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', borderWidth: 1, borderColor: '#E9ECEF', borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, minHeight: 52 },
+  addressInputWrapper: { alignItems: 'flex-start' },
+  inputIcon: { marginRight: 12 },
+  input: { flex: 1, fontSize: 16, color: '#2D3436', paddingVertical: 0, minHeight: 24, includeFontPadding: false, textAlignVertical: 'center', backgroundColor: 'transparent', outlineStyle: 'none' },
+  addressInput: { minHeight: 60, textAlignVertical: 'top' },
+  btnWrap: { marginTop: 8, borderRadius: 16, overflow: 'hidden' },
+  btnDisabled: { opacity: 0.7 },
+  mainBtn: { paddingVertical: 16, alignItems: 'center', justifyContent: 'center', minHeight: 52 },
+  mainBtnText: { color: '#fff', fontSize: 16, fontWeight: '600' },
+  invitationsButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 20, paddingVertical: 14, borderRadius: 16, backgroundColor: '#F0F4FF' },
+  invitationsButtonText: { fontSize: 16, fontWeight: '600', color: '#6C5CE7' },
+  signOutButton: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: 16, paddingVertical: 14, borderRadius: 16, backgroundColor: '#FFF5F5' },
+  signOutButtonText: { fontSize: 16, fontWeight: '600', color: '#E74C3C' },
+});
 
 const styles = StyleSheet.create({
   container: {
@@ -487,6 +763,72 @@ const styles = StyleSheet.create({
   },
   createSection: {
     marginBottom: 24,
+  },
+  sectionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2D3436',
+    marginBottom: 10,
+  },
+  spaceKindRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  spaceKindOption: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#FFF',
+  },
+  spaceKindOptionSelected: {
+    borderColor: '#6C5CE7',
+    backgroundColor: 'rgba(108, 92, 231, 0.06)',
+  },
+  spaceKindText: {
+    fontSize: 15,
+    color: '#636E72',
+  },
+  spaceKindTextSelected: {
+    color: '#6C5CE7',
+    fontWeight: '600',
+  },
+  verificationSection: {
+    marginBottom: 16,
+  },
+  verificationLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#636E72',
+    marginBottom: 4,
+  },
+  verificationHint: {
+    fontSize: 12,
+    color: '#95A5A6',
+    marginBottom: 8,
+  },
+  verificationButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#FFF',
+    borderStyle: 'dashed',
+  },
+  verificationButtonText: {
+    fontSize: 15,
+    color: '#6C5CE7',
+    fontWeight: '500',
   },
   inputContainer: {
     flexDirection: 'row',
