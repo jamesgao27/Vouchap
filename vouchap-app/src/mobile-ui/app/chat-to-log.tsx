@@ -32,6 +32,7 @@ import { saveOutbound, getOutboundById } from '@/lib/outbound';
 import { saveChatLog, getChatLogsPaginated, VoucherLogType, type ChatLog } from '@/lib/chat-logs';
 import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
 import { getCurrentSpace } from '@/lib/auth';
+import { getChatToLogAllowedTypes, getChatToLogAllowedTypeValues } from '@/lib/chat-to-log-allowed-types';
 import { uploadTaxFilingFile, uploadReceiptImageTempWithSpace } from '@/lib/supabase';
 import { getProjectById, getProjectTodosTree, createProjectTodoAttachment, updateProjectTodoAttachment, getProjectTodoAttachmentById, buildExtractedPreview, type ProjectTodoNode } from '@/lib/firm';
 import { classifyTaxDocumentAndPickTask } from '@/lib/tax-filing-task-matcher';
@@ -301,11 +302,24 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   const navigation = useNavigation();
   const params = useLocalSearchParams<{ type?: string; drawer?: string; projectId?: string; todoId?: string }>();
   const chatPanel = useChatPanel();
-  const voucherType: VoucherLogType =
+  const [currentSpace, setCurrentSpace] = useState<{ kind?: string } | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentSpace().then((space) => {
+      if (!cancelled) setCurrentSpace(space ?? null);
+    });
+    return () => { cancelled = true; };
+  }, []);
+  const allowedTypeValues = getChatToLogAllowedTypeValues(currentSpace);
+  const rawVoucherType: VoucherLogType =
     props.voucherType
       ?? ((params.type === 'invoice' || params.type === 'inbound' || params.type === 'outbound' || params.type === 'tax-filing' || params.type === 'attachments')
         ? (params.type === 'attachments' ? 'tax-filing' : (params.type as VoucherLogType))
         : 'receipt');
+  const voucherType: VoucherLogType =
+    allowedTypeValues.length > 0 && allowedTypeValues.includes(rawVoucherType)
+      ? rawVoucherType
+      : (allowedTypeValues[0] ?? 'receipt');
   const isAttachmentsType = voucherType === 'tax-filing';
   const isAiInventoryType = voucherType === 'inbound' || voucherType === 'outbound';
   const isDrawer = Platform.OS === 'web' && params.drawer === '1';
@@ -388,6 +402,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   useEffect(() => {
     if (isAiInventoryType && !showAiInventory) router.replace('/');
   }, [isAiInventoryType]);
+
+  // Firm 空间若无任何 chat-to-log 模块则退回首页
+  useEffect(() => {
+    if (currentSpace?.kind === 'firm' && allowedTypeValues.length === 0) router.replace('/');
+  }, [currentSpace?.kind, allowedTypeValues.length]);
 
   // 从 FAB 展开栏带过来的预填输入与已选图片（打开右栏时填入）
   useEffect(() => {
@@ -1765,22 +1784,27 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
 
   if (isAiInventoryType && !showAiInventory) return null;
 
+  const isFirmSpace = currentSpace?.kind === 'firm';
   const drawerHeader = (
     <View style={drawerStyles.header}>
-      <View style={drawerStyles.toggleRow}>
-        <TouchableOpacity
-          style={[drawerStyles.toggleTab, voucherType === 'invoice' && drawerStyles.toggleTabActive]}
-          onPress={() => router.replace('/chat-to-log?type=invoice&drawer=1')}
-        >
-          <Text style={[drawerStyles.toggleText, voucherType === 'invoice' && drawerStyles.toggleTextActive]}>Income</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[drawerStyles.toggleTab, voucherType === 'receipt' && drawerStyles.toggleTabActive]}
-          onPress={() => router.replace('/chat-to-log?drawer=1')}
-        >
-          <Text style={[drawerStyles.toggleText, voucherType === 'receipt' && drawerStyles.toggleTextActive]}>Expenses</Text>
-        </TouchableOpacity>
-      </View>
+      {!isFirmSpace ? (
+        <View style={drawerStyles.toggleRow}>
+          <TouchableOpacity
+            style={[drawerStyles.toggleTab, voucherType === 'invoice' && drawerStyles.toggleTabActive]}
+            onPress={() => router.replace('/chat-to-log?type=invoice&drawer=1')}
+          >
+            <Text style={[drawerStyles.toggleText, voucherType === 'invoice' && drawerStyles.toggleTextActive]}>Income</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[drawerStyles.toggleTab, voucherType === 'receipt' && drawerStyles.toggleTabActive]}
+            onPress={() => router.replace('/chat-to-log?drawer=1')}
+          >
+            <Text style={[drawerStyles.toggleText, voucherType === 'receipt' && drawerStyles.toggleTextActive]}>Expenses</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <Text style={[drawerStyles.toggleText, { marginLeft: 0 }]}>Attachments</Text>
+      )}
       <TouchableOpacity style={drawerStyles.closeButton} onPress={() => router.back()}>
         <Ionicons name="close" size={24} color="#2D3436" />
       </TouchableOpacity>
@@ -2496,13 +2520,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   )}
                 </View>
                 {isPanel && chatPanel && (() => {
-                  const typeOptions: { value: VoucherLogType; label: string }[] = [
-                    { value: 'receipt', label: 'Expenses' },
-                    { value: 'invoice', label: 'Incomes' },
-                    ...(showAiInventory ? [{ value: 'inbound' as const, label: 'Inbound' }, { value: 'outbound' as const, label: 'Outbound' }] : []),
-                    ...(showTaxFiling ? [{ value: 'tax-filing' as const, label: 'Tax-filing' }] : []),
-                  ];
-                  const currentLabel = typeOptions.find(o => o.value === voucherType)?.label ?? 'Expenses';
+                  const typeOptions = getChatToLogAllowedTypes(currentSpace);
+                  const currentLabel = typeOptions.find(o => o.value === voucherType)?.label ?? typeOptions[0]?.label ?? 'Expenses';
                   return (
                     <View style={styles.webTypeDropdownWrap} nativeID="chat-to-log-type-dropdown">
                       <Pressable

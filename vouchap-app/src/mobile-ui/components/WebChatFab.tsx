@@ -18,7 +18,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useChatPanel } from '../contexts/ChatPanelContext';
 import type { ChatPanelType, StagedAttachmentFile } from '../contexts/ChatPanelContext';
 import { PANEL_WIDTH } from './WebChatPanel';
-import { showAiInventory } from '@/lib/feature-flags';
+import { getCurrentSpace } from '@/lib/auth';
+import { getChatToLogAllowedTypes } from '@/lib/chat-to-log-allowed-types';
 import { showToast } from '@/lib/toast';
 
 const FAB_SIZE = 80;
@@ -35,13 +36,6 @@ interface WebChatFabProps {
   embedded?: boolean;
 }
 
-const TYPE_OPTIONS: { value: ChatPanelType; label: string }[] = [
-  { value: 'receipt', label: 'Expenses' },
-  { value: 'invoice', label: 'Incomes' },
-  ...(showAiInventory ? [{ value: 'inbound' as const, label: 'Inbound' }, { value: 'outbound' as const, label: 'Outbound' }] : []),
-  { value: 'tax-filing', label: 'Tax-filing' },
-];
-
 function getPlaceholder(type: ChatPanelType): string {
   if (type === 'tax-filing') return 'Upload tax documents...';
   if (type === 'invoice') return 'Describe your incomes...';
@@ -55,7 +49,21 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
   const [hovered, setHovered] = useState(false);
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
   const [stagedAttachmentFiles, setStagedAttachmentFiles] = useState<StagedAttachmentFile[]>([]);
+  const [currentSpace, setCurrentSpace] = useState<{ kind?: string } | null>(null);
   const leaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentSpace().then((space) => {
+      if (!cancelled) setCurrentSpace(space ?? null);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const typeOptions = getChatToLogAllowedTypes(currentSpace);
+  const currentType: ChatPanelType =
+    typeOptions.some((o) => o.value === contextType) ? contextType : (typeOptions[0]?.value ?? 'receipt');
+  const currentLabel = typeOptions.find((o) => o.value === currentType)?.label ?? 'Expenses';
 
   const pickImagesForSend = useCallback(async () => {
     try {
@@ -117,9 +125,6 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
 
   if (Platform.OS !== 'web') return null;
   if (open) return null;
-
-  const currentType = contextType ?? type;
-  const currentLabel = TYPE_OPTIONS.find(o => o.value === currentType)?.label ?? 'Expenses';
 
   const openFullPanel = () => {
     if (stagedAttachmentFiles.length) {
@@ -192,7 +197,7 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
               </Pressable>
               {showTypeDropdown && (
                 <View style={styles.typeDropdownMenu}>
-                  {TYPE_OPTIONS.map((opt) => (
+                  {typeOptions.map((opt) => (
                     <Pressable
                       key={opt.value}
                       style={({ hovered: h }) => [
