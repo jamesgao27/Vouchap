@@ -602,7 +602,7 @@ export default function FirmEngagementsScreen() {
           keyExtractor={(o) => o.id}
           renderItem={({ item: o }) => (
             <TouchableOpacity
-              style={styles.receiptItem}
+              style={[styles.receiptItem, o.status === 'cancelled' && styles.receiptItemMuted]}
               onPress={() => router.push(`/firm/engagement/${o.id}`)}
               activeOpacity={0.7}
             >
@@ -903,6 +903,7 @@ export default function FirmEngagementsScreen() {
             selectableRevealOnHover
             selectedIds={selectedOrderIds}
             onSelectedIdsChange={setSelectedOrderIds}
+            getRowClassName={(row) => (row.status === 'cancelled' ? 'data-table-row-muted' : '')}
           />
         </ScrollView>
       )}
@@ -1102,6 +1103,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  receiptItemMuted: { opacity: 0.6 },
   receiptContent: { flex: 1 },
   firstRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
   storeName: { flex: 1, fontSize: 16, fontWeight: '600', color: '#2D3436', marginRight: 12 },

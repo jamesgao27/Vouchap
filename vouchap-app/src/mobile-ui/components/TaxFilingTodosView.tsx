@@ -333,6 +333,7 @@ function TodoTree({
   catalogMode = false,
   onCatalogDeleteItem,
   onCatalogUpdateType,
+  hideDepsEditor = false,
 }: {
   nodes: ProjectTodoNode[];
   depth: number;
@@ -393,6 +394,8 @@ function TodoTree({
   catalogMode?: boolean;
   onCatalogDeleteItem?: (itemId: string) => void;
   onCatalogUpdateType?: (itemId: string, type: 'client' | 'firm') => void;
+  /** 只读预览：不展示 depends on 编辑入口（仅展示已有依赖） */
+  hideDepsEditor?: boolean;
 }) {
   const baseIndent = depth * 14;
   const { taskTotal, taskSuccess, effectiveStatus } = nodeStats;
@@ -906,37 +909,59 @@ function TodoTree({
           crossRoleAccent,
         ];
 
-        // task 行前置依赖列：文案 "Depends on" + 多标签（每标签用该条目状态色）+ 入口
-        const showDepsControls = true;
+        // task 行前置依赖列：文案 "Depends on" + 多标签（每标签用该条目状态色）+ 入口（hideDepsEditor 时仅只读）
         const TaskDepsCol = isTask ? (
-          <Pressable
-            style={ts.taskDepsCol}
-            onPress={() => {
-              setDepsPanelNodeId(isDepsOpen ? null : node.id);
-            }}
-          >
-            <Text style={ts.taskDepsLabel}>Depends on</Text>
-            {depChipInfos.length > 0 ? (
-              <View style={ts.taskDepsChipsWrap}>
-                {depChipInfos.map((info: { depId: string; wbs: string; title: string; status: string }) => {
-                  const { text, bg } = getDepStatusColor(info.status);
-                  return (
-                    <View
-                      key={info.depId}
-                      style={[ts.taskDepsChip, { backgroundColor: bg }]}
-                    >
-                      <Text style={[ts.taskDepsChipText, { color: text }]}>{info.wbs}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            ) : null}
-            {!nodeIsBlocked && (
-              <View style={ts.taskDepsTrigger}>
-                <Ionicons name="add-circle-outline" size={12} color="#B2BEC3" />
-              </View>
-            )}
-          </Pressable>
+          hideDepsEditor ? (
+            <View style={ts.taskDepsCol}>
+              <Text style={ts.taskDepsLabel}>Depends on</Text>
+              {depChipInfos.length > 0 ? (
+                <View style={ts.taskDepsChipsWrap}>
+                  {depChipInfos.map((info: { depId: string; wbs: string; title: string; status: string }) => {
+                    const { text, bg } = getDepStatusColor(info.status);
+                    return (
+                      <View
+                        key={info.depId}
+                        style={[ts.taskDepsChip, { backgroundColor: bg }]}
+                      >
+                        <Text style={[ts.taskDepsChipText, { color: text }]}>{info.wbs}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <Text style={ts.taskDepsLabel} numberOfLines={1}>—</Text>
+              )}
+            </View>
+          ) : (
+            <Pressable
+              style={ts.taskDepsCol}
+              onPress={() => {
+                setDepsPanelNodeId(isDepsOpen ? null : node.id);
+              }}
+            >
+              <Text style={ts.taskDepsLabel}>Depends on</Text>
+              {depChipInfos.length > 0 ? (
+                <View style={ts.taskDepsChipsWrap}>
+                  {depChipInfos.map((info: { depId: string; wbs: string; title: string; status: string }) => {
+                    const { text, bg } = getDepStatusColor(info.status);
+                    return (
+                      <View
+                        key={info.depId}
+                        style={[ts.taskDepsChip, { backgroundColor: bg }]}
+                      >
+                        <Text style={[ts.taskDepsChipText, { color: text }]}>{info.wbs}</Text>
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
+              {!nodeIsBlocked && (
+                <View style={ts.taskDepsTrigger}>
+                  <Ionicons name="add-circle-outline" size={12} color="#B2BEC3" />
+                </View>
+              )}
+            </Pressable>
+          )
         ) : null;
 
         const rowContent = (
@@ -1002,6 +1027,7 @@ function TodoTree({
                 catalogMode={catalogMode}
                 onCatalogDeleteItem={onCatalogDeleteItem}
                 onCatalogUpdateType={onCatalogUpdateType}
+                hideDepsEditor={hideDepsEditor}
               />
             )}
             {pendingParentId === node.id && onConfirmAddChild && onCancelAddChild && (
@@ -1154,6 +1180,8 @@ export interface TaxFilingTodosViewProps {
   onCatalogUpdateType?: (itemId: string, type: 'client' | 'firm') => void;
   /** Catalog 模式：phase/section 行点击删除时由外部处理（确认后递归删 sku_item） */
   onRequestDeletePhase?: (phaseId: string, phaseTitle: string) => void;
+  /** Catalog 只读预览（如 engagement 详情）：不展示 + / - / depends on 编辑，仅展示树与依赖 */
+  catalogPreviewReadOnly?: boolean;
 }
 
 export function TaxFilingTodosView({
@@ -1168,6 +1196,7 @@ export function TaxFilingTodosView({
   onCatalogDeleteItem,
   onCatalogUpdateType,
   onRequestDeletePhase: onRequestDeletePhaseProp,
+  catalogPreviewReadOnly = false,
 }: TaxFilingTodosViewProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [taskFilesExpanded, setTaskFilesExpanded] = useState<Set<string>>(new Set());
@@ -1890,9 +1919,9 @@ export function TaxFilingTodosView({
                 setAddIconHighlightedRowId={setAddIconHighlightedRowId}
                 hideAddTimeoutRef={hideAddTimeoutRef}
                 pendingParentId={pendingParentId}
-                onStartAddChild={onStartAddChild}
-                onConfirmAddChild={onConfirmAddChild}
-                onCancelAddChild={onCancelAddChild}
+                onStartAddChild={catalogPreviewReadOnly ? undefined : onStartAddChild}
+                onConfirmAddChild={catalogPreviewReadOnly ? undefined : onConfirmAddChild}
+                onCancelAddChild={catalogPreviewReadOnly ? undefined : onCancelAddChild}
                 onCancelTask={onCancelTask}
                 onRestoreTask={onRestoreTask}
                 onUploadFile={onUploadFile}
@@ -1900,7 +1929,7 @@ export function TaxFilingTodosView({
                 onRequestMoveFile={onRequestMoveFile}
                 onFileRowPress={onFileRowPress}
                 onHandoffTask={onHandoffTask}
-                onRequestDeletePhase={onRequestDeletePhaseProp ?? handleRequestDeletePhase}
+                onRequestDeletePhase={catalogPreviewReadOnly ? undefined : (onRequestDeletePhaseProp ?? handleRequestDeletePhase)}
                 phaseAndSectionWithWbs={phaseAndSectionWithWbs}
                 rowFileColHoverId={rowFileColHoverId}
                 setRowFileColHoverId={setRowFileColHoverId}
@@ -1908,11 +1937,13 @@ export function TaxFilingTodosView({
                 rowIdShowingStatusVerb={rowIdShowingStatusVerb}
                 setRowIdShowingStatusVerb={setRowIdShowingStatusVerb}
                 catalogMode={catalogMode}
-                onCatalogDeleteItem={onCatalogDeleteItem}
-                onCatalogUpdateType={onCatalogUpdateType}
+                onCatalogDeleteItem={catalogPreviewReadOnly ? undefined : onCatalogDeleteItem}
+                onCatalogUpdateType={catalogPreviewReadOnly ? undefined : onCatalogUpdateType}
+                hideDepsEditor={catalogPreviewReadOnly}
               />
             </View>
           ))}
+          {!catalogPreviewReadOnly && (
           <View style={ts.phaseBlock}>
             {pendingAddPhase ? (
               <AddPhaseInputRow
@@ -1933,6 +1964,7 @@ export function TaxFilingTodosView({
               </Pressable>
             )}
           </View>
+          )}
         </View>
       </ScrollView>
 

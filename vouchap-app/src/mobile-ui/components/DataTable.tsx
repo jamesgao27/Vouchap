@@ -56,6 +56,8 @@ export interface DataTableProps<T> {
   onSelectedIdsChange?: (ids: string[]) => void;
   /** 为 true 时：未选中任何行时多选列不常显，仅悬停行显示该行复选框；选中至少一行后整列显示 */
   selectableRevealOnHover?: boolean;
+  /** 可选：按行返回额外 class（如置灰 data-table-row-muted） */
+  getRowClassName?: (row: T) => string;
 }
 
 const TABLE_HEADER_BG = '#F1F3F5';
@@ -108,6 +110,7 @@ function TableGlobalStyles() {
     el.textContent = [
       `.data-table-data-row { background-color: ${TABLE_ROW_BG} !important; }`,
       `.data-table-row-hover:hover { background-color: ${TABLE_ROW_HOVER_BG} !important; }`,
+      `.data-table-row-muted { opacity: 0.6 !important; }`,
       `.data-table-section-header td { font-weight: 600; background-color: ${TABLE_SECTION_BG} !important; }`,
       `table.data-table-body, table.data-table-body th, table.data-table-body td { font-family: ${TABLE_FONT_FAMILY} !important; }`,
       'table.data-table-body { height: auto !important; }',
@@ -142,6 +145,7 @@ export default function DataTable<T>({
    selectedIds,
    onSelectedIdsChange,
    selectableRevealOnHover = false,
+   getRowClassName,
 }: DataTableProps<T>) {
   const hasSections = sectionsProp != null && sectionsProp.length > 0;
   const data = hasSections ? sectionsProp!.flatMap(s => s.data) : (dataProp ?? []);
@@ -887,7 +891,7 @@ export default function DataTable<T>({
                             backgroundColor: TABLE_ROW_BG,
                             height: '40px',
                           } as any}
-                          className={`data-table-data-row ${onRowPress ? 'data-table-row-hover' : ''}`}
+                          className={`data-table-data-row ${onRowPress ? 'data-table-row-hover' : ''} ${getRowClassName?.(row) ?? ''}`.trim()}
                         >
                           <td style={{ ...tdStyle, width: 40, minWidth: 40, padding: '0 8px' }}>
                             {selectable && (
@@ -929,7 +933,7 @@ export default function DataTable<T>({
                       backgroundColor: TABLE_ROW_BG,
                       height: '40px',
                     } as any}
-                    className={`data-table-data-row ${onRowPress ? 'data-table-row-hover' : ''}`}
+                    className={`data-table-data-row ${onRowPress ? 'data-table-row-hover' : ''} ${getRowClassName?.(row) ?? ''}`.trim()}
                   >
                     <td style={{ ...tdStyle, width: 40, minWidth: 40, padding: '0 8px' }}>
                       {selectable && (

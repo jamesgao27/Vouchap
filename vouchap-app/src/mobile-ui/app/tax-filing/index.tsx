@@ -3,7 +3,7 @@
  * 卡片/列表复用 ProjectListCardAndRow，样式与 firm Service Catalog 一致。
  */
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Platform, useWindowDimensions, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { showTaxFiling } from '@/lib/feature-flags';
@@ -11,8 +11,11 @@ import { getCurrentSpace } from '@/lib/auth';
 import {
   getClientOrdersForClientSpace,
   confirmOrderAndCreateProjectTodos,
+  getProjectByOrderId,
+  updateOrderStatus,
   type FirmOrderForClient,
 } from '@/lib/firm';
+import { showToast } from '@/lib/toast';
 import {
   ProjectListCard,
   ProjectListRow,
@@ -64,6 +67,7 @@ export default function TaxFilingScreen() {
   const [orders, setOrders] = useState<FirmOrderForClient[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [pinnedOrderIds, setPinnedOrderIds] = useState<string[]>([]);
 
   const loadOrders = useCallback(async () => {
@@ -121,8 +125,34 @@ export default function TaxFilingScreen() {
     setConfirmingId(order.id);
     const { error } = await confirmOrderAndCreateProjectTodos(order.id);
     setConfirmingId(null);
-    if (!error) setOrders(await loadOrders());
+    if (error) return;
+    setOrders(await loadOrders());
+    const project = await getProjectByOrderId(order.id);
+    if (project?.id) router.push(`/tax-filing/project/${project.id}`);
   };
+
+  const handleRejectOrder = useCallback(async (order: FirmOrderForClient) => {
+    if (Platform.OS === 'web' && !window.confirm('Reject this order? You can\'t undo this.')) return;
+    if (Platform.OS !== 'web') {
+      Alert.alert('Reject order', 'Reject this order? You can\'t undo this.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Reject', style: 'destructive', onPress: () => doReject() },
+      ]);
+      return;
+    }
+    await doReject();
+    async function doReject() {
+      setRejectingId(order.id);
+      const { error } = await updateOrderStatus(order.id, 'cancelled');
+      setRejectingId(null);
+      if (error) {
+        showToast(error.message ?? 'Failed to reject', 'error');
+        return;
+      }
+      showToast('Order rejected', 'success');
+      setOrders(await loadOrders());
+    }
+  }, [loadOrders]);
 
   /** 点击卡片/行：已接受订单进 project 路由（client 主权），未接受进 order 路由 */
   const goToTodos = (order: FirmOrderForClient) => {
@@ -187,7 +217,7 @@ export default function TaxFilingScreen() {
           ) : viewMode === 'list' ? (
             <View style={projectListStyles.list}>
               {sortedOrders.map((o) => {
-                const item = orderToItem(o, confirmingId, handleConfirmOrder);
+                const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
                 return (
                   <ProjectListRow
                     key={o.id}
@@ -203,7 +233,7 @@ export default function TaxFilingScreen() {
           ) : (
             <View style={styles.grid}>
               {sortedOrders.map((o) => {
-                const item = orderToItem(o, confirmingId, handleConfirmOrder);
+                const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
                 return (
                   <ProjectListCard
                     key={o.id}
@@ -241,7 +271,9 @@ function getOrderDisplayName(order: FirmOrderForClient, isOnboarding: boolean): 
 function orderToItem(
   order: FirmOrderForClient,
   confirmingId: string | null,
-  onConfirm: (order: FirmOrderForClient) => void
+  rejectingId: string | null,
+  onConfirm: (order: FirmOrderForClient) => void,
+  onReject: (order: FirmOrderForClient) => void
 ): ProjectListCardItem {
   const isOnboarding = order.status === 'onboarding';
   const taxSeasonYear = getTaxSeasonYear(order);
@@ -252,13 +284,20 @@ function orderToItem(
     tagPill: taxSeasonYear != null ? { label: String(taxSeasonYear), color: getTaxSeasonColor(taxSeasonYear) } : null,
     statusLabel: STAGE_LABEL[order.status] ?? order.status,
     statusColor: STAGE_COLOR[order.status] ?? '#95A5A6',
-    footerText: order.firmName ? `Services from ${order.firmName}` : null,
+    isMuted: order.status === 'cancelled',
+    footerText: order.firmName ? `By ${order.firmName}` : null,
     progress:
       !isOnboarding && (order.taskTotal ?? 0) > 0
         ? { completed: order.taskCompleted ?? 0, total: order.taskTotal ?? 0 }
         : null,
     action: isOnboarding
-      ? { label: 'Accept and start', onPress: () => onConfirm(order), confirming: confirmingId === order.id }
+      ? {
+          label: 'Accept and Start',
+          onPress: () => onConfirm(order),
+          confirming: confirmingId === order.id,
+          onReject: () => onReject(order),
+          rejecting: rejectingId === order.id,
+        }
       : null,
   };
 }

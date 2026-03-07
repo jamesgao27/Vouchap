@@ -31,6 +31,8 @@ export interface ProjectListCardItem {
   tagPill?: { label: string; color: string } | null;
   statusLabel: string;
   statusColor: string;
+  /** 已取消/拒绝等需视觉弱化置灰 */
+  isMuted?: boolean;
   /** 可选左上角状态角标（如 Draft/Private/Published 的首字母） */
   statusCorner?: { label: string; bg: string } | null;
   footerText?: string | null;
@@ -38,8 +40,14 @@ export interface ProjectListCardItem {
   classificationTags?: { label: string; bg: string; fg: string }[] | null;
   /** 有则显示进度条（非 action 时） */
   progress?: { completed: number; total: number } | null;
-  /** 有则显示底部/右侧行动按钮 */
-  action?: { label: string; onPress: () => void; confirming: boolean } | null;
+  /** 有则显示底部/右侧行动按钮；onReject 有则左侧显示方形 reject 图标按钮 */
+  action?: {
+    label: string;
+    onPress: () => void;
+    confirming: boolean;
+    onReject?: () => void;
+    rejecting?: boolean;
+  } | null;
 }
 
 function PinToTopIcon({ size = 24, color = '#ff7711' }: { size?: number; color?: string }) {
@@ -99,7 +107,7 @@ export function ProjectListCard({
       onMouseLeave={Platform.OS === 'web' ? () => setHover(false) : undefined}
     >
       <TouchableOpacity
-        style={[s.card, hover && s.cardHover]}
+        style={[s.card, hover && s.cardHover, item.isMuted && s.cardMuted]}
         onPress={onPress}
         activeOpacity={0.85}
       >
@@ -185,8 +193,7 @@ export function ProjectListCard({
           )}
           {item.footerText ? (
             <View style={s.cardRowFooter}>
-              <View />
-              <Text style={s.cardFirmName} numberOfLines={1}>{item.footerText}</Text>
+              <Text style={s.cardFirmName} numberOfLines={1} ellipsizeMode="tail">{item.footerText}</Text>
             </View>
           ) : null}
           {showProgress && item.progress && (
@@ -202,9 +209,44 @@ export function ProjectListCard({
         </View>
         {item.action && (
           <View style={s.acceptBtnWrap}>
-            {item.action.confirming ? (
+            {(item.action.confirming || item.action.rejecting) && !item.action.onReject ? (
               <View style={s.acceptBtnProgress}>
                 <IndeterminateProgressBar />
+              </View>
+            ) : item.action.confirming || item.action.rejecting ? (
+              <View style={s.acceptBtnRow}>
+                <TouchableOpacity
+                  style={s.rejectIconBtn}
+                  onPress={(e) => { e.stopPropagation(); item.action!.onReject!(); }}
+                  disabled
+                  activeOpacity={0.8}
+                >
+                  {item.action.rejecting ? (
+                    <Ionicons name="hourglass-outline" size={20} color="#C0392B" />
+                  ) : (
+                    <Ionicons name="close-circle-outline" size={22} color="#C0392B" />
+                  )}
+                </TouchableOpacity>
+                <View style={s.acceptBtnProgress}>
+                  <IndeterminateProgressBar />
+                </View>
+              </View>
+            ) : item.action.onReject ? (
+              <View style={s.acceptBtnRow}>
+                <TouchableOpacity
+                  style={s.rejectIconBtn}
+                  onPress={(e) => { e.stopPropagation(); item.action!.onReject!(); }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="close-circle-outline" size={22} color="#C0392B" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[s.acceptBtn, s.acceptBtnWithReject]}
+                  onPress={(e) => { e.stopPropagation(); item.action!.onPress(); }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={s.acceptBtnText}>{item.action.label}</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               <TouchableOpacity
@@ -247,7 +289,7 @@ export function ProjectListRow({
       onMouseEnter={Platform.OS === 'web' ? () => setHover(true) : undefined}
       onMouseLeave={Platform.OS === 'web' ? () => setHover(false) : undefined}
     >
-      <TouchableOpacity style={s.listRow} onPress={onPress} activeOpacity={0.7}>
+      <TouchableOpacity style={[s.listRow, item.isMuted && s.listRowMuted]} onPress={onPress} activeOpacity={0.7}>
         {onTogglePin != null && (isPinned || hover) && (
           <View style={s.listRowCornerPinWrap} pointerEvents="box-none">
             <View
@@ -337,9 +379,44 @@ export function ProjectListRow({
         </View>
         <View style={s.listRightSlot}>
           {item.action ? (
-            item.action.confirming ? (
+            (item.action.confirming || item.action.rejecting) && !item.action.onReject ? (
               <View style={s.listAcceptProgress}>
                 <IndeterminateProgressBar />
+              </View>
+            ) : item.action.confirming || item.action.rejecting ? (
+              <View style={s.listActionRow}>
+                <TouchableOpacity
+                  style={s.listRejectBtn}
+                  onPress={(e) => { e.stopPropagation(); item.action!.onReject!(); }}
+                  disabled
+                  activeOpacity={0.8}
+                >
+                  {item.action.rejecting ? (
+                    <Ionicons name="hourglass-outline" size={18} color="#C0392B" />
+                  ) : (
+                    <Text style={s.listRejectBtnText}>Reject</Text>
+                  )}
+                </TouchableOpacity>
+                <View style={s.listAcceptProgress}>
+                  <IndeterminateProgressBar />
+                </View>
+              </View>
+            ) : item.action.onReject ? (
+              <View style={s.listActionRow}>
+                <TouchableOpacity
+                  style={s.listRejectBtn}
+                  onPress={(e) => { e.stopPropagation(); item.action!.onReject!(); }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={s.listRejectBtnText}>Reject</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={s.listAcceptBtn}
+                  onPress={(e) => { e.stopPropagation(); item.action!.onPress(); }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={s.acceptBtnText}>{item.action.label}</Text>
+                </TouchableOpacity>
               </View>
             ) : (
               <TouchableOpacity
@@ -383,6 +460,7 @@ const s = StyleSheet.create({
     shadowRadius: 12,
     ...(Platform.OS === 'android' ? { elevation: 8 } : {}),
   },
+  cardMuted: { opacity: 0.6 },
   cardCoverWrap: { width: '100%', aspectRatio: 1, backgroundColor: '#E9ECEF', overflow: 'hidden', position: 'relative' },
   cardCoverImg: { width: '100%', height: '100%' },
   cardCoverPlaceholder: { flex: 1, alignItems: 'center', justifyContent: 'center', minHeight: 120 },
@@ -514,23 +592,42 @@ const s = StyleSheet.create({
     minHeight: 20,
     marginTop: 2,
   },
-  classificationRowPlaceholder: { minHeight: 20, marginTop: 2 },
+  classificationRowPlaceholder: { minHeight: 0, marginTop: 2 },
   classificationPill: {
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 10,
   },
   classificationPillText: { fontSize: 11, fontWeight: '500' },
-  cardRowFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 },
+  cardRowFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 0 },
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
   statusPillText: { fontSize: 12, color: '#FFF', fontWeight: '600' },
-  cardFirmName: { fontSize: 11, color: '#95A5A6', maxWidth: '85%', textAlign: 'right' },
+  cardFirmName: { fontSize: 11, color: '#95A5A6', textAlign: 'right' },
   acceptBtnWrap: {
     height: ACTION_ROW_HEIGHT,
     marginTop: 0,
     marginHorizontal: 12,
     marginBottom: 12,
     justifyContent: 'center',
+  },
+  acceptBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: ACTION_ROW_HEIGHT,
+  },
+  /** 卡片模式 Reject 图标按钮：规范次按钮 + 阴影 */
+  rejectIconBtn: {
+    width: ACTION_ROW_HEIGHT,
+    height: ACTION_ROW_HEIGHT,
+    borderRadius: 10,
+    backgroundColor: '#FFE5E5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...(Platform.OS === 'web' || Platform.OS === 'ios'
+      ? { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 3 }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 2 } : {}),
   },
   acceptBtn: {
     height: ACTION_ROW_HEIGHT,
@@ -543,7 +640,8 @@ const s = StyleSheet.create({
       : {}),
     ...(Platform.OS === 'android' ? { elevation: 4 } : {}),
   },
-  acceptBtnProgress: { height: ACTION_ROW_HEIGHT, justifyContent: 'center', paddingHorizontal: 12 },
+  acceptBtnWithReject: { flex: 1, minWidth: 0 },
+  acceptBtnProgress: { flex: 1, height: ACTION_ROW_HEIGHT, justifyContent: 'center', paddingHorizontal: 12, minWidth: 0 },
   acceptBtnText: { color: '#FFF', fontWeight: '700', fontSize: 15 },
   indeterminateTrack: {
     height: 4,
@@ -572,6 +670,7 @@ const s = StyleSheet.create({
     backgroundColor: '#FFF',
     position: 'relative',
   },
+  listRowMuted: { opacity: 0.6 },
   listEditWrap: {
     width: 28,
     minWidth: 28,
@@ -712,10 +811,42 @@ const s = StyleSheet.create({
   },
   listProgressTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#E9ECEF', overflow: 'hidden' },
   listProgressText: { fontSize: 12, color: '#636E72' },
+  listActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+  },
+  listRejectIconBtn: {
+    width: ACTION_ROW_HEIGHT,
+    height: ACTION_ROW_HEIGHT,
+    borderRadius: 10,
+    backgroundColor: '#FFE5E5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  /** 列表模式：完整 Reject 次按钮（与详情页顶栏一致）+ 阴影 */
+  listRejectBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    minHeight: ACTION_ROW_HEIGHT,
+    borderRadius: 10,
+    backgroundColor: '#FFE5E5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...(Platform.OS === 'web' || Platform.OS === 'ios'
+      ? { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 3 }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 2 } : {}),
+  },
+  listRejectBtnText: { color: '#C0392B', fontWeight: '600', fontSize: 15 },
   listAcceptBtn: {
-    width: '100%',
+    flex: 1,
+    minWidth: 0,
     maxWidth: 200,
     height: ACTION_ROW_HEIGHT,
+    paddingHorizontal: 12,
     backgroundColor: '#6C5CE7',
     borderRadius: 10,
     alignItems: 'center',
@@ -726,7 +857,8 @@ const s = StyleSheet.create({
     ...(Platform.OS === 'android' ? { elevation: 4 } : {}),
   },
   listAcceptProgress: {
-    width: '100%',
+    flex: 1,
+    minWidth: 0,
     height: ACTION_ROW_HEIGHT,
     justifyContent: 'center',
     paddingHorizontal: 8,

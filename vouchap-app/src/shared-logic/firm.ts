@@ -346,9 +346,11 @@ export async function getClientOrdersForClientSpace(clientSpaceId: string): Prom
     (todosData || []).forEach((t: any) => {
       const isTask = (t.item_kind ?? 'task') === 'task';
       if (!isTask) return;
+      const canceled = t.status === 'canceled' || t.status === 'cancelled';
+      if (canceled) return;
       if (!todoCountByProjectId[t.project_id]) todoCountByProjectId[t.project_id] = { total: 0, completed: 0 };
       todoCountByProjectId[t.project_id].total += 1;
-      if (t.status === 'success') todoCountByProjectId[t.project_id].completed += 1;
+      if (t.status === 'success' || t.status === 'completed') todoCountByProjectId[t.project_id].completed += 1;
     });
   }
 
@@ -1107,9 +1109,10 @@ export async function getFirmProjects(
   const todoCountByProject: Record<string, { total: number; completed: number }> = {};
   (todosRes.data || []).forEach((t: any) => {
     if ((t.item_kind ?? 'task') !== 'task') return;
+    if (t.status === 'canceled' || t.status === 'cancelled') return;
     if (!todoCountByProject[t.project_id]) todoCountByProject[t.project_id] = { total: 0, completed: 0 };
     todoCountByProject[t.project_id].total += 1;
-    if (t.status === 'success') todoCountByProject[t.project_id].completed += 1;
+    if (t.status === 'success' || t.status === 'completed') todoCountByProject[t.project_id].completed += 1;
   });
   let list = (projects as any[]).map((p: any) => {
     const order = orderMap.get(p.order_id);
@@ -1154,8 +1157,9 @@ export async function getProjectDetail(orderId: string): Promise<{
   ]);
   if (!order) return null;
   const taskTodos = todos.filter((t: any) => (t.itemKind ?? t.item_kind ?? 'task') === 'task');
-  const taskTotal = taskTodos.length;
-  const taskCompleted = taskTodos.filter((t) => t.status === 'success').length;
+  const nonCanceled = taskTodos.filter((t: any) => t.status !== 'canceled' && t.status !== 'cancelled');
+  const taskTotal = nonCanceled.length;
+  const taskCompleted = nonCanceled.filter((t: any) => t.status === 'success' || t.status === 'completed').length;
   let clientName: string | undefined;
   let skuName: string | undefined;
   if (order.clientSpaceId && order.firmSpaceId) {

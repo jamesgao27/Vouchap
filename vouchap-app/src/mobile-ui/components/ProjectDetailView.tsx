@@ -11,6 +11,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Image,
+  Platform,
 } from 'react-native';
 import { useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -168,8 +169,11 @@ export interface ProjectDetailViewProps {
   infoEditing: boolean;
   setInfoEditing: (v: boolean) => void;
   infoTabRef: React.RefObject<ProjectInfoTabHandle | null>;
-  /** Client 时在顶栏显示 info/list 切换图标 */
-  showHeaderTabToggle?: boolean;
+  /** Client onboarding 时顶栏右端显示 Reject + Accept and Start */
+  onReject?: () => Promise<void>;
+  rejectLoading?: boolean;
+  onAcceptAndStart?: () => Promise<void>;
+  acceptAndStartLoading?: boolean;
   /** 内容：Todos */
   tree: ProjectTodoNode[];
   orderId: string;
@@ -195,7 +199,10 @@ export function ProjectDetailView({
   infoEditing,
   setInfoEditing,
   infoTabRef,
-  showHeaderTabToggle = false,
+  onReject,
+  rejectLoading = false,
+  onAcceptAndStart,
+  acceptAndStartLoading = false,
   tree,
   orderId,
   projectId,
@@ -216,33 +223,52 @@ export function ProjectDetailView({
     });
   }, [navigation, header.title, header.subtitle, header.taxSeasonYear, header.status?.label]);
 
-  const toggleTab = useCallback(() => {
-    setActiveTab(activeTab === 'info' ? 'todos' : 'info');
-  }, [activeTab, setActiveTab]);
-
+  const showAcceptInHeader = Boolean(viewerRole === 'client' && isOnboarding && onAcceptAndStart);
   useLayoutEffect(() => {
-    if (!showHeaderTabToggle) return;
+    if (!showAcceptInHeader) {
+      navigation.setOptions({ headerBackButtonVisible: true, headerRight: undefined });
+      return;
+    }
     navigation.setOptions({
       headerBackButtonVisible: true,
       headerRight: () => (
-        <TouchableOpacity
-          onPress={toggleTab}
-          style={{ padding: 8, marginRight: 2 }}
-          hitSlop={8}
-          activeOpacity={0.7}
-        >
-          <Ionicons
-            name={activeTab === 'info' ? 'list-outline' : 'information-circle-outline'}
-            size={22}
-            color={activeTab === 'info' ? '#6C5CE7' : '#636E72'}
-          />
-        </TouchableOpacity>
+        <View style={sharedStyles.headerActionsWrap}>
+          {onReject ? (
+            <TouchableOpacity
+              onPress={onReject}
+              disabled={rejectLoading || acceptAndStartLoading}
+              style={sharedStyles.headerRejectBtn}
+              activeOpacity={0.85}
+            >
+              {rejectLoading ? (
+                <ActivityIndicator size="small" color="#C0392B" />
+              ) : (
+                <Text style={sharedStyles.headerRejectBtnText}>Reject</Text>
+              )}
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            onPress={onAcceptAndStart}
+            disabled={acceptAndStartLoading || rejectLoading}
+            style={sharedStyles.headerAcceptBtn}
+            activeOpacity={0.85}
+          >
+            {acceptAndStartLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                <Text style={sharedStyles.headerAcceptBtnText}>Accept and Start</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
       ),
     });
     return () => {
       navigation.setOptions({ headerBackButtonVisible: true, headerRight: undefined });
     };
-  }, [navigation, showHeaderTabToggle, activeTab, toggleTab]);
+  }, [navigation, showAcceptInHeader, onReject, rejectLoading, onAcceptAndStart, acceptAndStartLoading]);
 
   return (
     <View style={sharedStyles.container}>
@@ -265,7 +291,7 @@ export function ProjectDetailView({
           </TouchableOpacity>
         </View>
 
-        {!isOnboarding || viewerRole !== 'firm' ? (
+        {!(isOnboarding && (viewerRole === 'firm' || (viewerRole === 'client' && (skuItems?.length ?? 0) > 0))) ? (
           <>
             {activeTab === 'todos' && (
               <TouchableOpacity style={sharedStyles.operationBtn} onPress={() => {}} activeOpacity={0.7}>
@@ -308,22 +334,23 @@ export function ProjectDetailView({
         ) : null}
       </View>
 
-      {/* 内容区 */}
-      {isOnboarding && viewerRole === 'client' ? (
+      {/* 内容区：client onboarding 无 sku 数据时仅提示接受订单；有 sku 或 firm onboarding 时展示只读 Todos + Info */}
+      {isOnboarding && viewerRole === 'client' && !(skuItems && skuItems.length > 0) ? (
         <View style={sharedStyles.emptyWrap}>
           <Text style={sharedStyles.emptyText}>Accept the order to see checklist</Text>
         </View>
-      ) : isOnboarding && viewerRole === 'firm' ? (
+      ) : isOnboarding && (viewerRole === 'firm' || (viewerRole === 'client' && (skuItems?.length ?? 0) > 0)) ? (
         activeTab === 'todos' ? (
           skuItems && skuItems.length > 0 ? (
             <TaxFilingTodosView
               tree={skuItemsToProjectTodoTree(skuItems)}
               orderId=""
               clientSpaceId=""
-              viewerRole="firm"
+              viewerRole={viewerRole}
               onRefresh={async () => {}}
               createProjectTodo={async () => ({ id: null, error: null })}
               catalogMode
+              catalogPreviewReadOnly
             />
           ) : (
             <ScrollView style={sharedStyles.scroll} contentContainerStyle={sharedStyles.scrollContent}>
@@ -454,6 +481,55 @@ const sharedStyles = StyleSheet.create({
   operationEditGroup: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   operationBtnSmall: { paddingHorizontal: 10, paddingVertical: 6 },
   operationBtnPrimary: { backgroundColor: '#6C5CE7' },
+  /** 顶栏操作区：Reject 次按钮 + Accept 主按钮，右端留白 */
+  headerActionsWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginRight: 14,
+  },
+  /** 顶栏 Reject 次按钮：规范次按钮 + 阴影 */
+  headerRejectBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    minHeight: 40,
+    borderRadius: 10,
+    backgroundColor: '#FFE5E5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...(Platform.OS === 'web' || Platform.OS === 'ios'
+      ? {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.12,
+          shadowRadius: 3,
+        }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 2 } : {}),
+  },
+  headerRejectBtnText: { color: '#C0392B', fontWeight: '600', fontSize: 15 },
+  /** 顶栏「Accept and Start」主按钮：规范主按钮样式 + 阴影 */
+  headerAcceptBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    minHeight: 40,
+    borderRadius: 10,
+    backgroundColor: '#6C5CE7',
+    ...(Platform.OS === 'web' || Platform.OS === 'ios'
+      ? {
+          shadowColor: '#6C5CE7',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.3,
+          shadowRadius: 4,
+        }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 4 } : {}),
+  },
+  headerAcceptBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   opBtn: {
     flexDirection: 'row',
     alignItems: 'center',

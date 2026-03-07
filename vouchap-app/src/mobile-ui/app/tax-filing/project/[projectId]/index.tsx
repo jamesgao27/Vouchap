@@ -9,6 +9,8 @@ import {
   StyleSheet,
   TouchableOpacity,
   ActivityIndicator,
+  Alert,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,9 +21,16 @@ import {
   getProjectTodosTree,
   getProjectById,
   createProjectTodo,
+  getSkuItems,
+  getSkuById,
+  confirmOrderAndCreateProjectTodos,
+  updateOrderStatus,
   type ProjectTodoNode,
 } from '@/lib/firm';
+import { showToast } from '@/lib/toast';
 import { ProjectInfoTab, type ProjectInfoTabHandle } from './info';
+import type { FirmSkuItem } from '@/types';
+import type { ProjectSkuInfo } from '@/components/ProjectSkuDetail';
 import { ProjectDetailView, type ProjectDetailHeader, ORDER_STATUS_CONFIG } from '@/components/ProjectDetailView';
 
 export default function ProjectTodosScreen() {
@@ -35,6 +44,11 @@ export default function ProjectTodosScreen() {
   /** 当前订单的 client space_id，用于税表上传路径 tax-filing/{clientSpaceId}/... */
   const [clientSpaceId, setClientSpaceId] = useState<string>('');
   const [tree, setTree] = useState<ProjectTodoNode[]>([]);
+  /** Client onboarding 时展示只读 checklist/Info 用 */
+  const [skuItems, setSkuItems] = useState<FirmSkuItem[]>([]);
+  const [skuInfo, setSkuInfo] = useState<ProjectSkuInfo | null>(null);
+  const [skuDetailForInfo, setSkuDetailForInfo] = useState<{ taxCountry?: string | null; taxScenario?: string | null } | null>(null);
+
   const load = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
@@ -59,9 +73,24 @@ export default function ProjectTodosScreen() {
       setHeader(headerData ?? null);
       if (order.status === 'onboarding') {
         setTree([]);
+        const [items, sku] = await Promise.all([
+          getSkuItems(order.skuId),
+          getSkuById(order.skuId),
+        ]);
+        setSkuItems(items);
+        if (sku) {
+          setSkuInfo({ name: sku.name, description: sku.description ?? null, imageUrl: sku.imageUrl ?? null });
+          setSkuDetailForInfo({ taxCountry: sku.taxCountry ?? null, taxScenario: sku.taxScenario ?? null });
+        } else {
+          setSkuInfo(null);
+          setSkuDetailForInfo(null);
+        }
         setLoading(false);
         return;
       }
+      setSkuItems([]);
+      setSkuInfo(null);
+      setSkuDetailForInfo(null);
       const todosTree = await getProjectTodosTree(orderIdVal);
       setTree(todosTree);
     } catch (e) {
@@ -90,7 +119,46 @@ export default function ProjectTodosScreen() {
 
   const [activeTab, setActiveTab] = useState<'todos' | 'info'>('todos');
   const [infoEditing, setInfoEditing] = useState(false);
+  const [rejectLoading, setRejectLoading] = useState(false);
+  const [acceptLoading, setAcceptLoading] = useState(false);
   const infoTabRef = useRef<ProjectInfoTabHandle>(null);
+
+  const handleReject = useCallback(async () => {
+    if (!orderId) return;
+    if (Platform.OS === 'web' && !window.confirm('Reject this order? You can\'t undo this.')) return;
+    if (Platform.OS !== 'web') {
+      Alert.alert('Reject order', 'Reject this order? You can\'t undo this.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Reject', style: 'destructive', onPress: () => doReject() },
+      ]);
+      return;
+    }
+    await doReject();
+    async function doReject() {
+      setRejectLoading(true);
+      const { error } = await updateOrderStatus(orderId, 'cancelled');
+      setRejectLoading(false);
+      if (error) {
+        showToast(error.message ?? 'Failed to reject', 'error');
+        return;
+      }
+      showToast('Order rejected', 'success');
+      router.back();
+    }
+  }, [orderId, router]);
+
+  const handleAcceptAndStart = useCallback(async () => {
+    if (!orderId) return;
+    setAcceptLoading(true);
+    const { error } = await confirmOrderAndCreateProjectTodos(orderId);
+    setAcceptLoading(false);
+    if (error) {
+      showToast(error.message ?? 'Failed to accept', 'error');
+      return;
+    }
+    showToast('Order accepted', 'success');
+    load();
+  }, [orderId, load]);
 
   // 根据路由参数初始化：从列表卡片的 Edit 进入时，直接落在 Info 页签并进入编辑态
   useEffect(() => {
@@ -147,7 +215,10 @@ export default function ProjectTodosScreen() {
       infoEditing={infoEditing}
       setInfoEditing={setInfoEditing}
       infoTabRef={infoTabRef}
-      showHeaderTabToggle
+      onReject={header?.status === 'onboarding' ? handleReject : undefined}
+      rejectLoading={rejectLoading}
+      onAcceptAndStart={header?.status === 'onboarding' ? handleAcceptAndStart : undefined}
+      acceptAndStartLoading={acceptLoading}
       tree={tree}
       orderId={orderId ?? ''}
       projectId={projectId}
@@ -158,6 +229,9 @@ export default function ProjectTodosScreen() {
         setTree(todosTree);
       }}
       createProjectTodo={createProjectTodo}
+      skuItems={skuItems}
+      skuInfo={skuInfo}
+      skuDetailForInfo={skuDetailForInfo}
     />
   );
 }
