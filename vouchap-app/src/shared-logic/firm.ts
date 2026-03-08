@@ -2054,12 +2054,14 @@ export async function getFirmClientFollowUps(
     firmSpaceId: row.firm_space_id,
     clientSpaceId: row.client_space_id,
     content: row.content ?? '',
+    kind: (row.kind ?? 'note') as FirmClientFollowUp['kind'],
+    referenceId: row.reference_id ?? null,
     createdAt: row.created_at,
     createdBy: row.created_by ?? null,
   }));
 }
 
-/** Firm 空间：新增客户跟进记录（插入后 trigger 会更新 clients.last_follow_up_at） */
+/** Firm 空间：新增客户跟进记录（插入后 trigger 会更新 clients.updated_at） */
 export async function addFirmClientFollowUp(
   firmSpaceId: string,
   clientSpaceId: string,

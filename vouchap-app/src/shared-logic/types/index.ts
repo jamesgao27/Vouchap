@@ -468,12 +468,21 @@ export interface FirmClient {
   updatedAt?: string;
 }
 
-// 客户跟进记录
+// 客户跟进记录（含手动备注与订单等系统事件）
+export type FirmClientFollowUpKind =
+  | 'note'
+  | 'order_created'
+  | 'order_started'
+  | 'order_completed'
+  | 'order_cancelled';
+
 export interface FirmClientFollowUp {
   id: string;
   firmSpaceId: string;
   clientSpaceId: string;
   content: string;
+  kind: FirmClientFollowUpKind;
+  referenceId?: string | null;
   createdAt: string;
   createdBy?: string | null;
 }

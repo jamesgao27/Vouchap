@@ -23,6 +23,7 @@ import {
   getSkuItems,
   createFirmOrder,
 } from '@/lib/firm';
+import { showToast } from '@/lib/toast';
 import type { FirmClientWithDetails, FirmOrder, FirmClientFollowUp, FirmSku, FirmSkuItem } from '@/lib/firm';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
 import DataTable, { type DataTableColumn } from '@/components/DataTable';
@@ -125,14 +126,20 @@ export default function FirmClientDetailScreen() {
   const handleAddFollowUp = useCallback(async () => {
     const content = followUpContent.trim();
     if (!client || !content) return;
-    const space = await getCurrentSpace();
-    if (!space?.id || space.kind !== 'firm') return;
+    const firmSpaceId = client.firmSpaceId;
+    if (!firmSpaceId) {
+      showToast('Missing firm context.', 'error');
+      return;
+    }
     setAddingFollowUp(true);
-    const { error } = await addFirmClientFollowUp(space.id, client.clientSpaceId, content);
+    const { error } = await addFirmClientFollowUp(firmSpaceId, client.clientSpaceId, content);
     if (!error) {
-      const fus = await getFirmClientFollowUps(space.id, client.clientSpaceId);
+      const fus = await getFirmClientFollowUps(firmSpaceId, client.clientSpaceId);
       setFollowUps(fus);
       setFollowUpContent('');
+      showToast('Follow-up saved.', 'success');
+    } else {
+      showToast(error?.message ?? 'Failed to save follow-up.', 'error');
     }
     setAddingFollowUp(false);
   }, [client, followUpContent]);
@@ -295,12 +302,44 @@ export default function FirmClientDetailScreen() {
             {followUps.length === 0 ? (
               <Text style={styles.emptyText}>No follow-up records yet.</Text>
             ) : (
-              followUps.map((f) => (
-                <View key={f.id} style={styles.followUpRow}>
-                  <Text style={styles.followUpContent}>{f.content}</Text>
-                  <Text style={styles.followUpMeta}>{formatDate(f.createdAt)}</Text>
-                </View>
-              ))
+              followUps.map((f) => {
+                const isOrderEvent = f.kind !== 'note' && f.referenceId;
+                const iconName =
+                  f.kind === 'order_created'
+                    ? 'document-text-outline'
+                    : f.kind === 'order_started'
+                      ? 'play-circle-outline'
+                      : f.kind === 'order_completed'
+                        ? 'checkmark-done-outline'
+                        : f.kind === 'order_cancelled'
+                          ? 'close-circle-outline'
+                          : null;
+                const rowContent = (
+                  <>
+                    {iconName ? (
+                      <Ionicons name={iconName as any} size={18} color="#6C5CE7" style={styles.followUpRowIcon} />
+                    ) : null}
+                    <View style={styles.followUpRowText}>
+                      <Text style={styles.followUpContent}>{f.content}</Text>
+                      <Text style={styles.followUpMeta}>{formatDate(f.createdAt)}</Text>
+                    </View>
+                  </>
+                );
+                return isOrderEvent ? (
+                  <TouchableOpacity
+                    key={f.id}
+                    style={styles.followUpRow}
+                    onPress={() => router.push(`/firm/engagement/${f.referenceId}`)}
+                    activeOpacity={0.7}
+                  >
+                    {rowContent}
+                  </TouchableOpacity>
+                ) : (
+                  <View key={f.id} style={styles.followUpRow}>
+                    {rowContent}
+                  </View>
+                );
+              })
             )}
           </View>
         </ScrollView>
@@ -315,6 +354,7 @@ export default function FirmClientDetailScreen() {
               keyExtractor={(r) => r.id}
               emptyMessage="No orders yet."
               storageKey="client-orders-table"
+              onRowPress={(row) => router.push(`/firm/engagement/${row.id}`)}
             />
           ) : (
             orders.length === 0 ? (
@@ -323,10 +363,15 @@ export default function FirmClientDetailScreen() {
               orders.map((o) => {
                 const skuName = skus.find((s) => s.id === o.skuId)?.name ?? '—';
                 return (
-                  <View key={o.id} style={styles.orderRow}>
+                  <TouchableOpacity
+                    key={o.id}
+                    style={styles.orderRow}
+                    onPress={() => router.push(`/firm/engagement/${o.id}`)}
+                    activeOpacity={0.7}
+                  >
                     <Text style={styles.orderSku}>{skuName}</Text>
                     <Text style={styles.orderMeta}>{o.status} · {formatDate(o.createdAt)}</Text>
-                  </View>
+                  </TouchableOpacity>
                 );
               })
             )
@@ -508,10 +553,14 @@ const styles = StyleSheet.create({
   followUpBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' },
   emptyText: { fontSize: 13, color: '#95A5A6' },
   followUpRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
   },
+  followUpRowIcon: { marginRight: 8, marginTop: 2 },
+  followUpRowText: { flex: 1 },
   followUpContent: { fontSize: 13, color: '#2D3436', marginBottom: 2 },
   followUpMeta: { fontSize: 12, color: '#95A5A6' },
 

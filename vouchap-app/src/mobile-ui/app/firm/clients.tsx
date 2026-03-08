@@ -833,7 +833,7 @@ export default function FirmClientsScreen() {
                 onPress={handleOpenInviteHistory}
                 activeOpacity={0.7}
               >
-                <Ionicons name="share-outline" size={18} color="#636E72" style={{ marginRight: 4 }} />
+                <Ionicons name="qr-code-outline" size={18} color="#636E72" style={{ marginRight: 4 }} />
                 <Text style={styles.inviteHistoryButtonText}>Open invite</Text>
               </TouchableOpacity>
               <View
