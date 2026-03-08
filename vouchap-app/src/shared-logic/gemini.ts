@@ -15,7 +15,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as FileSystemNew from 'expo-file-system';
-import { GeminiReceiptResult, GeminiVoucherResult, GeminiInboundOutboundResult, VoucherLogType } from '@/types';
+import { GeminiReceiptResult, GeminiVoucherResult, GeminiInboundOutboundResult, VoucherLogType, ExtractedClient, ClientRecognitionResult } from '@/types';
 import { getAvailableImageModel } from './gemini-helper';
 import { getMostFrequentCurrency, getCurrenciesByUsage } from './database';
 import { normalizeShortDate, getLocalDateString } from './date-utils';
@@ -2095,6 +2095,121 @@ ${INBOUND_JSON_EXAMPLE(today)}`;
     }
   }
   throw lastError || new Error('All models failed');
+}
+
+// ---------------------------------------------------------------------------
+// Client Assistant: extract client/contact info from text, document, or image
+// ---------------------------------------------------------------------------
+
+const CLIENT_EXTRACTION_PROMPT = `You are a data extraction assistant. Extract client/contact records from the given content (text, document, or image of business cards or client lists).
+
+For each person or organization contact found, extract:
+- email (REQUIRED): valid email address. If none found for a row, omit that row.
+- contactName (optional): person name
+- orgName (optional): company or organization name
+- address (optional): full or partial address
+
+Sources may be: pasted text (CSV-like, line-separated, or prose), PDF/Word client lists, or images of business cards. Return one record per contact; merge multiple cards in one image into multiple records.
+
+Return ONLY valid JSON, no markdown or explanation:
+{
+  "clients": [
+    { "email": "user@example.com", "contactName": "John Doe", "orgName": "Acme Inc", "address": "123 Main St, City" }
+  ]
+}
+If no valid email is found in the content, return { "clients": [] }.`;
+
+function buildClientRecognitionResult(clients: ExtractedClient[]): ClientRecognitionResult {
+  const valid = clients.filter((c) => c.email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email.trim()));
+  let completeCount = 0;
+  let incompleteCount = 0;
+  for (const c of valid) {
+    const hasName = !!(c.contactName?.trim() || c.orgName?.trim());
+    if (hasName) completeCount++;
+    else incompleteCount++;
+  }
+  return {
+    clients: valid.map((c) => ({
+      email: c.email.trim().toLowerCase(),
+      contactName: c.contactName?.trim() || undefined,
+      orgName: c.orgName?.trim() || undefined,
+      address: c.address?.trim() || undefined,
+    })),
+    summary: {
+      totalCount: valid.length,
+      completeCount,
+      incompleteCount,
+    },
+  };
+}
+
+/** Client Assistant: extract client list from pasted text or typed list. */
+export async function recognizeClientsFromText(text: string): Promise<ClientRecognitionResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key not configured.') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  const prompt = `${CLIENT_EXTRACTION_PROMPT}\n\nContent to parse:\n${text}`;
+  let lastError: Error | null = null;
+  for (const modelName of INBOUND_OUTBOUND_POSSIBLE_MODELS) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: { clients?: ExtractedClient[] } = JSON.parse(jsonMatch[0]);
+      const list = Array.isArray(parsed.clients) ? parsed.clients : [];
+      return buildClientRecognitionResult(list);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('Client extraction from text failed');
+}
+
+/** Client Assistant: extract client list from document (PDF/Word) or image URL. */
+export async function recognizeClientsFromDocument(fileUrl: string, mimeHint?: string): Promise<ClientRecognitionResult> {
+  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+    const err = new Error('Gemini API Key not configured.') as any;
+    err.code = 'GEMINI_API_KEY_MISSING';
+    throw err;
+  }
+  const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
+  const filePart = { inlineData: { data: base64, mimeType } };
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch (_) {}
+  const modelsToTry = availableModel ? [availableModel, ...INBOUND_OUTBOUND_POSSIBLE_MODELS] : INBOUND_OUTBOUND_POSSIBLE_MODELS;
+  let lastError: Error | null = null;
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([CLIENT_EXTRACTION_PROMPT, filePart]);
+      const textResponse = result.response.text();
+      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error('No JSON in response');
+      const parsed: { clients?: ExtractedClient[] } = JSON.parse(jsonMatch[0]);
+      const list = Array.isArray(parsed.clients) ? parsed.clients : [];
+      return buildClientRecognitionResult(list);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('Client extraction from document failed');
+}
+
+/** Client Assistant: extract client list from image URL (e.g. business card photo). */
+export async function recognizeClientsFromImage(imageUrl: string): Promise<ClientRecognitionResult> {
+  return recognizeClientsFromDocument(imageUrl, 'image/jpeg');
 }
 
 /** 出库单文档识别（PDF 等）：文档解析引导 + 与图片相同的数据规则与 JSON */

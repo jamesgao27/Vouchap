@@ -20,12 +20,12 @@ import type { ChatPanelType, StagedAttachmentFile } from '../contexts/ChatPanelC
 import { PANEL_WIDTH } from './WebChatPanel';
 import { getCurrentSpace } from '@/lib/auth';
 import { getChatToLogAllowedTypes } from '@/lib/chat-to-log-allowed-types';
-import { getAssistantInfo } from '@/lib/assistant-config';
+import { getAssistantInfo, getInputPlaceholder } from '@/lib/assistant-config';
 import { showToast } from '@/lib/toast';
 import { webInputBlockStyles } from '../styles/web-input-block-styles';
 
 const FAB_SIZE = 100;
-const FAB_BOTTOM = 40;
+const FAB_BOTTOM = 52;
 const FAB_RIGHT = 40;
 const CHAT_ICON_SIZE = 36;
 const LEAVE_DELAY_MS = 280;
@@ -39,8 +39,7 @@ interface WebChatFabProps {
 }
 
 function getPlaceholder(type: ChatPanelType): string {
-  const nickname = getAssistantInfo(type).nickname;
-  return `I'm ${nickname}. Leave it to me.`;
+  return getInputPlaceholder(type);
 }
 
 export default function WebChatFab({ type = 'receipt', variant = 'chat', embedded }: WebChatFabProps) {
@@ -235,11 +234,15 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
       style={[styles.fabWrapper, !embedded && styles.fabWrapperAbsolute]}
       onMouseEnter={handleEnter}
       onMouseLeave={scheduleCollapse}
+      pointerEvents="box-none"
     >
       <TouchableOpacity
         style={[styles.fab, embedded && styles.fabEmbedded]}
         onPress={openFullPanel}
         activeOpacity={0.85}
+        accessible
+        accessibilityRole="button"
+        accessibilityLabel="Open chat panel"
       >
         <Image
           source={getAssistantInfo(type).avatar}

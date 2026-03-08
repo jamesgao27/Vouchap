@@ -34,6 +34,8 @@ function chatTypeFromPathname(pathname: string | null): ChatPanelType | null {
   if (pathname === '/firm/todos' || pathname.startsWith('/firm/todos/')) return 'tax-filing';
   if (pathname === '/firm/engagements' || pathname.startsWith('/firm/engagement/')) return 'tax-filing';
   if (pathname.startsWith('/tax-filing')) return 'tax-filing';
+  // Clients 模块：Cody (Client Assistant)
+  if (pathname === '/firm/clients' || pathname.startsWith('/firm/clients/') || pathname.startsWith('/firm/client/')) return 'client';
   if (pathname === '/receipts' || pathname.startsWith('/receipts/')) return 'receipt';
   if (pathname === '/invoices' || pathname.startsWith('/invoices/')) return 'invoice';
   if (pathname === '/inbound' || pathname.startsWith('/inbound/')) return 'inbound';
@@ -57,14 +59,20 @@ function defaultChatOpen(pathname: string | null): boolean {
   if (pathname === '/invoices' || pathname.startsWith('/invoices/')) return true;
   if (pathname === '/inbound' || pathname.startsWith('/inbound/')) return true;
   if (pathname === '/outbound' || pathname.startsWith('/outbound/')) return true;
+  // Clients 模块：默认打开右栏（Cody）
+  if (pathname === '/firm/clients' || pathname.startsWith('/firm/clients/') || pathname.startsWith('/firm/client/')) return true;
   // 其他页面默认关闭
   return false;
 }
 
 function LayoutContent() {
   const pathname = usePathname();
+  // 首帧 pathname 可能未就绪（路由水合），用 URL 兜底，避免 Clients 页先显示 Eric 再闪成 Cody
+  const pathnameForType =
+    pathname ??
+    (Platform.OS === 'web' && typeof window !== 'undefined' ? (window as any).location?.pathname ?? null : null);
   const showSidebar = Platform.OS === 'web' && shouldShowWebSidebar(pathname ?? '/');
-  const { open: chatOpen, setOpen: setChatOpen, setType: setChatType } = useChatPanel();
+  const { open: chatOpen, setOpen: setChatOpen, setType: setChatType, type: chatType } = useChatPanel();
   const [currentSpace, setCurrentSpace] = useState<{ kind?: string; firmStatus?: string } | null>(null);
 
   const loadSpace = useCallback(async () => {
@@ -404,9 +412,11 @@ function LayoutContent() {
       </Stack>
       )}
       </View>
-      {showSidebar && !chatDisabled && chatOpen && <WebChatPanel />}
+      {showSidebar && !chatDisabled && chatOpen && (
+        <WebChatPanel effectiveType={chatTypeFromPathname(pathnameForType) ?? chatType ?? 'receipt'} />
+      )}
       {showSidebar && !chatDisabled && !chatOpen && Platform.OS === 'web' && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && !isSettingsPage(pathname ?? '') && (
-        <WebChatFab type={chatTypeFromPathname(pathname ?? null) ?? 'receipt'} />
+        <WebChatFab type={chatTypeFromPathname(pathnameForType) ?? 'receipt'} />
       )}
       <ToastHost />
       <ConfirmModalHost />

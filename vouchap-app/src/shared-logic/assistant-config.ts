@@ -29,3 +29,9 @@ const ASSISTANT_MAP: Record<VoucherLogType, AssistantInfo> = {
 export function getAssistantInfo(type: VoucherLogType): AssistantInfo {
   return ASSISTANT_MAP[type];
 }
+
+/** 输入框占位两行文案，如：I'm Cody, your Client Assistant.\nLeave it all to me. */
+export function getInputPlaceholder(type: VoucherLogType): string {
+  const { nickname, role } = ASSISTANT_MAP[type];
+  return `I'm ${nickname}, your ${role}.\nLeave it all to me.`;
+}

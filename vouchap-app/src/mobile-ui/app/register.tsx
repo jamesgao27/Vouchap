@@ -16,14 +16,16 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import { signUp } from '@/lib/auth';
+import { signUp, updatePassword, getCurrentUser } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 
 const isWeb = Platform.OS === 'web';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ inviteId?: string; email?: string; redirect?: string; token?: string }>();
+  const params = useLocalSearchParams<{ inviteId?: string; email?: string; redirect?: string; token?: string; fromInvite?: string }>();
+  const isFromInvite = params.fromInvite === '1' || params.fromInvite === 'true';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -32,6 +34,7 @@ export default function RegisterScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showEmailConfirmationModal, setShowEmailConfirmationModal] = useState(false);
+  const [inviteReady, setInviteReady] = useState(false);
   const emailInputRef = useRef<TextInput>(null);
   const passwordInputRef = useRef<TextInput>(null);
   const confirmPasswordInputRef = useRef<TextInput>(null);
@@ -41,6 +44,23 @@ export default function RegisterScreen() {
       setEmail(params.email);
     }
   }, [params]);
+
+  // 邀请补全：已通过邮件验证，从 session 取邮箱并锁定
+  useEffect(() => {
+    if (!isFromInvite) return;
+    let cancelled = false;
+    (async () => {
+      const user = await getCurrentUser();
+      if (cancelled) return;
+      if (!user) {
+        router.replace('/login');
+        return;
+      }
+      setEmail(user.email || '');
+      setInviteReady(true);
+    })();
+    return () => { cancelled = true; };
+  }, [isFromInvite, router]);
 
   const handleRegister = async () => {
     if (!email.trim()) {
@@ -60,7 +80,38 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      // 两步注册：只创建用户，不创建家庭
+      // 邀请补全：已验证邮箱，只设置密码和名字，然后进入接受邀请/选空间流程
+      if (isFromInvite) {
+        const user = await getCurrentUser();
+        if (!user) {
+          setLoading(false);
+          router.replace('/login');
+          return;
+        }
+        const { error: pwdError } = await updatePassword(password.trim());
+        if (pwdError) {
+          setLoading(false);
+          showToast(pwdError.message, 'error');
+          return;
+        }
+        const name = userName.trim() || email.trim().split('@')[0] || 'User';
+        const { error: updateError } = await supabase.from('users').update({ name }).eq('id', user.id);
+        if (updateError) {
+          console.warn('Update user name failed (non-blocking):', updateError);
+        }
+        setLoading(false);
+        showToast('Profile saved. Welcome!', 'success');
+        const { getPendingInvitationsForUser } = await import('@/lib/space-invitations');
+        const invitations = await getPendingInvitationsForUser();
+        if (invitations.length > 0) {
+          router.replace('/handle-invitations');
+        } else {
+          router.replace('/');
+        }
+        return;
+      }
+
+      // 普通注册：创建用户并走邮箱验证
       const { user, error } = await signUp(email.trim(), password, undefined, userName.trim() || undefined);
       
       if (error) {
@@ -209,8 +260,10 @@ export default function RegisterScreen() {
                 <Image source={require('../../../assets/icon.png')} style={stylesWeb.logoImg} resizeMode="contain" />
                 <Text style={stylesWeb.brandName}>Vouchap</Text>
               </View>
-              <Text style={stylesWeb.title}>Create Account</Text>
-              <Text style={stylesWeb.subtitle}>Start your receipt tracking journey</Text>
+              <Text style={stylesWeb.title}>{isFromInvite ? 'Complete your profile' : 'Create Account'}</Text>
+              <Text style={stylesWeb.subtitle}>
+                {isFromInvite ? 'Set your name and password to continue' : 'Start your receipt tracking journey'}
+              </Text>
             </View>
             <View style={stylesWeb.form}>
               <Text style={stylesWeb.label}>Your name</Text>
@@ -232,7 +285,7 @@ export default function RegisterScreen() {
                 <Ionicons name="mail-outline" size={20} color="#636E72" style={stylesWeb.inputIcon} />
                 <TextInput
                   ref={emailInputRef}
-                  style={stylesWeb.input}
+                  style={[stylesWeb.input, isFromInvite && stylesWeb.inputReadOnly]}
                   placeholder="name@company.com"
                   placeholderTextColor="#95A5A6"
                   value={email}
@@ -240,7 +293,7 @@ export default function RegisterScreen() {
                   autoCapitalize="none"
                   keyboardType="email-address"
                   autoComplete="username"
-                  editable={!loading}
+                  editable={!loading && !isFromInvite}
                 />
               </View>
               <Text style={stylesWeb.label}>Password</Text>
@@ -282,9 +335,9 @@ export default function RegisterScreen() {
                 </TouchableOpacity>
               </View>
               <TouchableOpacity
-                style={[stylesWeb.btnWrap, loading && stylesWeb.btnDisabled]}
+                style={[stylesWeb.btnWrap, (loading || (isFromInvite && !inviteReady)) && stylesWeb.btnDisabled]}
                 onPress={handleRegister}
-                disabled={loading}
+                disabled={loading || (isFromInvite && !inviteReady)}
                 activeOpacity={0.9}
               >
                 <LinearGradient
@@ -296,27 +349,29 @@ export default function RegisterScreen() {
                   {loading ? (
                     <ActivityIndicator color="#fff" />
                   ) : (
-                    <Text style={stylesWeb.mainBtnText}>Sign Up</Text>
+                    <Text style={stylesWeb.mainBtnText}>{isFromInvite ? 'Continue' : 'Sign Up'}</Text>
                   )}
                 </LinearGradient>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={stylesWeb.footerLink}
-                onPress={() =>
-                  router.push({
-                    pathname: '/login',
-                    params: {
-                      ...(params.redirect ? { redirect: params.redirect } : {}),
-                      ...(params.token ? { token: params.token } : {}),
-                      ...(params.email ? { email: params.email } : {}),
-                    },
-                  })
-                }
-              >
-                <Text style={stylesWeb.footerLinkP}>
-                  Already have an account? <Text style={stylesWeb.footerLinkSpan}>Sign In</Text>
-                </Text>
-              </TouchableOpacity>
+              {!isFromInvite && (
+                <TouchableOpacity
+                  style={stylesWeb.footerLink}
+                  onPress={() =>
+                    router.push({
+                      pathname: '/login',
+                      params: {
+                        ...(params.redirect ? { redirect: params.redirect } : {}),
+                        ...(params.token ? { token: params.token } : {}),
+                        ...(params.email ? { email: params.email } : {}),
+                      },
+                    })
+                  }
+                >
+                  <Text style={stylesWeb.footerLinkP}>
+                    Already have an account? <Text style={stylesWeb.footerLinkSpan}>Sign In</Text>
+                  </Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         </ScrollView>
@@ -348,8 +403,10 @@ export default function RegisterScreen() {
               <Ionicons name="people" size={60} color="#6C5CE7" />
             </View>
           </View>
-          <Text style={styles.title}>Create Account</Text>
-          <Text style={styles.subtitle}>Start your receipt tracking journey</Text>
+          <Text style={styles.title}>{isFromInvite ? 'Complete your profile' : 'Create Account'}</Text>
+          <Text style={styles.subtitle}>
+            {isFromInvite ? 'Set your name and password to continue' : 'Start your receipt tracking journey'}
+          </Text>
         </View>
 
         <View style={styles.form}>
@@ -367,7 +424,8 @@ export default function RegisterScreen() {
               autoCorrect={false}
               returnKeyType="next"
               onSubmitEditing={() => {
-                emailInputRef.current?.focus();
+                if (!isFromInvite) emailInputRef.current?.focus();
+                else passwordInputRef.current?.focus();
               }}
               accessibilityLabel="Your name"
               editable={!loading}
@@ -378,7 +436,7 @@ export default function RegisterScreen() {
             <Ionicons name="mail-outline" size={20} color="#636E72" style={styles.inputIcon} />
             <TextInput
               ref={emailInputRef}
-              style={styles.input}
+              style={[styles.input, isFromInvite && styles.inputReadOnly]}
               placeholder="Email *"
               placeholderTextColor="#95A5A6"
               value={email}
@@ -393,7 +451,7 @@ export default function RegisterScreen() {
                 passwordInputRef.current?.focus();
               }}
               accessibilityLabel="Email address"
-              editable={!loading}
+              editable={!loading && !isFromInvite}
             />
           </View>
 
@@ -468,34 +526,36 @@ export default function RegisterScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
+            style={[styles.button, (loading || (isFromInvite && !inviteReady)) && styles.buttonDisabled]}
             onPress={handleRegister}
-            disabled={loading}
+            disabled={loading || (isFromInvite && !inviteReady)}
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
             ) : (
-              <Text style={styles.buttonText}>Sign Up</Text>
+              <Text style={styles.buttonText}>{isFromInvite ? 'Continue' : 'Sign Up'}</Text>
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity
-            style={styles.linkButton}
-            onPress={() =>
-              router.push({
-                pathname: '/login',
-                params: {
-                  ...(params.redirect ? { redirect: params.redirect } : {}),
-                  ...(params.token ? { token: params.token } : {}),
-                  ...(params.email ? { email: params.email } : {}),
-                },
-              })
-            }
-          >
-            <Text style={styles.linkText}>
-              Already have an account? <Text style={styles.linkTextBold}>Sign In</Text>
-            </Text>
-          </TouchableOpacity>
+          {!isFromInvite && (
+            <TouchableOpacity
+              style={styles.linkButton}
+              onPress={() =>
+                router.push({
+                  pathname: '/login',
+                  params: {
+                    ...(params.redirect ? { redirect: params.redirect } : {}),
+                    ...(params.token ? { token: params.token } : {}),
+                    ...(params.email ? { email: params.email } : {}),
+                  },
+                })
+              }
+            >
+              <Text style={styles.linkText}>
+                Already have an account? <Text style={styles.linkTextBold}>Sign In</Text>
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
       {modalBlock}
@@ -524,6 +584,7 @@ const stylesWeb = StyleSheet.create({
   inputWrapper: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#F8F9FA', borderWidth: 1, borderColor: '#E9ECEF', borderRadius: 16, paddingHorizontal: 16, paddingVertical: 14, minHeight: 52 },
   inputIcon: { marginRight: 12 },
   input: { flex: 1, fontSize: 16, color: '#2D3436', paddingVertical: 0, minHeight: 24, includeFontPadding: false, textAlignVertical: 'center', backgroundColor: '#F8F9FA', outlineStyle: 'none' },
+  inputReadOnly: { color: '#636E72', opacity: 0.9 },
   eyeIcon: { padding: 4 },
   btnWrap: { marginTop: 8, borderRadius: 16, overflow: 'hidden' },
   btnDisabled: { opacity: 0.7 },
@@ -611,6 +672,10 @@ const styles = StyleSheet.create({
     // 优化输入响应性
     includeFontPadding: false,
     textAlignVertical: 'center',
+  },
+  inputReadOnly: {
+    color: '#636E72',
+    opacity: 0.9,
   },
   eyeIcon: {
     padding: 4,

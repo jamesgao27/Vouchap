@@ -1,0 +1,8 @@
+# Supabase project config (used by CLI for migrations, functions, etc.)
+# See: https://supabase.com/docs/guides/functions/function-configuration
+
+# Edge Function: allow browser/client to call without 401.
+# Gateway enforces JWT by default; this function only sends email from body (no DB).
+# Redeploy after change: supabase functions deploy send-invitation-email
+[functions.send-invitation-email]
+verify_jwt = false

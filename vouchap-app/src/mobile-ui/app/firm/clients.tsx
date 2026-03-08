@@ -40,6 +40,7 @@ import {
   type FirmClientInviteToken,
 } from '@/lib/firm-clients';
 import { sendInvitationEmailForId } from '@/lib/space-invitations';
+import { showToast } from '@/lib/toast';
 import CenterModal from '@/components/CenterModal';
 
 function formatServiceStart(iso: string | null): string {
@@ -591,7 +592,16 @@ export default function FirmClientsScreen() {
       return;
     }
     if (result?.invitationId) {
-      sendInvitationEmailForId(result.invitationId).catch(() => {});
+      try {
+        const { emailSent } = await sendInvitationEmailForId(result.invitationId);
+        if (emailSent) {
+          showToast('Client created. Invitation email sent.', 'success');
+        } else {
+          showToast('Client created. They can see the invite in-app.', 'success');
+        }
+      } catch {
+        showToast('Client created. Invitation email could not be sent. Check Supabase Auth SMTP.', 'info');
+      }
     }
     setShowAddClientModal(false);
     setAddClientClientName('');

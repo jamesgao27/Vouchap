@@ -97,15 +97,7 @@ export default function ClientSetupScreen() {
     }
   }, [token, status]);
 
-  // 未登录时直接跳转登录页，不展示“跳转登录”按钮页
-  useEffect(() => {
-    if (status === 'need_login' && token) {
-      router.replace({
-        pathname: '/login',
-        params: { redirect: '/auth/setup', token },
-      });
-    }
-  }, [status, token, router]);
+  // 未登录时展示落地页，由用户点击 "Sign in" 再跳转
 
   const handleConfirm = async () => {
     if (!inviteInfo || !selectedSpaceId || !token) return;
@@ -133,7 +125,6 @@ export default function ClientSetupScreen() {
       setStatus('success');
       showToast('Space linked. Engagement created.', 'success');
       await setCurrentSpace(selectedSpaceId);
-      setTimeout(() => router.replace('/'), 800);
     } else {
       setStatus('ready');
       showToast('Could not complete. Try again.', 'error');
@@ -147,8 +138,41 @@ export default function ClientSetupScreen() {
     });
   };
 
-  if (status === 'need_login') {
-    return null;
+  if (status === 'need_login' && token) {
+    return (
+      <View style={styles.container}>
+        <StatusBar style="dark" />
+        <View style={styles.cardWrap}>
+          <View style={styles.card}>
+            <View style={[styles.cardHeader, styles.cardHeaderCenter]}>
+              <View style={styles.iconWrap}>
+                <Ionicons name="log-in-outline" size={40} color="#6C5CE7" />
+              </View>
+              <Text style={styles.pageTitle}>Sign in to continue</Text>
+              <Text style={styles.loadingText}>
+                You need to sign in to link your space with this invitation.
+              </Text>
+            </View>
+            <View style={styles.cardBody}>
+              <TouchableOpacity
+                style={styles.primaryButton}
+                onPress={() =>
+                  router.replace({
+                    pathname: '/login',
+                    params: { redirect: '/auth/setup', token },
+                  })
+                }
+              >
+                <Text style={styles.primaryButtonText}>Sign in</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.cancelLink} onPress={() => router.replace('/')}>
+                <Text style={styles.cancelLinkText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </View>
+    );
   }
 
   if (status === 'error') {
@@ -211,7 +235,12 @@ export default function ClientSetupScreen() {
                 <Ionicons name="checkmark-circle" size={40} color="#00B894" />
               </View>
               <Text style={styles.successTitle}>All set</Text>
-              <Text style={styles.loadingText}>Redirecting to your space...</Text>
+              <Text style={styles.loadingText}>Your space is linked. Go to your home when ready.</Text>
+            </View>
+            <View style={styles.cardBody}>
+              <TouchableOpacity style={styles.primaryButton} onPress={() => router.replace('/')}>
+                <Text style={styles.primaryButtonText}>Go to Home</Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>

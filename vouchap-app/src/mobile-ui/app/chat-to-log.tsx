@@ -22,7 +22,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { recognizeReceipt, recognizeReceiptFromDocument, recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio, recognizeInvoiceFromDocument, recognizeInboundFromText, recognizeInboundFromAudio, recognizeOutboundFromText, recognizeOutboundFromAudio, recognizeInboundFromImage, recognizeOutboundFromImage, recognizeInboundFromDocument, recognizeOutboundFromDocument } from '@/lib/gemini';
+import { recognizeReceipt, recognizeReceiptFromDocument, recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio, recognizeInvoiceFromDocument, recognizeInboundFromText, recognizeInboundFromAudio, recognizeOutboundFromText, recognizeOutboundFromAudio, recognizeInboundFromImage, recognizeOutboundFromImage, recognizeInboundFromDocument, recognizeOutboundFromDocument, recognizeClientsFromText, recognizeClientsFromDocument, recognizeClientsFromImage } from '@/lib/gemini';
 import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition-retry';
 import { saveReceipt, updateReceipt, getReceiptById } from '@/lib/database';
 import { checkDuplicateReceipt } from '@/lib/receipt-duplicate-checker';
@@ -33,12 +33,12 @@ import { saveChatLog, getChatLogsPaginated, VoucherLogType, type ChatLog } from 
 import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
 import { getCurrentSpace } from '@/lib/auth';
 import { getChatToLogAllowedTypes, getChatToLogAllowedTypeValues } from '@/lib/chat-to-log-allowed-types';
-import { getAssistantInfo } from '@/lib/assistant-config';
+import { getAssistantInfo, getInputPlaceholder } from '../../shared-logic/assistant-config';
 import { uploadTaxFilingFile, uploadReceiptImageTempWithSpace } from '@/lib/supabase';
 import { getProjectById, getProjectTodosTree, createProjectTodoAttachment, updateProjectTodoAttachment, getProjectTodoAttachmentById, buildExtractedPreview, type ProjectTodoNode } from '@/lib/firm';
 import { classifyTaxDocumentAndPickTask } from '@/lib/tax-filing-task-matcher';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
-import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound } from '@/types';
+import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound, ExtractedClient, ClientRecognitionResult } from '@/types';
 import { convertGeminiResultToReceipt, convertGeminiResultToInvoice, convertGeminiResultToInbound, convertGeminiResultToOutbound } from '@/lib/receipt-helpers';
 import { format } from 'date-fns';
 import { 
@@ -51,12 +51,65 @@ import {
   requestAudioPermission,
 } from '@/lib/audio';
 import { showToast } from '@/lib/toast';
+import { createClientOnBehalf } from '@/lib/firm-clients';
+import { sendInvitationEmailForId } from '@/lib/space-invitations';
 import { useChatPanel } from '../contexts/ChatPanelContext';
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 import { webInputBlockStyles } from '../styles/web-input-block-styles';
 
 // 语音识别置信度阈值：与照片 needs_retake 一致，低于此值视为无可识别内容，提示重新提交
 const VOICE_CONFIDENCE_THRESHOLD = 0.4;
+
+/** 各助理的预设说明（助理口吻）：如何交代工作、支持哪些输入、处理后的效果。始终保留在聊天最顶部。 */
+function getWelcomeMessage(voucherType: VoucherLogType): Message {
+  const { nickname } = getAssistantInfo(voucherType);
+  const t0 = new Date(0);
+  switch (voucherType) {
+    case 'tax-filing':
+      return {
+        id: 'welcome',
+        text: `\nI'm ${nickname}. You can hand me tax documents in any of these ways:\n\n• Images or PDFs — Upload one or more files. I'll classify each document and attach it to the matching task in your project. You can upload multiple files; I'll process them one by one.\n\nAfter processing, each file appears as an attachment on the right task, with a summary and extracted fields you can review.`,
+        isUser: false,
+        timestamp: t0,
+      };
+    case 'invoice':
+      return {
+        id: 'welcome',
+        text: `\nI'm ${nickname}. You can give me income or sales info in any of these ways:\n\n• Text — Describe the sale (e.g. who paid, amount, items).\n• Voice — Tell me by voice; I'll transcribe and extract the details.\n• Document — Upload an invoice (e.g. PDF); I'll read it and pull out customer, amount, and line items.\n\nI'll return a draft income record for you to confirm and save.`,
+        isUser: false,
+        timestamp: t0,
+      };
+    case 'inbound':
+      return {
+        id: 'welcome',
+        text: `\nI'm ${nickname}. You can describe inbound (goods received from a supplier) in any of these ways:\n\n• Text — Describe supplier, date, and items with quantity and unit.\n• Voice — Tell me by voice; I'll transcribe and extract.\n• Image or document — Send a photo or file (e.g. delivery note); I'll extract supplier, date, and line items.\n\nI'll return a draft inbound record for you to confirm and save.`,
+        isUser: false,
+        timestamp: t0,
+      };
+    case 'outbound':
+      return {
+        id: 'welcome',
+        text: `\nI'm ${nickname}. You can describe outbound (goods shipped to a customer) in any of these ways:\n\n• Text — Describe customer, date, and items with quantity and unit.\n• Voice — Tell me by voice; I'll transcribe and extract.\n• Image or document — Send a photo or file (e.g. packing slip); I'll extract customer, date, and line items.\n\nI'll return a draft outbound record for you to confirm and save.`,
+        isUser: false,
+        timestamp: t0,
+      };
+    case 'client':
+      return {
+        id: 'welcome',
+        text: `\nI'm ${nickname}. You can add clients in any of these ways:\n\n• Text — Paste a client list (names, emails, companies) or type them line by line.\n• Document — Upload a PDF, Word, or spreadsheet with client/contact info.\n• Image — Upload business card photos or a screenshot of a contact list.\n\nI'll extract email, contact name, organization, and address, then show you a summary. After you confirm, I'll create each client space and send an invite email.`,
+        isUser: false,
+        timestamp: t0,
+      };
+    case 'receipt':
+    default:
+      return {
+        id: 'welcome',
+        text: `\nI'm ${nickname}. You can hand me expenses in any of these ways:\n\n• Text — Describe the purchase (e.g. where, amount, date, items).\n• Voice — Tell me by voice; I'll transcribe and extract the details.\n• Photo — Send a receipt or bill image; I'll read it and extract vendor, amount, date, and line items.\n• Document — Upload a PDF or image of a receipt; I'll do the same.\n\nI'll return a draft expense for you to confirm and save.`,
+        isUser: false,
+        timestamp: t0,
+      };
+  }
+}
 
 /** 语音/文字识别结果置信度过低（噪音/乱码/无可识别内容）时视为不可用，不保存记录 */
 function isRecognitionResultUnrecognizable(result: { confidence?: number }): boolean {
@@ -187,6 +240,13 @@ interface Message {
   attachmentPreview?: { id: string; projectId: string; todoId: string; name: string; summary?: string | null; imageUrl?: string | null; docType?: string | null; extracted_data?: unknown };
   /** attachments 类型：发出消息中预览的图片 URL */
   attachmentImageUrl?: string | null;
+  /** Client Assistant: recognized client list for confirmation before creating clients + sending invites */
+  clientPreview?: {
+    firmSpaceId: string;
+    summary: ClientRecognitionResult['summary'];
+    items: ExtractedClient[];
+    confirmed?: boolean;
+  };
   receiptDeleted?: boolean;
   invoiceDeleted?: boolean;
   inboundDeleted?: boolean;
@@ -299,7 +359,6 @@ export function ChatToLogContent(props: { voucherType: VoucherLogType }) {
 }
 
 function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
-  console.count('[ChatToLog render]');
   const router = useRouter();
   const navigation = useNavigation();
   const params = useLocalSearchParams<{ type?: string; drawer?: string; projectId?: string; todoId?: string }>();
@@ -318,32 +377,40 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       ?? ((params.type === 'invoice' || params.type === 'inbound' || params.type === 'outbound' || params.type === 'tax-filing' || params.type === 'client' || params.type === 'attachments')
         ? (params.type === 'attachments' ? 'tax-filing' : (params.type as VoucherLogType))
         : 'receipt');
+  const isPanel = props.voucherType !== undefined;
+  // Panel 且 space 未加载时信任路由传入的 type，避免 Clients 页先被归一成 receipt 导致显示 Eric/Expenses 历史（串数据）
   const voucherType: VoucherLogType =
-    allowedTypeValues.length > 0 && allowedTypeValues.includes(rawVoucherType)
+    isPanel && props.voucherType !== undefined && currentSpace == null
       ? rawVoucherType
-      : (allowedTypeValues[0] ?? 'receipt');
+      : allowedTypeValues.length > 0 && allowedTypeValues.includes(rawVoucherType)
+        ? rawVoucherType
+        : (allowedTypeValues[0] ?? 'receipt');
   const isAttachmentsType = voucherType === 'tax-filing';
   const isAiInventoryType = voucherType === 'inbound' || voucherType === 'outbound';
   const isDrawer = Platform.OS === 'web' && params.drawer === '1';
-  const isPanel = props.voucherType !== undefined;
 
-  // 根据类型动态设置标题为助理职务（XXX Assistant）
+  // 根据类型动态设置标题为「Chat to log - 模块名」（模块名为类型选项 label，如 Expenses、Tax Documents）
   useEffect(() => {
     if (isPanel) return;
     if (isDrawer) {
       navigation.setOptions({ headerShown: false });
       return;
     }
-    const assistant = getAssistantInfo(voucherType);
-    navigation.setOptions({ title: assistant.role });
-  }, [voucherType, navigation, isDrawer, isPanel]);
+    const typeOptions = getChatToLogAllowedTypes(currentSpace);
+    const moduleLabel = typeOptions.find((o) => o.value === voucherType)?.label ?? typeOptions[0]?.label ?? 'Expenses';
+    navigation.setOptions({ title: `Chat to log - ${moduleLabel}` });
+  }, [voucherType, currentSpace, navigation, isDrawer, isPanel]);
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [confirmedReceipts, setConfirmedReceipts] = useState<Set<string>>(new Set());
   const [confirmedInvoices, setConfirmedInvoices] = useState<Set<string>>(new Set());
   const [confirmedInbounds, setConfirmedInbounds] = useState<Set<string>>(new Set());
   const [confirmedOutbounds, setConfirmedOutbounds] = useState<Set<string>>(new Set());
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [confirmedClientPreviews, setConfirmedClientPreviews] = useState<Set<string>>(new Set());
+  // Panel 模式：首帧即用当前类型的欢迎语，避免刷新/切换时先闪 Eric 再变 Cody
+  const [messages, setMessages] = useState<Message[]>(() =>
+    props.voucherType !== undefined ? [getWelcomeMessage(props.voucherType)] : [],
+  );
   const effectiveProjectId = params.projectId ?? chatPanel?.attachmentContext?.projectId;
   /** tax-filing 模式：项目下的 task 列表，用于识别文件类别后自动匹配关联 */
   const [attachmentTaskOptions, setAttachmentTaskOptions] = useState<{ id: string; title: string }[]>([]);
@@ -552,18 +619,14 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   );
 
   useEffect(() => {
-    console.log('[chat-to-log] effect loadInitialHistory MOUNT', {
-      voucherType,
-      effectiveProjectId,
-    });
-    // 首次加载：拉取最近 5 条历史（从下往上显示，避免卡顿）
+    // 切换助理类型时立即清空列表，只显示当前类型的欢迎语，避免串数据（如 Clients 页仍显示 Expenses 历史）
+    setMessages([getWelcomeMessage(voucherType)]);
+    setHasMoreHistory(false);
+    setOldestLoadedAt(undefined);
+
     const loadInitialHistory = async () => {
       try {
         setIsLoadingHistory(true);
-        console.log('[chat-to-log] loadInitialHistory start', {
-          voucherType,
-          effectiveProjectId,
-        });
         const projectFilter = voucherType === 'tax-filing' ? effectiveProjectId : undefined;
         const rawLogs = await getChatLogsPaginated(
           5,
@@ -572,26 +635,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
           projectFilter,
         );
         const logs = rawLogs;
-        console.log('[chat-to-log] loadInitialHistory got logs', {
-          total: rawLogs?.length ?? 0,
-          afterFilter: logs?.length ?? 0,
-          sample: logs?.[0],
-        });
 
         if (!logs || logs.length === 0) {
-          let welcomeText: string;
-          if (voucherType === 'tax-filing') {
-            welcomeText = 'Upload tax documents (image or PDF). Each file will be automatically classified and attached to the matching task. You can upload multiple files; they will be processed one by one.';
-          } else if (voucherType === 'invoice') {
-            welcomeText = 'Hi! Describe your income (sale / money received). I\'ll extract customer, amount, and items.\n\nExample: "Client ABC paid $500 on March 15 for consulting. Items: Service $500"';
-          } else if (voucherType === 'inbound') {
-            welcomeText = 'Hi! Describe your inbound (goods received from supplier). I\'ll extract supplier, date, and items with quantity and unit.\n\nExample: "ABC Supplier delivered on March 15: Widget A 10 boxes @ $50, Widget B 20 pcs"';
-          } else if (voucherType === 'outbound') {
-            welcomeText = 'Hi! Describe your outbound (goods shipped to customer). I\'ll extract customer, date, and items with quantity and unit.\n\nExample: "Shipped to XYZ Customer on March 15: Product A 5 boxes @ $60, Product B 10 pcs"';
-          } else {
-            welcomeText = 'Hi! I can help you create expenses from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"';
-          }
-          setMessages([{ id: 'welcome', text: welcomeText, isUser: false, timestamp: new Date() }]);
+          setMessages([getWelcomeMessage(voucherType)]);
           setHasMoreHistory(false);
           return;
         }
@@ -658,6 +704,16 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               attachmentPreview: preview,
               voucherType: 'tax-filing',
             });
+          } else if (log.responseData?.clientPreview && logType === 'client') {
+            const preview = log.responseData.clientPreview as { firmSpaceId: string; summary: ClientRecognitionResult['summary']; items: ExtractedClient[]; confirmed?: boolean };
+            restoredMessages.push({
+              id: `${log.id}-preview`,
+              text: '',
+              isUser: false,
+              timestamp: new Date(log.createdAt),
+              clientPreview: preview,
+              voucherType: 'client',
+            });
           } else if (log.response) {
             restoredMessages.push({
               id: `${log.id}-response`,
@@ -669,14 +725,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         }
 
         if (restoredMessages.length === 0) {
-          let welcomeText: string;
-          if (voucherType === 'tax-filing') welcomeText = 'Upload tax documents (image or PDF). Each file will be automatically classified and attached to the matching task. You can upload multiple files; they will be processed one by one.';
-          else if (voucherType === 'client') welcomeText = 'Client assistant: recognition and output format will be configured separately.';
-          else if (voucherType === 'invoice') welcomeText = 'Hi! Describe your income (sale / money received). I\'ll extract customer, amount, and items.';
-          else if (voucherType === 'inbound') welcomeText = 'Hi! Describe your inbound (goods received). I\'ll extract supplier, date, and items with quantity and unit.';
-          else if (voucherType === 'outbound') welcomeText = 'Hi! Describe your outbound (goods shipped). I\'ll extract customer, date, and items with quantity and unit.';
-          else welcomeText = 'Hi! I can help you create expenses from text. Just describe your purchase, and I\'ll extract the details.\n\nExample: "I spent $25.50 at Starbucks on March 15th, 2024. Items: Coffee $5.50, Sandwich $20.00"';
-          setMessages([{ id: 'welcome', text: welcomeText, isUser: false, timestamp: new Date() }]);
+          setMessages([getWelcomeMessage(voucherType)]);
           setHasMoreHistory(false);
         } else {
           const enriched = await Promise.all(
@@ -719,8 +768,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             }),
           );
 
-          // 存为 [最新…最早]，配合 inverted FlatList：最新在底部，往上滑加载更早
-          setMessages(enriched.reverse());
+          // 存为 [最新…最早]，配合 inverted FlatList：最新在底部，往上滑加载更早；欢迎条固定放最后一项，滚动到最顶部可见
+          setMessages([...enriched.reverse(), getWelcomeMessage(voucherType)]);
           const oldest = sorted[sorted.length - 1];
           setOldestLoadedAt(oldest.createdAt);
           setHasMoreHistory(sorted.length >= 5);
@@ -729,10 +778,6 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         console.error('Error loading initial chat history:', error);
       } finally {
         setIsLoadingHistory(false);
-        console.log('[chat-to-log] loadInitialHistory done', {
-          voucherType,
-          effectiveProjectId,
-        });
       }
     };
 
@@ -762,7 +807,6 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     );
 
     return () => {
-      console.log('[chat-to-log] effect loadInitialHistory CLEANUP');
       task.cancel();
       keyboardWillShow.remove();
       keyboardWillHide.remove();
@@ -775,11 +819,6 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     try {
       setIsLoadingHistory(true);
       const projectFilter = voucherType === 'tax-filing' ? effectiveProjectId : undefined;
-      console.log('[chat-to-log] loadMoreHistory start', {
-        voucherType,
-        effectiveProjectId,
-        oldestLoadedAt,
-      });
       const rawMoreLogs = await getChatLogsPaginated(
         20,
         oldestLoadedAt,
@@ -787,10 +826,6 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         projectFilter,
       );
       const moreLogs = rawMoreLogs;
-      console.log('[chat-to-log] loadMoreHistory got logs', {
-        total: rawMoreLogs?.length ?? 0,
-        afterFilter: moreLogs?.length ?? 0,
-      });
 
       if (!moreLogs || moreLogs.length === 0) {
         setHasMoreHistory(false);
@@ -855,6 +890,16 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             attachmentPreview: preview,
             voucherType: 'tax-filing',
           });
+        } else if (log.responseData?.clientPreview && logType === 'client') {
+          const preview = log.responseData.clientPreview as { firmSpaceId: string; summary: ClientRecognitionResult['summary']; items: ExtractedClient[]; confirmed?: boolean };
+          moreMessagesRaw.push({
+            id: `${log.id}-preview`,
+            text: '',
+            isUser: false,
+            timestamp: new Date(log.createdAt),
+            clientPreview: preview,
+            voucherType: 'client',
+          });
         } else if (log.response) {
           moreMessagesRaw.push({
             id: `${log.id}-response`,
@@ -907,11 +952,17 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         }),
       );
 
-      // 按 id 去重，避免分页重叠导致重复 key
+      // 按 id 去重，避免分页重叠导致重复 key；欢迎条固定为最后一项（inverted 下为最顶部），加载更早消息时插在欢迎条前
       setMessages((prev) => {
         const existingIds = new Set(prev.map((m) => m.id));
         const newOnes = moreMessages.filter((m) => !existingIds.has(m.id));
-        return newOnes.length ? [...prev, ...newOnes] : prev;
+        if (newOnes.length === 0) return prev;
+        const last = prev[prev.length - 1];
+        const isWelcomeAtEnd = last?.id === 'welcome';
+        if (isWelcomeAtEnd && prev.length > 1) {
+          return [...prev.slice(0, -1), ...newOnes, last];
+        }
+        return [...prev, ...newOnes];
       });
       const oldest = sorted[sorted.length - 1];
       setOldestLoadedAt(oldest.createdAt);
@@ -1345,6 +1396,49 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 const errText = err instanceof Error ? err.message : 'Recognition failed.';
                 setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: `❌ ${errText}`, isUser: false, timestamp: new Date() } : m)));
               }
+            } else if (voucherType === 'client') {
+              // Client Assistant: upload all files, recognize each, merge clients, show one summary for confirmation
+              let space = await getCurrentSpace(false);
+              if (!space?.id) space = await getCurrentSpace(true);
+              if (space?.kind !== 'firm' || !space?.id) {
+                showToast('Client assistant is only available in a firm space.', 'error');
+                removeFromStaged();
+                appendMessages([{ id: `client-err-${file.id}`, text: 'Open from a firm space to add clients from files.', isUser: false, timestamp: new Date() }]);
+                continue;
+              }
+              const name = file.name ?? `File ${i + 1}`;
+              const loadingCardId = `client-loading-${file.id}`;
+              const userMsg: Message = { id: `client-user-${file.id}`, text: name, isUser: true, timestamp: new Date(), imageUrl: isImage ? file.uri : undefined, documentUrl: !isImage ? undefined : undefined };
+              const loadingCardMsg: Message = { id: loadingCardId, text: 'Extracting client info…', isUser: false, timestamp: new Date(), previewCardLoading: true };
+              removeFromStaged();
+              appendMessages([loadingCardMsg, userMsg]);
+              const tempFileName = `chat-client-${Date.now()}-${i}`;
+              let fileUrl: string;
+              if (isImage) {
+                fileUrl = await uploadReceiptImageTempWithSpace(file.uri, tempFileName, space!.id);
+              } else {
+                fileUrl = await uploadReceiptImageTempWithSpace(file.uri, tempFileName, space!.id, { fileName: file.name, mimeType: file.mimeType });
+                setMessages((prev) => prev.map((m) => (m.id === `client-user-${file.id}` ? { ...m, documentUrl: fileUrl } : m)));
+              }
+              try {
+                const result = isImage ? await recognizeClientsFromImage(fileUrl) : await recognizeClientsFromDocument(fileUrl, file.mimeType);
+                if (result.clients.length === 0) {
+                  setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: 'No valid client records found in this file (email required).', isUser: false, timestamp: new Date() } : m)));
+                  continue;
+                }
+                const previewMsg: Message = {
+                  id: `client-preview-${file.id}-${Date.now()}`,
+                  text: '',
+                  isUser: false,
+                  timestamp: new Date(),
+                  clientPreview: { firmSpaceId: space.id, summary: result.summary, items: result.clients },
+                };
+                setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMsg : m)));
+                await saveChatLog({ receiptId: undefined, voucherType: 'client', type: 'image', modelName: 'gemini', prompt: name, response: '', requestData: { imageUrl: fileUrl }, responseData: { clientPreview: previewMsg.clientPreview }, success: true });
+              } catch (err) {
+                const errText = err instanceof Error ? err.message : 'Recognition failed.';
+                setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: `❌ ${errText}`, isUser: false, timestamp: new Date() } : m)));
+              }
             } else {
               showToast('File upload for this type is not supported yet.', 'info');
               removeFromStaged();
@@ -1379,6 +1473,42 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     setInputText('');
     setIsProcessing(true);
     setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+
+    // Client Assistant: text-only path — require firm space, extract clients, show summary for confirmation
+    if (voucherType === 'client') {
+      try {
+        let space = await getCurrentSpace(false);
+        if (!space?.id) space = await getCurrentSpace(true);
+        if (space?.kind !== 'firm' || !space?.id) {
+          showToast('Client assistant is only available in a firm space.', 'error');
+          setIsProcessing(false);
+          return;
+        }
+        const result = await recognizeClientsFromText(text);
+        if (result.clients.length === 0) {
+          const emptyMsg: Message = { id: (Date.now() + 1).toString(), text: 'No valid client records found (email required). Please paste a list with emails.', isUser: false, timestamp: new Date() };
+          setMessages(prev => [emptyMsg, ...prev]);
+          await saveChatLog({ receiptId: undefined, voucherType: 'client', type: 'text', modelName: 'gemini', prompt: text, response: '', requestData: { rawText: text }, responseData: { clientPreview: null }, success: false });
+          setIsProcessing(false);
+          return;
+        }
+        const previewMsg: Message = {
+          id: `client-preview-${Date.now()}`,
+          text: '',
+          isUser: false,
+          timestamp: new Date(),
+          clientPreview: { firmSpaceId: space.id, summary: result.summary, items: result.clients },
+        };
+        setMessages(prev => [previewMsg, ...prev]);
+        await saveChatLog({ receiptId: undefined, voucherType: 'client', type: 'text', modelName: 'gemini', prompt: text, response: '', requestData: { rawText: text }, responseData: { clientPreview: previewMsg.clientPreview }, success: true });
+      } catch (e) {
+        const errMsg: Message = { id: (Date.now() + 1).toString(), text: `❌ ${e instanceof Error ? e.message : 'Failed to extract clients.'}`, isUser: false, timestamp: new Date() };
+        setMessages(prev => [errMsg, ...prev]);
+      }
+      setIsProcessing(false);
+      return;
+    }
+
     const recognizeFn = () => {
       if (voucherType === 'invoice') return recognizeVoucherFromText(text, 'invoice');
       if (voucherType === 'inbound') return recognizeInboundFromText(text);
@@ -1898,8 +2028,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 <ActivityIndicator size="small" color="#6C5CE7" />
               </View>
             )}
-            {/* 识别结果预览卡片 */}
-            {message.receiptPreview && (
+            {/* 识别结果预览卡片：仅当前助理类型匹配时展示，避免切换后串数据 */}
+            {message.receiptPreview && (voucherType === 'receipt' || message.voucherType === 'receipt') && (
               <View style={styles.receiptPreviewCard}>
                 <View style={styles.receiptPreviewHeader}>
                   <Ionicons name="receipt" size={20} color="#6C5CE7" />
@@ -2115,7 +2245,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             )}
 
             {/* 发票识别结果预览卡片 */}
-            {message.invoicePreview && (
+            {message.invoicePreview && (voucherType === 'invoice' || message.voucherType === 'invoice') && (
               <View style={styles.receiptPreviewCard}>
                 <View style={styles.receiptPreviewHeader}>
                   <Ionicons name="document-text" size={20} color="#6C5CE7" />
@@ -2214,7 +2344,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             )}
 
             {/* 入库单识别结果预览卡片 */}
-            {message.inboundPreview && (
+            {message.inboundPreview && (voucherType === 'inbound' || message.voucherType === 'inbound') && (
               <View style={styles.receiptPreviewCard}>
                 <View style={styles.receiptPreviewHeader}>
                   <Ionicons name="arrow-down-circle" size={20} color="#6C5CE7" />
@@ -2305,7 +2435,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             )}
 
             {/* 出库单识别结果预览卡片 */}
-            {message.outboundPreview && (
+            {message.outboundPreview && (voucherType === 'outbound' || message.voucherType === 'outbound') && (
               <View style={styles.receiptPreviewCard}>
                 <View style={styles.receiptPreviewHeader}>
                   <Ionicons name="arrow-up-circle" size={20} color="#6C5CE7" />
@@ -2395,7 +2525,111 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               </View>
             )}
 
-            {message.attachmentPreview && (
+            {/* Client Assistant: recognized client list — summary + confirm to create clients and send invites */}
+            {message.clientPreview && (voucherType === 'client' || message.voucherType === 'client') && (
+              <View style={styles.receiptPreviewCard}>
+                <View style={styles.receiptPreviewHeader}>
+                  <Ionicons name="people" size={20} color="#6C5CE7" />
+                  <Text style={styles.receiptPreviewTitle}>Clients recognized</Text>
+                </View>
+                <View style={styles.receiptPreviewContent}>
+                  <Text style={[styles.receiptPreviewLabel, { marginBottom: 6 }]}>
+                    {message.clientPreview.summary.totalCount} client(s) found. {message.clientPreview.summary.completeCount} with full name/organization; {message.clientPreview.summary.incompleteCount} will use email as display name.
+                  </Text>
+                  {message.clientPreview.items.slice(0, 10).map((item, idx) => (
+                    <View key={idx} style={styles.receiptPreviewRow}>
+                      <Text style={styles.receiptPreviewValue} numberOfLines={1}>
+                        {[item.contactName, item.orgName].filter(Boolean).join(' · ') || item.email}
+                      </Text>
+                      <Text style={[styles.receiptPreviewLabel, { fontSize: 12 }]} numberOfLines={1}>{item.email}</Text>
+                    </View>
+                  ))}
+                  {message.clientPreview.items.length > 10 && (
+                    <Text style={[styles.receiptPreviewLabel, { marginTop: 4 }]}>… and {message.clientPreview.items.length - 10} more</Text>
+                  )}
+                </View>
+                <View style={styles.receiptPreviewActions}>
+                  <TouchableOpacity
+                    style={[
+                      styles.previewActionButton,
+                      message.clientPreview.confirmed || confirmedClientPreviews.has(message.id)
+                        ? styles.previewActionButtonConfirmed
+                        : styles.previewActionButtonPrimary,
+                    ]}
+                    onPress={async () => {
+                      if (message.clientPreview?.confirmed || confirmedClientPreviews.has(message.id)) return;
+                      const firmSpaceId = message.clientPreview?.firmSpaceId;
+                      if (!firmSpaceId || !message.clientPreview?.items?.length) {
+                        showToast('Missing firm context or client list.', 'error');
+                        return;
+                      }
+                      try {
+                        let created = 0;
+                        let failed = 0;
+                        let lastError: string | null = null;
+                        const invitationIds: string[] = [];
+                        const emailTrimmed = (e: string) => (e || '').trim().toLowerCase();
+                        for (const item of message.clientPreview.items) {
+                          const contactEmail = emailTrimmed(item.email);
+                          if (!contactEmail) {
+                            failed++;
+                            lastError = 'Contact email is required';
+                            continue;
+                          }
+                          const clientName = (item.orgName?.trim() || item.contactName?.trim() || item.email) || 'Client Space';
+                          const { result, error } = await createClientOnBehalf(firmSpaceId, {
+                            clientName,
+                            contactName: item.contactName?.trim() || '',
+                            contactEmail,
+                          });
+                          if (error || !result) {
+                            failed++;
+                            lastError = error?.message ?? 'Create failed';
+                            continue;
+                          }
+                          created++;
+                          if (result.invitationId) invitationIds.push(result.invitationId);
+                        }
+                        let emailsSent = 0;
+                        if (invitationIds.length > 0) {
+                          const outcomes = await Promise.allSettled(invitationIds.map((id) => sendInvitationEmailForId(id)));
+                          emailsSent = outcomes.filter((o) => o.status === 'fulfilled' && (o as PromiseFulfilledResult<{ emailSent: boolean }>).value.emailSent).length;
+                        }
+                        setConfirmedClientPreviews((prev) => new Set(prev).add(message.id));
+                        setMessages((prev) =>
+                          prev.map((m) =>
+                            m.id === message.id && m.clientPreview
+                              ? { ...m, clientPreview: { ...m.clientPreview!, confirmed: true } }
+                              : m
+                          )
+                        );
+                        if (failed > 0 && created === 0) {
+                          showToast(lastError ?? 'Failed to create clients.', 'error');
+                        } else {
+                          let toastMsg = failed > 0 ? 'Created ' + created + ' client(s); ' + failed + ' failed.' : 'Created ' + created + ' client(s).';
+                          if (invitationIds.length > 0) {
+                            if (emailsSent === invitationIds.length) toastMsg += ' Invite emails sent.';
+                            else if (emailsSent > 0) toastMsg += ' ' + emailsSent + ' invite email(s) sent; others can see invite in-app.';
+                            else toastMsg += ' Invites created; recipients can see them in-app.';
+                          }
+                          showToast(toastMsg, created > 0 ? 'success' : 'error');
+                        }
+                      } catch (err) {
+                        showToast(err instanceof Error ? err.message : 'Failed to create clients.', 'error');
+                      }
+                    }}
+                    disabled={message.clientPreview.confirmed || confirmedClientPreviews.has(message.id)}
+                  >
+                    <Ionicons name={message.clientPreview.confirmed || confirmedClientPreviews.has(message.id) ? 'checkmark-circle' : 'checkmark-circle-outline'} size={16} color="#fff" />
+                    <Text style={[styles.previewActionText, styles.previewActionTextPrimary]}>
+                      {message.clientPreview.confirmed || confirmedClientPreviews.has(message.id) ? 'Confirmed' : 'Confirm & create clients'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {message.attachmentPreview && (voucherType === 'tax-filing' || message.voucherType === 'tax-filing') && (
               <Pressable style={styles.receiptPreviewCard} onPress={() => handlePreviewDetails(message)}>
                 <View style={styles.receiptPreviewHeader}>
                   <Ionicons name="attach" size={20} color="#6C5CE7" />
@@ -2503,7 +2737,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   <TextInput
                     ref={inputRef}
                     style={webInputBlockStyles.webInput}
-                    placeholder={`I'm ${getAssistantInfo(voucherType).nickname}. Leave it to me.`}
+                    placeholder={getInputPlaceholder(voucherType)}
                     placeholderTextColor="#95A5A6"
                     value={inputText}
                     onChangeText={setInputText}
@@ -2695,7 +2929,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   <TextInput
                     ref={inputRef}
                     style={styles.input}
-                    placeholder={`I'm ${getAssistantInfo(voucherType).nickname}. Leave it to me.`}
+                    placeholder={getInputPlaceholder(voucherType)}
                     placeholderTextColor="#95A5A6"
                     value={inputText}
                     onChangeText={setInputText}

@@ -331,7 +331,13 @@ export async function createClientOnBehalf(
       p_sku_id: params.skuId ?? null,
     });
     if (error) {
-      return { result: null, error: new Error(error.message || 'Failed to create client on behalf') };
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.error('[createClientOnBehalf] RPC error object:', error);
+      }
+      const err = error as { message?: string; details?: string; hint?: string; code?: string };
+      const parts = [err.message, err.details, err.hint].filter(Boolean);
+      const msg = parts.length ? parts.join(' ') : 'Failed to create client on behalf';
+      return { result: null, error: new Error(msg) };
     }
     const row = Array.isArray(data) ? data[0] : data;
     if (!row?.client_space_id) {
@@ -347,10 +353,16 @@ export async function createClientOnBehalf(
       error: null,
     };
   } catch (e) {
-    return {
-      result: null,
-      error: e instanceof Error ? e : new Error('Failed to create client on behalf'),
-    };
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.error('[createClientOnBehalf] catch:', e);
+    }
+    const msg =
+      e instanceof Error
+        ? e.message
+        : typeof (e as { message?: string })?.message === 'string'
+          ? (e as { message: string }).message
+          : 'Failed to create client on behalf';
+    return { result: null, error: new Error(msg) };
   }
 }
 

@@ -5,7 +5,7 @@
 import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, Image, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useChatPanel } from '../contexts/ChatPanelContext';
+import { useChatPanel, type ChatPanelType } from '../contexts/ChatPanelContext';
 import { ChatToLogContent } from '../app/chat-to-log';
 import { getAssistantInfo } from '@/lib/assistant-config';
 import { getChatToLogAllowedTypes } from '@/lib/chat-to-log-allowed-types';
@@ -15,7 +15,8 @@ const PANEL_WIDTH = 420;
 
 const PANEL_NATIVE_ID = 'web-chat-panel';
 
-export default function WebChatPanel() {
+/** effectiveType: 由当前路由决定，保证在 Clients 页一定显示 Client Assistant，不串成 Expenses */
+export default function WebChatPanel(props: { effectiveType?: ChatPanelType }) {
   const { open, type, setType, closePanel } = useChatPanel();
   const [currentSpace, setCurrentSpace] = useState<{ kind?: string } | null>(null);
   const [showTypePicker, setShowTypePicker] = useState(false);
@@ -31,7 +32,8 @@ export default function WebChatPanel() {
   if (Platform.OS !== 'web' || !open) return null;
 
   const typeOptions = getChatToLogAllowedTypes(currentSpace);
-  const assistant = getAssistantInfo(type);
+  const displayType = props.effectiveType ?? type;
+  const assistant = getAssistantInfo(displayType);
 
   return (
     <View
@@ -60,13 +62,13 @@ export default function WebChatPanel() {
               return (
                 <Pressable
                   key={opt.value}
-                  style={[styles.typePickerItem, type === opt.value && styles.typePickerItemActive]}
+                  style={[styles.typePickerItem, displayType === opt.value && styles.typePickerItemActive]}
                   onPress={() => { setType(opt.value); setShowTypePicker(false); }}
                 >
                   <Image source={optAssistant.avatar} style={styles.typePickerItemAvatar} resizeMode="cover" />
                   <View style={styles.typePickerItemTextBlock}>
-                    <Text style={[styles.typePickerItemText, type === opt.value && styles.typePickerItemTextActive]}>{optAssistant.nickname}</Text>
-                    <Text style={[styles.typePickerItemRole, type === opt.value && styles.typePickerItemRoleActive]}>{optAssistant.role}</Text>
+                    <Text style={[styles.typePickerItemText, displayType === opt.value && styles.typePickerItemTextActive]}>{optAssistant.nickname}</Text>
+                    <Text style={[styles.typePickerItemRole, displayType === opt.value && styles.typePickerItemRoleActive]}>{optAssistant.role}</Text>
                   </View>
                 </Pressable>
               );
@@ -78,7 +80,7 @@ export default function WebChatPanel() {
         </TouchableOpacity>
       </View>
       <View style={styles.body}>
-        <ChatToLogContent voucherType={type} />
+        <ChatToLogContent key={displayType} voucherType={displayType} />
       </View>
     </View>
   );

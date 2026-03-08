@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableOpacity } from 'react-native';
 import { useRouter, useLocalSearchParams, useGlobalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as Linking from 'expo-linking';
@@ -16,8 +16,8 @@ function getSuccessConfig(type: string | undefined): { message: string; redirect
       };
     case 'invite':
       return {
-        message: 'Invitation accepted! Setting up your account...',
-        redirect: '/handle-invitations',
+        message: 'Email verified! Complete your profile to continue.',
+        redirect: '/register?fromInvite=1',
       };
     case 'email_change':
       return {
@@ -54,6 +54,7 @@ export default function EmailConfirmScreen() {
   const globalParams = useGlobalSearchParams<{ token_hash?: string; type?: string; access_token?: string }>();
   const [status, setStatus] = useState<'verifying' | 'success' | 'error'>('verifying');
   const [message, setMessage] = useState('Verifying...');
+  const [redirectTo, setRedirectTo] = useState<string | null>(null);
 
   useEffect(() => {
     handleEmailConfirmation();
@@ -175,14 +176,9 @@ export default function EmailConfirmScreen() {
                 await ensureUserRecord(sessionData.user);
                 
                 setStatus('success');
-                // 根据类型设置不同的消息和跳转目标
                 const { message: successMessage, redirect } = getSuccessConfig(type);
                 setMessage(successMessage);
-                
-                setTimeout(() => {
-                  console.log('Redirecting to:', redirect);
-                  router.replace(redirect as any);
-                }, 2000);
+                setRedirectTo(redirect);
                 return;
               } else {
                 console.error('Session data missing user');
@@ -210,25 +206,16 @@ export default function EmailConfirmScreen() {
           console.log('Auth link expired or already used');
           setStatus('error');
           setMessage('This link has expired or has already been used. Please request a new link.');
-          setTimeout(() => {
-            router.replace('/login');
-          }, 3000);
+          setRedirectTo('/login');
           return;
         }
 
         if (data?.user) {
-          // 邮箱确认成功，确保 users 表中有用户记录
           await ensureUserRecord(data.user);
-          
           setStatus('success');
-          // 根据类型设置不同的消息和跳转目标
           const { message: successMessage, redirect } = getSuccessConfig(type);
           setMessage(successMessage);
-          
-          setTimeout(() => {
-            console.log('Redirecting to:', redirect);
-            router.replace(redirect as any);
-          }, 2000);
+          setRedirectTo(redirect);
           return;
         }
       }
@@ -269,29 +256,21 @@ export default function EmailConfirmScreen() {
             }
           }
           
-          // 如果还是没有找到参数，显示明确提示
           setStatus('error');
           setMessage('This link has expired or has already been used. Please request a new link.');
-          setTimeout(() => {
-            router.replace('/login');
-          }, 3000);
+          setRedirectTo('/login');
         }, 1500);
         return;
       }
 
-      // 如果所有方法都失败
       setStatus('error');
       setMessage('This link has expired or has already been used. Please request a new link.');
-      setTimeout(() => {
-        router.replace('/login');
-      }, 3000);
+      setRedirectTo('/login');
     } catch (error) {
       console.log('Auth link expired or already used');
       setStatus('error');
       setMessage('This link has expired or has already been used. Please request a new link.');
-      setTimeout(() => {
-        router.replace('/login');
-      }, 3000);
+      setRedirectTo('/login');
     }
   };
 
@@ -338,16 +317,30 @@ export default function EmailConfirmScreen() {
             <Text style={styles.message}>{message}</Text>
           </>
         )}
-        {status === 'success' && (
+        {status === 'success' && redirectTo && (
           <>
             <Text style={styles.successIcon}>✓</Text>
             <Text style={styles.message}>{message}</Text>
+            <TouchableOpacity
+              style={styles.continueButton}
+              onPress={() => router.replace(redirectTo as any)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.continueButtonText}>Continue</Text>
+            </TouchableOpacity>
           </>
         )}
-        {status === 'error' && (
+        {status === 'error' && redirectTo && (
           <>
             <Text style={styles.errorIcon}>✗</Text>
             <Text style={styles.message}>{message}</Text>
+            <TouchableOpacity
+              style={styles.continueButton}
+              onPress={() => router.replace(redirectTo as any)}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.continueButtonText}>Go to Login</Text>
+            </TouchableOpacity>
           </>
         )}
       </View>
@@ -381,6 +374,18 @@ const styles = StyleSheet.create({
     fontSize: 64,
     color: '#E74C3C',
     marginBottom: 20,
+  },
+  continueButton: {
+    marginTop: 24,
+    backgroundColor: '#6C5CE7',
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 12,
+  },
+  continueButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#FFF',
   },
 });
 

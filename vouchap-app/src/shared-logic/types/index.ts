@@ -632,3 +632,21 @@ export interface GeminiVoucherResult {
   imageQuality?: ImageQuality;
   dataConsistency?: DataConsistency;
 }
+
+/** Single extracted client from business card / list / text (Client Assistant). Email required. */
+export interface ExtractedClient {
+  email: string;
+  contactName?: string;
+  orgName?: string;
+  address?: string;
+}
+
+/** Client recognition result: list of clients + summary for user confirmation. */
+export interface ClientRecognitionResult {
+  clients: ExtractedClient[];
+  summary: {
+    totalCount: number;
+    completeCount: number;
+    incompleteCount: number;
+  };
+}

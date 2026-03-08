@@ -236,15 +236,15 @@ export async function createInvitation(inviteeEmail: string): Promise<{ invitati
   }
 }
 
-// 发送邀请邮件（简化版本：使用传入的参数，不查询数据库）
+/** Returns { emailSent: true } when Supabase sent the invite email; { emailSent: false } when existing user (invite in-app only). */
 async function sendInvitationEmail(
-  email: string, 
+  email: string,
   invitationId: string,
   isExistingUser: boolean,
   spaceId?: string,
   inviterName?: string,
-  spaceName?: string // 新增参数，从缓存传入
-): Promise<void> {
+  spaceName?: string
+): Promise<{ emailSent: boolean }> {
   try {
     const isDev = Constants.expoConfig?.extra?.supabaseUrl?.includes('localhost') || 
                   process.env.NODE_ENV === 'development';
@@ -258,54 +258,29 @@ async function sendInvitationEmail(
     const finalSpaceName = spaceName || 'a space';
     const finalInviterName = inviterName || 'Someone';
 
-    // 尝试调用 Supabase Edge Function 发送邮件
-    // 如果 Edge Function 不存在，则使用 Supabase 的邮件功能
-    try {
-      const { data: edgeFunctionData, error: edgeFunctionError } = await supabase.functions.invoke('send-invitation-email', {
-        body: {
-          email,
-          inviteUrl,
-          spaceName,
-          inviterName: finalInviterName,
-          isExistingUser,
-        },
-      });
-
-      if (!edgeFunctionError) {
-        return;
-      }
-    } catch (edgeError) {
-    }
-
-    // 备选方案：使用 Supabase 的邮件功能（需要配置 SMTP）
-    // 注意：Supabase 的邮件功能主要用于认证邮件，可能不支持自定义邮件
-    // 这里我们使用 Supabase Auth 的邮件功能作为备选
-    try {
-      // 如果 Supabase 配置了自定义邮件模板，可以在这里调用
-      // 否则，我们需要手动发送邮件
-      console.log('Invitation email details:', {
-        to: email,
+    // Edge Function uses Supabase Auth SMTP + email templates only.
+    const { data: edgeFunctionData, error: edgeFunctionError } = await supabase.functions.invoke('send-invitation-email', {
+      body: {
+        email,
         inviteUrl,
         spaceName,
         inviterName: finalInviterName,
         isExistingUser,
-      });
+      },
+    });
 
-      // 在实际生产环境中，建议：
-      // 1. 创建 Supabase Edge Function 来发送邮件
-      // 2. 或者集成第三方邮件服务（SendGrid, AWS SES, Resend 等）
-      // 3. 或者使用 Supabase 的邮件功能（如果已配置自定义模板）
-
-      // 临时方案：显示邀请链接（开发/测试用）
-      if (isDev) {
-      }
-    } catch (emailError) {
-      console.error('Error sending invitation email:', emailError);
-      // 不抛出错误，因为邀请记录已创建，用户可以稍后手动分享链接
+    if (edgeFunctionError) {
+      throw new Error(edgeFunctionError.message || 'Edge Function error');
     }
+    if (edgeFunctionData && (edgeFunctionData as { success?: boolean }).success === false) {
+      const err = (edgeFunctionData as { error?: string }).error || 'Email not sent';
+      throw new Error(err);
+    }
+    const emailSent = (edgeFunctionData as { emailSent?: boolean })?.emailSent !== false;
+    return { emailSent };
   } catch (error) {
     console.error('Error sending invitation email:', error);
-    // 不抛出错误，因为邀请记录已创建
+    throw error;
   }
 }
 
@@ -316,10 +291,10 @@ export async function getInvitationById(invitationId: string): Promise<SpaceInvi
       .from('space_invitations')
       .select('*')
       .eq('id', invitationId)
-      .single();
+      .maybeSingle();
 
     if (error) {
-      if (error.code === 'PGRST116') return null; // Not found
+      if (error.code === 'PGRST116') return null; // no rows
       throw error;
     }
 
@@ -343,12 +318,12 @@ export async function getInvitationById(invitationId: string): Promise<SpaceInvi
   }
 }
 
-/** Send invitation email for an existing invitation (e.g. after firm creates client on behalf). */
-export async function sendInvitationEmailForId(invitationId: string): Promise<void> {
+/** Send invitation email for an existing invitation (e.g. after firm creates client on behalf). Returns { emailSent } from Supabase. */
+export async function sendInvitationEmailForId(invitationId: string): Promise<{ emailSent: boolean }> {
   const inv = await getInvitationById(invitationId);
-  if (!inv || inv.status !== 'pending') return;
+  if (!inv || inv.status !== 'pending') return { emailSent: false };
   const inviterName = (inv.inviterEmail || '').split('@')[0] || 'Someone';
-  await sendInvitationEmail(
+  return sendInvitationEmail(
     inv.inviteeEmail,
     inv.id,
     false,
