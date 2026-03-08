@@ -369,7 +369,7 @@ export interface Outbound {
 }
 
 // 凭证记录类别：由列表页入口决定，不由大模型判断
-export type VoucherLogType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'tax-filing';
+export type VoucherLogType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'tax-filing' | 'client';
 
 // Gemini识别结果（使用分类名称，后续会匹配到分类ID）
 export interface GeminiReceiptResult {

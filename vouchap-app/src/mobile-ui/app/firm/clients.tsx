@@ -34,10 +34,12 @@ import QRCode from 'react-native-qrcode-svg';
 import {
   buildFirmClientInviteUrl,
   createFirmClientInviteToken,
+  createClientOnBehalf,
   getFirmClientInviteHistory,
   setFirmClientInviteActive,
   type FirmClientInviteToken,
 } from '@/lib/firm-clients';
+import { sendInvitationEmailForId } from '@/lib/space-invitations';
 import CenterModal from '@/components/CenterModal';
 
 function formatServiceStart(iso: string | null): string {
@@ -188,6 +190,14 @@ export default function FirmClientsScreen() {
   const [assignMembersLoading, setAssignMembersLoading] = useState(false);
   const [assignSaving, setAssignSaving] = useState(false);
   const qrRef = useRef<any | null>(null);
+  // Add client (on-behalf) modal
+  const [showAddClientModal, setShowAddClientModal] = useState(false);
+  const [addClientClientName, setAddClientClientName] = useState('');
+  const [addClientContactName, setAddClientContactName] = useState('');
+  const [addClientContactEmail, setAddClientContactEmail] = useState('');
+  const [addClientSkuId, setAddClientSkuId] = useState<string | null>(null);
+  const [addClientSubmitting, setAddClientSubmitting] = useState(false);
+  const [addClientError, setAddClientError] = useState<string | null>(null);
 
   const clientColumns = useMemo(() => getClientColumns(), []);
 
@@ -548,6 +558,49 @@ export default function FirmClientsScreen() {
     }
   }, [inviteFromHistory]);
 
+  const handleOpenAddClientModal = useCallback(() => {
+    setShowAddClientModal(true);
+    setAddClientError(null);
+    setAddClientClientName('');
+    setAddClientContactName('');
+    setAddClientContactEmail('');
+    setAddClientSkuId(null);
+  }, []);
+  const handleCloseAddClientModal = useCallback(() => {
+    setShowAddClientModal(false);
+    setAddClientError(null);
+  }, []);
+  const handleAddClientSubmit = useCallback(async () => {
+    if (!firmSpaceId) return;
+    const email = (addClientContactEmail || '').trim().toLowerCase();
+    if (!email) {
+      setAddClientError('Contact email is required.');
+      return;
+    }
+    setAddClientSubmitting(true);
+    setAddClientError(null);
+    const { result, error } = await createClientOnBehalf(firmSpaceId, {
+      clientName: addClientClientName.trim(),
+      contactName: addClientContactName.trim(),
+      contactEmail: email,
+      skuId: addClientSkuId ?? undefined,
+    });
+    setAddClientSubmitting(false);
+    if (error) {
+      setAddClientError(error.message);
+      return;
+    }
+    if (result?.invitationId) {
+      sendInvitationEmailForId(result.invitationId).catch(() => {});
+    }
+    setShowAddClientModal(false);
+    setAddClientClientName('');
+    setAddClientContactName('');
+    setAddClientContactEmail('');
+    setAddClientSkuId(null);
+    await loadData(true);
+  }, [firmSpaceId, addClientClientName, addClientContactName, addClientContactEmail, addClientSkuId, loadData]);
+
   const renderMobileList = () => (
     <View style={styles.container}>
       <View style={styles.toolbarSlot}>
@@ -576,8 +629,15 @@ export default function FirmClientsScreen() {
                 </TouchableOpacity>
               ) : null}
             </View>
-            {/* Mobile: 邀请与历史入口，放在工具栏右侧 */}
+            {/* Mobile: Add client + 邀请与历史入口 */}
             <View style={styles.mobileInviteActions}>
+              <TouchableOpacity
+                style={styles.mobileIconButton}
+                onPress={handleOpenAddClientModal}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="person-add-outline" size={18} color="#6C5CE7" />
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.mobileIconButton}
                 onPress={handleToggleInvitePanel}
@@ -711,6 +771,14 @@ export default function FirmClientsScreen() {
         ) : (
           <View style={styles.header}>
             <View style={styles.headerRow}>
+              <TouchableOpacity
+                style={[styles.inviteButton, { marginRight: 8 }]}
+                onPress={handleOpenAddClientModal}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="person-add-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
+                <Text style={styles.inviteButtonText}>Add client</Text>
+              </TouchableOpacity>
               <TouchableOpacity
                 style={styles.inviteButton}
                 onPress={handleToggleInvitePanel}
@@ -1152,6 +1220,74 @@ export default function FirmClientsScreen() {
               </View>
             </ScrollView>
           )}
+        </View>
+      </CenterModal>
+      <CenterModal
+        visible={showAddClientModal}
+        title="Add client"
+        onClose={handleCloseAddClientModal}
+        maxWidth={440}
+      >
+        <View style={{ padding: 16 }}>
+          <Text style={[styles.inviteSubtitle, { marginBottom: 16 }]}>
+            Create a client space on behalf of the client and send them a space invitation. They will be admin of the space; you will be a member.
+          </Text>
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.inviteConfigLabel, { marginBottom: 4 }]}>Client name</Text>
+            <TextInput
+              style={[styles.searchInput, { paddingHorizontal: 10, paddingVertical: 8 }]}
+              placeholder="Company or client name"
+              placeholderTextColor="#95A5A6"
+              value={addClientClientName}
+              onChangeText={setAddClientClientName}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          <View style={{ marginBottom: 12 }}>
+            <Text style={[styles.inviteConfigLabel, { marginBottom: 4 }]}>Contact name</Text>
+            <TextInput
+              style={[styles.searchInput, { paddingHorizontal: 10, paddingVertical: 8 }]}
+              placeholder="Contact person name"
+              placeholderTextColor="#95A5A6"
+              value={addClientContactName}
+              onChangeText={setAddClientContactName}
+              autoCapitalize="words"
+            />
+          </View>
+          <View style={{ marginBottom: 16 }}>
+            <Text style={[styles.inviteConfigLabel, { marginBottom: 4 }]}>Contact email *</Text>
+            <TextInput
+              style={[styles.searchInput, { paddingHorizontal: 10, paddingVertical: 8 }]}
+              placeholder="email@example.com"
+              placeholderTextColor="#95A5A6"
+              value={addClientContactEmail}
+              onChangeText={setAddClientContactEmail}
+              keyboardType="email-address"
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          {addClientError ? (
+            <Text style={[styles.inviteErrorText, { marginBottom: 12 }]}>{addClientError}</Text>
+          ) : null}
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
+            <TouchableOpacity style={styles.inviteSecondaryBtn} onPress={handleCloseAddClientModal} activeOpacity={0.7}>
+              <Text style={styles.inviteSecondaryBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.invitePrimaryBtn, addClientSubmitting && styles.invitePrimaryBtnDisabled]}
+              onPress={handleAddClientSubmit}
+              disabled={addClientSubmitting}
+              activeOpacity={0.7}
+            >
+              {addClientSubmitting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.invitePrimaryBtnText}>Create & send invite</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         </View>
       </CenterModal>
       {Platform.OS === 'web' &&

@@ -33,6 +33,7 @@ import { saveChatLog, getChatLogsPaginated, VoucherLogType, type ChatLog } from 
 import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
 import { getCurrentSpace } from '@/lib/auth';
 import { getChatToLogAllowedTypes, getChatToLogAllowedTypeValues } from '@/lib/chat-to-log-allowed-types';
+import { getAssistantInfo } from '@/lib/assistant-config';
 import { uploadTaxFilingFile, uploadReceiptImageTempWithSpace } from '@/lib/supabase';
 import { getProjectById, getProjectTodosTree, createProjectTodoAttachment, updateProjectTodoAttachment, getProjectTodoAttachmentById, buildExtractedPreview, type ProjectTodoNode } from '@/lib/firm';
 import { classifyTaxDocumentAndPickTask } from '@/lib/tax-filing-task-matcher';
@@ -52,6 +53,7 @@ import {
 import { showToast } from '@/lib/toast';
 import { useChatPanel } from '../contexts/ChatPanelContext';
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
+import { webInputBlockStyles } from '../styles/web-input-block-styles';
 
 // 语音识别置信度阈值：与照片 needs_retake 一致，低于此值视为无可识别内容，提示重新提交
 const VOICE_CONFIDENCE_THRESHOLD = 0.4;
@@ -313,7 +315,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   const allowedTypeValues = getChatToLogAllowedTypeValues(currentSpace);
   const rawVoucherType: VoucherLogType =
     props.voucherType
-      ?? ((params.type === 'invoice' || params.type === 'inbound' || params.type === 'outbound' || params.type === 'tax-filing' || params.type === 'attachments')
+      ?? ((params.type === 'invoice' || params.type === 'inbound' || params.type === 'outbound' || params.type === 'tax-filing' || params.type === 'client' || params.type === 'attachments')
         ? (params.type === 'attachments' ? 'tax-filing' : (params.type as VoucherLogType))
         : 'receipt');
   const voucherType: VoucherLogType =
@@ -325,26 +327,15 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   const isDrawer = Platform.OS === 'web' && params.drawer === '1';
   const isPanel = props.voucherType !== undefined;
 
-  // 根据类型动态设置标题；Web 右侧栏模式隐藏 Stack 顶栏；嵌入 layout 面板时不改当前页 setOptions
+  // 根据类型动态设置标题为助理职务（XXX Assistant）
   useEffect(() => {
     if (isPanel) return;
     if (isDrawer) {
       navigation.setOptions({ headerShown: false });
       return;
     }
-    let title = 'Chat to Log';
-    if (voucherType === 'invoice') {
-      title = 'Chat to Log Income';
-    } else if (voucherType === 'inbound') {
-      title = 'Chat to Log Inbound';
-    } else if (voucherType === 'outbound') {
-      title = 'Chat to Log Outbound';
-    } else if (voucherType === 'tax-filing') {
-      title = 'Attachments';
-    } else {
-      title = 'Chat to Log Expenses';
-    }
-    navigation.setOptions({ title });
+    const assistant = getAssistantInfo(voucherType);
+    navigation.setOptions({ title: assistant.role });
   }, [voucherType, navigation, isDrawer, isPanel]);
   const [inputText, setInputText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
@@ -386,6 +377,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   const pressStartTime = useRef(0); // 按下的时间戳
   
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
+  /** Drawer 模式：头部助理区域切换类型时展开的下拉 */
+  const [showDrawerTypePicker, setShowDrawerTypePicker] = useState(false);
   
   // 组件挂载状态，后台重试完成后仅在校验通过后更新 UI
   const mountedRef = useRef(true);
@@ -678,6 +671,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         if (restoredMessages.length === 0) {
           let welcomeText: string;
           if (voucherType === 'tax-filing') welcomeText = 'Upload tax documents (image or PDF). Each file will be automatically classified and attached to the matching task. You can upload multiple files; they will be processed one by one.';
+          else if (voucherType === 'client') welcomeText = 'Client assistant: recognition and output format will be configured separately.';
           else if (voucherType === 'invoice') welcomeText = 'Hi! Describe your income (sale / money received). I\'ll extract customer, amount, and items.';
           else if (voucherType === 'inbound') welcomeText = 'Hi! Describe your inbound (goods received). I\'ll extract supplier, date, and items with quantity and unit.';
           else if (voucherType === 'outbound') welcomeText = 'Hi! Describe your outbound (goods shipped). I\'ll extract customer, date, and items with quantity and unit.';
@@ -1784,26 +1778,45 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
 
   if (isAiInventoryType && !showAiInventory) return null;
 
-  const isFirmSpace = currentSpace?.kind === 'firm';
+  const drawerAssistant = getAssistantInfo(voucherType);
+  const drawerTypeOptions = getChatToLogAllowedTypes(currentSpace);
   const drawerHeader = (
     <View style={drawerStyles.header}>
-      {!isFirmSpace ? (
-        <View style={drawerStyles.toggleRow}>
-          <TouchableOpacity
-            style={[drawerStyles.toggleTab, voucherType === 'invoice' && drawerStyles.toggleTabActive]}
-            onPress={() => router.replace('/chat-to-log?type=invoice&drawer=1')}
-          >
-            <Text style={[drawerStyles.toggleText, voucherType === 'invoice' && drawerStyles.toggleTextActive]}>Income</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[drawerStyles.toggleTab, voucherType === 'receipt' && drawerStyles.toggleTabActive]}
-            onPress={() => router.replace('/chat-to-log?drawer=1')}
-          >
-            <Text style={[drawerStyles.toggleText, voucherType === 'receipt' && drawerStyles.toggleTextActive]}>Expenses</Text>
-          </TouchableOpacity>
+      <Pressable
+        style={drawerStyles.headerAssistant}
+        onPress={() => setShowDrawerTypePicker((v) => !v)}
+      >
+        <Image source={drawerAssistant.avatar} style={drawerStyles.headerAvatar} resizeMode="cover" />
+        <View style={drawerStyles.headerNameBlock}>
+          <View style={drawerStyles.headerNicknameRow}>
+            <Text style={drawerStyles.headerNickname}>{drawerAssistant.nickname}</Text>
+            <Ionicons name="chevron-down" size={18} color="#636E72" />
+          </View>
+          <Text style={drawerStyles.headerRole}>{drawerAssistant.role}</Text>
         </View>
-      ) : (
-        <Text style={[drawerStyles.toggleText, { marginLeft: 0 }]}>Attachments</Text>
+      </Pressable>
+      {showDrawerTypePicker && (
+        <View style={drawerStyles.typePickerDropdown}>
+          {drawerTypeOptions.map((opt) => {
+            const optAssistant = getAssistantInfo(opt.value);
+            return (
+              <Pressable
+                key={opt.value}
+                style={[drawerStyles.typePickerItem, voucherType === opt.value && drawerStyles.typePickerItemActive]}
+                onPress={() => {
+                  router.replace(`/chat-to-log?type=${opt.value}&drawer=1`);
+                  setShowDrawerTypePicker(false);
+                }}
+              >
+                <Image source={optAssistant.avatar} style={drawerStyles.typePickerItemAvatar} resizeMode="cover" />
+                <View style={drawerStyles.typePickerItemTextBlock}>
+                  <Text style={[drawerStyles.typePickerItemText, voucherType === opt.value && drawerStyles.typePickerItemTextActive]}>{optAssistant.nickname}</Text>
+                  <Text style={[drawerStyles.typePickerItemRole, voucherType === opt.value && drawerStyles.typePickerItemRoleActive]}>{optAssistant.role}</Text>
+                </View>
+              </Pressable>
+            );
+          })}
+        </View>
       )}
       <TouchableOpacity style={drawerStyles.closeButton} onPress={() => router.back()}>
         <Ionicons name="close" size={24} color="#2D3436" />
@@ -2450,26 +2463,26 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
 
       <View style={[styles.inputContainer, { paddingBottom: Platform.OS === 'ios' ? (keyboardHeight ? keyboardHeight + 20 : 20) : (keyboardHeight ? keyboardHeight + 16 : 16) }]}>
         {Platform.OS === 'web' ? (
-          <View style={styles.webInputOuter}>
-            <View style={styles.webInputBlock}>
+          <View style={webInputBlockStyles.webInputOuter}>
+            <View style={webInputBlockStyles.webInputBlock}>
               {stagedAttachmentFiles.length > 0 && !isProcessing ? (
-                <View style={styles.stagedFilesRow}>
-                  <View style={styles.stagedFilesList}>
+                <View style={webInputBlockStyles.stagedFilesRow}>
+                  <View style={webInputBlockStyles.stagedFilesList}>
                     {stagedAttachmentFiles.map((f) => {
                       const uploading = uploadingStagedIds.has(f.id);
                       const isImage = isImageMime(f.mimeType);
                       return (
-                        <View key={f.id} style={styles.stagedFileChip}>
-                          <View style={styles.stagedFileThumbWrap}>
+                        <View key={f.id} style={webInputBlockStyles.stagedFileChip}>
+                          <View style={webInputBlockStyles.stagedFileThumbWrap}>
                             {isImage ? (
-                              <Image source={{ uri: f.uri }} style={[styles.stagedFileThumb, styles.thumbAlignTopLeft]} resizeMode="cover" />
+                              <Image source={{ uri: f.uri }} style={[webInputBlockStyles.stagedFileThumb, styles.thumbAlignTopLeft]} resizeMode="cover" />
                             ) : (
-                              <View style={styles.stagedFileThumbDocIcon}>
+                              <View style={webInputBlockStyles.stagedFileThumbDocIcon}>
                                 <Ionicons name={isPdfFile(f.name, f.mimeType) ? 'document-text-outline' : 'document-outline'} size={20} color="#636E72" />
                               </View>
                             )}
                           </View>
-                          <Text style={styles.stagedFileChipText} numberOfLines={1}>{f.name ?? 'Image'}</Text>
+                          <Text style={webInputBlockStyles.stagedFileChipText} numberOfLines={1}>{f.name ?? 'Image'}</Text>
                           {!uploading ? (
                             <TouchableOpacity
                               hitSlop={8}
@@ -2485,12 +2498,12 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   </View>
                 </View>
               ) : null}
-              <View style={styles.webInputRow}>
-                <View style={styles.webInputWrapper}>
+              <View style={webInputBlockStyles.webInputRow}>
+                <View style={webInputBlockStyles.webInputWrapper}>
                   <TextInput
                     ref={inputRef}
-                    style={styles.webInput}
-                    placeholder={voucherType === 'tax-filing' ? 'Add tax documents...' : voucherType === 'invoice' ? 'Describe your incomes...' : voucherType === 'inbound' ? 'Describe your inbound...' : voucherType === 'outbound' ? 'Describe your outbound...' : 'Describe your expenses...'}
+                    style={webInputBlockStyles.webInput}
+                    placeholder={`I'm ${getAssistantInfo(voucherType).nickname}. Leave it to me.`}
                     placeholderTextColor="#95A5A6"
                     value={inputText}
                     onChangeText={setInputText}
@@ -2504,53 +2517,55 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   />
                 </View>
               </View>
-              <View style={styles.webInputActionsRow}>
-                <View style={styles.webInputActionsLeft}>
-                  <TouchableOpacity style={styles.webActionIcon} onPress={pickImagesForSend} disabled={isProcessing}>
-                    <Ionicons name="image-outline" size={22} color="#636E72" />
-                  </TouchableOpacity>
-                  {Platform.OS !== 'web' && (
-                    <TouchableOpacity
-                      style={[styles.webActionIcon, isRecording && styles.webActionIconRecording]}
-                      onPress={() => { if (isRecordingRef.current) handleStopRecording(); else if (!isProcessing) handleStartRecording(); }}
-                      disabled={isProcessing}
-                    >
-                      <Ionicons name={isRecording ? 'mic' : 'mic-outline'} size={22} color={isRecording ? '#E74C3C' : '#636E72'} />
+              <View style={webInputBlockStyles.webInputActionsRow}>
+                <View style={webInputBlockStyles.webInputActionsLeftGroup}>
+                  <View style={webInputBlockStyles.webInputActionsLeft}>
+                    <TouchableOpacity style={webInputBlockStyles.webActionIcon} onPress={pickImagesForSend} disabled={isProcessing}>
+                      <Ionicons name="image-outline" size={22} color="#636E72" />
                     </TouchableOpacity>
-                  )}
-                </View>
-                {isPanel && chatPanel && (() => {
-                  const typeOptions = getChatToLogAllowedTypes(currentSpace);
-                  const currentLabel = typeOptions.find(o => o.value === voucherType)?.label ?? typeOptions[0]?.label ?? 'Expenses';
-                  return (
-                    <View style={styles.webTypeDropdownWrap} nativeID="chat-to-log-type-dropdown">
+                    {Platform.OS !== 'web' && (
+                      <TouchableOpacity
+                        style={[webInputBlockStyles.webActionIcon, isRecording && styles.webActionIconRecording]}
+                        onPress={() => { if (isRecordingRef.current) handleStopRecording(); else if (!isProcessing) handleStartRecording(); }}
+                        disabled={isProcessing}
+                      >
+                        <Ionicons name={isRecording ? 'mic' : 'mic-outline'} size={22} color={isRecording ? '#E74C3C' : '#636E72'} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  {isPanel && chatPanel && (() => {
+                    const typeOptions = getChatToLogAllowedTypes(currentSpace);
+                    const currentLabel = typeOptions.find(o => o.value === voucherType)?.label ?? typeOptions[0]?.label ?? 'Expenses';
+                    return (
+                      <View style={webInputBlockStyles.webTypeDropdownWrap} nativeID="chat-to-log-type-dropdown">
                       <Pressable
-                        style={({ hovered }) => [styles.webTypeDropdownTrigger, hovered && styles.webTypeDropdownTriggerHover]}
+                        style={({ hovered }) => [webInputBlockStyles.webTypeDropdownTrigger, hovered && webInputBlockStyles.webTypeDropdownTriggerHover]}
                         onPress={() => setShowTypeDropdown(v => !v)}
                       >
-                        <Text style={styles.webTypeDropdownLabel}>{currentLabel}</Text>
+                        <Text style={webInputBlockStyles.webTypeDropdownLabel}>{currentLabel}</Text>
                         <Ionicons name={showTypeDropdown ? 'chevron-up' : 'chevron-down'} size={16} color="#636E72" />
                       </Pressable>
                       {showTypeDropdown && (
-                        <View style={styles.webTypeDropdownMenu}>
+                        <View style={webInputBlockStyles.webTypeDropdownMenu}>
                           {typeOptions.map((opt) => (
                             <Pressable
                               key={opt.value}
                               style={({ hovered }) => [
-                                styles.webTypeDropdownItem,
-                                voucherType === opt.value && styles.webTypeDropdownItemActive,
-                                hovered && styles.webTypeDropdownItemHover,
+                                webInputBlockStyles.webTypeDropdownItem,
+                                voucherType === opt.value && webInputBlockStyles.webTypeDropdownItemActive,
+                                hovered && webInputBlockStyles.webTypeDropdownItemHover,
                               ]}
                               onPress={() => { chatPanel.setType(opt.value); setShowTypeDropdown(false); }}
                             >
-                              <Text style={[styles.webTypeDropdownItemText, voucherType === opt.value && styles.webTypeDropdownItemTextActive]}>{opt.label}</Text>
+                              <Text style={[webInputBlockStyles.webTypeDropdownItemText, voucherType === opt.value && webInputBlockStyles.webTypeDropdownItemTextActive]}>{opt.label}</Text>
                             </Pressable>
                           ))}
                         </View>
                       )}
-                    </View>
-                  );
-                })()}
+                      </View>
+                    );
+                  })()}
+                </View>
                 <TouchableOpacity
                   style={[styles.webSendButton, ((!inputText.trim() && stagedAttachmentFiles.length === 0) || isProcessing) && styles.sendButtonDisabled]}
                   onPress={handleSend}
@@ -2560,29 +2575,29 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 </TouchableOpacity>
               </View>
             </View>
-            <Text style={styles.webInputDisclaimer}>AI may make mistakes.</Text>
+            <Text style={webInputBlockStyles.webInputDisclaimer}>AI Assistant may make mistakes.</Text>
           </View>
         ) : (
           <View style={styles.nativeInputColumn}>
             {/* 预览区：已选图片在上方另起一行，不挤压录入框 */}
             {stagedAttachmentFiles.length > 0 && !isProcessing ? (
-              <View style={styles.stagedFilesRow}>
-                <View style={styles.stagedFilesList}>
+              <View style={webInputBlockStyles.stagedFilesRow}>
+                <View style={webInputBlockStyles.stagedFilesList}>
                   {stagedAttachmentFiles.map((f) => {
                     const uploading = uploadingStagedIds.has(f.id);
                     const isImage = isImageMime(f.mimeType);
                     return (
-                      <View key={f.id} style={styles.stagedFileChip}>
-                        <View style={styles.stagedFileThumbWrap}>
+                      <View key={f.id} style={webInputBlockStyles.stagedFileChip}>
+                        <View style={webInputBlockStyles.stagedFileThumbWrap}>
                           {isImage ? (
-                            <Image source={{ uri: f.uri }} style={[styles.stagedFileThumb, styles.thumbAlignTopLeft]} resizeMode="cover" />
+                            <Image source={{ uri: f.uri }} style={[webInputBlockStyles.stagedFileThumb, styles.thumbAlignTopLeft]} resizeMode="cover" />
                           ) : (
-                            <View style={styles.stagedFileThumbDocIcon}>
+                            <View style={webInputBlockStyles.stagedFileThumbDocIcon}>
                               <Ionicons name={isPdfFile(f.name, f.mimeType) ? 'document-text-outline' : 'document-outline'} size={20} color="#636E72" />
                             </View>
                           )}
                         </View>
-                        <Text style={styles.stagedFileChipText} numberOfLines={1}>{f.name ?? 'Image'}</Text>
+                        <Text style={webInputBlockStyles.stagedFileChipText} numberOfLines={1}>{f.name ?? 'Image'}</Text>
                         {!uploading ? (
                           <TouchableOpacity
                             hitSlop={8}
@@ -2680,7 +2695,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   <TextInput
                     ref={inputRef}
                     style={styles.input}
-                    placeholder={voucherType === 'tax-filing' ? 'Add tax documents...' : voucherType === 'invoice' ? 'Describe your incomes...' : voucherType === 'inbound' ? 'Describe your inbound...' : voucherType === 'outbound' ? 'Describe your outbound...' : 'Describe your expenses...'}
+                    placeholder={`I'm ${getAssistantInfo(voucherType).nickname}. Leave it to me.`}
                     placeholderTextColor="#95A5A6"
                     value={inputText}
                     onChangeText={setInputText}
@@ -2789,6 +2804,93 @@ const drawerStyles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
+    position: 'relative',
+    overflow: 'visible',
+    zIndex: 10,
+  },
+  headerAssistant: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
+    gap: 10,
+  },
+  headerAvatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginBottom: -50,
+    zIndex: 11,
+  },
+  headerNameBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  headerNicknameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  headerNickname: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2D3436',
+  },
+  headerRole: {
+    fontSize: 12,
+    color: '#636E72',
+    marginTop: 2,
+  },
+  typePickerDropdown: {
+    position: 'absolute',
+    left: 16,
+    top: 124,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    minWidth: 160,
+    zIndex: 100,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  typePickerItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  typePickerItemAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+  typePickerItemTextBlock: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+  },
+  typePickerItemActive: {
+    backgroundColor: '#F1F3F5',
+  },
+  typePickerItemText: {
+    fontSize: 14,
+    color: '#2D3436',
+  },
+  typePickerItemTextActive: {
+    fontWeight: '600',
+  },
+  typePickerItemRole: {
+    fontSize: 11,
+    color: '#636E72',
+  },
+  typePickerItemRoleActive: {
+    color: '#636E72',
   },
   toggleRow: {
     flexDirection: 'row',
@@ -2816,6 +2918,7 @@ const drawerStyles = StyleSheet.create({
   panelBody: {
     flex: 1,
     minHeight: 0,
+    zIndex: 0,
   },
 });
 
@@ -2919,41 +3022,6 @@ const styles = StyleSheet.create({
     gap: 4,
     minWidth: 0,
   },
-  webInputOuter: {
-    flex: 1,
-    minWidth: 0,
-  },
-  webInputBlock: {
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 10,
-    minWidth: 0,
-  },
-  webInputRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-  },
-  webInputWrapper: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minWidth: 0,
-  },
-  webInput: {
-    flex: 1,
-    minHeight: 24,
-    maxHeight: 120,
-    padding: 0,
-    fontSize: 15,
-    color: '#2D3436',
-    outlineStyle: 'none',
-  },
   webSendButton: {
     width: 44,
     height: 44,
@@ -2962,89 +3030,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  webInputActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 8,
-    paddingHorizontal: 4,
-  },
-  webInputActionsLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  webActionIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
   webActionIconRecording: {
     backgroundColor: '#FFEBEE',
-  },
-  webTypeDropdownWrap: {
-    position: 'relative',
-    marginRight: 4,
-  },
-  webTypeDropdownTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: 'transparent',
-    minWidth: 100,
-  },
-  webTypeDropdownTriggerHover: {
-    backgroundColor: 'rgba(0,0,0,0.06)',
-  },
-  webTypeDropdownLabel: {
-    fontSize: 14,
-    color: '#2D3436',
-    fontWeight: '500',
-  },
-  webTypeDropdownMenu: {
-    position: 'absolute',
-    bottom: '100%',
-    left: 0,
-    marginBottom: 4,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 8,
-    minWidth: 120,
-    zIndex: 50,
-  },
-  webTypeDropdownItem: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  webTypeDropdownItemActive: {
-    backgroundColor: 'transparent',
-  },
-  webTypeDropdownItemHover: {
-    backgroundColor: 'rgba(0,0,0,0.06)',
-  },
-  webTypeDropdownItemText: {
-    fontSize: 14,
-    color: '#2D3436',
-  },
-  webTypeDropdownItemTextActive: {
-    color: '#6C5CE7',
-    fontWeight: '600',
-  },
-  webInputDisclaimer: {
-    fontSize: 12,
-    color: '#95A5A6',
-    textAlign: 'center',
-    marginTop: 10,
   },
   attachmentsHint: {
     fontSize: 14,
@@ -3059,49 +3046,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0EFFF',
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  stagedFilesRow: {
-    marginBottom: 4,
-  },
-  stagedFilesList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  stagedFileChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 4,
-    paddingLeft: 4,
-    paddingRight: 6,
-    borderRadius: 12,
-    backgroundColor: '#F1F3F5',
-    width: '48%',
-    minWidth: 0,
-  },
-  stagedFileThumbWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-    overflow: 'hidden',
-    backgroundColor: '#E9ECEF',
-  },
-  stagedFileThumb: {
-    width: '100%',
-    height: '100%',
-  },
-  stagedFileThumbDocIcon: {
-    width: '100%',
-    height: '100%',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  stagedFileChipText: {
-    fontSize: 12,
-    color: '#2D3436',
-    flex: 1,
-    minWidth: 0,
   },
   attachmentTaskRow: {
     flexDirection: 'row',

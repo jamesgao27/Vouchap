@@ -20,9 +20,11 @@ import type { ChatPanelType, StagedAttachmentFile } from '../contexts/ChatPanelC
 import { PANEL_WIDTH } from './WebChatPanel';
 import { getCurrentSpace } from '@/lib/auth';
 import { getChatToLogAllowedTypes } from '@/lib/chat-to-log-allowed-types';
+import { getAssistantInfo } from '@/lib/assistant-config';
 import { showToast } from '@/lib/toast';
+import { webInputBlockStyles } from '../styles/web-input-block-styles';
 
-const FAB_SIZE = 80;
+const FAB_SIZE = 100;
 const FAB_BOTTOM = 40;
 const FAB_RIGHT = 40;
 const CHAT_ICON_SIZE = 36;
@@ -37,11 +39,8 @@ interface WebChatFabProps {
 }
 
 function getPlaceholder(type: ChatPanelType): string {
-  if (type === 'tax-filing') return 'Upload tax documents...';
-  if (type === 'invoice') return 'Describe your incomes...';
-  if (type === 'inbound') return 'Describe your inbound...';
-  if (type === 'outbound') return 'Describe your outbound...';
-  return 'Describe your expenses...';
+  const nickname = getAssistantInfo(type).nickname;
+  return `I'm ${nickname}. Leave it to me.`;
 }
 
 export default function WebChatFab({ type = 'receipt', variant = 'chat', embedded }: WebChatFabProps) {
@@ -136,7 +135,7 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
     setShowTypeDropdown(false);
   };
 
-  // 悬停时只显示展开的输入栏；点击输入区或发送按钮呼出完整右栏，图片按钮与 chat-to-log 一致
+  // 悬停时展开输入栏，头像保持未触摸前位置（右下角）；点击后打开右栏、头像隐去
   if (hovered) {
     const thumbAlignTopLeft = Platform.select({
       web: { objectFit: 'cover' as const, objectPosition: 'top left' as const },
@@ -148,81 +147,85 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
         onMouseEnter={handleEnter}
         onMouseLeave={scheduleCollapse}
       >
-        <View style={styles.expandedBlock}>
-          {stagedAttachmentFiles.length > 0 ? (
-            <View style={styles.stagedFilesRow}>
-              <View style={styles.stagedFilesList}>
-                {stagedAttachmentFiles.map((f) => (
-                  <View key={f.id} style={styles.stagedFileChip}>
-                    <View style={styles.stagedFileThumbWrap}>
-                      <Image source={{ uri: f.uri }} style={[styles.stagedFileThumb, thumbAlignTopLeft]} resizeMode="cover" />
+        <View style={[webInputBlockStyles.webInputOuter, styles.expandedOuterInner]}>
+          <View style={webInputBlockStyles.webInputBlock}>
+            {stagedAttachmentFiles.length > 0 ? (
+              <View style={webInputBlockStyles.stagedFilesRow}>
+                <View style={webInputBlockStyles.stagedFilesList}>
+                  {stagedAttachmentFiles.map((f) => (
+                    <View key={f.id} style={webInputBlockStyles.stagedFileChip}>
+                      <View style={webInputBlockStyles.stagedFileThumbWrap}>
+                        <Image source={{ uri: f.uri }} style={[webInputBlockStyles.stagedFileThumb, thumbAlignTopLeft]} resizeMode="cover" />
+                      </View>
+                      <Text style={webInputBlockStyles.stagedFileChipText} numberOfLines={1}>{f.name ?? 'Image'}</Text>
+                      <TouchableOpacity
+                        hitSlop={8}
+                        onPress={() => setStagedAttachmentFiles(prev => prev.filter(x => x.id !== f.id))}
+                      >
+                        <Ionicons name="close-circle" size={18} color="#636E72" />
+                      </TouchableOpacity>
                     </View>
-                    <Text style={styles.stagedFileChipText} numberOfLines={1}>{f.name ?? 'Image'}</Text>
-                    <TouchableOpacity
-                      hitSlop={8}
-                      onPress={() => setStagedAttachmentFiles(prev => prev.filter(x => x.id !== f.id))}
-                    >
-                      <Ionicons name="close-circle" size={18} color="#636E72" />
-                    </TouchableOpacity>
-                  </View>
-                ))}
-              </View>
-            </View>
-          ) : null}
-          <TouchableOpacity style={styles.expandedRow} onPress={openFullPanel} activeOpacity={1}>
-            <View style={styles.expandedInputWrap}>
-              <TextInput
-                style={styles.expandedInput}
-                placeholder={getPlaceholder(currentType)}
-                placeholderTextColor="#95A5A6"
-                editable={false}
-                multiline
-                pointerEvents="none"
-              />
-            </View>
-          </TouchableOpacity>
-          <View style={styles.expandedActionsRow}>
-            <View style={styles.expandedActionsLeft}>
-              <TouchableOpacity style={styles.expandedActionIcon} onPress={pickImagesForSend}>
-                <Ionicons name="image-outline" size={22} color="#636E72" />
-              </TouchableOpacity>
-            </View>
-            <View style={styles.typeDropdownWrap} nativeID="webchatfab-type-dropdown">
-              <Pressable
-                style={({ hovered: h }) => [styles.typeDropdownTrigger, h && styles.typeDropdownTriggerHover]}
-                onPress={() => setShowTypeDropdown(v => !v)}
-              >
-                <Text style={styles.typeDropdownLabel}>{currentLabel}</Text>
-                <Ionicons name={showTypeDropdown ? 'chevron-up' : 'chevron-down'} size={16} color="#636E72" />
-              </Pressable>
-              {showTypeDropdown && (
-                <View style={styles.typeDropdownMenu}>
-                  {typeOptions.map((opt) => (
-                    <Pressable
-                      key={opt.value}
-                      style={({ hovered: h }) => [
-                        styles.typeDropdownItem,
-                        currentType === opt.value && styles.typeDropdownItemActive,
-                        h && styles.typeDropdownItemHover,
-                      ]}
-                      onPress={() => { setType(opt.value); setShowTypeDropdown(false); }}
-                    >
-                      <Text style={[styles.typeDropdownItemText, currentType === opt.value && styles.typeDropdownItemTextActive]}>{opt.label}</Text>
-                    </Pressable>
                   ))}
                 </View>
-              )}
-            </View>
-            <TouchableOpacity
-              style={styles.expandedSendBtn}
-              onPress={openFullPanel}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="send" size={20} color="#fff" />
+              </View>
+            ) : null}
+            <TouchableOpacity style={webInputBlockStyles.webInputRow} onPress={openFullPanel} activeOpacity={1}>
+              <View style={webInputBlockStyles.webInputWrapper}>
+                <TextInput
+                  style={webInputBlockStyles.webInput}
+                  placeholder={getPlaceholder(currentType)}
+                  placeholderTextColor="#95A5A6"
+                  editable={false}
+                  multiline
+                  pointerEvents="none"
+                />
+              </View>
             </TouchableOpacity>
+            <View style={[webInputBlockStyles.webInputActionsRow, styles.expandedActionsRowRight]}>
+              <View style={webInputBlockStyles.webInputActionsLeftGroup}>
+                <View style={webInputBlockStyles.webInputActionsLeft}>
+                  <TouchableOpacity style={webInputBlockStyles.webActionIcon} onPress={pickImagesForSend}>
+                    <Ionicons name="image-outline" size={22} color="#636E72" />
+                  </TouchableOpacity>
+                </View>
+                <View style={webInputBlockStyles.webTypeDropdownWrap} nativeID="webchatfab-type-dropdown">
+                <Pressable
+                  style={({ hovered: h }) => [webInputBlockStyles.webTypeDropdownTrigger, h && webInputBlockStyles.webTypeDropdownTriggerHover]}
+                  onPress={() => setShowTypeDropdown(v => !v)}
+                >
+                  <Text style={webInputBlockStyles.webTypeDropdownLabel}>{currentLabel}</Text>
+                  <Ionicons name={showTypeDropdown ? 'chevron-up' : 'chevron-down'} size={16} color="#636E72" />
+                </Pressable>
+                {showTypeDropdown && (
+                  <View style={webInputBlockStyles.webTypeDropdownMenu}>
+                    {typeOptions.map((opt) => (
+                      <Pressable
+                        key={opt.value}
+                        style={({ hovered: h }) => [
+                          webInputBlockStyles.webTypeDropdownItem,
+                          currentType === opt.value && webInputBlockStyles.webTypeDropdownItemActive,
+                          h && webInputBlockStyles.webTypeDropdownItemHover,
+                        ]}
+                        onPress={() => { setType(opt.value); setShowTypeDropdown(false); }}
+                      >
+                        <Text style={[webInputBlockStyles.webTypeDropdownItemText, currentType === opt.value && webInputBlockStyles.webTypeDropdownItemTextActive]}>{opt.label}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+                </View>
+              </View>
+            </View>
           </View>
+          <Text style={webInputBlockStyles.webInputDisclaimer}>AI Assistant may make mistakes.</Text>
         </View>
-        <Text style={styles.expandedDisclaimer}>AI may make mistakes.</Text>
+        <View style={styles.expandedAvatarFixed} pointerEvents="none">
+          <Image
+            source={getAssistantInfo(currentType).avatar}
+            style={styles.expandedAvatarFixedImage}
+            resizeMode="cover"
+          />
+        </View>
       </View>
     );
   }
@@ -238,7 +241,11 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
         onPress={openFullPanel}
         activeOpacity={0.85}
       >
-        <Ionicons name="chatbubble-outline" size={CHAT_ICON_SIZE} color="#fff" />
+        <Image
+          source={getAssistantInfo(type).avatar}
+          style={styles.fabAvatar}
+          resizeMode="cover"
+        />
       </TouchableOpacity>
     </View>
   );
@@ -274,7 +281,7 @@ const styles = StyleSheet.create({
     width: FAB_SIZE,
     height: FAB_SIZE,
     borderRadius: FAB_SIZE / 2,
-    backgroundColor: '#6C5CE7',
+    overflow: 'hidden',
     justifyContent: 'center',
     alignItems: 'center',
     shadowColor: '#000',
@@ -282,6 +289,11 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 8,
     elevation: 8,
+  },
+  fabAvatar: {
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: FAB_SIZE / 2,
   },
   fabEmbedded: {
     // 嵌入时样式与 fab 一致，父级控制位置
@@ -301,161 +313,23 @@ const styles = StyleSheet.create({
     borderColor: '#E9ECEF',
     zIndex: 999,
   },
-  expandedBlock: {
-    backgroundColor: '#fff',
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    paddingHorizontal: 12,
-    paddingTop: 12,
-    paddingBottom: 10,
-    minWidth: 0,
+  expandedOuterInner: {},
+  expandedActionsRowRight: {
+    marginRight: FAB_RIGHT + FAB_SIZE + 8,
   },
-  expandedRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-  },
-  stagedFilesRow: {
-    marginBottom: 8,
-  },
-  stagedFilesList: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  stagedFileChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 4,
-    paddingLeft: 4,
-    paddingRight: 6,
-    borderRadius: 12,
-    backgroundColor: '#F1F3F5',
-    width: '48%',
-    minWidth: 0,
-  },
-  stagedFileThumbWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
+  expandedAvatarFixed: {
+    position: 'absolute' as const,
+    right: FAB_RIGHT,
+    bottom: FAB_BOTTOM,
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: FAB_SIZE / 2,
     overflow: 'hidden',
-    backgroundColor: '#E9ECEF',
+    zIndex: 10,
   },
-  stagedFileThumb: {
-    width: '100%',
-    height: '100%',
-  },
-  stagedFileChipText: {
-    fontSize: 12,
-    color: '#2D3436',
-    flex: 1,
-    minWidth: 0,
-  },
-  expandedInputWrap: {
-    flex: 1,
-    minHeight: 44,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    minWidth: 0,
-  },
-  expandedInput: {
-    flex: 1,
-    minHeight: 24,
-    maxHeight: 120,
-    padding: 0,
-    fontSize: 15,
-    color: '#2D3436',
-    outlineStyle: 'none',
-  },
-  expandedActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 8,
-    paddingHorizontal: 4,
-  },
-  expandedActionsLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  expandedActionIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  typeDropdownWrap: {
-    position: 'relative',
-    marginRight: 4,
-  },
-  typeDropdownTrigger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    backgroundColor: 'transparent',
-    minWidth: 100,
-  },
-  typeDropdownTriggerHover: {
-    backgroundColor: 'rgba(0,0,0,0.06)',
-  },
-  typeDropdownLabel: {
-    fontSize: 14,
-    color: '#2D3436',
-    fontWeight: '500',
-  },
-  typeDropdownMenu: {
-    position: 'absolute',
-    bottom: '100%',
-    left: 0,
-    marginBottom: 4,
-    backgroundColor: '#fff',
-    borderRadius: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 8,
-    minWidth: 120,
-    zIndex: 50,
-  },
-  typeDropdownItem: {
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-  },
-  typeDropdownItemActive: {
-    backgroundColor: 'transparent',
-  },
-  typeDropdownItemHover: {
-    backgroundColor: 'rgba(0,0,0,0.06)',
-  },
-  typeDropdownItemText: {
-    fontSize: 14,
-    color: '#2D3436',
-  },
-  typeDropdownItemTextActive: {
-    color: '#6C5CE7',
-    fontWeight: '600',
-  },
-  expandedSendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#6C5CE7',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  expandedDisclaimer: {
-    fontSize: 12,
-    color: '#95A5A6',
-    textAlign: 'center',
-    marginTop: 10,
+  expandedAvatarFixedImage: {
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: FAB_SIZE / 2,
   },
 });

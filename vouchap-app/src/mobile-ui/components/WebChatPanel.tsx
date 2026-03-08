@@ -1,19 +1,37 @@
 /**
  * Web 聊天侧栏：由 context 控制，打开即常驻并压缩主区（无 pin 切换）。
+ * 头部：头像 + 昵称 + 职务，可点击切换助理类型；右侧关闭按钮。
  */
-import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Platform, Image, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useChatPanel } from '../contexts/ChatPanelContext';
 import { ChatToLogContent } from '../app/chat-to-log';
+import { getAssistantInfo } from '@/lib/assistant-config';
+import { getChatToLogAllowedTypes } from '@/lib/chat-to-log-allowed-types';
+import { getCurrentSpace } from '@/lib/auth';
 
 const PANEL_WIDTH = 420;
 
 const PANEL_NATIVE_ID = 'web-chat-panel';
 
 export default function WebChatPanel() {
-  const { open, type, closePanel } = useChatPanel();
+  const { open, type, setType, closePanel } = useChatPanel();
+  const [currentSpace, setCurrentSpace] = useState<{ kind?: string } | null>(null);
+  const [showTypePicker, setShowTypePicker] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentSpace().then((space) => {
+      if (!cancelled) setCurrentSpace(space ?? null);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   if (Platform.OS !== 'web' || !open) return null;
+
+  const typeOptions = getChatToLogAllowedTypes(currentSpace);
+  const assistant = getAssistantInfo(type);
 
   return (
     <View
@@ -22,12 +40,42 @@ export default function WebChatPanel() {
       collapsable={false}
     >
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Chat to log</Text>
-        <View style={styles.headerActions}>
-          <TouchableOpacity style={styles.iconButton} onPress={closePanel}>
-            <Ionicons name="close" size={24} color="#2D3436" />
-          </TouchableOpacity>
-        </View>
+        <Pressable
+          style={styles.headerAssistant}
+          onPress={() => setShowTypePicker((v) => !v)}
+        >
+          <Image source={assistant.avatar} style={styles.headerAvatar} resizeMode="cover" />
+          <View style={styles.headerNameBlock}>
+            <View style={styles.headerNicknameRow}>
+              <Text style={styles.headerNickname}>{assistant.nickname}</Text>
+              <Ionicons name="chevron-down" size={18} color="#636E72" />
+            </View>
+            <Text style={styles.headerRole}>{assistant.role}</Text>
+          </View>
+        </Pressable>
+        {showTypePicker && (
+          <View style={styles.typePickerDropdown}>
+            {typeOptions.map((opt) => {
+              const optAssistant = getAssistantInfo(opt.value);
+              return (
+                <Pressable
+                  key={opt.value}
+                  style={[styles.typePickerItem, type === opt.value && styles.typePickerItemActive]}
+                  onPress={() => { setType(opt.value); setShowTypePicker(false); }}
+                >
+                  <Image source={optAssistant.avatar} style={styles.typePickerItemAvatar} resizeMode="cover" />
+                  <View style={styles.typePickerItemTextBlock}>
+                    <Text style={[styles.typePickerItemText, type === opt.value && styles.typePickerItemTextActive]}>{optAssistant.nickname}</Text>
+                    <Text style={[styles.typePickerItemRole, type === opt.value && styles.typePickerItemRoleActive]}>{optAssistant.role}</Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+        <TouchableOpacity style={styles.iconButton} onPress={closePanel}>
+          <Ionicons name="close" size={24} color="#2D3436" />
+        </TouchableOpacity>
       </View>
       <View style={styles.body}>
         <ChatToLogContent voucherType={type} />
@@ -59,18 +107,6 @@ const styles = StyleSheet.create({
   panelPinned: {
     flexShrink: 0,
   },
-  panelFloating: {
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    bottom: 0,
-    zIndex: 1000,
-    shadowColor: '#000',
-    shadowOffset: { width: -4, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 16,
-  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -79,16 +115,93 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
+    position: 'relative',
+    overflow: 'visible',
+    zIndex: 10,
   },
-  headerTitle: {
-    fontSize: 17,
+  headerAssistant: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    minWidth: 0,
+    gap: 10,
+  },
+  headerAvatar: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginBottom: -50,
+    zIndex: 11,
+  },
+  headerNameBlock: {
+    flex: 1,
+    minWidth: 0,
+  },
+  headerNicknameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  headerNickname: {
+    fontSize: 16,
     fontWeight: '600',
     color: '#2D3436',
   },
-  headerActions: {
+  headerRole: {
+    fontSize: 12,
+    color: '#636E72',
+    marginTop: 2,
+  },
+  typePickerDropdown: {
+    position: 'absolute',
+    left: 16,
+    top: 124,
+    backgroundColor: '#fff',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    minWidth: 160,
+    zIndex: 100,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  typePickerItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    gap: 10,
+  },
+  typePickerItemAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+  },
+  typePickerItemTextBlock: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: 6,
+  },
+  typePickerItemActive: {
+    backgroundColor: '#F1F3F5',
+  },
+  typePickerItemText: {
+    fontSize: 14,
+    color: '#2D3436',
+  },
+  typePickerItemTextActive: {
+    fontWeight: '600',
+  },
+  typePickerItemRole: {
+    fontSize: 11,
+    color: '#636E72',
+  },
+  typePickerItemRoleActive: {
+    color: '#636E72',
   },
   iconButton: {
     padding: 4,
@@ -96,6 +209,7 @@ const styles = StyleSheet.create({
   body: {
     flex: 1,
     minHeight: 0,
+    zIndex: 0,
   },
 });
 

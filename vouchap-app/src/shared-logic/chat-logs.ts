@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import { getCurrentUser } from './auth';
 
 /** 记录类别：由列表页入口决定，不由大模型判断。空/未传表示历史数据即 receipt */
-export type VoucherLogType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'tax-filing';
+export type VoucherLogType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'tax-filing' | 'client';
 
 export interface ChatLog {
   id: string;
@@ -191,11 +191,13 @@ export async function getChatLogsPaginated(
     }
 
     if (voucherType === 'tax-filing') {
-      // 报税附件：始终限定 voucher_type = 'tax-filing'
+      // 报税附件：按项目严格区分，不混合不同项目资料
       query = query.eq('voucher_type', 'tax-filing');
-      // 若传入 projectId，则优先匹配该项目，同时兼容历史上未写入 project_id 的记录
       if (projectId) {
-        query = query.or(`project_id.eq.${projectId},project_id.is.null`);
+        query = query.eq('project_id', projectId);
+      } else {
+        // 无 project 上下文时不返回任何记录，避免混展示多项目
+        return [];
       }
     } else if (voucherType != null && voucherType !== '') {
       if (voucherType === 'receipt') {
@@ -238,13 +240,15 @@ export async function getChatLogsPaginated(
               return rowType == null || rowType === 'receipt';
             }
             if (voucherType === 'tax-filing') {
-              // 优先看 voucher_type，其次根据附件预览 / request_data 里的 todoId 推断
-              return (
+              if (!projectId) return false;
+              const matchType =
                 rowType === 'tax-filing' ||
                 !!row.response_data?.attachmentPreview ||
-                !!row.request_data?.todoId
-              );
+                !!row.request_data?.todoId;
+              const matchProject = (row.project_id ?? null) === projectId;
+              return matchType && matchProject;
             }
+            if (voucherType === 'client') return rowType === 'client';
             return rowType === voucherType;
           });
           return rows.map((row: any) => ({

@@ -301,3 +301,56 @@ export async function acceptFirmClientInvite(
   }
 }
 
+export interface CreateClientOnBehalfResult {
+  clientSpaceId: string;
+  invitationId: string | null;
+  spaceName: string;
+  inviteeEmail: string;
+}
+
+/**
+ * Firm 代建 client：创建 client 空间、关联 firm.clients、当前用户为 member、
+ * 创建空间邀请（客户接受后为 admin），可选创建 onboarding 订单。
+ * 调用后由前端负责发送邀请邮件（sendInvitationEmailForId）。
+ */
+export async function createClientOnBehalf(
+  firmSpaceId: string,
+  params: {
+    clientName: string;
+    contactName: string;
+    contactEmail: string;
+    skuId?: string | null;
+  }
+): Promise<{ result: CreateClientOnBehalfResult | null; error: Error | null }> {
+  try {
+    const { data, error } = await supabase.rpc('firm_create_client_on_behalf', {
+      p_firm_space_id: firmSpaceId,
+      p_client_name: (params.clientName || '').trim(),
+      p_contact_name: (params.contactName || '').trim(),
+      p_contact_email: (params.contactEmail || '').trim(),
+      p_sku_id: params.skuId ?? null,
+    });
+    if (error) {
+      return { result: null, error: new Error(error.message || 'Failed to create client on behalf') };
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row?.client_space_id) {
+      return { result: null, error: new Error('Unexpected response from server') };
+    }
+    return {
+      result: {
+        clientSpaceId: row.client_space_id,
+        invitationId: row.invitation_id ?? null,
+        spaceName: row.space_name ?? '',
+        inviteeEmail: row.invitee_email ?? '',
+      },
+      error: null,
+    };
+  } catch (e) {
+    return {
+      result: null,
+      error: e instanceof Error ? e : new Error('Failed to create client on behalf'),
+    };
+  }
+}
+

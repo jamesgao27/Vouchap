@@ -4,7 +4,7 @@
  */
 import React, { createContext, useContext, useState, useCallback, useRef, useMemo, ReactNode } from 'react';
 
-export type ChatPanelType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'tax-filing';
+export type ChatPanelType = 'receipt' | 'invoice' | 'inbound' | 'outbound' | 'tax-filing' | 'client';
 
 export type AttachmentContext = {
   projectId?: string;

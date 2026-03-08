@@ -348,7 +348,7 @@ function LayoutContent() {
         <Stack.Screen 
           name="chat-to-log" 
           options={{ 
-            title: 'Chat to Log',
+            title: 'Assistant',
             presentation: 'modal'
           }} 
         />

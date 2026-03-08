@@ -169,11 +169,15 @@ export interface ProjectDetailViewProps {
   infoEditing: boolean;
   setInfoEditing: (v: boolean) => void;
   infoTabRef: React.RefObject<ProjectInfoTabHandle | null>;
-  /** Client onboarding 时顶栏右端显示 Reject + Accept and Start */
+  /** Client/Firm onboarding 时顶栏右端显示左侧按钮 + 右侧主按钮；Firm 侧文案为 Terminal / Start */
   onReject?: () => Promise<void>;
   rejectLoading?: boolean;
   onAcceptAndStart?: () => Promise<void>;
   acceptAndStartLoading?: boolean;
+  /** 左侧按钮文案，默认 Reject；Firm onboarding 传 "Terminal" */
+  headerRejectLabel?: string;
+  /** 右侧主按钮文案，默认 Accept and Start；Firm onboarding 传 "Start" */
+  headerAcceptLabel?: string;
   /** 内容：Todos */
   tree: ProjectTodoNode[];
   orderId: string;
@@ -203,6 +207,8 @@ export function ProjectDetailView({
   rejectLoading = false,
   onAcceptAndStart,
   acceptAndStartLoading = false,
+  headerRejectLabel = 'Reject',
+  headerAcceptLabel = 'Accept and Start',
   tree,
   orderId,
   projectId,
@@ -223,7 +229,7 @@ export function ProjectDetailView({
     });
   }, [navigation, header.title, header.subtitle, header.taxSeasonYear, header.status?.label]);
 
-  const showAcceptInHeader = Boolean(viewerRole === 'client' && isOnboarding && onAcceptAndStart);
+  const showAcceptInHeader = Boolean(isOnboarding && onAcceptAndStart && (viewerRole === 'client' || viewerRole === 'firm'));
   useLayoutEffect(() => {
     if (!showAcceptInHeader) {
       navigation.setOptions({ headerBackButtonVisible: true, headerRight: undefined });
@@ -243,7 +249,7 @@ export function ProjectDetailView({
               {rejectLoading ? (
                 <ActivityIndicator size="small" color="#C0392B" />
               ) : (
-                <Text style={sharedStyles.headerRejectBtnText}>Reject</Text>
+                <Text style={sharedStyles.headerRejectBtnText}>{headerRejectLabel}</Text>
               )}
             </TouchableOpacity>
           ) : null}
@@ -258,7 +264,7 @@ export function ProjectDetailView({
             ) : (
               <>
                 <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                <Text style={sharedStyles.headerAcceptBtnText}>Accept and Start</Text>
+                <Text style={sharedStyles.headerAcceptBtnText}>{headerAcceptLabel}</Text>
               </>
             )}
           </TouchableOpacity>
@@ -268,7 +274,7 @@ export function ProjectDetailView({
     return () => {
       navigation.setOptions({ headerBackButtonVisible: true, headerRight: undefined });
     };
-  }, [navigation, showAcceptInHeader, onReject, rejectLoading, onAcceptAndStart, acceptAndStartLoading]);
+  }, [navigation, showAcceptInHeader, onReject, rejectLoading, onAcceptAndStart, acceptAndStartLoading, headerRejectLabel, headerAcceptLabel]);
 
   return (
     <View style={sharedStyles.container}>

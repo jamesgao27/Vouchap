@@ -12,6 +12,8 @@ export interface SpaceInvitation {
   acceptedAt?: string;
   spaceName?: string; // 可选的空间名称字段
   inviterEmail?: string; // 邀请者的email
+  /** When true, accept adds the user as space admin (e.g. firm-created client space) */
+  inviteAsAdmin?: boolean;
 }
 
 // 创建邀请（极简版本：只使用缓存数据，不查询数据库）
@@ -331,13 +333,29 @@ export async function getInvitationById(invitationId: string): Promise<SpaceInvi
       status: data.status,
       createdAt: data.created_at,
       acceptedAt: data.accepted_at,
-      spaceName: data.space_name || undefined, // 添加空间名称字段
-      inviterEmail: data.inviter_email || undefined, // 添加邀请者email字段
+      spaceName: data.space_name || undefined,
+      inviterEmail: data.inviter_email || undefined,
+      inviteAsAdmin: data.invite_as_admin === true,
     };
   } catch (error) {
     console.error('Error getting invitation by id:', error);
     return null;
   }
+}
+
+/** Send invitation email for an existing invitation (e.g. after firm creates client on behalf). */
+export async function sendInvitationEmailForId(invitationId: string): Promise<void> {
+  const inv = await getInvitationById(invitationId);
+  if (!inv || inv.status !== 'pending') return;
+  const inviterName = (inv.inviterEmail || '').split('@')[0] || 'Someone';
+  await sendInvitationEmail(
+    inv.inviteeEmail,
+    inv.id,
+    false,
+    inv.spaceId,
+    inviterName,
+    inv.spaceName || 'a space'
+  );
 }
 
 // 获取用户待处理的邀请（包含家庭名称）
@@ -399,10 +417,8 @@ export async function getPendingInvitationsForUser(): Promise<SpaceInvitation[]>
 
     // 直接使用数据库中的字段，不再需要额外查询
     return data.map((row: any) => {
-      // 直接从数据库字段获取，不再查询households表
       const spaceName: string | undefined = row.space_name || undefined;
       const inviterEmail: string | undefined = row.inviter_email || undefined;
-
       return {
         id: row.id,
         spaceId: row.space_id,
@@ -411,8 +427,9 @@ export async function getPendingInvitationsForUser(): Promise<SpaceInvitation[]>
         status: row.status,
         createdAt: row.created_at,
         acceptedAt: row.accepted_at,
-        spaceName: spaceName || undefined, // 直接从数据库字段获取
-        inviterEmail: inviterEmail || undefined, // 直接从数据库字段获取
+        spaceName: spaceName || undefined,
+        inviterEmail: inviterEmail || undefined,
+        inviteAsAdmin: row.invite_as_admin === true,
       };
     });
   } catch (error) {
@@ -522,13 +539,14 @@ export async function acceptInvitation(invitationId: string): Promise<{ error: E
       return { error: null };
     }
 
-    // 添加用户到空间
+    // 添加用户到空间（代建邀请时客户为 admin，否则为 member）
+    const isAdmin = invitation.inviteAsAdmin === true;
     const { error: insertError } = await supabase
       .from('user_spaces')
       .insert({
         user_id: authUser.id,
         space_id: invitation.spaceId,
-        is_admin: false,
+        is_admin: isAdmin,
       });
 
     if (insertError) throw insertError;

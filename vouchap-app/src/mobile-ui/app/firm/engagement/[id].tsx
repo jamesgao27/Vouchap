@@ -26,6 +26,8 @@ import {
   getSkuById,
   getSkuItems,
   getClientDisplayName,
+  updateOrderStatus,
+  confirmOrderAndCreateProjectTodos,
   type ProjectTodoNode,
   type FirmOrderById,
 } from '@/lib/firm';
@@ -67,6 +69,9 @@ export default function FirmEngagementDetailScreen() {
   const [activeTab, setActiveTab]       = useState<'todos' | 'info'>('todos');
   const [infoEditing, setInfoEditing]   = useState(false);
   const infoTabRef                      = useRef<ProjectInfoTabHandle>(null);
+  // Onboarding: Terminal / Start
+  const [rejectLoading, setRejectLoading] = useState(false);
+  const [acceptLoading, setAcceptLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!orderId) return;
@@ -111,22 +116,49 @@ export default function FirmEngagementDetailScreen() {
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // ── 进入订单详情：自动打开 chat-to-log（tax-filing 类型），只显示 firm 提交的该 project 记录 ──
+  const handleTerminal = useCallback(async () => {
+    if (!orderId) return;
+    setRejectLoading(true);
+    try {
+      const { error } = await updateOrderStatus(orderId, 'cancelled');
+      if (error) return;
+      await loadData();
+    } finally {
+      setRejectLoading(false);
+    }
+  }, [orderId, loadData]);
+
+  const handleStart = useCallback(async () => {
+    if (!orderId) return;
+    setAcceptLoading(true);
+    try {
+      const { error } = await confirmOrderAndCreateProjectTodos(orderId);
+      if (error) return;
+      await loadData();
+    } finally {
+      setAcceptLoading(false);
+    }
+  }, [orderId, loadData]);
+
+  // ── 进入订单详情：自动打开 chat-to-log（tax-filing 类型），onboarding 与已确认态统一体验 ──
   const openPanel = chatPanel?.openPanel;
   const setType = chatPanel?.setType;
   const setAttachmentContext = chatPanel?.setAttachmentContext;
   const closePanel = chatPanel?.closePanel;
 
   useEffect(() => {
-    if (!projectId || !openPanel || !setType || !setAttachmentContext) return;
+    if (!orderId || !openPanel || !setType || !setAttachmentContext) return;
     setType('tax-filing');
-    setAttachmentContext({ projectId, clientSpaceId: clientSpaceId || undefined });
+    setAttachmentContext({
+      ...(projectId ? { projectId } : {}),
+      clientSpaceId: clientSpaceId || undefined,
+    });
     openPanel('tax-filing');
     return () => {
       setAttachmentContext({});
       closePanel?.();
     };
-  }, [projectId, clientSpaceId, openPanel, setType, setAttachmentContext, closePanel]);
+  }, [orderId, projectId, clientSpaceId, openPanel, setType, setAttachmentContext, closePanel]);
 
   // 同步 infoEditing → child forwardRef
   useEffect(() => {
@@ -177,6 +209,12 @@ export default function FirmEngagementDetailScreen() {
       infoEditing={infoEditing}
       setInfoEditing={setInfoEditing}
       infoTabRef={infoTabRef}
+      onReject={isOnboarding ? handleTerminal : undefined}
+      rejectLoading={rejectLoading}
+      onAcceptAndStart={isOnboarding ? handleStart : undefined}
+      acceptAndStartLoading={acceptLoading}
+      headerRejectLabel="Terminate"
+      headerAcceptLabel="Start service"
       tree={tree}
       orderId={orderId!}
       projectId={projectId}
