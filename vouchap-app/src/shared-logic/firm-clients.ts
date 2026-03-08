@@ -212,6 +212,28 @@ export async function setFirmClientInviteActive(
   }
 }
 
+/** Firm 端：删除一条开放邀请 token（RLS 允许同 space 成员 DELETE） */
+export async function deleteFirmClientInviteToken(id: string): Promise<{ error: Error | null }> {
+  try {
+    if (!id) {
+      return { error: new Error('id is required') };
+    }
+    const { error } = await supabase
+      .schema('firm')
+      .from('client_invite_tokens')
+      .delete()
+      .eq('id', id);
+    if (error) {
+      return { error: new Error(error.message || 'Failed to delete invite') };
+    }
+    return { error: null };
+  } catch (e) {
+    return {
+      error: e instanceof Error ? e : new Error('Failed to delete invite'),
+    };
+  }
+}
+
 /** 获取开放邀请 token 的基础信息（用于 App/Web 内展示 firm 信息） */
 export async function getFirmClientInviteInfo(
   token: string

@@ -359,3 +359,31 @@ export async function getChatLogsByReceiptId(receiptId: string): Promise<ChatLog
     return [];
   }
 }
+
+/**
+ * 更新某条 chat log 的 response_data（用于持久化 clientPreview.confirmed 等状态）
+ */
+export async function updateChatLogResponseData(
+  logId: string,
+  responseData: Record<string, unknown>,
+): Promise<{ error: Error | null }> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return { error: new Error('Not authenticated') };
+    }
+
+    const { error } = await supabase
+      .from('ai_chat_logs')
+      .update({ response_data: responseData })
+      .eq('id', logId)
+      .eq('space_id', user.currentSpaceId || user.spaceId);
+
+    if (error) {
+      return { error: new Error(error.message || 'Failed to update chat log') };
+    }
+    return { error: null };
+  } catch (e) {
+    return { error: e instanceof Error ? e : new Error('Failed to update chat log') };
+  }
+}

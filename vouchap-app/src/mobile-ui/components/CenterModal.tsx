@@ -20,6 +20,10 @@ interface CenterModalProps {
    */
   maxWidth?: number;
   /**
+   * 可选：卡片高度（数字时固定高度；不传则默认 height: '82%'）
+   */
+  cardHeight?: number;
+  /**
    * 可选：为 true 时 body 内容区填满可用高度（用于表格等需占满浮窗的场景）
    */
   contentFillsHeight?: boolean;
@@ -31,6 +35,7 @@ export default function CenterModal({
   onClose,
   children,
   maxWidth,
+  cardHeight,
   contentFillsHeight,
 }: CenterModalProps) {
   return (
@@ -42,7 +47,7 @@ export default function CenterModal({
     >
       <View style={styles.overlay}>
         <TouchableOpacity style={styles.backdrop} activeOpacity={1} onPress={onClose} />
-        <View style={[styles.card, maxWidth ? { maxWidth } : null]}>
+        <View style={[styles.card, maxWidth ? { maxWidth } : null, cardHeight != null ? { height: cardHeight } : null]}>
           <View style={styles.header}>
             {title ? <Text style={styles.title}>{title}</Text> : null}
             <TouchableOpacity onPress={onClose} hitSlop={12}>

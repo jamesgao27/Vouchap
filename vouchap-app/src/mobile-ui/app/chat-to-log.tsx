@@ -29,7 +29,7 @@ import { checkDuplicateReceipt } from '@/lib/receipt-duplicate-checker';
 import { saveInvoice, getInvoiceById } from '@/lib/invoices';
 import { saveInbound, getInboundById } from '@/lib/inbound';
 import { saveOutbound, getOutboundById } from '@/lib/outbound';
-import { saveChatLog, getChatLogsPaginated, VoucherLogType, type ChatLog } from '@/lib/chat-logs';
+import { saveChatLog, getChatLogsPaginated, updateChatLogResponseData, VoucherLogType, type ChatLog } from '@/lib/chat-logs';
 import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
 import { getCurrentSpace } from '@/lib/auth';
 import { getChatToLogAllowedTypes, getChatToLogAllowedTypeValues } from '@/lib/chat-to-log-allowed-types';
@@ -246,6 +246,7 @@ interface Message {
     summary: ClientRecognitionResult['summary'];
     items: ExtractedClient[];
     confirmed?: boolean;
+    canceled?: boolean;
   };
   receiptDeleted?: boolean;
   invoiceDeleted?: boolean;
@@ -705,7 +706,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               voucherType: 'tax-filing',
             });
           } else if (log.responseData?.clientPreview && logType === 'client') {
-            const preview = log.responseData.clientPreview as { firmSpaceId: string; summary: ClientRecognitionResult['summary']; items: ExtractedClient[]; confirmed?: boolean };
+            const preview = log.responseData.clientPreview as { firmSpaceId: string; summary: ClientRecognitionResult['summary']; items: ExtractedClient[]; confirmed?: boolean; canceled?: boolean };
             restoredMessages.push({
               id: `${log.id}-preview`,
               text: '',
@@ -2533,9 +2534,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   <Text style={styles.receiptPreviewTitle}>Clients recognized</Text>
                 </View>
                 <View style={styles.receiptPreviewContent}>
-                  <Text style={[styles.receiptPreviewLabel, { marginBottom: 6 }]}>
-                    {message.clientPreview.summary.totalCount} client(s) found. {message.clientPreview.summary.completeCount} with full name/organization; {message.clientPreview.summary.incompleteCount} will use email as display name.
-                  </Text>
+                  <View style={{ marginBottom: 6 }}>
+                    <Text style={styles.receiptPreviewLabel}>{message.clientPreview.summary.totalCount} client(s) found.</Text>
+                    <Text style={styles.receiptPreviewLabel}>{message.clientPreview.summary.completeCount} with full name/organization.</Text>
+                    <Text style={styles.receiptPreviewLabel}>{message.clientPreview.summary.incompleteCount} will use email as display name.</Text>
+                  </View>
                   {message.clientPreview.items.slice(0, 10).map((item, idx) => (
                     <View key={idx} style={styles.receiptPreviewRow}>
                       <Text style={styles.receiptPreviewValue} numberOfLines={1}>
@@ -2549,82 +2552,114 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   )}
                 </View>
                 <View style={styles.receiptPreviewActions}>
-                  <TouchableOpacity
-                    style={[
-                      styles.previewActionButton,
-                      message.clientPreview.confirmed || confirmedClientPreviews.has(message.id)
-                        ? styles.previewActionButtonConfirmed
-                        : styles.previewActionButtonPrimary,
-                    ]}
-                    onPress={async () => {
-                      if (message.clientPreview?.confirmed || confirmedClientPreviews.has(message.id)) return;
-                      const firmSpaceId = message.clientPreview?.firmSpaceId;
-                      if (!firmSpaceId || !message.clientPreview?.items?.length) {
-                        showToast('Missing firm context or client list.', 'error');
-                        return;
-                      }
-                      try {
-                        let created = 0;
-                        let failed = 0;
-                        let lastError: string | null = null;
-                        const invitationIds: string[] = [];
-                        const emailTrimmed = (e: string) => (e || '').trim().toLowerCase();
-                        for (const item of message.clientPreview.items) {
-                          const contactEmail = emailTrimmed(item.email);
-                          if (!contactEmail) {
-                            failed++;
-                            lastError = 'Contact email is required';
-                            continue;
+                  {message.clientPreview.confirmed || confirmedClientPreviews.has(message.id) ? (
+                    <View style={[styles.previewActionButton, styles.previewActionButtonConfirmed]}>
+                      <Ionicons name="checkmark-circle" size={16} color="#fff" />
+                      <Text style={[styles.previewActionText, styles.previewActionTextPrimary]}>Confirmed</Text>
+                    </View>
+                  ) : message.clientPreview.canceled ? (
+                    <View style={[styles.previewActionButton, styles.previewActionButtonDisabled]}>
+                      <Ionicons name="close-circle" size={16} color="#fff" />
+                      <Text style={[styles.previewActionText, styles.previewActionTextPrimary]}>Canceled</Text>
+                    </View>
+                  ) : (
+                    <>
+                      <TouchableOpacity
+                        style={[styles.previewActionButton, styles.previewActionButtonSecondary, styles.previewActionButtonSecondaryShort]}
+                        onPress={async () => {
+                          setMessages((prev) =>
+                            prev.map((m) =>
+                              m.id === message.id && m.clientPreview
+                                ? { ...m, clientPreview: { ...m.clientPreview!, canceled: true } }
+                                : m
+                            )
+                          );
+                          const logId = message.id.replace(/-preview$/, '');
+                          if (logId && message.clientPreview) {
+                            await updateChatLogResponseData(logId, {
+                              clientPreview: { ...message.clientPreview, canceled: true },
+                            });
                           }
-                          const clientName = (item.orgName?.trim() || item.contactName?.trim() || item.email) || 'Client Space';
-                          const { result, error } = await createClientOnBehalf(firmSpaceId, {
-                            clientName,
-                            contactName: item.contactName?.trim() || '',
-                            contactEmail,
-                          });
-                          if (error || !result) {
-                            failed++;
-                            lastError = error?.message ?? 'Create failed';
-                            continue;
+                          showToast('Canceled', 'info');
+                        }}
+                      >
+                        <Text style={styles.previewActionTextSecondary}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.previewActionButton, styles.previewActionButtonPrimary, styles.previewActionButtonPrimaryGolden]}
+                        onPress={async () => {
+                          const firmSpaceId = message.clientPreview?.firmSpaceId;
+                          if (!firmSpaceId || !message.clientPreview?.items?.length) {
+                            showToast('Missing firm context or client list.', 'error');
+                            return;
                           }
-                          created++;
-                          if (result.invitationId) invitationIds.push(result.invitationId);
-                        }
-                        let emailsSent = 0;
-                        if (invitationIds.length > 0) {
-                          const outcomes = await Promise.allSettled(invitationIds.map((id) => sendInvitationEmailForId(id)));
-                          emailsSent = outcomes.filter((o) => o.status === 'fulfilled' && (o as PromiseFulfilledResult<{ emailSent: boolean }>).value.emailSent).length;
-                        }
-                        setConfirmedClientPreviews((prev) => new Set(prev).add(message.id));
-                        setMessages((prev) =>
-                          prev.map((m) =>
-                            m.id === message.id && m.clientPreview
-                              ? { ...m, clientPreview: { ...m.clientPreview!, confirmed: true } }
-                              : m
-                          )
-                        );
-                        if (failed > 0 && created === 0) {
-                          showToast(lastError ?? 'Failed to create clients.', 'error');
-                        } else {
-                          let toastMsg = failed > 0 ? 'Created ' + created + ' client(s); ' + failed + ' failed.' : 'Created ' + created + ' client(s).';
-                          if (invitationIds.length > 0) {
-                            if (emailsSent === invitationIds.length) toastMsg += ' Invite emails sent.';
-                            else if (emailsSent > 0) toastMsg += ' ' + emailsSent + ' invite email(s) sent; others can see invite in-app.';
-                            else toastMsg += ' Invites created; recipients can see them in-app.';
+                          try {
+                            let created = 0;
+                            let failed = 0;
+                            let lastError: string | null = null;
+                            const invitationIds: string[] = [];
+                            const emailTrimmed = (e: string) => (e || '').trim().toLowerCase();
+                            for (const item of message.clientPreview.items) {
+                              const contactEmail = emailTrimmed(item.email);
+                              if (!contactEmail) {
+                                failed++;
+                                lastError = 'Contact email is required';
+                                continue;
+                              }
+                              const clientName = (item.orgName?.trim() || item.contactName?.trim() || item.email) || 'Client Space';
+                              const { result, error } = await createClientOnBehalf(firmSpaceId, {
+                                clientName,
+                                contactName: item.contactName?.trim() || '',
+                                contactEmail,
+                              });
+                              if (error || !result) {
+                                failed++;
+                                lastError = error?.message ?? 'Create failed';
+                                continue;
+                              }
+                              created++;
+                              if (result.invitationId) invitationIds.push(result.invitationId);
+                            }
+                            let emailsSent = 0;
+                            if (invitationIds.length > 0) {
+                              const outcomes = await Promise.allSettled(invitationIds.map((id) => sendInvitationEmailForId(id)));
+                              emailsSent = outcomes.filter((o) => o.status === 'fulfilled' && (o as PromiseFulfilledResult<{ emailSent: boolean }>).value.emailSent).length;
+                            }
+                            setConfirmedClientPreviews((prev) => new Set(prev).add(message.id));
+                            setMessages((prev) =>
+                              prev.map((m) =>
+                                m.id === message.id && m.clientPreview
+                                  ? { ...m, clientPreview: { ...m.clientPreview!, confirmed: true } }
+                                  : m
+                              )
+                            );
+                            const logId = message.id.replace(/-preview$/, '');
+                            if (logId && message.clientPreview) {
+                              await updateChatLogResponseData(logId, {
+                                clientPreview: { ...message.clientPreview, confirmed: true },
+                              });
+                            }
+                            if (failed > 0 && created === 0) {
+                              showToast(lastError ?? 'Failed to create clients.', 'error');
+                            } else {
+                              let toastMsg = failed > 0 ? 'Created ' + created + ' client(s); ' + failed + ' failed.' : 'Created ' + created + ' client(s).';
+                              if (invitationIds.length > 0) {
+                                if (emailsSent === invitationIds.length) toastMsg += ' Invite emails sent.';
+                                else if (emailsSent > 0) toastMsg += ' ' + emailsSent + ' invite email(s) sent; others can see invite in-app.';
+                                else toastMsg += ' Invites created; recipients can see them in-app.';
+                              }
+                              showToast(toastMsg, created > 0 ? 'success' : 'error');
+                            }
+                          } catch (err) {
+                            showToast(err instanceof Error ? err.message : 'Failed to create clients.', 'error');
                           }
-                          showToast(toastMsg, created > 0 ? 'success' : 'error');
-                        }
-                      } catch (err) {
-                        showToast(err instanceof Error ? err.message : 'Failed to create clients.', 'error');
-                      }
-                    }}
-                    disabled={message.clientPreview.confirmed || confirmedClientPreviews.has(message.id)}
-                  >
-                    <Ionicons name={message.clientPreview.confirmed || confirmedClientPreviews.has(message.id) ? 'checkmark-circle' : 'checkmark-circle-outline'} size={16} color="#fff" />
-                    <Text style={[styles.previewActionText, styles.previewActionTextPrimary]}>
-                      {message.clientPreview.confirmed || confirmedClientPreviews.has(message.id) ? 'Confirmed' : 'Confirm & create clients'}
-                    </Text>
-                  </TouchableOpacity>
+                        }}
+                      >
+                        <Ionicons name="checkmark-circle-outline" size={16} color="#fff" />
+                        <Text style={[styles.previewActionText, styles.previewActionTextPrimary]}>Confirm & create clients</Text>
+                      </TouchableOpacity>
+                    </>
+                  )}
                 </View>
               </View>
             )}
@@ -3598,6 +3633,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#BDC3C7',
     borderColor: '#BDC3C7',
   },
+  previewActionButtonSecondary: {
+    backgroundColor: '#F8F9FA',
+    borderColor: '#E9ECEF',
+  },
+  previewActionButtonSecondaryShort: {
+    flex: 1,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+  },
+  previewActionButtonPrimaryGolden: {
+    flex: 1.618,
+  },
   previewActionText: {
     fontSize: 12,
     color: '#6C5CE7',
@@ -3605,6 +3652,11 @@ const styles = StyleSheet.create({
   },
   previewActionTextPrimary: {
     color: '#fff',
+  },
+  previewActionTextSecondary: {
+    fontSize: 12,
+    color: '#636E72',
+    fontWeight: '500',
   },
   // 语音模式相关样式
   modeToggleButton: {

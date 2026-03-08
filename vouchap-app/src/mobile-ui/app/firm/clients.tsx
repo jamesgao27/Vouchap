@@ -37,10 +37,12 @@ import {
   createClientOnBehalf,
   getFirmClientInviteHistory,
   setFirmClientInviteActive,
+  deleteFirmClientInviteToken,
   type FirmClientInviteToken,
 } from '@/lib/firm-clients';
 import { sendInvitationEmailForId } from '@/lib/space-invitations';
 import { showToast } from '@/lib/toast';
+import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import CenterModal from '@/components/CenterModal';
 
 function formatServiceStart(iso: string | null): string {
@@ -184,6 +186,7 @@ export default function FirmClientsScreen() {
   const [inviteHistoryLoading, setInviteHistoryLoading] = useState(false);
   const [inviteHistoryError, setInviteHistoryError] = useState<string | null>(null);
   const [updatingInviteId, setUpdatingInviteId] = useState<string | null>(null);
+  const [deletingInviteId, setDeletingInviteId] = useState<string | null>(null);
   const [inviteFromHistory, setInviteFromHistory] = useState(false);
   const [showAssignPicker, setShowAssignPicker] = useState(false);
   const [assignMembers, setAssignMembers] = useState<FirmSpaceMember[]>([]);
@@ -463,6 +466,42 @@ export default function FirmClientsScreen() {
     },
     [firmSpaceName]
   );
+
+  const handleCreateNewFromHistory = useCallback(async () => {
+    setShowInviteHistory(false);
+    setInviteFromHistory(false);
+    setInviteError(null);
+    setInviteLink(null);
+    setInviteExpiresInDays(7);
+    setShowInvitePanel(true);
+    if (firmSpaceId && inviteSkus.length === 0) {
+      const all = await getFirmSkus(firmSpaceId);
+      const skus = all.filter(
+        (s) => (s.templateStatus != null ? s.templateStatus !== 'draft' : (s.isPublished === true || !!s.taxCountry || !!s.taxScenario))
+      );
+      setInviteSkus(skus);
+      if (skus.length > 0) setInviteSkuId(skus[0].id);
+    }
+  }, [firmSpaceId, inviteSkus.length]);
+
+  const handleDeleteInvite = useCallback((row: FirmClientInviteToken) => {
+    showConfirmDestructiveDialog(
+      'Delete invite',
+      'Delete this invite? The link will stop working.',
+      async () => {
+        setDeletingInviteId(row.id);
+        setInviteHistoryError(null);
+        const { error } = await deleteFirmClientInviteToken(row.id);
+        setDeletingInviteId(null);
+        if (error) {
+          setInviteHistoryError(error.message);
+          return;
+        }
+        setInviteHistory((prev) => prev.filter((it) => it.id !== row.id));
+      },
+      { confirmLabel: 'Delete' },
+    );
+  }, []);
 
   const handleToggleInvitePanel = useCallback(async () => {
     if (showInvitePanel) {
@@ -790,20 +829,12 @@ export default function FirmClientsScreen() {
                 <Text style={styles.inviteButtonText}>Add client</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.inviteButton}
-                onPress={handleToggleInvitePanel}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="share-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
-                <Text style={styles.inviteButtonText}>Invite clients</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
                 style={styles.inviteHistoryButton}
                 onPress={handleOpenInviteHistory}
                 activeOpacity={0.7}
               >
-                <Ionicons name="time-outline" size={18} color="#636E72" style={{ marginRight: 4 }} />
-                <Text style={styles.inviteHistoryButtonText}>History</Text>
+                <Ionicons name="share-outline" size={18} color="#636E72" style={{ marginRight: 4 }} />
+                <Text style={styles.inviteHistoryButtonText}>Open invite</Text>
               </TouchableOpacity>
               <View
                 style={styles.groupWrap}
@@ -1104,7 +1135,7 @@ export default function FirmClientsScreen() {
       </CenterModal>
       <CenterModal
         visible={showInviteHistory}
-        title="Invite history"
+        title="Open invite"
         onClose={() => setShowInviteHistory(false)}
         maxWidth={900}
         contentFillsHeight
@@ -1120,8 +1151,8 @@ export default function FirmClientsScreen() {
               <ActivityIndicator size="small" color="#6C5CE7" />
             </View>
           ) : (
-            <ScrollView style={styles.inviteHistoryScroll} contentContainerStyle={styles.inviteHistoryScrollContent}>
-              <View style={styles.inviteHistoryTable}>
+            <View style={styles.inviteHistoryBodyWrap}>
+              <View style={[styles.inviteHistoryTable, styles.inviteHistoryTableOuter]}>
                 <View style={[styles.inviteSkuHeaderRow, styles.inviteHistoryHeaderRow]}>
                   <View style={styles.inviteHistoryColService}>
                     <Text style={styles.inviteSkuHeaderText}>Service Template</Text>
@@ -1141,94 +1172,125 @@ export default function FirmClientsScreen() {
                   <View style={styles.inviteHistoryColCreated}>
                     <Text style={[styles.inviteSkuHeaderText, { textAlign: 'right' }]}>Created at</Text>
                   </View>
+                  <View style={styles.inviteHistoryColAction}>
+                    <Text style={[styles.inviteSkuHeaderText, { textAlign: 'center' }]} />
+                  </View>
                 </View>
-                {inviteHistory.map((row, index) => {
-              const createdAt = row.createdAt ? new Date(row.createdAt) : null;
-              const expiresAt = row.expiresAt ? new Date(row.expiresAt) : null;
-              const now = new Date();
-              const expired = !!expiresAt && expiresAt <= now;
-              const reachedMax =
-                row.maxClients !== null && row.maxClients !== undefined && row.currentClients >= row.maxClients;
-              const isValid = row.isActive && !expired && !reachedMax;
-              const inviterDisplay =
-                row.inviterName?.trim() ||
-                row.inviterEmail ||
-                (row.inviterUserId ? `${row.inviterUserId.slice(0, 6)}…` : '—');
-              const sku = inviteSkus.find((s) => s.id === row.skuId);
-              const skuName = sku?.name ?? '—';
-              return (
-                <TouchableOpacity
-                  key={row.id}
-                  style={[
-                    styles.inviteSkuRow,
-                    styles.inviteHistoryRow,
-                    index === inviteHistory.length - 1 && { borderBottomWidth: 0 },
-                  ]}
-                  activeOpacity={0.7}
-                  onPress={() => handleOpenInviteFromHistory(row)}
+                <ScrollView
+                  style={styles.inviteHistoryTableBodyScroll}
+                  contentContainerStyle={styles.inviteHistoryTableBodyContent}
+                  showsVerticalScrollIndicator
                 >
-                  <View style={styles.inviteHistoryColService}>
-                    <Text style={styles.inviteHistoryCellText} numberOfLines={1}>
-                      {skuName}
-                    </Text>
-                  </View>
-                  <View style={styles.inviteHistoryColExpiry}>
-                    <Text style={styles.inviteHistoryCellText} numberOfLines={1}>
-                      {expiresAt ? format(expiresAt, 'MMM dd, yyyy') : 'No expiry'}
-                    </Text>
-                  </View>
-                  <View style={styles.inviteHistoryColActive}>
-                    <TouchableOpacity
-                      style={[
-                        styles.inviteHistoryActivePill,
-                        !isValid && styles.inviteHistoryActivePillInactive,
-                      ]}
-                      activeOpacity={0.7}
-                      onPress={() => handleToggleInviteActive(row)}
-                    >
-                      <Text style={styles.inviteHistoryActiveText}>
-                        {isValid ? 'Active' : 'Inactive'}
-                      </Text>
-                      {updatingInviteId === row.id && (
-                        <View style={styles.inviteHistoryActiveSpinner}>
-                          <ActivityIndicator size="small" color="#fff" />
+                  {inviteHistory.map((row, index) => {
+                    const createdAt = row.createdAt ? new Date(row.createdAt) : null;
+                    const expiresAt = row.expiresAt ? new Date(row.expiresAt) : null;
+                    const now = new Date();
+                    const expired = !!expiresAt && expiresAt <= now;
+                    const reachedMax =
+                      row.maxClients !== null && row.maxClients !== undefined && row.currentClients >= row.maxClients;
+                    const isValid = row.isActive && !expired && !reachedMax;
+                    const inviterDisplay =
+                      row.inviterName?.trim() ||
+                      row.inviterEmail ||
+                      (row.inviterUserId ? `${row.inviterUserId.slice(0, 6)}…` : '—');
+                    const sku = inviteSkus.find((s) => s.id === row.skuId);
+                    const skuName = sku?.name ?? '—';
+                    return (
+                      <TouchableOpacity
+                        key={row.id}
+                        style={[styles.inviteSkuRow, styles.inviteHistoryRow]}
+                        activeOpacity={0.7}
+                        onPress={() => handleOpenInviteFromHistory(row)}
+                      >
+                        <View style={styles.inviteHistoryColService}>
+                          <Text style={styles.inviteHistoryCellText} numberOfLines={1}>
+                            {skuName}
+                          </Text>
                         </View>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                  <View style={styles.inviteHistoryColJoined}>
-                    <Text
-                      style={[styles.inviteHistoryCellText, { textAlign: 'right' }]}
-                      numberOfLines={1}
-                    >
-                      {row.currentClients}
-                      {row.maxClients ? ` / ${row.maxClients}` : ''}
-                    </Text>
-                  </View>
-                  <View style={styles.inviteHistoryColInitiator}>
-                    <Text style={[styles.inviteHistoryCellText, styles.inviteHistoryCellTextRight]} numberOfLines={1}>
-                      {inviterDisplay}
-                    </Text>
-                  </View>
-                  <View style={styles.inviteHistoryColCreated}>
-                    <Text
-                      style={[styles.inviteHistoryCellText, { textAlign: 'right' }]}
-                      numberOfLines={1}
-                    >
-                      {createdAt ? format(createdAt, 'MMM dd, yyyy') : '—'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
+                        <View style={styles.inviteHistoryColExpiry}>
+                          <Text style={styles.inviteHistoryCellText} numberOfLines={1}>
+                            {expiresAt ? format(expiresAt, 'MMM dd, yyyy') : 'No expiry'}
+                          </Text>
+                        </View>
+                        <View style={styles.inviteHistoryColActive}>
+                          <TouchableOpacity
+                            style={[
+                              styles.inviteHistoryActivePill,
+                              !isValid && styles.inviteHistoryActivePillInactive,
+                            ]}
+                            activeOpacity={0.7}
+                            onPress={(e) => { e?.stopPropagation?.(); handleToggleInviteActive(row); }}
+                          >
+                            <Text style={styles.inviteHistoryActiveText}>
+                              {isValid ? 'Active' : 'Inactive'}
+                            </Text>
+                            {updatingInviteId === row.id && (
+                              <View style={styles.inviteHistoryActiveSpinner}>
+                                <ActivityIndicator size="small" color="#fff" />
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                        <View style={styles.inviteHistoryColJoined}>
+                          <Text
+                            style={[styles.inviteHistoryCellText, { textAlign: 'right' }]}
+                            numberOfLines={1}
+                          >
+                            {row.currentClients}
+                            {row.maxClients ? ` / ${row.maxClients}` : ''}
+                          </Text>
+                        </View>
+                        <View style={styles.inviteHistoryColInitiator}>
+                          <Text style={[styles.inviteHistoryCellText, styles.inviteHistoryCellTextRight]} numberOfLines={1}>
+                            {inviterDisplay}
+                          </Text>
+                        </View>
+                        <View style={styles.inviteHistoryColCreated}>
+                          <Text
+                            style={[styles.inviteHistoryCellText, { textAlign: 'right' }]}
+                            numberOfLines={1}
+                          >
+                            {createdAt ? format(createdAt, 'MMM dd, yyyy') : '—'}
+                          </Text>
+                        </View>
+                        <View style={styles.inviteHistoryColAction}>
+                          <TouchableOpacity
+                            style={styles.inviteHistoryDeleteBtn}
+                            onPress={(e) => { e?.stopPropagation?.(); handleDeleteInvite(row); }}
+                            disabled={deletingInviteId === row.id}
+                            activeOpacity={0.7}
+                          >
+                            {deletingInviteId === row.id ? (
+                              <ActivityIndicator size="small" color="#E17055" />
+                            ) : (
+                              <Ionicons name="trash-outline" size={18} color="#E17055" />
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
                 {!inviteHistoryLoading && inviteHistory.length === 0 && !inviteHistoryError && (
-                  <Text style={[styles.inviteHintText, { marginTop: 12, marginHorizontal: 12 }]}>No invite history yet.</Text>
-                )}
-                {inviteHistoryError && (
-                  <Text style={[styles.inviteErrorText, { marginHorizontal: 12 }]}>{inviteHistoryError}</Text>
+                  <View style={styles.inviteHistoryEmptyWrap}>
+                    <Text style={styles.inviteHintText}>No invite history yet.</Text>
+                  </View>
                 )}
               </View>
-            </ScrollView>
+              {inviteHistoryError ? (
+                <Text style={[styles.inviteErrorText, { marginTop: 8 }]}>{inviteHistoryError}</Text>
+              ) : null}
+              <View style={styles.inviteHistoryFooter}>
+                <TouchableOpacity
+                  style={styles.inviteButton}
+                  onPress={handleCreateNewFromHistory}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="add-circle-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
+                  <Text style={styles.inviteButtonText}>Create a new</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
           )}
         </View>
       </CenterModal>
@@ -1236,16 +1298,17 @@ export default function FirmClientsScreen() {
         visible={showAddClientModal}
         title="Add client"
         onClose={handleCloseAddClientModal}
-        maxWidth={440}
+        maxWidth={420}
+        cardHeight={450}
       >
-        <View style={{ padding: 16 }}>
-          <Text style={[styles.inviteSubtitle, { marginBottom: 16 }]}>
+        <View style={styles.addClientForm}>
+          <Text style={styles.addClientSubtitle}>
             Create a client space on behalf of the client and send them a space invitation. They will be admin of the space; you will be a member.
           </Text>
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.inviteConfigLabel, { marginBottom: 4 }]}>Client name</Text>
+          <View style={styles.addClientField}>
+            <Text style={styles.addClientLabel}>Client name</Text>
             <TextInput
-              style={[styles.searchInput, { paddingHorizontal: 10, paddingVertical: 8 }]}
+              style={styles.addClientInput}
               placeholder="Company or client name"
               placeholderTextColor="#95A5A6"
               value={addClientClientName}
@@ -1254,10 +1317,10 @@ export default function FirmClientsScreen() {
               autoCorrect={false}
             />
           </View>
-          <View style={{ marginBottom: 12 }}>
-            <Text style={[styles.inviteConfigLabel, { marginBottom: 4 }]}>Contact name</Text>
+          <View style={styles.addClientField}>
+            <Text style={styles.addClientLabel}>Contact name</Text>
             <TextInput
-              style={[styles.searchInput, { paddingHorizontal: 10, paddingVertical: 8 }]}
+              style={styles.addClientInput}
               placeholder="Contact person name"
               placeholderTextColor="#95A5A6"
               value={addClientContactName}
@@ -1265,10 +1328,10 @@ export default function FirmClientsScreen() {
               autoCapitalize="words"
             />
           </View>
-          <View style={{ marginBottom: 16 }}>
-            <Text style={[styles.inviteConfigLabel, { marginBottom: 4 }]}>Contact email *</Text>
+          <View style={styles.addClientField}>
+            <Text style={styles.addClientLabel}>Contact email *</Text>
             <TextInput
-              style={[styles.searchInput, { paddingHorizontal: 10, paddingVertical: 8 }]}
+              style={styles.addClientInput}
               placeholder="email@example.com"
               placeholderTextColor="#95A5A6"
               value={addClientContactEmail}
@@ -1279,14 +1342,14 @@ export default function FirmClientsScreen() {
             />
           </View>
           {addClientError ? (
-            <Text style={[styles.inviteErrorText, { marginBottom: 12 }]}>{addClientError}</Text>
+            <Text style={styles.addClientError}>{addClientError}</Text>
           ) : null}
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 8 }}>
-            <TouchableOpacity style={styles.inviteSecondaryBtn} onPress={handleCloseAddClientModal} activeOpacity={0.7}>
-              <Text style={styles.inviteSecondaryBtnText}>Cancel</Text>
+          <View style={styles.addClientBtnRow}>
+            <TouchableOpacity style={styles.addClientSecondaryBtn} onPress={handleCloseAddClientModal} activeOpacity={0.7}>
+              <Text style={styles.addClientSecondaryBtnText}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.invitePrimaryBtn, addClientSubmitting && styles.invitePrimaryBtnDisabled]}
+              style={[styles.addClientPrimaryBtn, addClientSubmitting && styles.invitePrimaryBtnDisabled]}
               onPress={handleAddClientSubmit}
               disabled={addClientSubmitting}
               activeOpacity={0.7}
@@ -1294,10 +1357,13 @@ export default function FirmClientsScreen() {
               {addClientSubmitting ? (
                 <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={styles.invitePrimaryBtnText}>Create & send invite</Text>
+                <Text style={styles.addClientPrimaryBtnText}>Create & send invite</Text>
               )}
             </TouchableOpacity>
           </View>
+          <Text style={styles.addClientHint}>
+            Tips: Try sending client info to Cody — batch works too.
+          </Text>
         </View>
       </CenterModal>
       {Platform.OS === 'web' &&
@@ -1863,6 +1929,85 @@ const styles = StyleSheet.create({
     color: '#6C5CE7',
     fontWeight: '500',
   },
+  addClientForm: {
+    padding: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  addClientSubtitle: {
+    fontSize: 13,
+    color: '#636E72',
+    lineHeight: 18,
+    marginBottom: 20,
+  },
+  addClientField: {
+    marginBottom: 16,
+  },
+  addClientLabel: {
+    fontSize: 13,
+    color: '#636E72',
+    marginBottom: 6,
+    fontWeight: '500',
+  },
+  addClientInput: {
+    fontSize: 14,
+    color: '#2D3436',
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  addClientError: {
+    fontSize: 12,
+    color: '#D63031',
+    marginBottom: 12,
+  },
+  addClientBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 8,
+  },
+  addClientSecondaryBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+  },
+  addClientSecondaryBtnText: {
+    fontSize: 13,
+    color: '#636E72',
+    fontWeight: '500',
+  },
+  addClientPrimaryBtn: {
+    flex: 1.618,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#6C5CE7',
+  },
+  addClientPrimaryBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  addClientHint: {
+    fontSize: 12,
+    color: '#95A5A6',
+    marginTop: 14,
+    textAlign: 'right',
+  },
   inviteQrPlaceholder: {
     width: 80,
     height: 80,
@@ -1886,6 +2031,12 @@ const styles = StyleSheet.create({
   inviteHistoryContainer: {
     flex: 1,
     minHeight: 200,
+    flexDirection: 'column',
+  },
+  inviteHistoryBodyWrap: {
+    flex: 1,
+    minHeight: 0,
+    flexDirection: 'column',
   },
   inviteHistoryScroll: {
     flex: 1,
@@ -1899,6 +2050,39 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: '#FFF',
     overflow: 'hidden',
+  },
+  inviteHistoryTableOuter: {
+    flex: 1,
+    minHeight: 0,
+  },
+  inviteHistoryTableBodyScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  inviteHistoryTableBodyContent: {
+    paddingBottom: 8,
+  },
+  inviteHistoryColAction: {
+    width: 44,
+    minWidth: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+  inviteHistoryDeleteBtn: {
+    padding: 6,
+  },
+  inviteHistoryEmptyWrap: {
+    paddingVertical: 24,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  inviteHistoryFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    marginTop: 16,
+    paddingBottom: 8,
   },
   inviteHistoryHeaderRow: {
     flexDirection: 'row',
@@ -1989,6 +2173,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     justifyContent: 'center',
     paddingLeft: 4,
+    marginRight: 4,
   },
   inviteHistoryCellTextRight: {
     textAlign: 'right',
