@@ -310,6 +310,7 @@ export async function getUserSpaces(): Promise<UserSpace[]> {
       id: row.id,
       userId: row.user_id,
       spaceId: row.space_id,
+      isAdmin: row.is_admin === true,
       space: row.spaces ? {
         id: row.spaces.id,
         name: row.spaces.name,

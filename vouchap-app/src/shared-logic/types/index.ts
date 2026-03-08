@@ -139,6 +139,8 @@ export interface UserSpace {
   id: string;
   userId: string;
   spaceId: string;
+  /** 是否为该空间 admin（仅 space admin 可更换客户负责人等） */
+  isAdmin?: boolean;
   space?: Space; // 关联的空间信息
   createdAt?: string;
 }
@@ -460,6 +462,8 @@ export interface FirmClient {
   displayName?: string;
   /** 客户表状态 */
   status?: FirmClientStatus;
+  /** 自定义标签（文本数组），status 可显示首个标签；仅在客户详情页编辑 */
+  labels?: string[];
   /** 负责人 user id（可选，列表负责人优先从 member_clients 取） */
   assignedUserId?: string | null;
   /** 最近跟进时间 */

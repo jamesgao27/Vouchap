@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getCurrentSpace } from '@/lib/auth';
+import { getCurrentSpace, getUserSpaces } from '@/lib/auth';
 import {
   getFirmClientsWithDetails,
   getFirmOrders,
@@ -22,9 +22,12 @@ import {
   getFirmSkus,
   getSkuItems,
   createFirmOrder,
+  updateFirmClientLabels,
+  getFirmSpaceMembers,
+  updateFirmClientAssignee,
 } from '@/lib/firm';
 import { showToast } from '@/lib/toast';
-import type { FirmClientWithDetails, FirmOrder, FirmClientFollowUp, FirmSku, FirmSkuItem } from '@/lib/firm';
+import type { FirmClientWithDetails, FirmOrder, FirmClientFollowUp, FirmSku, FirmSkuItem, FirmSpaceMember } from '@/lib/firm';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
 import DataTable, { type DataTableColumn } from '@/components/DataTable';
 
@@ -47,6 +50,12 @@ export default function FirmClientDetailScreen() {
   const [selectedSkuId, setSelectedSkuId] = useState<string | null>(null);
   const [previewItems, setPreviewItems] = useState<FirmSkuItem[]>([]);
   const [previewOrderSkuName, setPreviewOrderSkuName] = useState<string | null>(null);
+  const [showAssigneePicker, setShowAssigneePicker] = useState(false);
+  const [assigneeMembers, setAssigneeMembers] = useState<FirmSpaceMember[]>([]);
+  const [savingAssignee, setSavingAssignee] = useState(false);
+  const [isFirmAdmin, setIsFirmAdmin] = useState(false);
+  const [newTagInput, setNewTagInput] = useState('');
+  const [savingLabels, setSavingLabels] = useState(false);
 
   const load = useCallback(async () => {
     const space = await getCurrentSpace();
@@ -72,6 +81,71 @@ export default function FirmClientDetailScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    if (!client?.firmSpaceId) return;
+    getUserSpaces().then((spaces) => {
+      const membership = spaces.find((us) => us.spaceId === client.firmSpaceId);
+      setIsFirmAdmin(membership?.isAdmin === true);
+    });
+  }, [client?.firmSpaceId]);
+
+  const handleSaveLabels = useCallback(async (labels: string[]) => {
+    if (!client?.id) return;
+    setSavingLabels(true);
+    const { error } = await updateFirmClientLabels(client.id, labels);
+    setSavingLabels(false);
+    if (error) {
+      showToast(error.message ?? 'Failed to update labels.', 'error');
+      return;
+    }
+    setClient((prev) => (prev ? { ...prev, labels } : null));
+    showToast('Labels updated.', 'success');
+  }, [client?.id]);
+
+  const handleAddTag = useCallback(() => {
+    const tag = newTagInput.trim();
+    if (!tag || !client) return;
+    const current = client.labels ?? [];
+    if (current.includes(tag)) return;
+    setNewTagInput('');
+    handleSaveLabels([...current, tag]);
+  }, [client, newTagInput, handleSaveLabels]);
+
+  const handleRemoveTag = useCallback(
+    (index: number) => {
+      if (!client) return;
+      const current = client.labels ?? [];
+      handleSaveLabels(current.filter((_, i) => i !== index));
+    },
+    [client, handleSaveLabels]
+  );
+
+  const handleOpenAssigneePicker = useCallback(async () => {
+    if (!client?.firmSpaceId) return;
+    setShowAssigneePicker(true);
+    const members = await getFirmSpaceMembers(client.firmSpaceId);
+    setAssigneeMembers(members);
+  }, [client?.firmSpaceId]);
+
+  const handleSelectAssignee = useCallback(async (userId: string | null) => {
+    if (!client?.id) return;
+    setSavingAssignee(true);
+    const { error } = await updateFirmClientAssignee(client.id, userId);
+    setSavingAssignee(false);
+    setShowAssigneePicker(false);
+    if (error) {
+      showToast(error.message ?? 'Failed to update assignee.', 'error');
+      return;
+    }
+    const space = await getCurrentSpace();
+    if (space?.id && space.kind === 'firm') {
+      const [clientsRes] = await Promise.all([getFirmClientsWithDetails(space.id)]);
+      const found = clientsRes.find((c) => c.clientSpaceId === clientSpaceId) ?? null;
+      if (found) setClient(found);
+    }
+    showToast('Assignee updated.', 'success');
+  }, [client?.id, client?.clientSpaceId, clientSpaceId]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -257,11 +331,59 @@ export default function FirmClientDetailScreen() {
               </View>
               <View style={styles.infoItem}>
                 <Text style={styles.infoLabel}>Status</Text>
-                <Text style={styles.infoValue}>{CLIENT_DISPLAY_STATUS_LABELS[client.displayStatus ?? ''] ?? client.displayStatus ?? '—'}</Text>
+                <View style={styles.infoValueTouch}>
+                  {client.labels?.length ? (
+                    <View style={[styles.labelBadge, { backgroundColor: '#6C5CE7' }]}>
+                      <Text style={styles.labelBadgeText}>{client.labels[0]}</Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.infoValue}>{CLIENT_DISPLAY_STATUS_LABELS[client.displayStatus ?? ''] ?? client.displayStatus ?? '—'}</Text>
+                  )}
+                </View>
+              </View>
+              <View style={styles.infoItem}>
+                <Text style={styles.infoLabel}>Labels</Text>
+                <View style={styles.labelsRow}>
+                  {(client.labels ?? []).map((tag, i) => (
+                    <View key={i} style={styles.tagChipWrap}>
+                      <View style={[styles.labelBadge, { backgroundColor: '#6C5CE7' }]}>
+                        <Text style={styles.labelBadgeText}>{tag}</Text>
+                      </View>
+                      <TouchableOpacity onPress={() => handleRemoveTag(i)} hitSlop={8} style={styles.tagRemove}>
+                        <Ionicons name="close-circle" size={18} color="#636E72" />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                  <View style={styles.tagAddRow}>
+                    <TextInput
+                      style={styles.tagInput}
+                      placeholder="Add tag"
+                      placeholderTextColor="#95A5A6"
+                      value={newTagInput}
+                      onChangeText={setNewTagInput}
+                      onSubmitEditing={handleAddTag}
+                      returnKeyType="done"
+                    />
+                    <TouchableOpacity
+                      style={[styles.tagAddBtn, (!newTagInput.trim() || savingLabels) && styles.followUpBtnDisabled]}
+                      onPress={handleAddTag}
+                      disabled={!newTagInput.trim() || savingLabels}
+                    >
+                      {savingLabels ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.tagAddBtnText}>Add</Text>}
+                    </TouchableOpacity>
+                  </View>
+                </View>
               </View>
               <View style={styles.infoItem}>
                 <Text style={styles.infoLabel}>Assignee</Text>
-                <Text style={styles.infoValue}>{client.assigneeName ?? client.assigneeEmail ?? '—'}</Text>
+                <View style={styles.infoValueRow}>
+                  <Text style={styles.infoValue}>{client.assigneeName ?? client.assigneeEmail ?? '—'}</Text>
+                  {isFirmAdmin && (
+                    <TouchableOpacity onPress={handleOpenAssigneePicker} style={styles.changeLink} activeOpacity={0.7}>
+                      <Text style={styles.changeLinkText}>Change</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
               </View>
             </View>
             <View style={styles.statsRow}>
@@ -436,6 +558,41 @@ export default function FirmClientDetailScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      <Modal visible={showAssigneePicker} transparent animationType="fade" onRequestClose={() => setShowAssigneePicker(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => setShowAssigneePicker(false)}>
+          <Pressable style={[styles.modalCard, { maxWidth: 320 }]} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Assignee</Text>
+              <TouchableOpacity onPress={() => setShowAssigneePicker(false)} hitSlop={12}>
+                <Ionicons name="close" size={24} color="#636E72" />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={{ maxHeight: 280 }}>
+              <TouchableOpacity
+                style={styles.pickerRow}
+                onPress={() => handleSelectAssignee(null)}
+                disabled={savingAssignee}
+              >
+                <Text style={styles.pickerRowText}>None</Text>
+                {!client?.assignedUserId ? <Ionicons name="checkmark" size={20} color="#6C5CE7" /> : null}
+              </TouchableOpacity>
+              {assigneeMembers.map((m) => (
+                <TouchableOpacity
+                  key={m.id}
+                  style={styles.pickerRow}
+                  onPress={() => handleSelectAssignee(m.id)}
+                  disabled={savingAssignee}
+                >
+                  <Text style={styles.pickerRowText}>{m.name || m.email || m.id}</Text>
+                  {client?.assignedUserId === m.id ? <Ionicons name="checkmark" size={20} color="#6C5CE7" /> : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            {savingAssignee ? <ActivityIndicator size="small" color="#6C5CE7" style={{ marginVertical: 8 }} /> : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -552,6 +709,29 @@ const styles = StyleSheet.create({
   followUpBtnDisabled: { opacity: 0.6 },
   followUpBtnText: { fontSize: 13, color: '#fff', fontWeight: '600' },
   emptyText: { fontSize: 13, color: '#95A5A6' },
+  infoValueTouch: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  infoValueRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 8 },
+  changeLink: { paddingVertical: 2, paddingHorizontal: 4 },
+  changeLinkText: { fontSize: 13, color: '#6C5CE7', fontWeight: '500' },
+  labelBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
+  labelBadgeText: { fontSize: 12, fontWeight: '600', color: '#fff' },
+  labelsRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 8 },
+  tagChipWrap: { flexDirection: 'row', alignItems: 'center' },
+  tagRemove: { marginLeft: 2 },
+  tagAddRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  tagInput: { borderWidth: 1, borderColor: '#E9ECEF', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 6, fontSize: 14, minWidth: 100, flex: 1 },
+  tagAddBtn: { backgroundColor: '#6C5CE7', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  tagAddBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+  pickerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9ECEF',
+  },
+  pickerRowText: { fontSize: 14, color: '#2D3436' },
   followUpRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',

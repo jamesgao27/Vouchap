@@ -410,7 +410,7 @@ export async function getFirmClients(firmSpaceId: string): Promise<FirmClient[]>
     clientSpaceId: row.client_space_id,
     displayName: row.display_name,
     status: row.status ?? 'active',
-    // assignee 与最近跟进时间不再由 clients 表字段维护，由 member_clients / client_follow_ups 计算
+    labels: Array.isArray(row.labels) ? row.labels : [],
     assignedUserId: null,
     lastFollowUpAt: null,
     createdAt: row.created_at,
@@ -436,7 +436,7 @@ export interface FirmClientWithDetails extends FirmClient {
   assigneeEmail: string | null;
 }
 
-/** Firm 空间：获取在服客户列表（含名称、联系人、服务负责人来自 member_clients、自动计算 displayStatus、最近跟进时间） */
+/** Firm 空间：获取在服客户列表（含名称、联系人、服务负责人、自动计算 displayStatus、最近跟进时间） */
 export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<FirmClientWithDetails[]> {
   const clients = await getFirmClients(firmSpaceId);
   if (clients.length === 0) return [];
@@ -2095,6 +2095,35 @@ export async function updateFirmClientStatus(
     .update({ status, updated_at: new Date().toISOString() })
     .eq('id', clientId);
   return { error: error ? new Error(error.message) : null };
+}
+
+/** 更新客户自定义标签（clients.labels 文本数组） */
+export async function updateFirmClientLabels(
+  clientId: string,
+  labels: string[]
+): Promise<{ error: Error | null }> {
+  const arr = Array.isArray(labels) ? labels.filter((s) => typeof s === 'string' && s.trim().length > 0).map((s) => s.trim()) : [];
+  const { error } = await supabase
+    .schema('firm')
+    .from('clients')
+    .update({ labels: arr, updated_at: new Date().toISOString() })
+    .eq('id', clientId);
+  return { error: error ? new Error(error.message) : null };
+}
+
+/** 当前用户是否为 Firm 空间的 admin（仅 admin 可更换客户负责人） */
+export async function isFirmSpaceAdmin(firmSpaceId: string): Promise<boolean> {
+  const { data: { user } } = await supabase.auth.getUser();
+  const uid = user?.id;
+  if (!uid) return false;
+  const { data, error } = await supabase
+    .from('user_spaces')
+    .select('is_admin')
+    .eq('space_id', firmSpaceId)
+    .eq('user_id', uid)
+    .maybeSingle();
+  if (error || !data) return false;
+  return (data as { is_admin: boolean }).is_admin === true;
 }
 
 /** Firm 空间成员（用于 Assign 选单）：id=user_id, name/email 来自 public.users */

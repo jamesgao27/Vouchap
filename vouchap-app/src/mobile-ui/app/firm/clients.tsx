@@ -115,6 +115,18 @@ function getClientColumns(): DataTableColumn<FirmClientWithDetails>[] {
       label: 'Status',
       minWidth: 100,
       getValue: (r) => {
+        const firstTag = r.labels?.[0];
+        if (firstTag) {
+          return (
+            <View style={{ flexDirection: 'row', alignSelf: 'flex-start' }}>
+              <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: '#6C5CE7' }}>
+                <Text style={{ fontSize: 12, fontWeight: '600', color: '#fff' }} numberOfLines={1}>
+                  {firstTag}
+                </Text>
+              </View>
+            </View>
+          );
+        }
         const raw = r.displayStatus ?? '';
         const label = CLIENT_DISPLAY_STATUS_LABELS[raw as keyof typeof CLIENT_DISPLAY_STATUS_LABELS] ?? raw ?? '—';
         const color = DISPLAY_STATUS_COLOR[raw] ?? '#636E72';
@@ -128,7 +140,7 @@ function getClientColumns(): DataTableColumn<FirmClientWithDetails>[] {
           </View>
         );
       },
-      getSortValue: (r) => (r.displayStatus ?? ''),
+      getSortValue: (r) => (r.labels?.[0] ?? r.displayStatus ?? ''),
     },
     {
       id: 'assignee',
@@ -738,7 +750,9 @@ export default function FirmClientsScreen() {
           keyExtractor={(c) => c.id}
           renderItem={({ item: c }) => {
             const orderCount = orderCountByClient[c.clientSpaceId] ?? 0;
-            const statusLabel = CLIENT_DISPLAY_STATUS_LABELS[c.displayStatus ?? ''] ?? c.displayStatus ?? '—';
+            const firstTag = c.labels?.[0];
+            const statusLabel = firstTag ?? (CLIENT_DISPLAY_STATUS_LABELS[c.displayStatus ?? ''] ?? c.displayStatus ?? '—');
+            const statusColor = firstTag ? '#6C5CE7' : (DISPLAY_STATUS_COLOR[c.displayStatus ?? ''] ?? '#636E72');
             return (
               <TouchableOpacity
                 style={styles.receiptItem}
@@ -748,7 +762,7 @@ export default function FirmClientsScreen() {
                 <View style={styles.receiptContent}>
                   <View style={styles.firstRow}>
                     <Text style={styles.storeName} numberOfLines={1}>{c.name || '—'}</Text>
-                    <View style={[styles.statusBadge, { backgroundColor: DISPLAY_STATUS_COLOR[c.displayStatus ?? ''] ?? '#636E72' }]}>
+                    <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
                       <Text style={styles.statusText}>{statusLabel}</Text>
                     </View>
                   </View>
