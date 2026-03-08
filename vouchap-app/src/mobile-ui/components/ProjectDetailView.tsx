@@ -299,12 +299,6 @@ export function ProjectDetailView({
 
         {!(isOnboarding && (viewerRole === 'firm' || (viewerRole === 'client' && (skuItems?.length ?? 0) > 0))) ? (
           <>
-            {activeTab === 'todos' && (
-              <TouchableOpacity style={sharedStyles.operationBtn} onPress={() => {}} activeOpacity={0.7}>
-                <Ionicons name="download-outline" size={16} color="#6C5CE7" />
-                <Text style={sharedStyles.operationBtnText}>Download all</Text>
-              </TouchableOpacity>
-            )}
             {activeTab === 'info' && !infoEditing && (
               <TouchableOpacity
                 style={sharedStyles.operationBtn}

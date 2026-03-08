@@ -315,6 +315,11 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: '#E9ECEF',
     zIndex: 999,
+    shadowColor: '#000',
+    shadowOffset: { width: -6, height: 0 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 8,
   },
   expandedOuterInner: {},
   expandedActionsRowRight: {

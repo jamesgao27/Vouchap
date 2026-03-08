@@ -308,6 +308,9 @@ function TodoTree({
   onToggleTaskFiles,
   rowIdShowingAdd,
   setRowIdShowingAdd,
+  rowIdShowingDeps,
+  setRowIdShowingDeps,
+  hideDepsTimeoutRef,
   addIconHighlightedRowId,
   setAddIconHighlightedRowId,
   hideAddTimeoutRef,
@@ -362,6 +365,9 @@ function TodoTree({
   onToggleTaskFiles: (id: string) => void;
   rowIdShowingAdd?: string | null;
   setRowIdShowingAdd?: (id: string | null) => void;
+  rowIdShowingDeps?: string | null;
+  setRowIdShowingDeps?: (id: string | null) => void;
+  hideDepsTimeoutRef?: { current: ReturnType<typeof setTimeout> | null };
   addIconHighlightedRowId?: string | null;
   setAddIconHighlightedRowId?: (id: string | null) => void;
   hideAddTimeoutRef?: { current: ReturnType<typeof setTimeout> | null };
@@ -866,6 +872,16 @@ function TodoTree({
           </>
         );
 
+        // 状态列（Zone3）：整列为 hover 热区，高度覆盖整行
+        const statusHoverHandlers = handoffButtons.length > 0 && setRowIdShowingStatusVerb
+          ? {
+              onMouseEnter: () => setRowIdShowingStatusVerb(node.id),
+              onMouseLeave: () => setRowIdShowingStatusVerb(null),
+              onTouchStart: () => setRowIdShowingStatusVerb(node.id),
+              onTouchEnd: () => setRowIdShowingStatusVerb(null),
+            }
+          : undefined;
+
         const leftBlockFull = (
           <View style={[ts.treeRowLeftBlock, { width: maxLeftBlockWidth }]}>
             {leftBlockContent}
@@ -877,18 +893,8 @@ function TodoTree({
             {progressColContent}
           </TouchableOpacity>
         ) : (
-          progressColContent
+          <View style={ts.progressFilesCol}>{progressColContent}</View>
         );
-
-        // 状态列（Zone3）：整列为 hover 热区，高度覆盖整行
-        const statusHoverHandlers = handoffButtons.length > 0 && setRowIdShowingStatusVerb
-          ? {
-              onMouseEnter: () => setRowIdShowingStatusVerb(node.id),
-              onMouseLeave: () => setRowIdShowingStatusVerb(null),
-              onTouchStart: () => setRowIdShowingStatusVerb(node.id),
-              onTouchEnd: () => setRowIdShowingStatusVerb(null),
-            }
-          : undefined;
 
         const StatusCell = (
           <View style={ts.statusColWithGap}>
@@ -909,58 +915,95 @@ function TodoTree({
           crossRoleAccent,
         ];
 
-        // task 行前置依赖列：文案 "Depends on" + 多标签（每标签用该条目状态色）+ 入口（hideDepsEditor 时仅只读）
+        // 与 Add 列一致：整行 touchEnd / mouseLeave 时延时收起 Depends on，避免“最后一个不消失”（触摸到其他行再抬起时由该行触发收起）
+        const hideDepsOnRowHandlers = !catalogMode && setRowIdShowingDeps && hideDepsTimeoutRef
+          ? {
+              onTouchEnd: () => {
+                if (hideDepsTimeoutRef.current) clearTimeout(hideDepsTimeoutRef.current);
+                hideDepsTimeoutRef.current = setTimeout(() => setRowIdShowingDeps(null), 280);
+              },
+              onMouseLeave: () => {
+                if (hideDepsTimeoutRef.current) clearTimeout(hideDepsTimeoutRef.current);
+                hideDepsTimeoutRef.current = setTimeout(() => setRowIdShowingDeps(null), 280);
+              },
+            }
+          : {};
+
+        // 项目详情：无关联行仅 Depends on 列热区触摸/悬停时显；有关联行常显。SKU 详情（catalogMode）：Depends on 常显，不需触摸
+        const hasDeps = depChipInfos.length > 0;
+        const showDepsContent = hasDeps || rowIdShowingDeps === node.id || catalogMode;
+        const depsColHotzoneHandlers = !catalogMode && setRowIdShowingDeps && hideDepsTimeoutRef
+          ? {
+              onTouchStart: () => setRowIdShowingDeps(node.id),
+              onTouchEnd: () => setRowIdShowingDeps(null),
+              onMouseEnter: () => {
+                if (hideDepsTimeoutRef.current) {
+                  clearTimeout(hideDepsTimeoutRef.current);
+                  hideDepsTimeoutRef.current = null;
+                }
+                setRowIdShowingDeps(node.id);
+              },
+              onMouseLeave: () => {
+                if (hideDepsTimeoutRef.current) clearTimeout(hideDepsTimeoutRef.current);
+                hideDepsTimeoutRef.current = setTimeout(() => setRowIdShowingDeps(null), 280);
+              },
+            }
+          : {};
         const TaskDepsCol = isTask ? (
-          hideDepsEditor ? (
-            <View style={ts.taskDepsCol}>
-              <Text style={ts.taskDepsLabel}>Depends on</Text>
-              {depChipInfos.length > 0 ? (
-                <View style={ts.taskDepsChipsWrap}>
-                  {depChipInfos.map((info: { depId: string; wbs: string; title: string; status: string }) => {
-                    const { text, bg } = getDepStatusColor(info.status);
-                    return (
-                      <View
-                        key={info.depId}
-                        style={[ts.taskDepsChip, { backgroundColor: bg }]}
-                      >
-                        <Text style={[ts.taskDepsChipText, { color: text }]}>{info.wbs}</Text>
-                      </View>
-                    );
-                  })}
-                </View>
-              ) : (
-                <Text style={ts.taskDepsLabel} numberOfLines={1}>—</Text>
-              )}
-            </View>
+          showDepsContent ? (
+            hideDepsEditor ? (
+              <View style={ts.taskDepsCol}>
+                <Text style={ts.taskDepsLabel}>Depends on</Text>
+                {hasDeps ? (
+                  <View style={ts.taskDepsChipsWrap}>
+                    {depChipInfos.map((info: { depId: string; wbs: string; title: string; status: string }) => {
+                      const { text, bg } = getDepStatusColor(info.status);
+                      return (
+                        <View
+                          key={info.depId}
+                          style={[ts.taskDepsChip, { backgroundColor: bg }]}
+                        >
+                          <Text style={[ts.taskDepsChipText, { color: text }]}>{info.wbs}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <Text style={ts.taskDepsLabel} numberOfLines={1}>—</Text>
+                )}
+              </View>
+            ) : (
+              <Pressable
+                style={ts.taskDepsCol}
+                onPress={() => {
+                  setDepsPanelNodeId(isDepsOpen ? null : node.id);
+                }}
+              >
+                <Text style={ts.taskDepsLabel}>Depends on</Text>
+                {hasDeps ? (
+                  <View style={ts.taskDepsChipsWrap}>
+                    {depChipInfos.map((info: { depId: string; wbs: string; title: string; status: string }) => {
+                      const { text, bg } = getDepStatusColor(info.status);
+                      return (
+                        <View
+                          key={info.depId}
+                          style={[ts.taskDepsChip, { backgroundColor: bg }]}
+                        >
+                          <Text style={[ts.taskDepsChipText, { color: text }]}>{info.wbs}</Text>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ) : null}
+                {!nodeIsBlocked && (
+                  <View style={ts.taskDepsTrigger}>
+                    <Ionicons name="add-circle-outline" size={12} color="#B2BEC3" />
+                  </View>
+                )}
+              </Pressable>
+            )
           ) : (
-            <Pressable
-              style={ts.taskDepsCol}
-              onPress={() => {
-                setDepsPanelNodeId(isDepsOpen ? null : node.id);
-              }}
-            >
-              <Text style={ts.taskDepsLabel}>Depends on</Text>
-              {depChipInfos.length > 0 ? (
-                <View style={ts.taskDepsChipsWrap}>
-                  {depChipInfos.map((info: { depId: string; wbs: string; title: string; status: string }) => {
-                    const { text, bg } = getDepStatusColor(info.status);
-                    return (
-                      <View
-                        key={info.depId}
-                        style={[ts.taskDepsChip, { backgroundColor: bg }]}
-                      >
-                        <Text style={[ts.taskDepsChipText, { color: text }]}>{info.wbs}</Text>
-                      </View>
-                    );
-                  })}
-                </View>
-              ) : null}
-              {!nodeIsBlocked && (
-                <View style={ts.taskDepsTrigger}>
-                  <Ionicons name="add-circle-outline" size={12} color="#B2BEC3" />
-                </View>
-              )}
-            </Pressable>
+            <View style={[ts.taskDepsCol]} {...depsColHotzoneHandlers} />
           )
         ) : null;
 
@@ -977,7 +1020,7 @@ function TodoTree({
 
         return (
           <View key={node.id} style={ts.treeRowWrap}>
-            <View style={rowContainerStyle}>
+            <View style={rowContainerStyle} {...hideDepsOnRowHandlers}>
               {rowContent}
             </View>
             {hasChildren && !isCollapsed && (
@@ -1002,6 +1045,9 @@ function TodoTree({
                 onToggleTaskFiles={onToggleTaskFiles}
                 rowIdShowingAdd={rowIdShowingAdd}
                 setRowIdShowingAdd={setRowIdShowingAdd}
+                rowIdShowingDeps={rowIdShowingDeps}
+                setRowIdShowingDeps={setRowIdShowingDeps}
+                hideDepsTimeoutRef={hideDepsTimeoutRef}
                 addIconHighlightedRowId={addIconHighlightedRowId}
                 setAddIconHighlightedRowId={setAddIconHighlightedRowId}
                 hideAddTimeoutRef={hideAddTimeoutRef}
@@ -1203,9 +1249,13 @@ export function TaxFilingTodosView({
   const [taskFilesMap, setTaskFilesMap] = useState<Record<string, ProjectTodoReceiptSummary[]>>({});
 
   const [rowIdShowingAdd, setRowIdShowingAdd] = useState<string | null>(null);
+  /** Depends on 列独立热区：仅该列触摸/悬停时显示无关联行的 Depends on+ 入口 */
+  const [rowIdShowingDeps, setRowIdShowingDeps] = useState<string | null>(null);
   const [addIconHighlightedRowId, setAddIconHighlightedRowId] = useState<string | null>(null);
   const [pendingParentId, setPendingParentId] = useState<string | null>(null);
   const hideAddTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** 鼠标移出 Depends on 热区后延时隐藏 */
+  const hideDepsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // zone2：文件计数列 hover/触摸时显示 Upload 按钮
   const [rowFileColHoverId, setRowFileColHoverId] = useState<string | null>(null);
   const hideFileColTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1915,6 +1965,9 @@ export function TaxFilingTodosView({
                 onToggleTaskFiles={toggleTaskFiles}
                 rowIdShowingAdd={rowIdShowingAdd}
                 setRowIdShowingAdd={setRowIdShowingAdd}
+                rowIdShowingDeps={rowIdShowingDeps}
+                setRowIdShowingDeps={setRowIdShowingDeps}
+                hideDepsTimeoutRef={hideDepsTimeoutRef}
                 addIconHighlightedRowId={addIconHighlightedRowId}
                 setAddIconHighlightedRowId={setAddIconHighlightedRowId}
                 hideAddTimeoutRef={hideAddTimeoutRef}

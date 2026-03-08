@@ -306,23 +306,22 @@ function SkuRow({
       </View>
     </View>
   ) : null;
+  // SKU 详情：Depends on 入口常显，不需触摸即显示（phase/section/task 一致，有无关联均可编辑）
   const trailingColContent = (
     <View style={ts.trailingCol}>
-      {!isTask && (
-        <View style={ts.depsInlineWrap}>
-          <Ionicons name="return-down-forward-outline" size={10} color="#6C5CE7" />
-          <TextInput
-            style={ts.depsInputField}
-            value={depsInput}
-            onChangeText={setDepsInput}
-            onBlur={handleDepsBlur}
-            placeholder="—"
-            placeholderTextColor="#B2BEC3"
-            keyboardType="numbers-and-punctuation"
-            returnKeyType="done"
-          />
-        </View>
-      )}
+      <View style={ts.depsInlineWrap}>
+        <Ionicons name="return-down-forward-outline" size={10} color="#6C5CE7" />
+        <TextInput
+          style={ts.depsInputField}
+          value={depsInput}
+          onChangeText={setDepsInput}
+          onBlur={handleDepsBlur}
+          placeholder="—"
+          placeholderTextColor="#B2BEC3"
+          keyboardType="numbers-and-punctuation"
+          returnKeyType="done"
+        />
+      </View>
       {isTask ? deleteMinusIcon : null}
     </View>
   );

@@ -197,6 +197,10 @@ function LayoutContent() {
           options={{ title: 'Clients', headerBackTitle: 'Back' }} 
         />
         <Stack.Screen 
+          name="firm/client/[clientSpaceId]" 
+          options={{ title: '', headerBackTitle: 'Back', headerBackButtonVisible: true }} 
+        />
+        <Stack.Screen 
           name="firm/assignments" 
           options={{ title: 'Assignment', headerBackTitle: 'Back' }} 
         />
