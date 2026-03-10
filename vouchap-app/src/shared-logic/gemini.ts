@@ -34,14 +34,14 @@ const genAI = (apiKey && apiKey !== '')
   ? new GoogleGenerativeAI(apiKey)
   : null;
 
-// 按你后台可用模型与配额排序：高 RPM 优先（语音/图片/文字通用），失败时自动切换下一模型
+// 按你后台可用模型与配额排序：优先使用 2.0 Flash / Flash-lite（成本更低，适合结构化 JSON 提取），失败时自动切换下一模型
 const POSSIBLE_MODELS = [
-  'gemini-2.5-flash-lite',   // 10K RPM, 10M TPM
-  'gemini-2.0-flash-lite',   // 20K RPM, 10M TPM
+  'gemini-2.0-flash-lite',   // 20K RPM, 10M TPM（首选：低成本 JSON 抽取）
   'gemini-2.0-flash',        // 10K RPM, 10M TPM
-  'gemini-2.5-flash',        // 2K RPM, 3M TPM（当前常用）
+  'gemini-2.5-flash-lite',   // 10K RPM, 10M TPM
+  'gemini-2.5-flash',        // 2K RPM, 3M TPM
   'gemini-3-flash-preview',  // 2K RPM, 3M TPM（Gemini 3 Flash）
-  'gemini-2.5-pro',         // 1K RPM, 5M TPM
+  'gemini-2.5-pro',          // 1K RPM, 5M TPM
   'gemini-3-pro-preview',    // 1K RPM, 5M TPM（Gemini 3 Pro）
   'gemini-2.0-flash-exp',    // 10 RPM 兜底
 ];
@@ -1623,8 +1623,8 @@ Data: today=${today}. Customers [${customerListAudio || 'None'}]. Currencies [${
 // ---------- 入库/出库识别（另一套 prompt：货物流，明细为 数量+单位+单价） ----------
 
 const INBOUND_OUTBOUND_POSSIBLE_MODELS = [
-  'gemini-2.5-flash-lite',
   'gemini-2.0-flash-lite',
+  'gemini-2.5-flash-lite',
   'gemini-2.0-flash',
   'gemini-2.5-flash',
   'gemini-3-flash-preview',
