@@ -20,16 +20,17 @@ import {
   getFirmClientFollowUps,
   addFirmClientFollowUp,
   getFirmSkus,
-  getSkuItems,
   createFirmOrder,
   updateFirmClientLabels,
   getFirmSpaceMembers,
   updateFirmClientAssignee,
 } from '@/lib/firm';
 import { showToast } from '@/lib/toast';
-import type { FirmClientWithDetails, FirmOrder, FirmClientFollowUp, FirmSku, FirmSkuItem, FirmSpaceMember } from '@/lib/firm';
+import type { FirmClientWithDetails, FirmOrder, FirmClientFollowUp, FirmSku, FirmSpaceMember } from '@/lib/firm';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
 import DataTable, { type DataTableColumn } from '@/components/DataTable';
+import CenterModal from '@/components/CenterModal';
+import SkuPreview from '@/components/SkuPreview';
 
 type TabKey = 'info' | 'orders';
 
@@ -48,14 +49,13 @@ export default function FirmClientDetailScreen() {
   const [newOrderModalVisible, setNewOrderModalVisible] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [selectedSkuId, setSelectedSkuId] = useState<string | null>(null);
-  const [previewItems, setPreviewItems] = useState<FirmSkuItem[]>([]);
-  const [previewOrderSkuName, setPreviewOrderSkuName] = useState<string | null>(null);
   const [showAssigneePicker, setShowAssigneePicker] = useState(false);
   const [assigneeMembers, setAssigneeMembers] = useState<FirmSpaceMember[]>([]);
   const [savingAssignee, setSavingAssignee] = useState(false);
   const [isFirmAdmin, setIsFirmAdmin] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
   const [savingLabels, setSavingLabels] = useState(false);
+  const [showNewOrderSkuMenu, setShowNewOrderSkuMenu] = useState(false);
 
   const load = useCallback(async () => {
     const space = await getCurrentSpace();
@@ -221,30 +221,9 @@ export default function FirmClientDetailScreen() {
   const openNewOrderModal = useCallback(() => {
     const first = selectableSkus[0]?.id ?? null;
     setSelectedSkuId(first);
+    setShowNewOrderSkuMenu(false);
     setNewOrderModalVisible(true);
   }, [selectableSkus]);
-
-  useEffect(() => {
-    if (!newOrderModalVisible || !selectedSkuId) {
-      if (!newOrderModalVisible) {
-        setPreviewItems([]);
-        setPreviewOrderSkuName(null);
-      }
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      const [items, sku] = await Promise.all([
-        getSkuItems(selectedSkuId),
-        Promise.resolve(skus.find((s) => s.id === selectedSkuId) ?? null),
-      ]);
-      if (!cancelled) {
-        setPreviewItems(items);
-        setPreviewOrderSkuName(sku?.name ?? null);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [newOrderModalVisible, selectedSkuId, skus]);
 
   const handleCreateOrder = useCallback(async (): Promise<boolean> => {
     if (!client || !selectedSkuId) return false;
@@ -500,71 +479,126 @@ export default function FirmClientDetailScreen() {
           )}
         </ScrollView>
       )}
-
-      <Modal
+      <CenterModal
         visible={newOrderModalVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setNewOrderModalVisible(false)}
+        title="Create new order"
+        onClose={() => setNewOrderModalVisible(false)}
+        maxWidth={840}
+        cardHeight={660}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setNewOrderModalVisible(false)}>
-          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Create new order</Text>
-              <TouchableOpacity onPress={() => setNewOrderModalVisible(false)} hitSlop={12}>
-                <Ionicons name="close" size={24} color="#636E72" />
-              </TouchableOpacity>
-            </View>
-            {/* Client info (prefilled, read-only) */}
-            <View style={styles.modalClientInfo}>
-              <Text style={styles.modalLabel}>Client</Text>
-              <Text style={styles.modalClientName} numberOfLines={1}>
-                {client.name || '—'}
-              </Text>
-              <Text style={styles.modalClientMeta} numberOfLines={1}>
-                {client.contactName || '—'}
-              </Text>
-              <Text style={styles.modalClientMeta} numberOfLines={1}>
-                {client.contactEmail || '—'}
-              </Text>
-            </View>
-            {/* Service selection (required, no "no template" option) */}
-            <Text style={[styles.modalLabel, { marginTop: 16 }]}>Service template</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.skuScroll}>
-              {selectableSkus.map((sku) => (
-                <TouchableOpacity
-                  key={sku.id}
-                  style={[styles.skuChip, selectedSkuId === sku.id && styles.skuChipSelected]}
-                  onPress={() => setSelectedSkuId(sku.id)}
-                >
-                  <Text style={[styles.skuChipText, selectedSkuId === sku.id && styles.skuChipTextSelected]}>
-                    {sku.name}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-            {previewItems.length > 0 && (
-              <View style={styles.previewBox}>
-                <Text style={styles.previewTitle}>Items in this order</Text>
-                {previewItems.map((item) => (
-                  <View key={item.id} style={styles.previewItemRow}>
-                    <Text style={styles.previewItemType}>{item.type === 'client' ? 'Client' : 'Firm'}</Text>
-                    <Text style={styles.previewItemTitle}>{item.title}</Text>
-                  </View>
-                ))}
-                <Text style={styles.previewHint}>
-                  Projects will be created after the client confirms this order.
+        <View style={styles.newOrderRow}>
+          {/* Left: client info (prefilled, read-only) + sku selection */}
+          <ScrollView
+            style={styles.newOrderLeftScroll}
+            contentContainerStyle={styles.newOrderLeftContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={styles.newOrderSubtitle}>
+              Create a new service engagement for this client. {'\n'}Client information is prefilled and cannot be edited here.
+            </Text>
+            <View style={styles.newOrderField}>
+              <Text style={styles.newOrderLabel}>Client name</Text>
+              <View style={styles.newOrderValueBox}>
+                <Text style={styles.newOrderValueText} numberOfLines={1}>
+                  {client.name || '—'}
                 </Text>
               </View>
-            )}
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setNewOrderModalVisible(false)}>
+            </View>
+            <View style={styles.newOrderField}>
+              <Text style={styles.newOrderLabel}>Contact name</Text>
+              <View style={styles.newOrderValueBox}>
+                <Text style={styles.newOrderValueText} numberOfLines={1}>
+                  {client.contactName || '—'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.newOrderField}>
+              <Text style={styles.newOrderLabel}>Contact email</Text>
+              <View style={styles.newOrderValueBox}>
+                <Text style={styles.newOrderValueText} numberOfLines={1}>
+                  {client.contactEmail || '—'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.newOrderField}>
+              <Text style={styles.newOrderLabel}>Service template</Text>
+              {selectableSkus.length === 0 ? (
+                <View style={[styles.newOrderSelect, styles.newOrderSelectDisabled]}>
+                  <Text style={styles.newOrderSelectPlaceholder}>
+                    Please configure Service Catalog in the Firm module first.
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.newOrderSelectWrapper}>
+                  <TouchableOpacity
+                    style={styles.newOrderSelect}
+                    onPress={() => setShowNewOrderSkuMenu((v) => !v)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.newOrderSelectText} numberOfLines={1}>
+                      {selectedSkuId
+                        ? selectableSkus.find((s) => s.id === selectedSkuId)?.name ?? 'Select a service template'
+                        : 'Select a service template'}
+                    </Text>
+                    <Ionicons
+                      name={showNewOrderSkuMenu ? 'chevron-up' : 'chevron-down'}
+                      size={18}
+                      color="#636E72"
+                    />
+                  </TouchableOpacity>
+                  {showNewOrderSkuMenu && (
+                    <View style={styles.newOrderSelectDropdown}>
+                      <ScrollView
+                        style={styles.newOrderSelectDropdownScroll}
+                        contentContainerStyle={styles.newOrderSelectDropdownContent}
+                        nestedScrollEnabled
+                      >
+                        {selectableSkus.map((sku) => (
+                          <TouchableOpacity
+                            key={sku.id}
+                            style={[
+                              styles.newOrderSelectOption,
+                              selectedSkuId === sku.id && styles.newOrderSelectOptionSelected,
+                            ]}
+                            onPress={() => {
+                              setSelectedSkuId(sku.id);
+                              setShowNewOrderSkuMenu(false);
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <Text
+                              style={[
+                                styles.newOrderSelectOptionTitle,
+                                selectedSkuId === sku.id && styles.newOrderSelectOptionTitleSelected,
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {sku.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                </View>
+              )}
+            </View>
+            <View style={[styles.modalActions, { marginTop: 80 }]}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setNewOrderModalVisible(false)}
+                activeOpacity={0.7}
+              >
                 <Text style={styles.modalCancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={[styles.modalConfirmBtn, (!selectedSkuId || creatingOrder) && styles.modalConfirmBtnDisabled]}
+                style={[
+                  styles.modalConfirmBtn,
+                  (!selectedSkuId || creatingOrder) && styles.modalConfirmBtnDisabled,
+                ]}
                 onPress={confirmCreateAndClose}
                 disabled={!selectedSkuId || creatingOrder}
+                activeOpacity={0.7}
               >
                 {creatingOrder ? (
                   <ActivityIndicator size="small" color="#fff" />
@@ -573,9 +607,15 @@ export default function FirmClientDetailScreen() {
                 )}
               </TouchableOpacity>
             </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+          </ScrollView>
+
+          {/* Right: full-height SKU preview, reusing Add client viewer */}
+          <View style={styles.newOrderRight}>
+            <Text style={styles.newOrderPreviewTitle}>Service preview</Text>
+            <SkuPreview sku={skus.find((s) => s.id === selectedSkuId) ?? null} />
+          </View>
+        </View>
+      </CenterModal>
 
       <Modal visible={showAssigneePicker} transparent animationType="fade" onRequestClose={() => setShowAssigneePicker(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => setShowAssigneePicker(false)}>
@@ -843,4 +883,133 @@ const styles = StyleSheet.create({
   },
   modalConfirmBtnDisabled: { opacity: 0.6 },
   modalConfirmText: { fontSize: 14, color: '#fff', fontWeight: '600' },
+  newOrderRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 24,
+  },
+  newOrderLeftScroll: {
+    maxHeight: 560,
+    flex: 1,
+  },
+  newOrderLeftContent: {
+    padding: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  newOrderSubtitle: {
+    fontSize: 13,
+    color: '#636E72',
+    lineHeight: 18,
+    marginBottom: 20,
+    flexWrap: 'wrap',
+  },
+  newOrderRight: {
+    width: 400,
+    paddingRight: 12,
+    flexShrink: 0,
+    marginTop: 4,
+    paddingLeft: 8,
+  },
+  newOrderPreviewTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#636E72',
+    marginBottom: 8,
+  },
+  newOrderField: {
+    marginBottom: 16,
+  },
+  newOrderLabel: {
+    fontSize: 13,
+    color: '#636E72',
+    marginBottom: 6,
+    fontWeight: '500',
+  },
+  newOrderValueBox: {
+    fontSize: 14,
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  newOrderValueText: {
+    fontSize: 14,
+    color: '#2D3436',
+  },
+  newOrderSelectWrapper: {
+    marginTop: 4,
+    position: 'relative' as const,
+    zIndex: 50,
+  },
+  newOrderSelect: {
+    minHeight: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#F8F9FA',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  newOrderSelectDisabled: {
+    opacity: 0.6,
+  },
+  newOrderSelectText: {
+    flex: 1,
+    fontSize: 13,
+    color: '#636E72',
+    marginRight: 8,
+  },
+  newOrderSelectPlaceholder: {
+    fontSize: 13,
+    color: '#B2BEC3',
+  },
+  newOrderSelectDropdown: {
+    position: 'absolute',
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#FFFFFF',
+    maxHeight: 220,
+    overflow: 'hidden',
+    zIndex: 9999,
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+  },
+  newOrderSelectDropdownScroll: {
+    maxHeight: 220,
+  },
+  newOrderSelectDropdownContent: {
+    paddingVertical: 4,
+  },
+  newOrderSelectOption: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F0F2F5',
+  },
+  newOrderSelectOptionSelected: {
+    backgroundColor: 'rgba(108,92,231,0.06)',
+  },
+  newOrderSelectOptionTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#2D3436',
+    marginBottom: 2,
+  },
+  newOrderSelectOptionTitleSelected: {
+    color: '#6C5CE7',
+  },
 });
