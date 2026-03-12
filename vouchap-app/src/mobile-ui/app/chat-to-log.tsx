@@ -51,8 +51,7 @@ import {
   requestAudioPermission,
 } from '@/lib/audio';
 import { showToast } from '@/lib/toast';
-import { createClientOnBehalf } from '@/lib/firm-clients';
-import { sendInvitationEmailForId } from '@/lib/space-invitations';
+import { createPendingOrderForInvitee } from '@/lib/firm-clients';
 import { useChatPanel } from '../contexts/ChatPanelContext';
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 import { webInputBlockStyles } from '../styles/web-input-block-styles';
@@ -2679,7 +2678,6 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                             let created = 0;
                             let failed = 0;
                             let lastError: string | null = null;
-                            const invitationIds: string[] = [];
                             const emailTrimmed = (e: string) => (e || '').trim().toLowerCase();
                             for (const item of message.clientPreview.items) {
                               const contactEmail = emailTrimmed(item.email);
@@ -2689,7 +2687,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                                 continue;
                               }
                               const clientName = (item.orgName?.trim() || item.contactName?.trim() || item.email) || 'Client Space';
-                              const { result, error } = await createClientOnBehalf(firmSpaceId, {
+                              const { result, error } = await createPendingOrderForInvitee(firmSpaceId, {
                                 clientName,
                                 contactName: item.contactName?.trim() || '',
                                 contactEmail,
@@ -2700,12 +2698,6 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                                 continue;
                               }
                               created++;
-                              if (result.invitationId) invitationIds.push(result.invitationId);
-                            }
-                            let emailsSent = 0;
-                            if (invitationIds.length > 0) {
-                              const outcomes = await Promise.allSettled(invitationIds.map((id) => sendInvitationEmailForId(id)));
-                              emailsSent = outcomes.filter((o) => o.status === 'fulfilled' && (o as PromiseFulfilledResult<{ emailSent: boolean }>).value.emailSent).length;
                             }
                             setConfirmedClientPreviews((prev) => new Set(prev).add(message.id));
                             setMessages((prev) =>
@@ -2724,12 +2716,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                             if (failed > 0 && created === 0) {
                               showToast(lastError ?? 'Failed to create clients.', 'error');
                             } else {
-                              let toastMsg = failed > 0 ? 'Created ' + created + ' client(s); ' + failed + ' failed.' : 'Created ' + created + ' client(s).';
-                              if (invitationIds.length > 0) {
-                                if (emailsSent === invitationIds.length) toastMsg += ' Invite emails sent.';
-                                else if (emailsSent > 0) toastMsg += ' ' + emailsSent + ' invite email(s) sent; others can see invite in-app.';
-                                else toastMsg += ' Invites created; recipients can see them in-app.';
-                              }
+                              const toastMsg =
+                                failed > 0
+                                  ? 'Created ' + created + ' pending engagement(s); ' + failed + ' failed.'
+                                  : 'Created ' + created + ' pending engagement(s).';
                               showToast(toastMsg, created > 0 ? 'success' : 'error');
                             }
                           } catch (err) {

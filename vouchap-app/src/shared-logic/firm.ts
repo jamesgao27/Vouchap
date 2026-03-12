@@ -565,6 +565,7 @@ export async function getFirmOrders(
     id: row.id,
     firmSpaceId: row.firm_space_id,
     clientSpaceId: row.client_space_id,
+    inviteeClientId: row.invitee_client_id ?? null,
     skuId: row.sku_id,
     status: row.status,
     dueAt: row.due_at ?? null,
@@ -648,7 +649,7 @@ export async function getFirmOrdersWithDetails(
     const project = projectMap[o.id];
     return {
       ...o,
-      clientName: spaceMap[o.clientSpaceId] ?? o.clientSpaceId,
+      clientName: o.clientSpaceId ? spaceMap[o.clientSpaceId] ?? o.clientSpaceId : 'Pending (no client space)',
       skuName: skuMap[o.skuId] ?? o.skuId,
       source: 'Manual',
       assigneeName,
@@ -718,7 +719,8 @@ export async function confirmOrderAndCreateProjectTodos(
     .from('projects')
     .insert({
       firm_space_id: (order as any).firm_space_id,
-      client_space_id: (order as any).client_space_id,
+      // 对于 pending orders，client_space_id 可为空；迁移后会补上真实 client_space_id
+      client_space_id: (order as any).client_space_id ?? null,
       order_id: order.id,
       name: (sku as any).name ?? 'Project',
       description: (sku as any).description ?? null,

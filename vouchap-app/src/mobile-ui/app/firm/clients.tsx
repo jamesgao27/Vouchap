@@ -34,16 +34,16 @@ import QRCode from 'react-native-qrcode-svg';
 import {
   buildFirmClientInviteUrl,
   createFirmClientInviteToken,
-  createClientOnBehalf,
+  createPendingOrderForInvitee,
   getFirmClientInviteHistory,
   setFirmClientInviteActive,
   deleteFirmClientInviteToken,
   type FirmClientInviteToken,
 } from '@/lib/firm-clients';
-import { sendInvitationEmailForId } from '@/lib/space-invitations';
 import { showToast } from '@/lib/toast';
 import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import CenterModal from '@/components/CenterModal';
+import SkuPreview from '@/components/SkuPreview';
 
 function formatServiceStart(iso: string | null): string {
   if (!iso) return '—';
@@ -212,6 +212,7 @@ export default function FirmClientsScreen() {
   const [addClientContactName, setAddClientContactName] = useState('');
   const [addClientContactEmail, setAddClientContactEmail] = useState('');
   const [addClientSkuId, setAddClientSkuId] = useState<string | null>(null);
+  const [addClientSendInvite, setAddClientSendInvite] = useState(true);
   const [addClientSubmitting, setAddClientSubmitting] = useState(false);
   const [addClientError, setAddClientError] = useState<string | null>(null);
 
@@ -610,14 +611,25 @@ export default function FirmClientsScreen() {
     }
   }, [inviteFromHistory]);
 
-  const handleOpenAddClientModal = useCallback(() => {
+  const handleOpenAddClientModal = useCallback(async () => {
     setShowAddClientModal(true);
     setAddClientError(null);
     setAddClientClientName('');
     setAddClientContactName('');
     setAddClientContactEmail('');
     setAddClientSkuId(null);
-  }, []);
+    setAddClientSendInvite(true);
+    if (firmSpaceId && inviteSkus.length === 0) {
+      const all = await getFirmSkus(firmSpaceId);
+      const skus = all.filter(
+        (s) => (s.templateStatus != null ? s.templateStatus !== 'draft' : (s.isPublished === true || !!s.taxCountry || !!s.taxScenario))
+      );
+      setInviteSkus(skus);
+      setAddClientSkuId(skus.length > 0 ? skus[0].id : null);
+    } else {
+      setAddClientSkuId(inviteSkus.length > 0 ? inviteSkus[0].id : null);
+    }
+  }, [firmSpaceId, inviteSkus.length, inviteSkus]);
   const handleCloseAddClientModal = useCallback(() => {
     setShowAddClientModal(false);
     setAddClientError(null);
@@ -625,42 +637,29 @@ export default function FirmClientsScreen() {
   const handleAddClientSubmit = useCallback(async () => {
     if (!firmSpaceId) return;
     const email = (addClientContactEmail || '').trim().toLowerCase();
-    if (!email) {
-      setAddClientError('Contact email is required.');
-      return;
-    }
+    // Invite checkbox now only indicates whether we plan to invite this contact later; it does not send any email here.
     setAddClientSubmitting(true);
     setAddClientError(null);
-    const { result, error } = await createClientOnBehalf(firmSpaceId, {
+    const { result, error } = await createPendingOrderForInvitee(firmSpaceId, {
       clientName: addClientClientName.trim(),
       contactName: addClientContactName.trim(),
-      contactEmail: email,
-      skuId: addClientSkuId ?? undefined,
+      contactEmail: email || '',
+      skuId: (addClientSkuId ?? '') as string,
     });
     setAddClientSubmitting(false);
     if (error) {
       setAddClientError(error.message);
       return;
     }
-    if (result?.invitationId) {
-      try {
-        const { emailSent } = await sendInvitationEmailForId(result.invitationId);
-        if (emailSent) {
-          showToast('Client created. Invitation email sent.', 'success');
-        } else {
-          showToast('Client created. They can see the invite in-app.', 'success');
-        }
-      } catch {
-        showToast('Client created. Invitation email could not be sent. Check Supabase Auth SMTP.', 'info');
-      }
-    }
+    showToast('Pending engagement created.', 'success');
     setShowAddClientModal(false);
     setAddClientClientName('');
     setAddClientContactName('');
     setAddClientContactEmail('');
-    setAddClientSkuId(null);
+    setAddClientSkuId(inviteSkus.length > 0 ? inviteSkus[0].id : null);
+    setAddClientSendInvite(true);
     await loadData(true);
-  }, [firmSpaceId, addClientClientName, addClientContactName, addClientContactEmail, addClientSkuId, loadData]);
+  }, [firmSpaceId, addClientClientName, addClientContactName, addClientContactEmail, addClientSkuId, addClientSendInvite, inviteSkus, loadData]);
 
   const renderMobileList = () => (
     <View style={styles.container}>
@@ -1312,72 +1311,144 @@ export default function FirmClientsScreen() {
         visible={showAddClientModal}
         title="Add client"
         onClose={handleCloseAddClientModal}
-        maxWidth={420}
-        cardHeight={450}
+        maxWidth={840}
+        cardHeight={660}
       >
-        <View style={styles.addClientForm}>
-          <Text style={styles.addClientSubtitle}>
-            Create a client space on behalf of the client and send them a space invitation. They will be admin of the space; you will be a member.
-          </Text>
-          <View style={styles.addClientField}>
-            <Text style={styles.addClientLabel}>Client name</Text>
-            <TextInput
-              style={styles.addClientInput}
-              placeholder="Company or client name"
-              placeholderTextColor="#95A5A6"
-              value={addClientClientName}
-              onChangeText={setAddClientClientName}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+        <View style={styles.addClientFormRow}>
+          {/* Left: form & actions (scrollable) */}
+          <ScrollView
+            style={styles.addClientFormScroll}
+            contentContainerStyle={styles.addClientFormScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={styles.addClientSubtitle}>
+              Create a pending engagement for this client. You can invite them to register and claim it later.
+            </Text>
+            <View style={styles.addClientLeft}>
+              <View style={styles.addClientField}>
+                <Text style={styles.addClientLabel}>Client name</Text>
+                <TextInput
+                  style={styles.addClientInput}
+                  placeholder="Company or client name"
+                  placeholderTextColor="#95A5A6"
+                  value={addClientClientName}
+                  onChangeText={setAddClientClientName}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+              <View style={styles.addClientField}>
+                <Text style={styles.addClientLabel}>Contact name</Text>
+                <TextInput
+                  style={styles.addClientInput}
+                  placeholder="Contact person name"
+                  placeholderTextColor="#95A5A6"
+                  value={addClientContactName}
+                  onChangeText={setAddClientContactName}
+                  autoCapitalize="words"
+                />
+              </View>
+              <View style={styles.addClientField}>
+                <Text style={styles.addClientLabel}>
+                  Contact email {addClientSendInvite ? '*' : '(optional)'}
+                </Text>
+                <TextInput
+                  style={styles.addClientInput}
+                  placeholder="email@example.com"
+                  placeholderTextColor="#95A5A6"
+                  value={addClientContactEmail}
+                  onChangeText={setAddClientContactEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                />
+              </View>
+              <View style={styles.addClientField}>
+                <Text style={styles.addClientLabel}>Service template</Text>
+                <View style={styles.addClientSkuList}>
+                  {inviteSkus.length === 0 ? (
+                    <Text style={styles.addClientHint}>Configure Service Catalog in the Firm module first.</Text>
+                  ) : (
+                    inviteSkus.map((sku, idx) => (
+                      <TouchableOpacity
+                        key={sku.id}
+                        style={[
+                          styles.addClientSkuRow,
+                          addClientSkuId === sku.id && styles.addClientSkuRowSelected,
+                          idx === inviteSkus.length - 1 && { borderBottomWidth: 0 },
+                        ]}
+                        onPress={() => setAddClientSkuId(sku.id)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name={addClientSkuId === sku.id ? 'radio-button-on' : 'radio-button-off'}
+                          size={20}
+                          color={addClientSkuId === sku.id ? '#6C5CE7' : '#95A5A6'}
+                          style={{ marginRight: 8 }}
+                        />
+                        <Text style={[styles.addClientSkuName, addClientSkuId === sku.id && styles.addClientSkuNameSelected]} numberOfLines={1}>
+                          {sku.name}
+                        </Text>
+                      </TouchableOpacity>
+                    ))
+                  )}
+                </View>
+              </View>
+              {addClientError ? (
+                <Text style={styles.addClientError}>{addClientError}</Text>
+              ) : null}
+            </View>
+
+            <View style={styles.addClientBtnRow}>
+              <TouchableOpacity style={styles.addClientSecondaryBtn} onPress={handleCloseAddClientModal} activeOpacity={0.7}>
+                <Text style={styles.addClientSecondaryBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <TouchableOpacity
+                  style={[
+                    styles.addClientPrimaryBtn,
+                    addClientSubmitting && styles.invitePrimaryBtnDisabled,
+                    { marginRight: 12 },
+                  ]}
+                  onPress={handleAddClientSubmit}
+                  disabled={addClientSubmitting}
+                  activeOpacity={0.7}
+                >
+                  {addClientSubmitting ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.addClientPrimaryBtnText}>
+                      {addClientSendInvite ? 'Create & plan invite' : 'Create without invite'}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+                {/* 预留未来“发送邀请”真正生效时的开关，当前仅改变按钮文案 */}
+                <TouchableOpacity
+                  style={styles.addClientCheckboxRow}
+                  onPress={() => setAddClientSendInvite((v) => !v)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={addClientSendInvite ? 'checkbox' : 'checkbox-outline'}
+                    size={18}
+                    color={addClientSendInvite ? '#6C5CE7' : '#B2BEC3'}
+                    style={{ marginRight: 6 }}
+                  />
+                  <Text style={[styles.addClientCheckboxLabel, { fontSize: 12 }]}>
+                    Send registration invite email
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+            <Text style={styles.addClientHint}>
+              Tips: You can also send client info to Cody and process them in batch.
+            </Text>
+          </ScrollView>
+
+          {/* Right: full-height SKU preview area */}
+          <View style={styles.addClientRight}>
+            <SkuPreview sku={inviteSkus.find((s) => s.id === addClientSkuId) ?? null} />
           </View>
-          <View style={styles.addClientField}>
-            <Text style={styles.addClientLabel}>Contact name</Text>
-            <TextInput
-              style={styles.addClientInput}
-              placeholder="Contact person name"
-              placeholderTextColor="#95A5A6"
-              value={addClientContactName}
-              onChangeText={setAddClientContactName}
-              autoCapitalize="words"
-            />
-          </View>
-          <View style={styles.addClientField}>
-            <Text style={styles.addClientLabel}>Contact email *</Text>
-            <TextInput
-              style={styles.addClientInput}
-              placeholder="email@example.com"
-              placeholderTextColor="#95A5A6"
-              value={addClientContactEmail}
-              onChangeText={setAddClientContactEmail}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-          </View>
-          {addClientError ? (
-            <Text style={styles.addClientError}>{addClientError}</Text>
-          ) : null}
-          <View style={styles.addClientBtnRow}>
-            <TouchableOpacity style={styles.addClientSecondaryBtn} onPress={handleCloseAddClientModal} activeOpacity={0.7}>
-              <Text style={styles.addClientSecondaryBtnText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.addClientPrimaryBtn, addClientSubmitting && styles.invitePrimaryBtnDisabled]}
-              onPress={handleAddClientSubmit}
-              disabled={addClientSubmitting}
-              activeOpacity={0.7}
-            >
-              {addClientSubmitting ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={styles.addClientPrimaryBtnText}>Create & send invite</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-          <Text style={styles.addClientHint}>
-            Tips: Try sending client info to Cody — batch works too.
-          </Text>
         </View>
       </CenterModal>
       {Platform.OS === 'web' &&
@@ -1947,6 +2018,85 @@ const styles = StyleSheet.create({
     padding: 20,
     paddingTop: 8,
     paddingBottom: 12,
+  },
+  addClientFormScroll: {
+    maxHeight: 540,
+  },
+  addClientFormScrollContent: {
+    padding: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
+  },
+  addClientFormRow: {
+    flexDirection: 'row',
+    gap: 24,
+  },
+  addClientLeft: {
+    flex: 1,
+  },
+  addClientRight: {
+    flex: 1,
+  },
+  addClientSkuList: {
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    borderRadius: 8,
+    backgroundColor: '#F8F9FA',
+  },
+  addClientSkuRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9ECEF',
+  },
+  addClientSkuRowSelected: {
+    backgroundColor: '#EDE9F7',
+  },
+  addClientSkuName: {
+    fontSize: 14,
+    color: '#2D3436',
+    flex: 1,
+  },
+  addClientSkuNameSelected: {
+    fontWeight: '600',
+    color: '#6C5CE7',
+  },
+  addClientSkuPreview: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#FDFBFF',
+  },
+  addClientSkuPreviewTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2D3436',
+    marginBottom: 4,
+  },
+  addClientSkuPreviewDesc: {
+    fontSize: 13,
+    color: '#636E72',
+    lineHeight: 18,
+  },
+  addClientSkuPreviewDescMuted: {
+    fontSize: 13,
+    color: '#B2BEC3',
+    fontStyle: 'italic',
+  },
+  addClientCheckboxRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  addClientCheckboxLabel: {
+    fontSize: 13,
+    color: '#2D3436',
+    flex: 1,
   },
   addClientSubtitle: {
     fontSize: 13,

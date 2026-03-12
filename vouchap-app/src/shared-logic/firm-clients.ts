@@ -342,15 +342,19 @@ export async function createClientOnBehalf(
     contactName: string;
     contactEmail: string;
     skuId?: string | null;
+    /** When false, only create space + client + order; do not create invitation. Contact email optional. */
+    createInvitation?: boolean;
   }
 ): Promise<{ result: CreateClientOnBehalfResult | null; error: Error | null }> {
   try {
+    const createInvitation = params.createInvitation !== false;
     const { data, error } = await supabase.rpc('firm_create_client_on_behalf', {
       p_firm_space_id: firmSpaceId,
       p_client_name: (params.clientName || '').trim(),
       p_contact_name: (params.contactName || '').trim(),
       p_contact_email: (params.contactEmail || '').trim(),
       p_sku_id: params.skuId ?? null,
+      p_create_invitation: createInvitation,
     });
     if (error) {
       if (typeof __DEV__ !== 'undefined' && __DEV__) {
@@ -385,6 +389,107 @@ export async function createClientOnBehalf(
           ? (e as { message: string }).message
           : 'Failed to create client on behalf';
     return { result: null, error: new Error(msg) };
+  }
+}
+
+// ---------------- Migration-mode helpers: pending orders on single firm.orders table ----------------
+
+export interface CreatePendingOrderForInviteeResult {
+  orderId: string;
+  firmSpaceId: string;
+  inviteeClientId: string;
+  inviteeEmail: string;
+}
+
+/** Firm 迁移模式：为某 invitee 创建 pending order（不创建 client space，仅 firm 可见） */
+export async function createPendingOrderForInvitee(
+  firmSpaceId: string,
+  params: {
+    clientName: string;
+    contactName: string;
+    contactEmail: string;
+    skuId: string;
+  }
+): Promise<{ result: CreatePendingOrderForInviteeResult | null; error: Error | null }> {
+  try {
+    const { data, error } = await supabase.rpc('firm_create_pending_order_for_invitee', {
+      p_firm_space_id: firmSpaceId,
+      p_client_name: (params.clientName || '').trim(),
+      p_contact_name: (params.contactName || '').trim(),
+      p_contact_email: (params.contactEmail || '').trim(),
+      p_sku_id: params.skuId,
+    });
+    if (error) {
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.error('[createPendingOrderForInvitee] RPC error object:', error);
+      }
+      const err = error as { message?: string; details?: string; hint?: string; code?: string };
+      const parts = [err.message, err.details, err.hint].filter(Boolean);
+      const msg = parts.length ? parts.join(' ') : 'Failed to create pending order for invitee';
+      return { result: null, error: new Error(msg) };
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row?.order_id) {
+      return { result: null, error: new Error('Unexpected response from server for pending order') };
+    }
+    return {
+      result: {
+        orderId: row.order_id,
+        firmSpaceId: row.firm_space_id,
+        inviteeClientId: row.invitee_client_id,
+        inviteeEmail: row.invitee_email,
+      },
+      error: null,
+    };
+  } catch (e) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.error('[createPendingOrderForInvitee] catch:', e);
+    }
+    const msg =
+      e instanceof Error
+        ? e.message
+        : typeof (e as { message?: string })?.message === 'string'
+          ? (e as { message: string }).message
+          : 'Failed to create pending order for invitee';
+    return { result: null, error: new Error(msg) };
+  }
+}
+
+/** Firm 迁移模式：将某 invitee 的所有 pending orders 绑定到指定 client_space_id（原地更新 firm.orders） */
+export async function migratePendingOrdersToClientSpace(
+  firmSpaceId: string,
+  inviteeClientId: string,
+  clientSpaceId: string
+): Promise<{ migratedOrderIds: string[]; error: Error | null }> {
+  try {
+    const { data, error } = await supabase.rpc('migrate_pending_orders_to_client_space', {
+      p_firm_space_id: firmSpaceId,
+      p_invitee_client_id: inviteeClientId,
+      p_client_space_id: clientSpaceId,
+    });
+    if (error) {
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.error('[migratePendingOrdersToClientSpace] RPC error object:', error);
+      }
+      const err = error as { message?: string; details?: string; hint?: string; code?: string };
+      const parts = [err.message, err.details, err.hint].filter(Boolean);
+      const msg = parts.length ? parts.join(' ') : 'Failed to migrate pending orders';
+      return { migratedOrderIds: [], error: new Error(msg) };
+    }
+    const rows = Array.isArray(data) ? data : data ? [data] : [];
+    const ids = rows.map((r: any) => r.order_id as string).filter(Boolean);
+    return { migratedOrderIds: ids, error: null };
+  } catch (e) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.error('[migratePendingOrdersToClientSpace] catch:', e);
+    }
+    const msg =
+      e instanceof Error
+        ? e.message
+        : typeof (e as { message?: string })?.message === 'string'
+          ? (e as { message: string }).message
+          : 'Failed to migrate pending orders';
+    return { migratedOrderIds: [], error: new Error(msg) };
   }
 }
 

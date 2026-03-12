@@ -569,7 +569,10 @@ export type FirmOrderStatus =
 export interface FirmOrder {
   id: string;
   firmSpaceId: string;
-  clientSpaceId: string;
+  /** 对于 pending orders，clientSpaceId 为空，仅由 firm 可见；迁移完成后绑定实际 client space。 */
+  clientSpaceId: string | null;
+  /** 可选：对应 firm.invitee_clients.id，用于在未迁移前按 invitee 视角查看订单 */
+  inviteeClientId?: string | null;
   skuId: string;
   status: FirmOrderStatus;
   dueAt?: string | null;
