@@ -179,9 +179,9 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingHorizontal: 16,
     paddingBottom: 6,
+    justifyContent: 'flex-start',
     minHeight: 560,
     maxHeight: 560,
-    justifyContent: 'flex-start',
   },
   headerRow: {
     flexDirection: 'row',

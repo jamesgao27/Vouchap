@@ -245,7 +245,7 @@ export default function LoginScreen() {
                 <Ionicons name="mail-outline" size={20} color="#636E72" style={styles.inputIcon} />
                 <TextInput
                   style={styles.input}
-                  placeholder="name@company.com"
+                  placeholder="name@example.com"
                   underlineColorAndroid="transparent"
                   placeholderTextColor="#95A5A6"
                   value={email}

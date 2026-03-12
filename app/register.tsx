@@ -224,7 +224,7 @@ export default function RegisterScreen() {
                 <TextInput
                   ref={emailInputRef}
                   style={stylesWeb.input}
-                  placeholder="name@company.com"
+                  placeholder="name@example.com"
                   placeholderTextColor="#95A5A6"
                   value={email}
                   onChangeText={setEmail}

@@ -185,7 +185,7 @@ export default function ResetPasswordScreen() {
                 <Ionicons name="mail-outline" size={20} color="#636E72" style={stylesWeb.inputIcon} />
                 <TextInput
                   style={stylesWeb.input}
-                  placeholder="name@company.com"
+                  placeholder="name@example.com"
                   placeholderTextColor="#95A5A6"
                   value={email}
                   onChangeText={setEmail}
