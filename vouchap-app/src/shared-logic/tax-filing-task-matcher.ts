@@ -137,6 +137,27 @@ export async function classifyTaxDocumentAndPickTask(
     }
   }
 
-  // 识别失败或无有效 task_id 时兜底：使用第一个任务
-  return { taskId: tasks[0].id };
+  // 识别失败或无有效 task_id 时兜底：优先「Other」字眼任务，否则第一个任务
+  return { taskId: getFallbackTaskId(tasks) };
+}
+
+/** 标题是否含「其他」类字样（多语言：英 other、中 其他/其它/其余、法 autre、西 otro 等），用于 fallback task 匹配 */
+function isOtherLikeTitle(title: string): boolean {
+  const t = title.trim();
+  if (!t) return false;
+  if (/other/i.test(t)) return true;
+  if (/其他|其它|其余/.test(t)) return true;
+  if (/autre/i.test(t)) return true;
+  if (/otro|otros|otra|otras/i.test(t)) return true;
+  return false;
+}
+
+/**
+ * 匹配不上 task 的文件应关联到的 task id：优先标题含「其他」类字样的任务（多语言），否则第一个 task。
+ * 仅用于 Tina（tax-filing）分类失败或无法识别时仍保留文件链接并关联到固定 task。
+ */
+export function getFallbackTaskId(tasks: TaxDocumentTaskOption[]): string {
+  if (tasks.length === 0) throw new Error('No tasks to match');
+  const otherTask = tasks.find((t) => isOtherLikeTitle(t.title));
+  return (otherTask ?? tasks[0]).id;
 }

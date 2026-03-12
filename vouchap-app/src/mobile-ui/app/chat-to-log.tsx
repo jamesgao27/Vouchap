@@ -36,7 +36,7 @@ import { getChatToLogAllowedTypes, getChatToLogAllowedTypeValues } from '@/lib/c
 import { getAssistantInfo, getInputPlaceholder } from '../../shared-logic/assistant-config';
 import { uploadTaxFilingFile, uploadReceiptImageTempWithSpace } from '@/lib/supabase';
 import { getProjectById, getProjectTodosTree, createProjectTodoAttachment, updateProjectTodoAttachment, getProjectTodoAttachmentById, buildExtractedPreview, type ProjectTodoNode } from '@/lib/firm';
-import { classifyTaxDocumentAndPickTask } from '@/lib/tax-filing-task-matcher';
+import { classifyTaxDocumentAndPickTask, getFallbackTaskId } from '@/lib/tax-filing-task-matcher';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
 import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound, ExtractedClient, ClientRecognitionResult } from '@/types';
 import { convertGeminiResultToReceipt, convertGeminiResultToInvoice, convertGeminiResultToInbound, convertGeminiResultToOutbound } from '@/lib/receipt-helpers';
@@ -1237,17 +1237,15 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               let todoId: string;
               if (isImage) {
                 fileUrl = await uploadTaxFilingFile(file.uri, `chat-attach-${Date.now()}-${i}`, clientSpaceId);
-                const classified = await classifyTaxDocumentAndPickTask(fileUrl, projectContext, attachmentTaskOptions);
-                todoId = classified.taskId;
+                try {
+                  const classified = await classifyTaxDocumentAndPickTask(fileUrl, projectContext, attachmentTaskOptions);
+                  todoId = classified.taskId;
+                } catch {
+                  todoId = getFallbackTaskId(attachmentTaskOptions);
+                }
               } else {
                 fileUrl = await uploadTaxFilingFile(file.uri, `chat-attach-${Date.now()}-${i}`, clientSpaceId, { fileName: file.name, mimeType: file.mimeType });
-                todoId = attachmentTaskOptions[0]?.id ?? '';
-                if (!todoId) {
-                  showToast('No task available for document.', 'error');
-                  removeFromStaged();
-                  appendMessages([{ id: `attach-err-${file.id}`, text: `❌ ${file.name ?? 'File'} failed`, isUser: false, timestamp: new Date() }]);
-                  continue;
-                }
+                todoId = getFallbackTaskId(attachmentTaskOptions);
               }
               const createResult = await createProjectTodoAttachment(todoId, fileUrl, { status: 'PENDING_AI' });
               if ('error' in createResult) {
@@ -1296,7 +1294,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 const recognitionResult = await runWithRecognitionRetry(recognizeFn, { maxAttempts: 3, delayMs: 1500 });
 
                 if (!recognitionResult.success) {
-                  // 读取当前失败次数并递增
+                  // Tina only: 识别失败也保留附件，文件已关联到 task 可预览；其他助理无此逻辑，直接反馈失败
                   const latest = await getProjectTodoAttachmentById(attachmentId);
                   const currentFailCount =
                     (latest as any)?.recognition_fail_count != null ? Number((latest as any).recognition_fail_count) || 0 : 0;
@@ -1312,10 +1310,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   const errText = recognitionResult.isContentQuality
                     ? '❌ Content unclear or not recognized. Please resubmit.'
                     : `❌ ${getUserFacingMessage(recognitionResult)}`;
+                  const hint = ' The file is attached to the task for preview.';
                   setMessages((prev) =>
                     prev.map((m) =>
                       m.id === loadingCardId
-                        ? { id: m.id, text: errText, isUser: false, timestamp: new Date() }
+                        ? { id: m.id, text: errText + hint, isUser: false, timestamp: new Date() }
                         : m
                     )
                   );
