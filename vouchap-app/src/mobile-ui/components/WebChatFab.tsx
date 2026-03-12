@@ -84,6 +84,29 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
     }
   }, []);
 
+  const pickFoldersForSend = useCallback(() => {
+    if (typeof document === 'undefined') return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    input.multiple = true;
+    (input as any).webkitdirectory = true;
+    (input as any).directory = true;
+    input.onchange = (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      const files = target.files;
+      if (!files?.length) return;
+      const now = Date.now();
+      const next: StagedAttachmentFile[] = Array.from(files).map((f, i) => ({
+        id: `web-dir-${now}-${i}-${f.name}`,
+        uri: URL.createObjectURL(f),
+        name: f.name,
+      }));
+      setStagedAttachmentFiles(prev => [...prev, ...next]);
+    };
+    input.click();
+  }, []);
+
   // 与当前页一致：右侧栏关闭时同步提交类别
   useEffect(() => {
     if (!open) setType(type);
@@ -180,11 +203,14 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
                 />
               </View>
             </TouchableOpacity>
-            <View style={[webInputBlockStyles.webInputActionsRow, styles.expandedActionsRowRight]}>
+              <View style={[webInputBlockStyles.webInputActionsRow, styles.expandedActionsRowRight]}>
               <View style={webInputBlockStyles.webInputActionsLeftGroup}>
                 <View style={webInputBlockStyles.webInputActionsLeft}>
                   <TouchableOpacity style={webInputBlockStyles.webActionIcon} onPress={pickImagesForSend}>
                     <Ionicons name="image-outline" size={22} color="#636E72" />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={webInputBlockStyles.webActionIcon} onPress={pickFoldersForSend}>
+                    <Ionicons name="folder-open-outline" size={22} color="#636E72" />
                   </TouchableOpacity>
                 </View>
                 <View style={webInputBlockStyles.webTypeDropdownWrap} nativeID="webchatfab-type-dropdown">

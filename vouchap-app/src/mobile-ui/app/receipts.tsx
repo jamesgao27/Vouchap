@@ -67,7 +67,8 @@ const getCurrencySymbol = (currency?: string): string => {
     USD: '$',
     CAD: 'C$',
     CNY: '¥',
-    JPY: '¥',
+    RMB: '¥',
+    JPY: 'J¥',
     EUR: '€',
     GBP: '£',
     AUD: 'A$',
@@ -119,7 +120,7 @@ export default function ReceiptsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
-  const [groupBy, setGroupBy] = useState<GroupByType>('recordDate');
+  const [groupBy, setGroupBy] = useState<GroupByType>(Platform.OS === 'web' ? 'month' : 'recordDate');
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [groupPopoverRect, setGroupPopoverRect] = useState<{ left: number; top: number } | null>(null);

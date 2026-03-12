@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
   View,
@@ -35,6 +35,7 @@ import { Receipt, ReceiptItem, Category, Purpose, ReceiptStatus, Account } from 
 import { format } from 'date-fns';
 import { showToast } from '@/lib/toast';
 import { showChoiceDialog } from '@/lib/confirmDialog';
+import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 
 export default function ReceiptDetailsScreen() {
   const { id, new: isNew } = useLocalSearchParams<{ id: string; new?: string }>();
@@ -74,6 +75,7 @@ export default function ReceiptDetailsScreen() {
     targetId?: string;
     targetSource?: 'supplier' | 'customer';
   } | null>(null);
+  const [fileDetailForModal, setFileDetailForModal] = useState<FileDetailModalFile | null>(null);
 
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
@@ -817,7 +819,18 @@ export default function ReceiptDetailsScreen() {
             <TouchableOpacity
               onPress={() => {
                 if (currentReceipt.imageUrl) {
-                  setShowImageModal(true);
+                  const isPdf = currentReceipt.imageUrl.toLowerCase().endsWith('.pdf');
+                  if (isPdf) {
+                    const file: FileDetailModalFile = {
+                      id: `receipt-doc-${currentReceipt.id}`,
+                      name: currentReceipt.storeName || currentReceipt.supplierName || 'Expense document',
+                      imageUrl: currentReceipt.imageUrl,
+                      hideRightPanel: true,
+                    };
+                    setFileDetailForModal(file);
+                  } else {
+                    setShowImageModal(true);
+                  }
                 } else {
                   handleImagePicker();
                 }
@@ -971,27 +984,51 @@ export default function ReceiptDetailsScreen() {
                   </View>
                 </View>
                 <View style={styles.dateContainer}>
-                  {editing ? (
-                    <TouchableOpacity
-                      style={styles.dateTouchable}
-                      onPress={() => setShowDatePicker(true)}
-                      activeOpacity={0.7}
-                    >
-                      <View style={styles.dateTag}>
-                        <Text style={styles.dateText}>
-                          {editedReceipt?.date ? formatDate(editedReceipt.date) : 'Select date'}
-                        </Text>
-                        <Ionicons
-                          name="chevron-down"
-                          size={14}
-                          color="#6C5CE7"
-                          style={styles.tagIcon}
-                        />
-                      </View>
-                    </TouchableOpacity>
-                  ) : (
-                    <Text style={styles.date}>{formatDate(currentReceipt.date)}</Text>
-                  )}
+              {editing ? (
+                Platform.OS === 'web' ? (
+                  <View style={styles.dateTouchable}>
+                    {React.createElement('input', {
+                      type: 'date',
+                      value: editedReceipt?.date || currentReceipt.date || '',
+                      onChange: (e: any) => {
+                        const v = (e.target as HTMLInputElement).value;
+                        if (!v) return;
+                        const [year, month, day] = v.split('-').map((n) => parseInt(n, 10));
+                        if (!year || !month || !day) return;
+                        const d = new Date(year, month - 1, day);
+                        handleDateChange({ type: 'set' }, d);
+                      },
+                      style: {
+                        width: '100%',
+                        padding: 6,
+                        borderRadius: 999,
+                        border: '1px solid #CED4DA',
+                        fontSize: 13,
+                      },
+                    })}
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={styles.dateTouchable}
+                    onPress={() => setShowDatePicker(true)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.dateTag}>
+                      <Text style={styles.dateText}>
+                        {editedReceipt?.date ? formatDate(editedReceipt.date) : 'Select date'}
+                      </Text>
+                      <Ionicons
+                        name="chevron-down"
+                        size={14}
+                        color="#6C5CE7"
+                        style={styles.tagIcon}
+                      />
+                    </View>
+                  </TouchableOpacity>
+                )
+              ) : (
+                <Text style={styles.date}>{formatDate(currentReceipt.date)}</Text>
+              )}
                 </View>
               </View>
               {currentReceipt.createdAt && (
@@ -1281,8 +1318,8 @@ export default function ReceiptDetailsScreen() {
         </TouchableOpacity>
       )}
       
-      {/* 确认按钮 - 只在pending状态且不在编辑模式时显示 */}
-      {!editing && currentReceipt.status === 'pending' && (
+      {/* 确认按钮 - 在 pending / needs_retake 状态且不在编辑模式时显示 */}
+      {!editing && (currentReceipt.status === 'pending' || currentReceipt.status === 'needs_retake') && (
         <TouchableOpacity
           style={[styles.fab, styles.confirmFab]}
           onPress={handleConfirm}
@@ -1314,6 +1351,20 @@ export default function ReceiptDetailsScreen() {
           )}
         </View>
       </Modal>
+
+      {fileDetailForModal && (
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          onRequestClose={() => setFileDetailForModal(null)}
+        >
+          <FileDetailModal
+            file={fileDetailForModal}
+            onClose={() => setFileDetailForModal(null)}
+          />
+        </Modal>
+      )}
 
       {/* Duplicate name: Replace only this / Replace all (Merge) / Save as original */}
       <Modal
@@ -1861,13 +1912,35 @@ export default function ReceiptDetailsScreen() {
                 </View>
               </TouchableOpacity>
             </Modal>
-          ) : (
+          ) : Platform.OS === 'android' ? (
             <DateTimePicker
               value={editedReceipt?.date ? parseLocalDate(editedReceipt.date) : new Date()}
               mode="date"
               display="default"
               onChange={handleDateChange}
             />
+          ) : (
+            <View style={styles.webDatePickerWrapper}>
+              {React.createElement('input', {
+                type: 'date',
+                value: editedReceipt?.date || currentReceipt.date || '',
+                onChange: (e: any) => {
+                  const v = (e.target as HTMLInputElement).value;
+                  if (!v) return;
+                  const [year, month, day] = v.split('-').map((n) => parseInt(n, 10));
+                  if (!year || !month || !day) return;
+                  const d = new Date(year, month - 1, day);
+                  handleDateChange({ type: 'set' }, d);
+                },
+                style: {
+                  width: '100%',
+                  padding: 8,
+                  borderRadius: 8,
+                  border: '1px solid #CED4DA',
+                  fontSize: 14,
+                },
+              })}
+            </View>
           )}
         </>
       )}
@@ -1919,6 +1992,9 @@ const styles = StyleSheet.create({
     height: '100%',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  webDatePickerWrapper: {
+    marginTop: 8,
   },
   audioPlayButton: {
     position: 'absolute',

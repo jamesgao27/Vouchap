@@ -32,6 +32,7 @@ import { format } from 'date-fns';
 import { getLocalDateString } from '@/lib/date-utils';
 import { showToast } from '@/lib/toast';
 import { showChoiceDialog } from '@/lib/confirmDialog';
+import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 
 export default function InvoiceDetailsScreen() {
   const { id, new: isNew } = useLocalSearchParams<{ id: string; new?: string }>();
@@ -69,6 +70,7 @@ export default function InvoiceDetailsScreen() {
     targetId?: string;
     targetSource?: 'customer' | 'supplier';
   } | null>(null);
+  const [fileDetailForModal, setFileDetailForModal] = useState<FileDetailModalFile | null>(null);
 
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
@@ -801,7 +803,24 @@ export default function InvoiceDetailsScreen() {
         <View style={styles.summaryCard}>
           <View style={styles.imageContainer}>
             <TouchableOpacity
-              onPress={() => (currentInvoice.imageUrl ? setShowImageModal(true) : handleImagePicker())}
+              onPress={() => {
+                if (currentInvoice.imageUrl) {
+                  const isPdf = currentInvoice.imageUrl.toLowerCase().endsWith('.pdf');
+                  if (isPdf) {
+                    const file: FileDetailModalFile = {
+                      id: `invoice-doc-${currentInvoice.id}`,
+                      name: currentInvoice.customerName || currentInvoice.customer?.name || 'Income document',
+                      imageUrl: currentInvoice.imageUrl,
+                      hideRightPanel: true,
+                    };
+                    setFileDetailForModal(file);
+                  } else {
+                    setShowImageModal(true);
+                  }
+                } else {
+                  handleImagePicker();
+                }
+              }}
               style={styles.imagePlaceholder}
               disabled={isUploadingImage}
             >
@@ -1084,7 +1103,7 @@ export default function InvoiceDetailsScreen() {
         </TouchableOpacity>
       )}
 
-      {!editing && currentInvoice.status === 'pending' && (
+      {!editing && (currentInvoice.status === 'pending' || currentInvoice.status === 'needs_retake') && (
         <TouchableOpacity style={[styles.fab, styles.confirmFab]} onPress={handleConfirm}>
           <Ionicons name="checkmark-circle" size={32} color="#fff" />
         </TouchableOpacity>
@@ -1100,6 +1119,20 @@ export default function InvoiceDetailsScreen() {
           )}
         </View>
       </Modal>
+
+      {fileDetailForModal && (
+        <Modal
+          visible
+          transparent
+          animationType="fade"
+          onRequestClose={() => setFileDetailForModal(null)}
+        >
+          <FileDetailModal
+            file={fileDetailForModal}
+            onClose={() => setFileDetailForModal(null)}
+          />
+        </Modal>
+      )}
 
       <Modal visible={showDuplicateNameModal} transparent animationType="fade" onRequestClose={handleDuplicateNameCloseOnly}>
         <TouchableOpacity style={styles.duplicateModalOverlay} activeOpacity={1} onPress={handleDuplicateNameCloseOnly}>

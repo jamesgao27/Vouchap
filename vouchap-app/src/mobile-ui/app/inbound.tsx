@@ -52,7 +52,7 @@ const statusLabels: Record<VoucherStatus, string> = {
 
 const getCurrencySymbol = (currency?: string): string => {
   const symbols: Record<string, string> = {
-    USD: '$', CAD: 'C$', CNY: '¥', JPY: '¥', EUR: '€', GBP: '£', AUD: 'A$',
+    USD: '$', CAD: 'C$', CNY: '¥', RMB: '¥', JPY: 'J¥', EUR: '€', GBP: '£', AUD: 'A$',
     HKD: 'HK$', TWD: 'NT$', KRW: '₩', SGD: 'S$', MXN: 'MX$', INR: '₹',
     THB: '฿', VND: '₫', PHP: '₱', MYR: 'RM', IDR: 'Rp',
   };

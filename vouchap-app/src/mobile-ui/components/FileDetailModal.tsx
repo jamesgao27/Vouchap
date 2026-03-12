@@ -46,6 +46,11 @@ export interface FileDetailModalFile {
   status?: string;
   extracted_data?: unknown;
   extractedPreview?: AttachmentPreviewField[];
+  /**
+   * 当为 true 时，仅展示左侧内嵌文档预览，不展示右侧识别内容。
+   * 供 expenses / income / chat 提交气泡等场景使用。
+   */
+  hideRightPanel?: boolean;
 }
 
 export interface FileDetailModalProps {
@@ -57,7 +62,9 @@ const WEB_CARD_NATIVE_ID = 'file-detail-modal-card';
 const WEB_LEFT_NATIVE_ID = 'file-detail-modal-left';
 
 export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
-  const extractedPreview = file.extractedPreview ?? (file.extracted_data ? buildExtractedPreview(file.extracted_data) : []);
+  const extractedPreview =
+    file.extractedPreview ?? (file.extracted_data ? buildExtractedPreview(file.extracted_data) : []);
+  const showRightPanel = !file.hideRightPanel;
 
   // Web：内嵌预览区左右滚动时禁止触发浏览器前进/后退（横向 wheel + overscroll）
   useEffect(() => {
@@ -80,7 +87,14 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
           <Ionicons name="close" size={24} color="#636E72" />
         </TouchableOpacity>
         <View style={styles.body}>
-          <View nativeID={WEB_LEFT_NATIVE_ID} style={[styles.left, Platform.OS === 'web' && styles.leftWeb]}>
+          <View
+            nativeID={WEB_LEFT_NATIVE_ID}
+            style={[
+              styles.left,
+              Platform.OS === 'web' && styles.leftWeb,
+              !showRightPanel && styles.leftSolo,
+            ]}
+          >
             {!file.imageUrl ? (
               <View style={[styles.thumb, styles.thumbPlaceholder]}>
                 <Ionicons name="document-outline" size={48} color="#BDC3C7" />
@@ -112,23 +126,31 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
               </View>
             )}
           </View>
-          <ScrollView style={styles.right} contentContainerStyle={styles.rightContent} showsVerticalScrollIndicator>
-            <Text style={styles.docType}>{file.docType ?? (file.status === 'PENDING_AI' ? 'Processing…' : 'Attachment')}</Text>
-            {file.status === 'PENDING_AI' && <Text style={styles.pending}>Recognition in progress</Text>}
-            {file.name && file.name !== 'Attachment' && file.name !== 'Processing...' && (
-              <Text style={styles.summary}>{file.name}</Text>
-            )}
-            {extractedPreview.length > 0 && (
-              <View style={styles.preview}>
-                {extractedPreview.map((p, i) => (
-                  <View key={i} style={styles.previewRow}>
-                    <Text style={styles.previewLabel}>{p.label}:</Text>
-                    <Text style={styles.previewValue}>{p.value}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
-          </ScrollView>
+          {showRightPanel && (
+            <ScrollView
+              style={styles.right}
+              contentContainerStyle={styles.rightContent}
+              showsVerticalScrollIndicator
+            >
+              <Text style={styles.docType}>
+                {file.docType ?? (file.status === 'PENDING_AI' ? 'Processing…' : 'Attachment')}
+              </Text>
+              {file.status === 'PENDING_AI' && <Text style={styles.pending}>Recognition in progress</Text>}
+              {file.name && file.name !== 'Attachment' && file.name !== 'Processing...' && (
+                <Text style={styles.summary}>{file.name}</Text>
+              )}
+              {extractedPreview.length > 0 && (
+                <View style={styles.preview}>
+                  {extractedPreview.map((p, i) => (
+                    <View key={i} style={styles.previewRow}>
+                      <Text style={styles.previewLabel}>{p.label}:</Text>
+                      <Text style={styles.previewValue}>{p.value}</Text>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </ScrollView>
+          )}
         </View>
       </View>
     </View>
@@ -159,6 +181,10 @@ const styles = StyleSheet.create({
     padding: 16,
     aspectRatio: 440 / 600,
     alignSelf: 'stretch',
+  },
+  leftSolo: {
+    flex: 1,
+    maxWidth: '100%',
   },
   leftWeb: {
     overscrollBehavior: 'contain',

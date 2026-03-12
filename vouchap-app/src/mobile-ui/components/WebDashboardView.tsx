@@ -353,8 +353,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8F9FA',
-    padding: 24,
-    paddingBottom: 48,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 32,
   },
   header: {
     flexDirection: 'row',
@@ -382,6 +383,8 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignContent: 'space-between',
     gap: CARD_GAP,
   },
   card: {

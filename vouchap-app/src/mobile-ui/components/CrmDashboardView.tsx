@@ -44,7 +44,7 @@ type FollowUpSeries = {
 };
 
 export default function CrmDashboardView() {
-  const { width: screenWidth } = useWindowDimensions();
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<FirmClientWithDetails[]>([]);
   const [orders, setOrders] = useState<FirmOrder[]>([]);
@@ -186,10 +186,10 @@ export default function CrmDashboardView() {
   }, [followUps, authorNames]);
 
   // Align chart proportions with client dashboard visuals
-  const chartWidth = Math.min(screenWidth - 40, 360);
-  const pieSize = Math.min(chartWidth, 200);
-  const barChartH = 160;
-  const lineChartH = 160;
+  const chartWidth = Math.min(screenWidth - 80, 420);
+  const pieSize = Math.min(chartWidth, 220);
+  const barChartH = 180;
+  const lineChartH = 180;
 
   if (loading && Platform.OS === 'web') {
     return (
@@ -207,7 +207,10 @@ export default function CrmDashboardView() {
       </View>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          Platform.OS === 'web' ? { minHeight: Math.max(screenHeight - 160, 480) } : null,
+        ]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.grid}>
@@ -273,8 +276,9 @@ type PieProps = {
 function ClientStatusPie({ width, height, entries }: PieProps) {
   const total = entries.reduce((s, [, v]) => s + v, 0);
   const cx = width / 2;
-  const cy = height / 2 - 8;
-  const r = Math.min(width, height) / 2 - 24;
+  const cy = height / 2;
+  const rOuter = Math.min(width, height) / 2 - 20;
+  const rInner = rOuter * 0.55;
 
   if (entries.length === 0) {
     return (
@@ -288,42 +292,53 @@ function ClientStatusPie({ width, height, entries }: PieProps) {
 
   let acc = 0;
   return (
-    <Svg width={width} height={height} style={{ overflow: 'visible' }}>
+      <Svg width={width} height={height} style={{ overflow: 'visible' }}>
       <G>
         {entries.map(([name, val], i) => {
           const ratio = total ? val / total : 0;
           const color = FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length];
           let slice: JSX.Element;
           if (ratio >= 1 - 1e-9) {
-            slice = <Circle key={name} cx={cx} cy={cy} r={r} fill={color} stroke="#fff" strokeWidth={2} />;
+            slice = <Circle key={name} cx={cx} cy={cy} r={rOuter} fill={color} stroke="#fff" strokeWidth={2} />;
           } else {
             const start = acc * 2 * Math.PI - Math.PI / 2;
             const end = (acc + ratio) * 2 * Math.PI - Math.PI / 2;
-            const x1 = cx + r * Math.cos(start);
-            const y1 = cy + r * Math.sin(start);
-            const x2 = cx + r * Math.cos(end);
-            const y2 = cy + r * Math.sin(end);
+            const x1 = cx + rOuter * Math.cos(start);
+            const y1 = cy + rOuter * Math.sin(start);
+            const x2 = cx + rOuter * Math.cos(end);
+            const y2 = cy + rOuter * Math.sin(end);
             const large = ratio > 0.5 ? 1 : 0;
-            const d = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
+            const d = `M ${cx} ${cy} L ${x1} ${y1} A ${rOuter} ${rOuter} 0 ${large} 1 ${x2} ${y2} Z`;
             slice = <Path key={name} d={d} fill={color} stroke="#fff" strokeWidth={2} />;
           }
           acc += ratio;
           return slice;
         })}
-        <SvgText x={cx} y={cy + 6} textAnchor="middle" fill="#2D3436" fontSize={13}>
+        {/* inner cutout to create donut effect */}
+        <Circle cx={cx} cy={cy} r={rInner} fill="#FFF" />
+        <SvgText x={cx} y={cy - 4} textAnchor="middle" fill="#2D3436" fontSize={13} fontWeight="600">
           {total} clients
         </SvgText>
         {entries.slice(0, 5).map(([name, val], i) => (
-          <SvgText
-            key={name}
-            x={width - 12}
-            y={20 + i * 16}
-            textAnchor="end"
-            fill={FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length]}
-            fontSize={11}
-          >
-            {name} {total ? `${((val / total) * 100).toFixed(0)}%` : ''}
-          </SvgText>
+          <G key={name}>
+            <Rect
+              x={width - 120}
+              y={20 + i * 18 - 8}
+              width={8}
+              height={8}
+              rx={2}
+              fill={FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length]}
+            />
+            <SvgText
+              x={width - 120 + 14}
+              y={20 + i * 18}
+              textAnchor="start"
+              fill="#4B5563"
+              fontSize={11}
+            >
+              {name.length > 14 ? `${name.slice(0, 13)}…` : name} {total ? `${((val / total) * 100).toFixed(0)}%` : ''}
+            </SvgText>
+          </G>
         ))}
       </G>
     </Svg>
@@ -354,6 +369,22 @@ function ClientAssigneeBars({ width, height, entries }: BarProps) {
 
   return (
     <Svg width={width} height={height} style={{ overflow: 'visible' }}>
+      {/* background stripes */}
+      {entries.map(([, ,], i) => {
+        const y = padding.top + i * rowH + rowH * 0.2;
+        const barH = rowH * 0.6;
+        return (
+          <Rect
+            key={`bg-${i}`}
+            x={padding.left}
+            y={y}
+            width={chartW}
+            height={barH}
+            rx={4}
+            fill="#F3F4F6"
+          />
+        );
+      })}
       {entries.map(([name, val], i) => {
         const y = padding.top + i * rowH + rowH * 0.2;
         const barH = rowH * 0.6;
@@ -371,14 +402,7 @@ function ClientAssigneeBars({ width, height, entries }: BarProps) {
             >
               {label}
             </SvgText>
-            <Rect
-              x={padding.left}
-              y={y}
-              width={barW}
-              height={barH}
-              rx={4}
-              fill={color}
-            />
+            <Rect x={padding.left} y={y} width={barW} height={barH} rx={4} fill={color} />
             <SvgText
               x={padding.left + barW + 6}
               y={y + barH / 2 + 3}
@@ -415,6 +439,18 @@ function OrderStatusBars({ width, height, entries }: BarProps) {
 
   return (
     <Svg width={width} height={height} style={{ overflow: 'visible' }}>
+      {/* horizontal grid lines */}
+      {Array.from({ length: 4 }).map((_, idx) => {
+        const y = padding.top + (chartH * (idx + 1)) / 4;
+        return (
+          <Path
+            key={`grid-${idx}`}
+            d={`M ${padding.left} ${y} H ${padding.left + chartW}`}
+            stroke="#E5E7EB"
+            strokeWidth={1}
+          />
+        );
+      })}
       {entries.map(([name, val], i) => {
         const colCenterX = padding.left + (i + 0.5) * colW;
         const barX = colCenterX - barW / 2;
@@ -425,7 +461,7 @@ function OrderStatusBars({ width, height, entries }: BarProps) {
         const color = FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length];
         return (
           <G key={safeName || `bar-${i}`}>
-            <Rect x={barX} y={barY} width={barW} height={barHeight} rx={4} fill={color} />
+            <Rect x={barX} y={barY} width={barW} height={barHeight} rx={6} fill={color} />
             <SvgText
               x={colCenterX}
               y={height - 8}
@@ -468,7 +504,7 @@ function FollowUpLines({ width, height, series }: LineProps) {
     );
   }
 
-  const padding = { top: 16, right: 60, bottom: 24, left: 32 };
+  const padding = { top: 16, right: 60, bottom: 28, left: 32 };
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
   const maxY = Math.max(
@@ -494,6 +530,18 @@ function FollowUpLines({ width, height, series }: LineProps) {
         stroke="#E5E7EB"
         strokeWidth={1}
       />
+      {/* horizontal grid lines */}
+      {Array.from({ length: 4 }).map((_, idx) => {
+        const y = padding.top + (chartH * (idx + 1)) / 4;
+        return (
+          <Path
+            key={`grid-${idx}`}
+            d={`M ${padding.left} ${y} H ${padding.left + chartW}`}
+            stroke="#F3F4F6"
+            strokeWidth={1}
+          />
+        );
+      })}
       {series.map((s, idx) => {
         const pathD = s.points
           .map((p, i) => {
@@ -504,7 +552,14 @@ function FollowUpLines({ width, height, series }: LineProps) {
           .join(' ');
         return (
           <G key={s.assignee}>
+            {/* glow */}
+            <Path d={pathD} stroke={s.color} strokeWidth={4} strokeOpacity={0.18} fill="none" />
             <Path d={pathD} stroke={s.color} strokeWidth={2} fill="none" />
+            {s.points.map((p, i) => {
+              const x = padding.left + (p.x / maxX) * chartW;
+              const y = padding.top + chartH - (p.y / maxY) * chartH;
+              return <Circle key={`${s.assignee}-pt-${i}`} cx={x} cy={y} r={3} fill="#FFF" stroke={s.color} strokeWidth={1.2} />;
+            })}
           </G>
         );
       })}
@@ -551,27 +606,31 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 24,
     paddingTop: 20,
-    paddingBottom: 32,
+    paddingBottom: 20,
   },
   grid: {
+    flex: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'space-between',
-    gap: 24,
+    alignContent: 'space-between',
+    gap: 20,
   },
   card: {
     backgroundColor: '#FFF',
     borderRadius: 16,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#E9ECEF',
+    borderColor: '#E5E7EB',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 3,
-    elevation: 2,
-    marginBottom: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 3,
+    marginBottom: 12,
     width: '100%',
+    minHeight: 320,
+    justifyContent: 'space-between',
     ...(Platform.OS === 'web'
       ? {
           flexBasis: '48%',
@@ -587,6 +646,8 @@ const styles = StyleSheet.create({
   },
   chartContainer: {
     marginTop: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   loadingContainer: {
     flex: 1,

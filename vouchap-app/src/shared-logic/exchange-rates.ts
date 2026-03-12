@@ -76,6 +76,16 @@ export const getExchangeRates = async (): Promise<{ [key: string]: number }> => 
 };
 
 /**
+ * 规范化币种代码（内部使用），处理别名/大小写等。
+ * 例如：RMB -> CNY，cny -> CNY。
+ */
+const normalizeCurrencyCode = (code: string): string => {
+  const upper = (code || '').toUpperCase();
+  if (upper === 'RMB') return 'CNY';
+  return upper;
+};
+
+/**
  * 将金额从一种货币转换为另一种货币
  * @param amount 金额
  * @param fromCurrency 源货币代码
@@ -88,12 +98,15 @@ export const convertCurrency = (
   toCurrency: string,
   rates: { [key: string]: number }
 ): number => {
-  if (fromCurrency === toCurrency) {
+  const from = normalizeCurrencyCode(fromCurrency);
+  const to = normalizeCurrencyCode(toCurrency);
+
+  if (from === to) {
     return amount;
   }
   
-  const fromRate = rates[fromCurrency] || 1;
-  const toRate = rates[toCurrency] || 1;
+  const fromRate = rates[from] || 1;
+  const toRate = rates[to] || 1;
   
   // 先转换为 USD，再转换为目标货币
   const usdAmount = amount / fromRate;

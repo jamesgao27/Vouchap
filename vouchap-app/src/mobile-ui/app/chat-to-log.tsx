@@ -120,9 +120,23 @@ function isRecognitionResultUnrecognizable(result: { confidence?: number }): boo
 
 /** 是否图片类型（用于展示缩略图 vs 文档图标） */
 const isImageMime = (mime?: string) => !mime || mime.startsWith('image/');
-/** 是否 PDF（按文件名或 mime） */
-const isPdfFile = (name?: string, mime?: string) =>
-  (name?.toLowerCase().endsWith('.pdf')) || mime === 'application/pdf';
+/** 是否可内嵌预览的文档（PDF / Word / Excel / PowerPoint 等） */
+const isPreviewableDoc = (name?: string, mime?: string) => {
+  const lower = name?.toLowerCase() ?? '';
+  if (lower.endsWith('.pdf')) return true;
+  if (/\.(docx?|xlsx?|pptx?|csv)$/i.test(lower)) return true;
+  const m = mime || '';
+  return (
+    m === 'application/pdf' ||
+    m === 'application/msword' ||
+    m === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+    m === 'application/vnd.ms-excel' ||
+    m === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' ||
+    m === 'text/csv' ||
+    m === 'application/vnd.ms-powerpoint' ||
+    m === 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
+  );
+};
 
 /** 在浏览器新标签或系统外部应用中打开文件链接（统一 PDF 打开行为） */
 const openFileUrlExternal = (url: string) => {
@@ -161,9 +175,7 @@ function restorePromptFromLog(log: ChatLog): Message | null {
 
   // 判断文档类型：优先用文件名判，兜底用 prompt 判
   const effectiveFileName = taxFilingFileName ?? log.prompt;
-  const isDocFile =
-    isPdfFile(effectiveFileName) ||
-    /\.(docx?|xlsx?|pptx?)$/i.test(effectiveFileName);
+  const isDocFile = isPreviewableDoc(effectiveFileName);
 
   // 统一取附件 URL：expenses 存在 requestData.imageUrl，tax-filing 存在 attachmentUrl
   const attachUrl = fileUrlFromRequest ?? log.attachmentUrl ?? undefined;
@@ -208,7 +220,7 @@ function restorePromptFromLog(log: ChatLog): Message | null {
 // 与列表页 receipts/invoices 统一的货币符号
 const getCurrencySymbol = (currency?: string): string => {
   const symbols: Record<string, string> = {
-    USD: '$', CAD: 'C$', CNY: '¥', JPY: '¥', EUR: '€', GBP: '£', AUD: 'A$',
+    USD: '$', CAD: 'C$', CNY: '¥', RMB: '¥', JPY: 'J¥', EUR: '€', GBP: '£', AUD: 'A$',
     HKD: 'HK$', TWD: 'NT$', KRW: '₩', SGD: 'S$', MXN: 'MX$', INR: '₹',
     THB: '฿', VND: '₫', PHP: '₱', MYR: 'RM', IDR: 'Rp',
   };
@@ -258,7 +270,7 @@ interface Message {
   audioDurationSeconds?: number;
   /** 用户发出的图片消息：聊天记录中显示小图预览，文件名弱化 */
   imageUrl?: string | null;
-  /** 用户发出的文档消息（PDF / docx 等）：点击可在新窗口打开，文件名显示在下行 */
+  /** 用户发出的文档消息（PDF / docx 等）：点击可在新窗口或页内预览，文件名显示在下行 */
   documentUrl?: string;
   isPlayingAudio?: boolean;
   /** 多文件提交时：上传完成、识别中，占位预览卡片 loading */
@@ -278,11 +290,13 @@ const UserMessageBubble = memo(function UserMessageBubble({
   playingAudioId,
   onPlayAudio,
   onPreviewImage,
+  onOpenDocument,
 }: {
   message: Message;
   playingAudioId: string | null;
   onPlayAudio: (id: string, url: string) => void;
   onPreviewImage: (url: string) => void;
+  onOpenDocument: (url: string, name?: string | null) => void;
 }) {
   if (message.audioUrl) {
     return (
@@ -331,7 +345,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
       <View style={styles.userMediaMessageContent}>
         <TouchableOpacity
           style={styles.userMediaThumb}
-          onPress={() => message.documentUrl && openFileUrlExternal(message.documentUrl)}
+          onPress={() => message.documentUrl && onOpenDocument(message.documentUrl, message.text)}
           activeOpacity={message.documentUrl ? 0.8 : 1}
           disabled={!message.documentUrl}
         >
@@ -975,6 +989,18 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     }
   }, [hasMoreHistory, isLoadingHistory, oldestLoadedAt, voucherType]);
 
+  const openFileInModal = (url?: string | null, name?: string | null) => {
+    if (!url) return;
+    setSelectedAttachmentForModal(null);
+    const file: FileDetailModalFile = {
+      id: `doc-${Date.now()}`,
+      name: name ?? 'Document',
+      imageUrl: url,
+      hideRightPanel: true,
+    };
+    setAttachmentDetailForModal(file);
+  };
+
   const handlePreviewDetails = async (message: Message) => {
     const invoiceId = message.invoicePreview?.id;
     if (invoiceId) {
@@ -1055,7 +1081,15 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     if (Platform.OS === 'web') {
       const input = document.createElement('input');
       input.type = 'file';
-      input.accept = 'image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+      input.accept = [
+        'image/*',
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'application/vnd.ms-excel',
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'text/csv',
+      ].join(',');
       input.multiple = true;
       input.onchange = (e: Event) => {
         const target = e.target as HTMLInputElement;
@@ -1102,6 +1136,46 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     }
   }, [effectiveProjectId, isProcessing, voucherType]);
 
+  /** Web：仅选择文件夹（可多选），将文件夹内的所有文件展开为待上传列表。 */
+  const pickFoldersForSend = useCallback(() => {
+    if (isProcessing) return;
+    if (voucherType === 'tax-filing' && !effectiveProjectId) {
+      showToast('Open from a tax-filing project to attach files.', 'info');
+      return;
+    }
+    if (Platform.OS !== 'web') return;
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = [
+      'image/*',
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'text/csv',
+    ].join(',');
+    input.multiple = true;
+    // 允许多选文件夹，浏览器会将所选文件夹内的文件全部展开到 FileList
+    (input as any).webkitdirectory = true;
+    (input as any).directory = true;
+    input.onchange = (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      const files = target.files;
+      if (!files?.length) return;
+      const now = Date.now();
+      const next = Array.from(files).map((f, i) => ({
+        id: `web-dir-${now}-${i}-${f.name}`,
+        uri: URL.createObjectURL(f),
+        name: f.name,
+        mimeType: f.type || undefined,
+      }));
+      setStagedAttachmentFiles(prev => [...prev, ...next]);
+      setIsVoiceMode(false);
+    };
+    input.click();
+  }, [effectiveProjectId, isProcessing, voucherType]);
+
   const handleSend = async () => {
     const text = inputText.trim();
     const hasStaged = stagedAttachmentFiles.length > 0;
@@ -1117,6 +1191,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       setIsProcessing(true);
       setUploadingStagedIds(new Set(toUpload.map((f) => f.id)));
       const scrollToBottom = () => setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
+      let successfulCount = 0;
       try {
         // 优先用缓存，避免移动端 forceRefresh 时拿不到 currentSpaceId 导致多文件提交报 No space context
         let space = await getCurrentSpace(false);
@@ -1195,6 +1270,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               };
               const loadingCardMsg: Message = { id: loadingCardId, text: '', isUser: false, timestamp: new Date(), previewCardLoading: true };
               removeFromStaged();
+              successfulCount += 1;
               appendMessages([loadingCardMsg, userMsg]);
               // 识别阶段放入后台异步执行，仅占用卡片 loading，不再阻塞发送按钮
               (async () => {
@@ -1307,6 +1383,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               };
               const loadingCardMsg: Message = { id: loadingCardId, text: '', isUser: false, timestamp: new Date(), previewCardLoading: true };
               removeFromStaged();
+              successfulCount += 1;
               appendMessages([loadingCardMsg, userMsg]);
               const tempFileName = `chat-${voucherType}-${Date.now()}-${i}`;
               let fileUrl: string;
@@ -1366,6 +1443,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               };
               const loadingCardMsg: Message = { id: loadingCardId, text: '', isUser: false, timestamp: new Date(), previewCardLoading: true };
               removeFromStaged();
+              successfulCount += 1;
               appendMessages([loadingCardMsg, userMsg]);
               const tempFileName = `chat-${voucherType}-${Date.now()}-${i}`;
               let fileUrl: string;
@@ -1412,6 +1490,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               const userMsg: Message = { id: `client-user-${file.id}`, text: name, isUser: true, timestamp: new Date(), imageUrl: isImage ? file.uri : undefined, documentUrl: !isImage ? undefined : undefined };
               const loadingCardMsg: Message = { id: loadingCardId, text: 'Extracting client info…', isUser: false, timestamp: new Date(), previewCardLoading: true };
               removeFromStaged();
+              successfulCount += 1;
               appendMessages([loadingCardMsg, userMsg]);
               const tempFileName = `chat-client-${Date.now()}-${i}`;
               let fileUrl: string;
@@ -1460,6 +1539,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         setUploadingStagedIds(new Set());
         // 发送阶段结束后立即释放按钮，识别逻辑在后台继续
         setIsProcessing(false);
+        if (successfulCount > 0) {
+          showToast('All files have been uploaded. We will keep recognizing them in the background, so you can safely leave this page.', 'success');
+        }
       }
       return;
     }
@@ -1969,7 +2051,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
           </TouchableOpacity>
         </Pressable>
       </Modal>
-      {attachmentDetailForModal && selectedAttachmentForModal ? (
+      {attachmentDetailForModal ? (
         <Modal visible transparent animationType="fade">
           <FileDetailModal
             file={attachmentDetailForModal}
@@ -2014,6 +2096,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                     playingAudioId={playingAudioId}
                     onPlayAudio={handlePlayAudio}
                     onPreviewImage={setAttachmentImageModalUrl}
+                    onOpenDocument={openFileInModal}
                   />
                 ) : (
                   <Text style={[styles.messageText, styles.botMessageText]}>
@@ -2037,41 +2120,41 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   <Text style={styles.receiptPreviewTitle}>Expenses Preview</Text>
                 </View>
                 <View style={styles.receiptPreviewContent}>
-                  {message.outboundPreview?.imageUrl && isPdfFile(message.outboundPreview.imageUrl) && (
+                  {message.outboundPreview?.imageUrl && isPreviewableDoc(message.outboundPreview.imageUrl) && (
                     <TouchableOpacity
                       style={styles.previewFileLinkRow}
-                      onPress={() => message.outboundPreview?.imageUrl && openFileUrlExternal(message.outboundPreview.imageUrl)}
+                      onPress={() => openFileInModal(message.outboundPreview?.imageUrl, 'Outbound file')}
                       activeOpacity={0.85}
                     >
                       <Ionicons name="document-text-outline" size={16} color="#6C5CE7" />
                       <Text style={styles.previewFileLinkText} numberOfLines={1}>Open original PDF</Text>
                     </TouchableOpacity>
                   )}
-                  {message.inboundPreview?.imageUrl && isPdfFile(message.inboundPreview.imageUrl) && (
+                  {message.inboundPreview?.imageUrl && isPreviewableDoc(message.inboundPreview.imageUrl) && (
                     <TouchableOpacity
                       style={styles.previewFileLinkRow}
-                      onPress={() => message.inboundPreview?.imageUrl && openFileUrlExternal(message.inboundPreview.imageUrl)}
+                      onPress={() => openFileInModal(message.inboundPreview?.imageUrl, 'Inbound file')}
                       activeOpacity={0.85}
                     >
                       <Ionicons name="document-text-outline" size={16} color="#6C5CE7" />
                       <Text style={styles.previewFileLinkText} numberOfLines={1}>Open original PDF</Text>
                     </TouchableOpacity>
                   )}
-                  {message.invoicePreview?.imageUrl && isPdfFile(message.invoicePreview.imageUrl) && (
+                  {message.invoicePreview?.imageUrl && isPreviewableDoc(message.invoicePreview.imageUrl) && (
                     <TouchableOpacity
                       style={styles.previewFileLinkRow}
-                      onPress={() => message.invoicePreview?.imageUrl && openFileUrlExternal(message.invoicePreview.imageUrl)}
+                      onPress={() => openFileInModal(message.invoicePreview?.imageUrl, 'Invoice file')}
                       activeOpacity={0.85}
                     >
                       <Ionicons name="document-text-outline" size={16} color="#6C5CE7" />
                       <Text style={styles.previewFileLinkText} numberOfLines={1}>Open original PDF</Text>
                     </TouchableOpacity>
                   )}
-                  {/* 原始 PDF 链接：expenses 模块中统一用「打开新页签」预览 PDF */}
-                  {message.receiptPreview?.imageUrl && isPdfFile(message.receiptPreview.imageUrl) && (
+                  {/* 原始 PDF 链接：现在统一在页内浮窗中预览 PDF */}
+                  {message.receiptPreview?.imageUrl && isPreviewableDoc(message.receiptPreview.imageUrl) && (
                     <TouchableOpacity
                       style={styles.previewFileLinkRow}
-                      onPress={() => message.receiptPreview?.imageUrl && openFileUrlExternal(message.receiptPreview.imageUrl)}
+                      onPress={() => openFileInModal(message.receiptPreview?.imageUrl, 'Expense file')}
                       activeOpacity={0.85}
                     >
                       <Ionicons name="document-text-outline" size={16} color="#6C5CE7" />
@@ -2673,9 +2756,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 <View style={styles.receiptPreviewContent}>
                   <View style={styles.attachmentPreviewRow}>
                     {(() => {
-                      const isPdf = isPdfFile(message.attachmentPreview.name);
+                      const isDoc = isPreviewableDoc(message.attachmentPreview.name);
                       const url = message.attachmentPreview.imageUrl || undefined;
-                      if (url && !isPdf) {
+                      if (url && !isDoc) {
                         const imgUrl = url as string;
                         return (
                           <View style={styles.attachmentThumbWrap}>
@@ -2683,7 +2766,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                           </View>
                         );
                       }
-                      if (url && isPdf) {
+                      if (url && isDoc) {
                         return (
                           <View style={[styles.attachmentThumbWrap, styles.attachmentThumbDocIcon]}>
                             <Ionicons name="document-text-outline" size={32} color="#636E72" />
@@ -2692,7 +2775,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                       }
                       return (
                         <View style={[styles.attachmentThumbWrap, styles.attachmentThumbDocIcon]}>
-                          <Ionicons name={isPdf ? 'document-text-outline' : 'document-outline'} size={32} color="#636E72" />
+                          <Ionicons name={isDoc ? 'document-text-outline' : 'document-outline'} size={32} color="#636E72" />
                         </View>
                       );
                     })()}
@@ -2747,7 +2830,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                               <Image source={{ uri: f.uri }} style={[webInputBlockStyles.stagedFileThumb, styles.thumbAlignTopLeft]} resizeMode="cover" />
                             ) : (
                               <View style={webInputBlockStyles.stagedFileThumbDocIcon}>
-                                <Ionicons name={isPdfFile(f.name, f.mimeType) ? 'document-text-outline' : 'document-outline'} size={20} color="#636E72" />
+                                <Ionicons name={isPreviewableDoc(f.name, f.mimeType) ? 'document-text-outline' : 'document-outline'} size={20} color="#636E72" />
                               </View>
                             )}
                           </View>
@@ -2792,6 +2875,15 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                     <TouchableOpacity style={webInputBlockStyles.webActionIcon} onPress={pickImagesForSend} disabled={isProcessing}>
                       <Ionicons name="image-outline" size={22} color="#636E72" />
                     </TouchableOpacity>
+                    {Platform.OS === 'web' && (
+                      <TouchableOpacity
+                        style={webInputBlockStyles.webActionIcon}
+                        onPress={pickFoldersForSend}
+                        disabled={isProcessing}
+                      >
+                        <Ionicons name="folder-open-outline" size={22} color="#636E72" />
+                      </TouchableOpacity>
+                    )}
                     {Platform.OS !== 'web' && (
                       <TouchableOpacity
                         style={[webInputBlockStyles.webActionIcon, isRecording && styles.webActionIconRecording]}
@@ -2862,7 +2954,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                             <Image source={{ uri: f.uri }} style={[webInputBlockStyles.stagedFileThumb, styles.thumbAlignTopLeft]} resizeMode="cover" />
                           ) : (
                             <View style={webInputBlockStyles.stagedFileThumbDocIcon}>
-                              <Ionicons name={isPdfFile(f.name, f.mimeType) ? 'document-text-outline' : 'document-outline'} size={20} color="#636E72" />
+                              <Ionicons name={isPreviewableDoc(f.name, f.mimeType) ? 'document-text-outline' : 'document-outline'} size={20} color="#636E72" />
                             </View>
                           )}
                         </View>
