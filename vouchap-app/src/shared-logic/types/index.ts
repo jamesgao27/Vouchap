@@ -459,7 +459,12 @@ export interface FirmClient {
   id: string;
   firmSpaceId: string;
   clientSpaceId: string;
-  displayName?: string;
+  /** 客户/组织名：创建时写入，对方接受邀请后更新为 client 自设名称 */
+  createdClientName?: string | null;
+  /** 创建时填入的联系人姓名（对方未确认前列表显示） */
+  createdContactName?: string | null;
+  /** 创建时填入的联系人邮箱/被邀请人邮箱（对方未确认前列表显示） */
+  createdContactEmail?: string | null;
   /** 客户表状态 */
   status?: FirmClientStatus;
   /** 自定义标签（文本数组），status 可显示首个标签；仅在客户详情页编辑 */

@@ -36,7 +36,7 @@ SELECT
   s.id AS client_space_id,
   s.name AS space_name,
   c.firm_space_id,
-  c.display_name AS client_display_name,
+  c.created_client_name AS client_created_client_name,
   si.id AS invitation_id,
   si.invitee_email,
   si.status AS invitation_status

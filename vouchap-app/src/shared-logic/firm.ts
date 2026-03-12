@@ -232,11 +232,11 @@ export async function getClientDisplayName(
   const { data } = await supabase
     .schema('firm')
     .from('clients')
-    .select('display_name')
+    .select('created_client_name')
     .eq('client_space_id', clientSpaceId)
     .eq('firm_space_id', firmSpaceId)
     .maybeSingle();
-  const fromClients = (data as any)?.display_name ?? null;
+  const fromClients = (data as any)?.created_client_name ?? null;
   if (fromClients) return fromClients;
   const { data: spaceRow } = await supabase
     .from('spaces')
@@ -408,7 +408,9 @@ export async function getFirmClients(firmSpaceId: string): Promise<FirmClient[]>
     id: row.id,
     firmSpaceId: row.firm_space_id,
     clientSpaceId: row.client_space_id,
-    displayName: row.display_name,
+    createdClientName: row.created_client_name ?? null,
+    createdContactName: row.created_contact_name ?? null,
+    createdContactEmail: row.created_contact_email ?? null,
     status: row.status ?? 'active',
     labels: Array.isArray(row.labels) ? row.labels : [],
     assignedUserId: null,
@@ -420,7 +422,7 @@ export async function getFirmClients(firmSpaceId: string): Promise<FirmClient[]>
 
 /** 列表项：关联的 client，含名称、联系人、服务负责人、自动计算状态、最近跟进时间等 */
 export interface FirmClientWithDetails extends FirmClient {
-  /** 名称：display_name 或 client 空间名称 */
+  /** 名称：created_client_name 或 client 空间名称 */
   name: string;
   /** 联系人：client 空间管理员名称 */
   contactName: string | null;
@@ -522,13 +524,18 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     const assigneeName = assigneeNames.length > 0 ? assigneeNames.join('、') : null;
     const assigneeEmailVal = assigneeIds[0] ? (userMap[assigneeIds[0]]?.email ?? null) : null;
     const displayStatus = computeClientDisplayStatus(c.clientSpaceId, orders, ctx);
+    // 对方已确认注册：有该 client 空间的成员，显示 client 自设的 created_client_name 及成员姓名/邮箱；未确认时即为创建时的客户名
+    const hasConfirmed = contactUserId != null;
+    const name = c.createdClientName?.trim() || space?.name || contactUser?.name || c.createdContactName?.trim() || c.clientSpaceId;
+    const contactName = hasConfirmed ? (contactUser?.name ?? null) : (c.createdContactName ?? null);
+    const contactEmail = hasConfirmed ? (contactUser?.email ?? null) : (c.createdContactEmail ?? null);
     return {
       ...c,
       assignedUserId: assigneeIds[0] ?? null,
       lastFollowUpAt: clientSpaceToLastFollowUp[c.clientSpaceId] ?? null,
-      name: c.displayName?.trim() || space?.name || contactUser?.name || c.clientSpaceId,
-      contactName: contactUser?.name ?? null,
-      contactEmail: contactUser?.email ?? null,
+      name,
+      contactName,
+      contactEmail,
       serviceStartAt: c.createdAt ?? null,
       displayStatus,
       assigneeName,
@@ -1097,7 +1104,7 @@ export async function getFirmProjects(
   const orders = await getFirmOrders(firmSpaceId, filters?.clientSpaceId);
   const [todosRes, clientsRes] = await Promise.all([
     supabase.from('project_todos').select('project_id, status, item_kind').in('project_id', projectIds),
-    supabase.schema('firm').from('clients').select('client_space_id, display_name').eq('firm_space_id', firmSpaceId),
+    supabase.schema('firm').from('clients').select('client_space_id, created_client_name').eq('firm_space_id', firmSpaceId),
   ]);
   const orderMap = new Map(orders.map((o) => [o.id, o]));
   const skuIds = [...new Set(orders.map((o) => o.skuId))];
@@ -1105,7 +1112,7 @@ export async function getFirmProjects(
   const skuNameById: Record<string, string> = {};
   (skuData || []).forEach((s: any) => { skuNameById[s.id] = s.name ?? ''; });
   const clientNameBySpace: Record<string, string> = {};
-  (clientsRes.data || []).forEach((c: any) => { clientNameBySpace[c.client_space_id] = c.display_name ?? ''; });
+  (clientsRes.data || []).forEach((c: any) => { clientNameBySpace[c.client_space_id] = c.created_client_name ?? ''; });
   const todoCountByProject: Record<string, { total: number; completed: number }> = {};
   (todosRes.data || []).forEach((t: any) => {
     if ((t.item_kind ?? 'task') !== 'task') return;
