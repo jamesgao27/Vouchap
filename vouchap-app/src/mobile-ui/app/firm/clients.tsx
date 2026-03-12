@@ -1447,6 +1447,7 @@ export default function FirmClientsScreen() {
 
           {/* Right: full-height SKU preview area */}
           <View style={styles.addClientRight}>
+            <Text style={styles.addClientPreviewTitle}>Service preview</Text>
             <SkuPreview sku={inviteSkus.find((s) => s.id === addClientSkuId) ?? null} />
           </View>
         </View>
@@ -2029,13 +2030,16 @@ const styles = StyleSheet.create({
   },
   addClientFormRow: {
     flexDirection: 'row',
+    alignItems: 'flex-start',
     gap: 24,
   },
   addClientLeft: {
     flex: 1,
   },
   addClientRight: {
-    flex: 1,
+    width: 400,
+    paddingRight: 12,
+    flexShrink: 0,
   },
   addClientSkuList: {
     marginTop: 4,
@@ -2088,6 +2092,12 @@ const styles = StyleSheet.create({
     color: '#B2BEC3',
     fontStyle: 'italic',
   },
+  addClientPreviewTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#636E72',
+    marginBottom: 8,
+  },
   addClientCheckboxRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2103,6 +2113,7 @@ const styles = StyleSheet.create({
     color: '#636E72',
     lineHeight: 18,
     marginBottom: 20,
+    flexWrap: 'wrap',
   },
   addClientField: {
     marginBottom: 16,

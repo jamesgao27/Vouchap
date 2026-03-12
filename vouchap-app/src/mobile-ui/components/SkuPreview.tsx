@@ -90,24 +90,16 @@ export default function SkuPreview({ sku }: Props) {
           <Text numberOfLines={2} style={styles.title}>
             {header}
           </Text>
-          {sku.itemsCount != null && (
-            <Text style={styles.meta}>
-              {sku.itemsCount} template item{sku.itemsCount === 1 ? '' : 's'}
+          {description ? (
+            <Text numberOfLines={3} style={styles.description}>
+              {description}
             </Text>
-          )}
+          ) : null}
         </View>
       </View>
 
-      {description ? (
-        <Text numberOfLines={4} style={styles.description}>
-          {description}
-        </Text>
-      ) : (
-        <Text style={styles.descriptionMuted}>No description for this template yet.</Text>
-      )}
-
       <View style={styles.todoStub}>
-        <Text style={styles.todoStubTitle}>Template WBS & responsibilities</Text>
+        <Text style={styles.todoStubTitle}>Documents list</Text>
         {loading && (
           <View style={styles.todoLoadingRow}>
             <ActivityIndicator size="small" color="#6C5CE7" />
@@ -118,32 +110,59 @@ export default function SkuPreview({ sku }: Props) {
           <Text style={styles.todoStubText}>No template tasks configured yet.</Text>
         )}
         {!loading && items && items.length > 0 && (
-          <ScrollView style={styles.todoList} showsVerticalScrollIndicator={false}>
-            {buildCompactWbs(items).map((row) => (
-              <View key={row.id} style={styles.todoRow}>
-                <Text style={[styles.todoCode, row.level === 2 && styles.todoCodePhase, row.level === 3 && styles.todoCodeSection]}>
-                  {row.code}
-                </Text>
-                <Text
-                  style={[
-                    styles.todoSide,
-                    row.responsibleSide === 'client' ? styles.todoSideClient : styles.todoSideFirm,
-                  ]}
-                >
-                  {row.responsibleSide === 'client' ? 'Client' : 'Firm'}
-                </Text>
-                <Text
-                  style={[
-                    styles.todoTitle,
-                    row.level === 2 && styles.todoTitlePhase,
-                    row.level === 3 && styles.todoTitleSection,
-                  ]}
-                  numberOfLines={1}
-                >
-                  {row.title}
-                </Text>
-              </View>
-            ))}
+          <ScrollView
+            style={styles.todoList}
+            contentContainerStyle={{ paddingBottom: 4 }}
+            showsVerticalScrollIndicator={false}
+          >
+            {buildCompactWbs(items).map((row) => {
+              const isPhase = row.level === 2;
+              const isSection = row.level === 3;
+              const isTask = row.level === 4;
+              const indent = isPhase ? 0 : isSection ? 8 : 16;
+
+              return (
+                <View key={row.id} style={[styles.todoRow, { paddingLeft: indent }]}>
+                  <Text
+                    style={[
+                      styles.todoCode,
+                      isPhase && styles.todoCodePhase,
+                      isSection && styles.todoCodeSection,
+                    ]}
+                  >
+                    {row.code}
+                  </Text>
+
+                  {isTask ? (
+                    <>
+                      <Text
+                        style={[
+                          styles.todoSide,
+                          row.responsibleSide === 'client' ? styles.todoSideClient : styles.todoSideFirm,
+                        ]}
+                      >
+                        {row.responsibleSide === 'client' ? 'Client' : 'Firm'}
+                      </Text>
+                      <Text style={styles.todoTitle} numberOfLines={1}>
+                        {row.title}
+                      </Text>
+                    </>
+                  ) : (
+                    // phase / section：不显示责任方，让名称紧跟在编号后面
+                    <Text
+                      style={[
+                        styles.todoTitle,
+                        isPhase && styles.todoTitlePhase,
+                        isSection && styles.todoTitleSection,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {row.title}
+                    </Text>
+                  )}
+                </View>
+              );
+            })}
           </ScrollView>
         )}
       </View>
@@ -157,19 +176,24 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E4F0',
     backgroundColor: '#FDFBFF',
-    padding: 16,
-    minHeight: 220,
-    justifyContent: 'space-between',
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+    minHeight: 560,
+    maxHeight: 560,
+    justifyContent: 'flex-start',
   },
   headerRow: {
     flexDirection: 'row',
-    marginBottom: 12,
+    marginBottom: 0,
   },
   cover: {
-    width: 60,
-    height: 60,
+    width: 120,
+    height: 120,
     borderRadius: 8,
-    marginRight: 10,
+    marginRight: 8,
+    marginTop: 0,
+    marginBottom: 4,
     backgroundColor: '#E5E7EB',
   },
   headerText: {
@@ -181,10 +205,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#2D3436',
     marginBottom: 2,
-  },
-  meta: {
-    fontSize: 12,
-    color: '#636E72',
   },
   description: {
     fontSize: 13,
@@ -213,7 +233,7 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     borderTopWidth: 1,
     borderTopColor: '#EAECEF',
-    flexGrow: 1,
+    flex: 1,
   },
   todoStubTitle: {
     fontSize: 12,
@@ -237,19 +257,22 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
   todoList: {
-    maxHeight: 140,
     marginTop: 4,
+    flex: 1,
   },
   todoRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 2,
+    marginBottom: 4,
+    borderTopWidth: 0.5,
+    borderTopColor: '#ECEFF4',
+    paddingTop: 2,
   },
   todoCode: {
     fontFamily: 'System',
     fontSize: 11,
     color: '#636E72',
-    minWidth: 40,
+    minWidth: 28,
   },
   todoCodePhase: {
     fontWeight: '600',
@@ -272,6 +295,10 @@ const styles = StyleSheet.create({
   todoSideFirm: {
     backgroundColor: '#E8F5E9',
     color: '#2E7D32',
+  },
+  todoSidePlaceholder: {
+    width: 40,
+    marginRight: 6,
   },
   todoTitle: {
     flex: 1,
