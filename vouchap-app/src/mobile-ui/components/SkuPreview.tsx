@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, Image, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
 import type { FirmSku } from '@/types';
 import { supabase } from '@/lib/supabase';
@@ -17,6 +17,23 @@ type SkuItemRow = {
   description?: string | null;
   sort_order?: number | null;
 };
+
+const TAG_PALETTE: [string, string][] = [
+  ['#EDE9FD', '#6C5CE7'],
+  ['#E3F2FD', '#1E88E5'],
+  ['#E8F5E9', '#27AE60'],
+  ['#FFF3E0', '#E67E22'],
+  ['#FCE4EC', '#E91E63'],
+  ['#E8EAF6', '#3F51B5'],
+  ['#E0F7FA', '#00838F'],
+  ['#FFF8E1', '#F9A825'],
+];
+
+function getTagColor(s: string): [string, string] {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xfffff;
+  return TAG_PALETTE[Math.abs(h) % TAG_PALETTE.length]!;
+}
 
 export default function SkuPreview({ sku }: Props) {
   const [items, setItems] = useState<SkuItemRow[] | null>(null);
@@ -56,18 +73,10 @@ export default function SkuPreview({ sku }: Props) {
 
   const hasImage = !!sku?.imageUrl;
   const description = sku?.description || '';
-
-  const header = useMemo(
-    () =>
-      sku
-        ? `${sku.name}${
-            sku.taxCountry || sku.taxScenario
-              ? ` · ${[sku.taxCountry, sku.taxScenario].filter(Boolean).join(' · ')}`
-              : ''
-          }`
-        : 'No template selected',
-    [sku]
-  );
+  const name = sku?.name ?? '—';
+  const taxCountry = sku?.taxCountry || '';
+  const taxScenario = sku?.taxScenario || '';
+  const hasTags = !!taxCountry || !!taxScenario;
 
   if (!sku) {
     return (
@@ -88,8 +97,32 @@ export default function SkuPreview({ sku }: Props) {
         )}
         <View style={styles.headerText}>
           <Text numberOfLines={2} style={styles.title}>
-            {header}
+            {name}
           </Text>
+          {hasTags && (
+            <View style={styles.tagRow}>
+              {taxCountry
+                ? (() => {
+                    const [bg, fg] = getTagColor(taxCountry);
+                    return (
+                      <View style={[styles.valueTagPill, { backgroundColor: bg }]}>
+                        <Text style={[styles.valueTagText, { color: fg }]}>{taxCountry}</Text>
+                      </View>
+                    );
+                  })()
+                : null}
+              {taxScenario
+                ? (() => {
+                    const [bg, fg] = getTagColor(taxScenario);
+                    return (
+                      <View style={[styles.valueTagPill, { backgroundColor: bg }]}>
+                        <Text style={[styles.valueTagText, { color: fg }]}>{taxScenario}</Text>
+                      </View>
+                    );
+                  })()
+                : null}
+            </View>
+          )}
           {description ? (
             <Text numberOfLines={3} style={styles.description}>
               {description}
@@ -200,16 +233,24 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
+  tagRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 2,
+    marginBottom: 3,
+  },
   title: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: '600',
     color: '#2D3436',
-    marginBottom: 2,
+    marginBottom: 1,
   },
   description: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#636E72',
-    lineHeight: 18,
+    lineHeight: 17,
     marginBottom: 4,
   },
   descriptionMuted: {
@@ -310,6 +351,15 @@ const styles = StyleSheet.create({
   },
   todoTitleSection: {
     fontWeight: '500',
+  },
+  valueTagPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 20,
+  },
+  valueTagText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });
 

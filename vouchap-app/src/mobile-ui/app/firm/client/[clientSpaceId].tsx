@@ -515,7 +515,21 @@ export default function FirmClientDetailScreen() {
                 <Ionicons name="close" size={24} color="#636E72" />
               </TouchableOpacity>
             </View>
-            <Text style={styles.modalLabel}>Service</Text>
+            {/* Client info (prefilled, read-only) */}
+            <View style={styles.modalClientInfo}>
+              <Text style={styles.modalLabel}>Client</Text>
+              <Text style={styles.modalClientName} numberOfLines={1}>
+                {client.name || '—'}
+              </Text>
+              <Text style={styles.modalClientMeta} numberOfLines={1}>
+                {client.contactName || '—'}
+              </Text>
+              <Text style={styles.modalClientMeta} numberOfLines={1}>
+                {client.contactEmail || '—'}
+              </Text>
+            </View>
+            {/* Service selection (required, no "no template" option) */}
+            <Text style={[styles.modalLabel, { marginTop: 16 }]}>Service template</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.skuScroll}>
               {selectableSkus.map((sku) => (
                 <TouchableOpacity
@@ -523,7 +537,9 @@ export default function FirmClientDetailScreen() {
                   style={[styles.skuChip, selectedSkuId === sku.id && styles.skuChipSelected]}
                   onPress={() => setSelectedSkuId(sku.id)}
                 >
-                  <Text style={[styles.skuChipText, selectedSkuId === sku.id && styles.skuChipTextSelected]}>{sku.name}</Text>
+                  <Text style={[styles.skuChipText, selectedSkuId === sku.id && styles.skuChipTextSelected]}>
+                    {sku.name}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </ScrollView>
@@ -536,7 +552,9 @@ export default function FirmClientDetailScreen() {
                     <Text style={styles.previewItemTitle}>{item.title}</Text>
                   </View>
                 ))}
-                <Text style={styles.previewHint}>Projects will be created after the client confirms this order.</Text>
+                <Text style={styles.previewHint}>
+                  Projects will be created after the client confirms this order.
+                </Text>
               </View>
             )}
             <View style={styles.modalActions}>
@@ -775,6 +793,9 @@ const styles = StyleSheet.create({
   },
   modalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#2D3436' },
+  modalClientInfo: { marginTop: 8, marginBottom: 4 },
+  modalClientName: { fontSize: 15, fontWeight: '600', color: '#2D3436', marginBottom: 2 },
+  modalClientMeta: { fontSize: 13, color: '#636E72' },
   modalLabel: { fontSize: 13, fontWeight: '500', color: '#636E72', marginBottom: 8 },
   skuScroll: { marginBottom: 12 },
   skuChip: {

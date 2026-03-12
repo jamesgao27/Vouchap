@@ -1027,6 +1027,7 @@ export default function FirmClientsScreen() {
         title="Invite new clients"
         onClose={handleCloseInvitePanel}
         maxWidth={900}
+        cardHeight={720}
       >
         <View style={styles.inviteHeader}>
           <Text style={styles.inviteSubtitle}>
@@ -1039,8 +1040,6 @@ export default function FirmClientsScreen() {
             <View style={styles.inviteSkuTable}>
               <View style={styles.inviteSkuHeaderRow}>
                 <Text style={[styles.inviteSkuHeaderText, { flex: 1.6 }]}>Service Template</Text>
-                <Text style={[styles.inviteSkuHeaderText, { flex: 2 }]}>Description</Text>
-                <Text style={[styles.inviteSkuHeaderText, { width: 60, textAlign: 'right' }]}>Items</Text>
               </View>
               <ScrollView
                 style={styles.inviteSkuList}
@@ -1069,22 +1068,6 @@ export default function FirmClientsScreen() {
                           {sku.name}
                         </Text>
                       </View>
-                      <View style={{ flex: 2, paddingRight: 8 }}>
-                        {sku.description ? (
-                          <Text style={styles.inviteSkuDesc} numberOfLines={2}>
-                            {sku.description}
-                          </Text>
-                        ) : (
-                          <Text style={styles.inviteSkuDesc} numberOfLines={1}>
-                            —
-                          </Text>
-                        )}
-                      </View>
-                      <View style={{ width: 60, alignItems: 'flex-end' }}>
-                        <Text style={styles.inviteSkuCode}>
-                          {(sku as any).itemsCount ?? 0}
-                        </Text>
-                      </View>
                     </View>
                   </TouchableOpacity>
                 ))}
@@ -1093,107 +1076,111 @@ export default function FirmClientsScreen() {
                 )}
               </ScrollView>
             </View>
-          </View>
-          <View style={styles.inviteRightColumn}>
-            <Text style={styles.inviteSectionTitle}>Step 2 · Invite settings</Text>
-            <View style={styles.inviteSettingsRow}>
-              <View style={styles.inviteSettingsLeft}>
-                <View style={styles.inviteConfigRow}>
-                  <Text style={styles.inviteConfigLabel}>Expiry</Text>
-                  <View style={styles.invitePillRow}>
-                    {[
-                      { label: '7 days', value: 7 },
-                      { label: '30 days', value: 30 },
-                      { label: 'No expiry', value: null },
-                    ].map((opt) => (
+            <View style={{ marginTop: 36 }}>
+              <Text style={styles.inviteSectionTitle}>Step 2 · Expiry setting</Text>
+              <View style={styles.inviteSettingsRow}>
+                <View style={styles.inviteSettingsLeft}>
+                  <View style={styles.inviteConfigRow}>
+                    {/* label removed; title above already explains expiry setting */}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={styles.invitePillRow}>
+                        {[
+                          { label: '7 days', value: 7 },
+                          { label: '30 days', value: 30 },
+                          { label: 'No expiry', value: null },
+                        ].map((opt) => (
+                          <TouchableOpacity
+                            key={String(opt.value ?? 'forever')}
+                            style={[
+                              styles.invitePill,
+                              inviteExpiresInDays === opt.value && styles.invitePillSelected,
+                            ]}
+                            onPress={() => setInviteExpiresInDays(opt.value)}
+                          >
+                            <Text
+                              style={[
+                                styles.invitePillText,
+                                inviteExpiresInDays === opt.value && styles.invitePillTextSelected,
+                              ]}
+                            >
+                              {opt.label}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
                       <TouchableOpacity
-                        key={String(opt.value ?? 'forever')}
                         style={[
-                          styles.invitePill,
-                          inviteExpiresInDays === opt.value && styles.invitePillSelected,
+                          styles.invitePrimaryBtn,
+                          (!inviteSkuId || inviteLoading) && styles.invitePrimaryBtnDisabled,
                         ]}
-                        onPress={() => setInviteExpiresInDays(opt.value)}
+                        onPress={handleCreateInvite}
+                        disabled={!inviteSkuId || inviteLoading}
+                        activeOpacity={0.8}
                       >
-                        <Text
-                          style={[
-                            styles.invitePillText,
-                            inviteExpiresInDays === opt.value && styles.invitePillTextSelected,
-                          ]}
-                        >
-                          {opt.label}
+                        {inviteLoading ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <Ionicons name="link-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
+                        )}
+                        <Text style={styles.invitePrimaryBtnText}>
+                          {inviteLoading ? 'Generating...' : 'Generate invite link'}
                         </Text>
                       </TouchableOpacity>
-                    ))}
+                    </View>
                   </View>
+                  {inviteError && <Text style={styles.inviteErrorText}>{inviteError}</Text>}
+                  {inviteLink && (
+                    <View style={[styles.inviteResultRow, { marginTop: 36, flexDirection: 'column', alignItems: 'flex-start' }]}>
+                      <View style={styles.inviteQrRow}>
+                        <View style={styles.inviteQrBox}>
+                          {inviteLink ? (
+                            <QRCode
+                              value={inviteLink}
+                              size={96}
+                              getRef={(c) => {
+                                qrRef.current = c;
+                              }}
+                            />
+                          ) : null}
+                        </View>
+                        {Platform.OS === 'web' && (
+                          <TouchableOpacity
+                            style={[styles.inviteSecondaryBtn, { marginLeft: 8 }]}
+                            onPress={handleDownloadInviteQr}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons name="download-outline" size={16} color="#6C5CE7" style={{ marginRight: 4 }} />
+                            <Text style={styles.inviteSecondaryBtnText}>Download QR</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                      <View style={{ marginTop: 8, width: '100%' }}>
+                        <Text style={styles.inviteLinkLabel}>Invite link</Text>
+                        <View style={styles.inviteLinkCodeRow}>
+                          <View style={styles.inviteLinkCodeBox}>
+                            <Text style={styles.inviteLinkCodeText}>
+                              {inviteLink}
+                            </Text>
+                          </View>
+                          <TouchableOpacity
+                            style={[styles.inviteSecondaryBtn, { marginLeft: 8 }]}
+                            onPress={handleCopyInviteLink}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons name="copy-outline" size={16} color="#6C5CE7" style={{ marginRight: 4 }} />
+                            <Text style={styles.inviteSecondaryBtnText}>Copy link</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+                  )}
                 </View>
-                <View style={styles.inviteActionsRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.invitePrimaryBtn,
-                      (!inviteSkuId || inviteLoading) && styles.invitePrimaryBtnDisabled,
-                    ]}
-                    onPress={handleCreateInvite}
-                    disabled={!inviteSkuId || inviteLoading}
-                    activeOpacity={0.8}
-                  >
-                    {inviteLoading ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <Ionicons name="link-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
-                    )}
-                    <Text style={styles.invitePrimaryBtnText}>
-                      {inviteLoading ? 'Generating...' : 'Generate invite link'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-                {inviteError && <Text style={styles.inviteErrorText}>{inviteError}</Text>}
               </View>
-              {inviteLink && (
-                <View style={styles.inviteSettingsRight}>
-                  <View style={styles.inviteResultRow}>
-                    <View style={styles.inviteQrColumn}>
-                      <View style={styles.inviteQrBox}>
-                        {inviteLink ? (
-                          <QRCode
-                            value={inviteLink}
-                            size={112}
-                            getRef={(c) => {
-                              qrRef.current = c;
-                            }}
-                          />
-                        ) : null}
-                      </View>
-                      {Platform.OS === 'web' && (
-                        <TouchableOpacity
-                          style={styles.inviteSecondaryBtn}
-                          onPress={handleDownloadInviteQr}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="download-outline" size={16} color="#6C5CE7" style={{ marginRight: 4 }} />
-                          <Text style={styles.inviteSecondaryBtnText}>Download QR</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                    <View style={styles.inviteResultLeft}>
-                      <Text style={styles.inviteLinkLabel}>Invite link</Text>
-                      <Text style={styles.inviteLinkValue} numberOfLines={2}>
-                        {inviteLink}
-                      </Text>
-                      <View style={styles.inviteLinkButtonsRow}>
-                        <TouchableOpacity
-                          style={styles.inviteSecondaryBtn}
-                          onPress={handleCopyInviteLink}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="copy-outline" size={16} color="#6C5CE7" style={{ marginRight: 4 }} />
-                          <Text style={styles.inviteSecondaryBtnText}>Copy link</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  </View>
-                </View>
-              )}
             </View>
+          </View>
+          <View style={styles.inviteRightColumn}>
+            <Text style={styles.inviteSectionTitle}>Service preview</Text>
+            <SkuPreview sku={inviteSkus.find((s) => s.id === inviteSkuId) ?? null} />
           </View>
         </View>
       </CenterModal>
@@ -1423,7 +1410,7 @@ export default function FirmClientsScreen() {
                   activeOpacity={0.7}
                 >
                   <Ionicons name="add-circle-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
-                  <Text style={styles.inviteButtonText}>Create a new</Text>
+                  <Text style={styles.inviteButtonText}>Generate a new invite</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -2003,17 +1990,19 @@ const styles = StyleSheet.create({
     color: '#636E72',
   },
   inviteBodyRow: {
-    flexDirection: 'column',
-    gap: 24,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 20,
   },
   inviteLeftColumn: {
-    width: '100%',
+    flex: 1,
     minWidth: 0,
   },
   inviteRightColumn: {
-    width: '100%',
+    width: 400,
     minWidth: 0,
     marginTop: 4,
+    paddingLeft: 8,
   },
   inviteSettingsRow: {
     flexDirection: 'row',
@@ -2126,9 +2115,14 @@ const styles = StyleSheet.create({
   },
   inviteResultRow: {
     flexDirection: 'row',
-    marginTop: 12,
+    marginTop: 16,
     gap: 12,
     alignItems: 'stretch',
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#FDFDFE',
   },
   inviteResultLeft: {
     flex: 1,
@@ -2148,23 +2142,28 @@ const styles = StyleSheet.create({
     color: '#B2BEC3',
   },
   inviteActionsRow: {
-    marginTop: 16,
+    marginTop: 12,
   },
   invitePrimaryBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'flex-start',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
     borderRadius: 999,
     backgroundColor: '#6C5CE7',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    elevation: 4,
   },
   invitePrimaryBtnDisabled: {
     opacity: 0.5,
   },
   invitePrimaryBtnText: {
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: '600',
     color: '#fff',
   },
@@ -2189,6 +2188,32 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginTop: 6,
     gap: 8,
+  },
+  inviteQrRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  inviteLinkCodeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  inviteLinkCodeBox: {
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E1E4FF',
+    backgroundColor: '#F7F8FF',
+    maxWidth: 270,
+    flexShrink: 1,
+  },
+  inviteLinkCodeText: {
+    fontSize: 11,
+    color: '#2D3436',
+    fontFamily: Platform.select({ web: 'monospace', default: 'System' }),
+    flexShrink: 1,
+    flexWrap: 'wrap',
   },
   inviteSecondaryBtn: {
     flexDirection: 'row',
