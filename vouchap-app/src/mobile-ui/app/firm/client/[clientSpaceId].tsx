@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react';
 import {
   View,
   Text,
@@ -25,12 +25,12 @@ import {
   getFirmSpaceMembers,
   updateFirmClientAssignee,
 } from '@/lib/firm';
-import { showToast } from '@/lib/toast';
+import { showToast } from '../../../../shared-logic/toast';
 import type { FirmClientWithDetails, FirmOrder, FirmClientFollowUp, FirmSku, FirmSpaceMember } from '@/lib/firm';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
 import DataTable, { type DataTableColumn } from '@/components/DataTable';
-import CenterModal from '@/components/CenterModal';
-import SkuPreview from '@/components/SkuPreview';
+import CenterModal from '../../../components/CenterModal';
+import SkuPreview from '../../../components/SkuPreview';
 
 type TabKey = 'info' | 'orders';
 
@@ -366,10 +366,14 @@ export default function FirmClientDetailScreen() {
               </View>
             </View>
             <View style={styles.statsRow}>
-              <View style={styles.statPill}>
+              <TouchableOpacity
+                style={styles.statPill}
+                activeOpacity={0.8}
+                onPress={() => setActiveTab('orders')}
+              >
                 <Text style={styles.statNumber}>{orders.length}</Text>
                 <Text style={styles.statLabel}>Orders</Text>
-              </View>
+              </TouchableOpacity>
               <View style={styles.statPill}>
                 <Text style={styles.statNumber}>{followUps.length}</Text>
                 <Text style={styles.statLabel}>Follow-ups</Text>

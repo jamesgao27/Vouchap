@@ -11,6 +11,7 @@ import {
   ScrollView,
   Modal,
   Image,
+  Linking,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -21,6 +22,9 @@ import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 
 const isWeb = Platform.OS === 'web';
+
+const TERMS_URL = 'https://vouchap.com/terms';
+const PRIVACY_URL = 'https://vouchap.com/privacy';
 
 export default function RegisterScreen() {
   const router = useRouter();
@@ -35,6 +39,7 @@ export default function RegisterScreen() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [showEmailConfirmationModal, setShowEmailConfirmationModal] = useState(false);
   const [inviteReady, setInviteReady] = useState(false);
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   const emailInputRef = useRef<TextInput>(null);
   const passwordInputRef = useRef<TextInput>(null);
   const confirmPasswordInputRef = useRef<TextInput>(null);
@@ -65,6 +70,11 @@ export default function RegisterScreen() {
   const handleRegister = async () => {
     if (!email.trim()) {
       showToast('Please enter email', 'error');
+      return;
+    }
+
+    if (!isFromInvite && !agreedToTerms) {
+      showToast('Please agree to the Privacy Policy and Terms of Service', 'error');
       return;
     }
 
@@ -334,10 +344,31 @@ export default function RegisterScreen() {
                   <Ionicons name={showConfirmPassword ? 'eye-outline' : 'eye-off-outline'} size={20} color="#636E72" />
                 </TouchableOpacity>
               </View>
+              {!isFromInvite && (
+                <View style={stylesWeb.agreementRow}>
+                  <TouchableOpacity
+                    style={stylesWeb.checkboxWrap}
+                    onPress={() => setAgreedToTerms((v) => !v)}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name={agreedToTerms ? 'checkbox' : 'square-outline'} size={22} color={agreedToTerms ? '#6C5CE7' : '#636E72'} />
+                  </TouchableOpacity>
+                  <View style={stylesWeb.agreementTextWrap}>
+                    <Text style={stylesWeb.agreementText}>I agree to the </Text>
+                    <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_URL)}>
+                      <Text style={stylesWeb.linkText}>Privacy Policy</Text>
+                    </TouchableOpacity>
+                    <Text style={stylesWeb.agreementText}> and </Text>
+                    <TouchableOpacity onPress={() => Linking.openURL(TERMS_URL)}>
+                      <Text style={stylesWeb.linkText}>Terms of Service</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
               <TouchableOpacity
-                style={[stylesWeb.btnWrap, (loading || (isFromInvite && !inviteReady)) && stylesWeb.btnDisabled]}
+                style={[stylesWeb.btnWrap, (loading || (isFromInvite && !inviteReady) || (!isFromInvite && !agreedToTerms)) && stylesWeb.btnDisabled]}
                 onPress={handleRegister}
-                disabled={loading || (isFromInvite && !inviteReady)}
+                disabled={loading || (isFromInvite && !inviteReady) || (!isFromInvite && !agreedToTerms)}
                 activeOpacity={0.9}
               >
                 <LinearGradient
@@ -525,10 +556,32 @@ export default function RegisterScreen() {
             </TouchableOpacity>
           </View>
 
+          {!isFromInvite && (
+            <View style={styles.agreementRow}>
+              <TouchableOpacity
+                style={styles.checkboxWrap}
+                onPress={() => setAgreedToTerms((v) => !v)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name={agreedToTerms ? 'checkbox' : 'square-outline'} size={22} color={agreedToTerms ? '#6C5CE7' : '#636E72'} />
+              </TouchableOpacity>
+              <View style={styles.agreementTextWrap}>
+                <Text style={styles.agreementText}>I agree to the </Text>
+                <TouchableOpacity onPress={() => Linking.openURL(PRIVACY_URL)}>
+                  <Text style={styles.linkTextInline}>Privacy Policy</Text>
+                </TouchableOpacity>
+                <Text style={styles.agreementText}> and </Text>
+                <TouchableOpacity onPress={() => Linking.openURL(TERMS_URL)}>
+                  <Text style={styles.linkTextInline}>Terms of Service</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
           <TouchableOpacity
-            style={[styles.button, (loading || (isFromInvite && !inviteReady)) && styles.buttonDisabled]}
+            style={[styles.button, (loading || (isFromInvite && !inviteReady) || (!isFromInvite && !agreedToTerms)) && styles.buttonDisabled]}
             onPress={handleRegister}
-            disabled={loading || (isFromInvite && !inviteReady)}
+            disabled={loading || (isFromInvite && !inviteReady) || (!isFromInvite && !agreedToTerms)}
           >
             {loading ? (
               <ActivityIndicator color="#fff" />
@@ -586,6 +639,11 @@ const stylesWeb = StyleSheet.create({
   input: { flex: 1, fontSize: 16, color: '#2D3436', paddingVertical: 0, minHeight: 24, includeFontPadding: false, textAlignVertical: 'center', backgroundColor: '#F8F9FA', outlineStyle: 'none' },
   inputReadOnly: { color: '#636E72', opacity: 0.9 },
   eyeIcon: { padding: 4 },
+  agreementRow: { flexDirection: 'row', alignItems: 'center', marginTop: 4, marginBottom: 4 },
+  checkboxWrap: { marginRight: 10, padding: 2 },
+  agreementTextWrap: { flex: 1, flexDirection: 'row', flexWrap: 'nowrap', alignItems: 'center' },
+  agreementText: { fontSize: 13, color: '#636E72' },
+  linkText: { fontSize: 13, color: '#6C5CE7', fontWeight: '600', textDecorationLine: 'underline' },
   btnWrap: { marginTop: 8, borderRadius: 16, overflow: 'hidden' },
   btnDisabled: { opacity: 0.7 },
   mainBtn: { paddingVertical: 16, alignItems: 'center', justifyContent: 'center', minHeight: 52 },
@@ -679,6 +737,32 @@ const styles = StyleSheet.create({
   },
   eyeIcon: {
     padding: 4,
+  },
+  agreementRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    marginTop: 4,
+  },
+  checkboxWrap: {
+    marginRight: 8,
+    padding: 2,
+  },
+  agreementTextWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'nowrap',
+    alignItems: 'center',
+  },
+  agreementText: {
+    fontSize: 12,
+    color: '#636E72',
+  },
+  linkTextInline: {
+    fontSize: 12,
+    color: '#6C5CE7',
+    fontWeight: '600',
+    textDecorationLine: 'underline',
   },
   button: {
     backgroundColor: '#6C5CE7',

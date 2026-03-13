@@ -6,7 +6,7 @@
     "paths": {
       "@/lib/*": ["./src/shared-logic/*"],
       "@/components/*": ["./src/mobile-ui/components/*"],
-      "@/types": ["./src/shared-logic/types"],
+      "@/types": ["./src/shared-logic/types/index.ts"],
       "@/types/*": ["./src/shared-logic/types/*"],
       "@/*": ["./*"]
     }
