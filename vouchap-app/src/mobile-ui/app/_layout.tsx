@@ -396,6 +396,14 @@ function LayoutContent() {
           }} 
         />
         <Stack.Screen 
+          name="auth/setup-sku-preview" 
+          options={{ 
+            title: 'Service preview',
+            presentation: 'modal',
+            headerBackTitle: 'Back',
+          }} 
+        />
+        <Stack.Screen 
           name="invite/[id]" 
           options={{ 
             headerShown: false

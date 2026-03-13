@@ -3,7 +3,7 @@
  * 卡片/列表复用 ProjectListCardAndRow，样式与 firm Service Catalog 一致。
  */
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Platform, useWindowDimensions, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { showTaxFiling } from '@/lib/feature-flags';
@@ -16,6 +16,7 @@ import {
   type FirmOrderForClient,
 } from '@/lib/firm';
 import { showToast } from '@/lib/toast';
+import { confirmDestructive } from '../../../shared-logic/alertWeb';
 import {
   ProjectListCard,
   ProjectListRow,
@@ -26,6 +27,7 @@ import {
 
 const CARD_MAX_WIDTH = 320;
 const PINNED_ORDER_IDS_KEY = 'tax_filing_pinned_order_ids';
+const HIDDEN_ORDER_IDS_KEY = 'tax_filing_hidden_order_ids';
 
 /** 订单阶段（6 阶段 + 取消），Onboarding = 启动/契约建立，与后端一致 */
 const STAGE_LABEL: Record<string, string> = {
@@ -69,6 +71,7 @@ export default function TaxFilingScreen() {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [pinnedOrderIds, setPinnedOrderIds] = useState<string[]>([]);
+  const [hiddenOrderIds, setHiddenOrderIds] = useState<string[]>([]);
 
   const loadOrders = useCallback(async () => {
     const space = await getCurrentSpace(true);
@@ -101,15 +104,29 @@ export default function TaxFilingScreen() {
     })();
   }, []);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+        const raw = await AsyncStorage.getItem(HIDDEN_ORDER_IDS_KEY);
+        if (raw) {
+          const ids = JSON.parse(raw) as string[];
+          if (Array.isArray(ids)) setHiddenOrderIds(ids);
+        }
+      } catch (_) {}
+    })();
+  }, []);
+
   const sortedOrders = useMemo(() => {
-    return [...orders].sort((a, b) => {
+    const visible = orders.filter((o) => !hiddenOrderIds.includes(o.id));
+    return [...visible].sort((a, b) => {
       const pa = pinnedOrderIds.includes(a.id);
       const pb = pinnedOrderIds.includes(b.id);
       if (pa && !pb) return -1;
       if (!pa && pb) return 1;
       return (b.createdAt || '').localeCompare(a.createdAt || '');
     });
-  }, [orders, pinnedOrderIds]);
+  }, [orders, pinnedOrderIds, hiddenOrderIds]);
 
   const handleTogglePin = useCallback(async (orderId: string) => {
     setPinnedOrderIds((prev) => {
@@ -131,28 +148,37 @@ export default function TaxFilingScreen() {
     if (project?.id) router.push(`/tax-filing/project/${project.id}`);
   };
 
-  const handleRejectOrder = useCallback(async (order: FirmOrderForClient) => {
-    if (Platform.OS === 'web' && !window.confirm('Reject this order? You can\'t undo this.')) return;
-    if (Platform.OS !== 'web') {
-      Alert.alert('Reject order', 'Reject this order? You can\'t undo this.', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Reject', style: 'destructive', onPress: () => doReject() },
-      ]);
-      return;
-    }
-    await doReject();
-    async function doReject() {
-      setRejectingId(order.id);
-      const { error } = await updateOrderStatus(order.id, 'cancelled');
-      setRejectingId(null);
-      if (error) {
-        showToast(error.message ?? 'Failed to reject', 'error');
-        return;
-      }
-      showToast('Order rejected', 'success');
-      setOrders(await loadOrders());
-    }
+  const handleRejectOrder = useCallback((order: FirmOrderForClient) => {
+    confirmDestructive(
+      'Reject order',
+      'Are you sure you want to reject this order? You can’t undo this.',
+      async () => {
+        setRejectingId(order.id);
+        const { error } = await updateOrderStatus(order.id, 'cancelled');
+        setRejectingId(null);
+        if (error) {
+          showToast(error.message ?? 'Failed to reject', 'error');
+          return;
+        }
+        showToast('Order rejected', 'success');
+        setOrders(await loadOrders());
+      },
+      { confirmLabel: 'Reject order' },
+    );
   }, [loadOrders]);
+
+  const hideOrderForClient = useCallback(async (orderId: string) => {
+    setHiddenOrderIds((prev) => {
+      if (prev.includes(orderId)) return prev;
+      const next = [...prev, orderId];
+      import('@react-native-async-storage/async-storage')
+        .then(({ default: AsyncStorage }) => {
+          AsyncStorage.setItem(HIDDEN_ORDER_IDS_KEY, JSON.stringify(next)).catch(() => {});
+        })
+        .catch(() => {});
+      return next;
+    });
+  }, []);
 
   /** 点击卡片/行：已接受订单进 project 路由（client 主权），未接受进 order 路由 */
   const goToTodos = (order: FirmOrderForClient) => {
@@ -187,69 +213,81 @@ export default function TaxFilingScreen() {
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-      {loading ? (
-        <ActivityIndicator size="large" color="#6C5CE7" style={styles.loader} />
-      ) : (
-        <>
-          <View style={styles.header}>
-            <Text style={styles.sectionTitle}>Service orders</Text>
-            <View style={styles.viewToggle}>
-              <TouchableOpacity
-                style={[styles.viewToggleBtn, viewMode === 'grid' && styles.viewToggleBtnActive]}
-                onPress={() => setViewMode('grid')}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="grid-outline" size={20} color={viewMode === 'grid' ? '#6C5CE7' : '#636E72'} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.viewToggleBtn, viewMode === 'list' && styles.viewToggleBtnActive]}
-                onPress={() => setViewMode('list')}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="list" size={22} color={viewMode === 'list' ? '#6C5CE7' : '#636E72'} />
-              </TouchableOpacity>
+        {loading ? (
+          <ActivityIndicator size="large" color="#6C5CE7" style={styles.loader} />
+        ) : (
+          <>
+            <View style={styles.header}>
+              <Text style={styles.sectionTitle}>Service engagements</Text>
+              <View style={styles.viewToggle}>
+                <TouchableOpacity
+                  style={[styles.viewToggleBtn, viewMode === 'grid' && styles.viewToggleBtnActive]}
+                  onPress={() => setViewMode('grid')}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="grid-outline" size={20} color={viewMode === 'grid' ? '#6C5CE7' : '#636E72'} />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.viewToggleBtn, viewMode === 'list' && styles.viewToggleBtnActive]}
+                  onPress={() => setViewMode('list')}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="list" size={22} color={viewMode === 'list' ? '#6C5CE7' : '#636E72'} />
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-          {sortedOrders.length === 0 ? (
-            <View style={styles.emptySection}>
-              <Text style={styles.emptySectionText}>No orders yet</Text>
-            </View>
-          ) : viewMode === 'list' ? (
-            <View style={projectListStyles.list}>
-              {sortedOrders.map((o) => {
-                const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
-                return (
-                  <ProjectListRow
-                    key={o.id}
-                    item={item}
-                    isPinned={pinnedOrderIds.includes(o.id)}
-                    onTogglePin={() => handleTogglePin(o.id)}
-                    onPress={() => goToTodos(o)}
-                    onSettings={o.status !== 'onboarding' ? () => goToInfo(o) : undefined}
-                  />
-                );
-              })}
-            </View>
-          ) : (
-            <View style={styles.grid}>
-              {sortedOrders.map((o) => {
-                const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
-                return (
-                  <ProjectListCard
-                    key={o.id}
-                    item={item}
-                    cardWidth={cardWidth}
-                    isPinned={pinnedOrderIds.includes(o.id)}
-                    onTogglePin={() => handleTogglePin(o.id)}
-                    onPress={() => goToTodos(o)}
-                    onSettings={o.status !== 'onboarding' ? () => goToInfo(o) : undefined}
-                  />
-                );
-              })}
-            </View>
-          )}
-        </>
-      )}
+            {sortedOrders.length === 0 ? (
+              <View style={styles.emptySection}>
+                <Text style={styles.emptySectionText}>No orders yet</Text>
+              </View>
+            ) : viewMode === 'list' ? (
+              <View style={projectListStyles.list}>
+                {sortedOrders.map((o) => {
+                  const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
+                  return (
+                    <ProjectListRow
+                      key={o.id}
+                      item={item}
+                      isPinned={pinnedOrderIds.includes(o.id)}
+                      onTogglePin={() => handleTogglePin(o.id)}
+                      onPress={() => goToTodos(o)}
+                      onSettings={
+                        o.status === 'cancelled'
+                          ? () => hideOrderForClient(o.id)
+                          : o.status !== 'onboarding'
+                            ? () => goToInfo(o)
+                            : undefined
+                      }
+                    />
+                  );
+                })}
+              </View>
+            ) : (
+              <View style={styles.grid}>
+                {sortedOrders.map((o) => {
+                  const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
+                  return (
+                    <ProjectListCard
+                      key={o.id}
+                      item={item}
+                      cardWidth={cardWidth}
+                      isPinned={pinnedOrderIds.includes(o.id)}
+                      onTogglePin={() => handleTogglePin(o.id)}
+                      onPress={() => goToTodos(o)}
+                      onSettings={
+                        o.status === 'cancelled'
+                          ? () => hideOrderForClient(o.id)
+                          : o.status !== 'onboarding'
+                            ? () => goToInfo(o)
+                            : undefined
+                      }
+                    />
+                  );
+                })}
+              </View>
+            )}
+          </>
+        )}
     </ScrollView>
   );
 }
@@ -277,6 +315,7 @@ function orderToItem(
 ): ProjectListCardItem {
   const isOnboarding = order.status === 'onboarding';
   const taxSeasonYear = getTaxSeasonYear(order);
+  const isCancelled = order.status === 'cancelled';
   return {
     id: order.id,
     displayName: getOrderDisplayName(order, isOnboarding),
@@ -287,10 +326,10 @@ function orderToItem(
     isMuted: order.status === 'cancelled',
     footerText: order.firmName ? `By ${order.firmName}` : null,
     progress:
-      !isOnboarding && (order.taskTotal ?? 0) > 0
+      !isOnboarding && !isCancelled && (order.taskTotal ?? 0) > 0
         ? { completed: order.taskCompleted ?? 0, total: order.taskTotal ?? 0 }
         : null,
-    action: isOnboarding
+    action: isOnboarding && !isCancelled
       ? {
           label: 'Accept and Start',
           onPress: () => onConfirm(order),

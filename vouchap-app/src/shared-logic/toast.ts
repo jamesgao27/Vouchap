@@ -5,13 +5,20 @@ export interface ToastPayload {
   message: string;
   type: ToastType;
   duration: number;
+  /** 可选：自定义展示样式 */
+  variant?: 'default' | 'center-success';
 }
 
 type Listener = (payload: ToastPayload) => void;
 const listeners = new Set<Listener>();
 
-export function showToast(message: string, type: ToastType = 'info', duration = 1500) {
-  const payload: ToastPayload = { message, type, duration };
+export function showToast(
+  message: string,
+  type: ToastType = 'info',
+  duration = 1500,
+  variant: ToastPayload['variant'] = 'default',
+) {
+  const payload: ToastPayload = { message, type, duration, variant };
   listeners.forEach((fn) => fn(payload));
 }
 

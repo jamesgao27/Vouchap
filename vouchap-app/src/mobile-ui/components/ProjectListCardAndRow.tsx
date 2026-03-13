@@ -127,7 +127,7 @@ export function ProjectListCard({
               </View>
             </View>
           )}
-          {onTogglePin != null && (isPinned || hover) && (
+          {onTogglePin != null && !item.isMuted && (isPinned || hover) && (
             <View style={s.cornerPinWrap} pointerEvents="box-none">
               <View
                 style={[
@@ -151,11 +151,18 @@ export function ProjectListCard({
               <View style={[s.cardEditCornerTriangle, { backgroundColor: CORNER_PIN_WHITE_TRANSPARENT }]} pointerEvents="none" />
               <TouchableOpacity
                 style={s.cardEditCornerTouchable}
-                onPress={(e) => { e.stopPropagation(); onSettings(); }}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onSettings();
+                }}
                 hitSlop={0}
                 activeOpacity={0.85}
               >
-                <Ionicons name="create-outline" size={22} color={CORNER_PIN_ORANGE} />
+                <Ionicons
+                  name={item.isMuted ? 'trash-outline' : 'create-outline'}
+                  size={22}
+                  color={CORNER_PIN_ORANGE}
+                />
               </TouchableOpacity>
             </View>
           )}
@@ -207,56 +214,70 @@ export function ProjectListCard({
             </View>
           )}
         </View>
-        {item.action && (
+        {(item.action || item.isMuted) && (
           <View style={s.acceptBtnWrap}>
-            {(item.action.confirming || item.action.rejecting) && !item.action.onReject ? (
-              <View style={s.acceptBtnProgress}>
-                <IndeterminateProgressBar />
-              </View>
-            ) : item.action.confirming || item.action.rejecting ? (
-              <View style={s.acceptBtnRow}>
-                <TouchableOpacity
-                  style={s.rejectIconBtn}
-                  onPress={(e) => { e.stopPropagation(); item.action!.onReject!(); }}
-                  disabled
-                  activeOpacity={0.8}
-                >
-                  {item.action.rejecting ? (
-                    <Ionicons name="hourglass-outline" size={20} color="#C0392B" />
-                  ) : (
-                    <Ionicons name="close-circle-outline" size={22} color="#C0392B" />
-                  )}
-                </TouchableOpacity>
+            {item.action ? (
+              (item.action.confirming || item.action.rejecting) && !item.action.onReject ? (
                 <View style={s.acceptBtnProgress}>
                   <IndeterminateProgressBar />
                 </View>
-              </View>
-            ) : item.action.onReject ? (
-              <View style={s.acceptBtnRow}>
+              ) : item.action.confirming || item.action.rejecting ? (
+                <View style={s.acceptBtnRow}>
+                  <TouchableOpacity
+                    style={s.rejectIconBtn}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      item.action!.onReject!();
+                    }}
+                    disabled
+                    activeOpacity={0.8}
+                  >
+                    {item.action.rejecting ? (
+                      <Ionicons name="hourglass-outline" size={20} color="#C0392B" />
+                    ) : (
+                      <Ionicons name="close-circle-outline" size={22} color="#C0392B" />
+                    )}
+                  </TouchableOpacity>
+                  <View style={s.acceptBtnProgress}>
+                    <IndeterminateProgressBar />
+                  </View>
+                </View>
+              ) : item.action.onReject ? (
+                <View style={s.acceptBtnRow}>
+                  <TouchableOpacity
+                    style={s.rejectIconBtn}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      item.action!.onReject!();
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="close-circle-outline" size={22} color="#C0392B" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[s.acceptBtn, s.acceptBtnWithReject]}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      item.action!.onPress();
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={s.acceptBtnText}>{item.action.label}</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
                 <TouchableOpacity
-                  style={s.rejectIconBtn}
-                  onPress={(e) => { e.stopPropagation(); item.action!.onReject!(); }}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="close-circle-outline" size={22} color="#C0392B" />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[s.acceptBtn, s.acceptBtnWithReject]}
-                  onPress={(e) => { e.stopPropagation(); item.action!.onPress(); }}
+                  style={s.acceptBtn}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    item.action!.onPress();
+                  }}
                   activeOpacity={0.8}
                 >
                   <Text style={s.acceptBtnText}>{item.action.label}</Text>
                 </TouchableOpacity>
-              </View>
-            ) : (
-              <TouchableOpacity
-                style={s.acceptBtn}
-                onPress={(e) => { e.stopPropagation(); item.action!.onPress(); }}
-                activeOpacity={0.8}
-              >
-                <Text style={s.acceptBtnText}>{item.action.label}</Text>
-              </TouchableOpacity>
-            )}
+              )
+            ) : null}
           </View>
         )}
       </TouchableOpacity>
@@ -290,7 +311,7 @@ export function ProjectListRow({
       onMouseLeave={Platform.OS === 'web' ? () => setHover(false) : undefined}
     >
       <TouchableOpacity style={[s.listRow, item.isMuted && s.listRowMuted]} onPress={onPress} activeOpacity={0.7}>
-        {onTogglePin != null && (isPinned || hover) && (
+        {onTogglePin != null && !item.isMuted && (isPinned || hover) && (
           <View style={s.listRowCornerPinWrap} pointerEvents="box-none">
             <View
               style={[
@@ -317,7 +338,11 @@ export function ProjectListRow({
               activeOpacity={0.8}
               style={s.listActionBtn}
             >
-              <Ionicons name="create-outline" size={18} color={LIST_ACTION_GRAY} />
+              <Ionicons
+                name={item.isMuted ? 'trash-outline' : 'create-outline'}
+                size={18}
+                color={LIST_ACTION_GRAY}
+              />
             </TouchableOpacity>
           ) : null}
         </View>

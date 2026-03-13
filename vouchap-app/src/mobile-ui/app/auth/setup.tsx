@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Platform,
+  TextInput,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -26,8 +27,9 @@ import {
   type FirmClientInviteInfo,
 } from '@/lib/firm-clients';
 import { getSkuById } from '../../../shared-logic/firm';
-import type { UserSpace } from '@/types';
+import type { UserSpace, FirmSku } from '@/types';
 import { showToast } from '@/lib/toast';
+import SkuPreview from '../../components/SkuPreview';
 
 type Status = 'checking' | 'need_login' | 'loading' | 'ready' | 'submitting' | 'success' | 'error';
 
@@ -43,14 +45,10 @@ export default function ClientSetupScreen() {
   const [spaces, setSpaces] = useState<UserSpace[]>([]);
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
-  const [skuPreview, setSkuPreview] = useState<{
-    name: string;
-    description?: string | null;
-    imageUrl?: string | null;
-    taxCountry?: string | null;
-    taxScenario?: string | null;
-  } | null>(null);
+  const [skuPreview, setSkuPreview] = useState<FirmSku | null>(null);
   const [newSpaceName, setNewSpaceName] = useState<string>('');
+  const [isNarrowWeb, setIsNarrowWeb] = useState<boolean>(false);
+  const isWeb = Platform.OS === 'web';
 
   const load = useCallback(async () => {
     if (!token) {
@@ -91,17 +89,25 @@ export default function ClientSetupScreen() {
     setInviteInfo(infoRes.info);
     setSpaces(clientSpaces);
 
-    // 加载 SKU 预览信息：用于在「Link your space with」页展示关联服务
+    // 加载 SKU 预览信息：用于在「Link your space with」页右侧展示关联服务
     try {
       const sku = await getSkuById(infoRes.info.skuId);
       if (sku) {
-        setSkuPreview({
+        const skuObj: FirmSku = {
+          id: infoRes.info.skuId,
+          firmSpaceId: infoRes.info.firmSpaceId,
           name: sku.name,
-          description: sku.description ?? null,
+          description: sku.description ?? undefined,
           imageUrl: sku.imageUrl ?? null,
+          isPublished: sku.isPublished ?? false,
+          templateStatus: sku.templateStatus ?? undefined,
+          itemsCount: undefined,
           taxCountry: sku.taxCountry ?? null,
           taxScenario: sku.taxScenario ?? null,
-        });
+          createdAt: undefined,
+          updatedAt: undefined,
+        };
+        setSkuPreview(skuObj);
       } else {
         setSkuPreview(null);
       }
@@ -131,6 +137,19 @@ export default function ClientSetupScreen() {
       setErrorMessage('Invalid link. Missing invite token.');
     }
   }, [token, status]);
+
+  useEffect(() => {
+    if (!isWeb) return;
+    const updateLayout = () => {
+      if (typeof window === 'undefined') return;
+      setIsNarrowWeb(window.innerWidth < 960);
+    };
+    updateLayout();
+    window.addEventListener('resize', updateLayout);
+    return () => {
+      window.removeEventListener('resize', updateLayout);
+    };
+  }, [isWeb]);
 
   // 未登录时展示落地页，由用户点击 "Sign in" 再跳转
 
@@ -167,7 +186,6 @@ export default function ClientSetupScreen() {
         space.id,
         user.id
       );
-
       if (error || !result) {
         setStatus('ready');
         showToast(error?.message ?? 'Failed to link space', 'error');
@@ -175,8 +193,13 @@ export default function ClientSetupScreen() {
       }
 
       await setCurrentSpace(space.id);
-      setStatus('success');
-      showToast('Space created and linked. Engagement created.', 'success');
+      showToast(
+        'Space created and linked. Engagement created.',
+        'success',
+        2200,
+        'center-success',
+      );
+      router.replace('/tax-filing');
       return;
     }
 
@@ -202,9 +225,14 @@ export default function ClientSetupScreen() {
     }
 
     if (result) {
-      setStatus('success');
-      showToast('Space linked. Engagement created.', 'success');
       await setCurrentSpace(selectedSpaceId);
+      showToast(
+        'Space linked. Engagement created.',
+        'success',
+        2200,
+        'center-success',
+      );
+      router.replace('/tax-filing');
     } else {
       setStatus('ready');
       showToast('Could not complete. Try again.', 'error');
@@ -304,86 +332,64 @@ export default function ClientSetupScreen() {
     );
   }
 
-  if (status === 'success') {
-    return (
-      <View style={styles.container}>
-        <StatusBar style="dark" />
-        <View style={styles.cardWrap}>
-          <View style={styles.card}>
-            <View style={[styles.cardHeader, styles.cardHeaderCenter]}>
-              <View style={styles.iconWrapSuccess}>
-                <Ionicons name="checkmark-circle" size={40} color="#00B894" />
-              </View>
-              <Text style={styles.successTitle}>All set</Text>
-              <Text style={styles.loadingText}>Your space is linked. Go to your home when ready.</Text>
-            </View>
-            <View style={styles.cardBody}>
-              <TouchableOpacity style={styles.primaryButton} onPress={() => router.replace('/')}>
-                <Text style={styles.primaryButtonText}>Go to Home</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </View>
-    );
-  }
-
   // ready: 与落地页一致的卡片样式
   const firmName = inviteInfo?.firmName ?? 'Your tax firm';
+  const skuId = inviteInfo?.skuId ?? '';
 
-  return (
-    <View style={styles.container}>
-      <StatusBar style="dark" />
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        <View style={styles.cardWrap}>
-          <View style={styles.card}>
-            <View style={styles.cardHeader}>
-              <View style={styles.iconWrap}>
-                <Ionicons name="link" size={40} color="#6C5CE7" />
-              </View>
-              <Text style={styles.pageTitle}>Link your space with</Text>
-              <View style={styles.firmNameBlock}>
-                <Text style={styles.firmNameText}>{firmName}</Text>
-              </View>
-              <Text style={styles.pageSubtitle}>
-                Select a space to link and start tax filing:
-              </Text>
-            </View>
+  const openSkuPreview = () => {
+    if (skuId && inviteInfo?.firmSpaceId) {
+      router.push({
+        pathname: '/auth/setup-sku-preview',
+        params: { skuId, firmSpaceId: inviteInfo.firmSpaceId },
+      });
+    } else if (skuId) {
+      router.push({ pathname: '/auth/setup-sku-preview', params: { skuId } });
+    }
+  };
 
-            <View style={styles.cardBody}>
+  const cardHeaderContent = (
+    <>
+      <View style={styles.iconWrap}>
+        <Ionicons name="link" size={40} color="#6C5CE7" />
+      </View>
+      <Text style={styles.pageTitle}>Link your space with</Text>
+      <View style={styles.firmNameBlock}>
+        <Text style={styles.firmNameText}>{firmName}</Text>
+      </View>
+      <Text style={styles.pageSubtitle}>
+        Select a space to link and start tax filing:
+      </Text>
+    </>
+  );
+
+  const mainCard = (
+    <View style={styles.card}>
+      <View style={styles.cardHeader}>
+        {isWeb ? (
+          cardHeaderContent
+        ) : (
+          <TouchableOpacity
+            style={styles.cardHeaderTouchable}
+            onPress={skuPreview ? openSkuPreview : undefined}
+            activeOpacity={skuPreview ? 0.7 : 1}
+            disabled={!skuPreview}
+          >
+            {cardHeaderContent}
+            {skuPreview && (
+              <View style={styles.headerSkuHint}>
+                <Ionicons name="document-text-outline" size={18} color="#6C5CE7" />
+                <Text style={styles.headerSkuHintText}>Service preview</Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={styles.cardBody}>
+        <View style={[styles.linkRow, isWeb && styles.linkRowWeb]}>
+          <View style={[styles.linkLeft, isWeb && styles.linkLeftWeb]}>
+            <View style={styles.linkLeftContent}>
               <Text style={styles.sectionLabel}>Select a space</Text>
-
-              {skuPreview && (
-                <View style={styles.skuCard}>
-                  <Text style={styles.skuLabel}>Service you are joining</Text>
-                  <Text style={styles.skuTitle} numberOfLines={2}>
-                    {skuPreview.name}
-                  </Text>
-                  {skuPreview.description ? (
-                    <Text style={styles.skuDescription} numberOfLines={3}>
-                      {skuPreview.description}
-                    </Text>
-                  ) : null}
-                  {(skuPreview.taxCountry || skuPreview.taxScenario) && (
-                    <View style={styles.skuTagRow}>
-                      {skuPreview.taxCountry ? (
-                        <View style={styles.skuTagPill}>
-                          <Text style={styles.skuTagText}>{skuPreview.taxCountry}</Text>
-                        </View>
-                      ) : null}
-                      {skuPreview.taxScenario ? (
-                        <View style={styles.skuTagPill}>
-                          <Text style={styles.skuTagText}>{skuPreview.taxScenario}</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  )}
-                </View>
-              )}
 
               <View style={styles.spaceList}>
                 {spaces.map((us, i) => {
@@ -406,7 +412,10 @@ export default function ClientSetupScreen() {
                         size={22}
                         color={isSelected ? '#6C5CE7' : '#BDC3C7'}
                       />
-                      <Text style={[styles.spaceName, isSelected && styles.spaceNameSelected]} numberOfLines={1}>
+                      <Text
+                        style={[styles.spaceName, isSelected && styles.spaceNameSelected]}
+                        numberOfLines={1}
+                      >
                         {name}
                       </Text>
                     </TouchableOpacity>
@@ -436,7 +445,8 @@ export default function ClientSetupScreen() {
                   <Text
                     style={[
                       styles.spaceName,
-                      selectedSpaceId === NEW_SPACE_SENTINEL_ID && styles.spaceNameSelected,
+                      selectedSpaceId === NEW_SPACE_SENTINEL_ID &&
+                        styles.spaceNameSelected,
                     ]}
                     numberOfLines={1}
                   >
@@ -459,18 +469,35 @@ export default function ClientSetupScreen() {
               )}
 
               {spaces.length === 0 && (
-                <TouchableOpacity style={styles.createSpaceCta} onPress={handleCreateSpace}>
+                <TouchableOpacity
+                  style={styles.createSpaceCta}
+                  onPress={handleCreateSpace}
+                >
                   <Ionicons name="add-circle-outline" size={22} color="#6C5CE7" />
-                  <Text style={styles.createSpaceCtaText}>Create a client space first</Text>
+                  <Text style={styles.createSpaceCtaText}>
+                    Create a client space first
+                  </Text>
                 </TouchableOpacity>
               )}
+            </View>
+
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.secondaryActionButton}
+                onPress={() => router.replace('/')}
+                disabled={status === 'submitting'}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.secondaryActionText}>Cancel</Text>
+              </TouchableOpacity>
 
               <TouchableOpacity
                 style={[
                   styles.primaryButton,
                   styles.confirmButton,
                   ((!selectedSpaceId ||
-                    (selectedSpaceId === NEW_SPACE_SENTINEL_ID && !newSpaceName.trim()) ||
+                    (selectedSpaceId === NEW_SPACE_SENTINEL_ID &&
+                      !newSpaceName.trim()) ||
                     status === 'submitting') &&
                     styles.buttonDisabled),
                 ]}
@@ -480,20 +507,51 @@ export default function ClientSetupScreen() {
                   (selectedSpaceId === NEW_SPACE_SENTINEL_ID && !newSpaceName.trim()) ||
                   status === 'submitting'
                 }
+                activeOpacity={0.8}
               >
                 {status === 'submitting' ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.primaryButtonText}>Confirm and start filing</Text>
+                  <Text style={styles.primaryButtonText}>Confirm</Text>
                 )}
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.cancelLink} onPress={() => router.replace('/')}>
-                <Text style={styles.cancelLinkText}>Cancel</Text>
               </TouchableOpacity>
             </View>
           </View>
+
+          {/* Mobile: SKU preview only via header tap → /auth/setup-sku-preview */}
         </View>
+      </View>
+    </View>
+  );
+
+  return (
+    <View style={styles.container}>
+      <StatusBar style="dark" />
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isWeb && (isNarrowWeb ? styles.scrollContentWebNarrow : styles.scrollContentWeb),
+        ]}
+        keyboardShouldPersistTaps="handled"
+      >
+        {isWeb ? (
+          <View style={[styles.webRow, isNarrowWeb && styles.webRowNarrow]}>
+            <View style={[styles.cardWrap, styles.cardWrapWeb]}>
+              {mainCard}
+            </View>
+            {skuPreview && (
+              <View style={styles.skuPreviewColumn}>
+                <Text style={styles.skuPreviewTitle}>Service preview</Text>
+                <SkuPreview sku={skuPreview} />
+              </View>
+            )}
+          </View>
+        ) : (
+          <View style={styles.cardWrap}>
+            {mainCard}
+          </View>
+        )}
       </ScrollView>
     </View>
   );
@@ -513,10 +571,42 @@ const styles = StyleSheet.create({
     paddingBottom: 48,
     alignItems: 'center',
   },
+  scrollContentWeb: {
+    flexDirection: 'column',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    gap: 32,
+  },
+  scrollContentWebNarrow: {
+    flexDirection: 'column',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    gap: 24,
+  },
   cardWrap: {
     width: '100%',
     maxWidth: 448,
     alignSelf: 'center',
+  },
+  cardWrapWeb: {
+    flex: 1,
+    maxWidth: 560,
+    alignSelf: 'stretch',
+  },
+  cardHeaderTouchable: {
+    alignItems: 'center',
+    width: '100%',
+  },
+  headerSkuHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  headerSkuHintText: {
+    fontSize: 13,
+    color: '#6C5CE7',
+    fontWeight: '600',
   },
   card: {
     backgroundColor: '#FFF',
@@ -608,6 +698,84 @@ const styles = StyleSheet.create({
     color: '#636E72',
     marginBottom: 10,
   },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 16,
+  },
+  linkRowWeb: {
+    gap: 0,
+  },
+  linkLeft: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 576,
+    justifyContent: 'space-between',
+  },
+  linkLeftWeb: {
+    flex: 1,
+  },
+  linkLeftContent: {
+    flexShrink: 1,
+  },
+  linkRight: {
+    flexShrink: 0,
+    width: 220,
+    marginLeft: 8,
+  },
+  skuPreviewFloat: {
+    flex: 0,
+    width: 280,
+    maxWidth: 320,
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  skuPreviewFloatNarrow: {
+    width: '100%',
+    maxWidth: 448,
+  },
+  webRow: {
+    width: '100%',
+    maxWidth: 1040,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    gap: 24,
+    alignSelf: 'center',
+  },
+  webRowNarrow: {
+    flexDirection: 'column',
+  },
+  skuPreviewColumn: {
+    width: 380,
+    maxWidth: 400,
+    flexShrink: 0,
+    backgroundColor: '#FFF',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 4,
+    alignSelf: 'flex-end',
+  },
+  skuPreviewTitle: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#636E72',
+    marginBottom: 6,
+  },
   spaceList: {
     marginBottom: 20,
     borderRadius: 12,
@@ -653,16 +821,35 @@ const styles = StyleSheet.create({
     color: '#6C5CE7',
     fontWeight: '600',
   },
+  newSpaceInputContainer: {
+    marginBottom: 16,
+  },
+  newSpaceLabel: {
+    fontSize: 13,
+    color: '#636E72',
+    marginBottom: 6,
+    fontWeight: '500',
+  },
+  newSpaceInput: {
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    color: '#2D3436',
+    backgroundColor: '#FFFFFF',
+  },
   primaryButton: {
     backgroundColor: '#6C5CE7',
     paddingVertical: 14,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    minWidth: 200,
   },
   confirmButton: {
-    marginTop: 8,
+    marginTop: 0,
   },
   buttonDisabled: {
     opacity: 0.6,
@@ -712,5 +899,28 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#00B894',
     marginTop: 16,
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 12,
+  },
+  secondaryActionButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    minWidth: 140,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  secondaryActionText: {
+    fontSize: 14,
+    color: '#636E72',
+    fontWeight: '500',
   },
 });
