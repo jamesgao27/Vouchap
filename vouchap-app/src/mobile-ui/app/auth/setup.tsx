@@ -18,16 +18,20 @@ import {
   getUserSpaces,
   setCurrentSpace,
   isAuthenticated,
+  createSpace,
 } from '@/lib/auth';
 import {
   getFirmClientInviteInfo,
   acceptFirmClientInvite,
   type FirmClientInviteInfo,
 } from '@/lib/firm-clients';
+import { getSkuById } from '../../../shared-logic/firm';
 import type { UserSpace } from '@/types';
 import { showToast } from '@/lib/toast';
 
 type Status = 'checking' | 'need_login' | 'loading' | 'ready' | 'submitting' | 'success' | 'error';
+
+const NEW_SPACE_SENTINEL_ID = '__NEW_SPACE__';
 
 export default function ClientSetupScreen() {
   const router = useRouter();
@@ -39,6 +43,14 @@ export default function ClientSetupScreen() {
   const [spaces, setSpaces] = useState<UserSpace[]>([]);
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [skuPreview, setSkuPreview] = useState<{
+    name: string;
+    description?: string | null;
+    imageUrl?: string | null;
+    taxCountry?: string | null;
+    taxScenario?: string | null;
+  } | null>(null);
+  const [newSpaceName, setNewSpaceName] = useState<string>('');
 
   const load = useCallback(async () => {
     if (!token) {
@@ -49,7 +61,11 @@ export default function ClientSetupScreen() {
 
     const authed = await isAuthenticated();
     if (!authed) {
-      setStatus('need_login');
+      // 未登录时直接跳到登录页，并带上 redirect + token，登录后返回本页继续流程
+      router.replace({
+        pathname: '/login',
+        params: { redirect: '/auth/setup', token },
+      });
       return;
     }
 
@@ -74,6 +90,25 @@ export default function ClientSetupScreen() {
     const clientSpaces = userSpaces.filter((us) => us.space?.kind === 'client');
     setInviteInfo(infoRes.info);
     setSpaces(clientSpaces);
+
+    // 加载 SKU 预览信息：用于在「Link your space with」页展示关联服务
+    try {
+      const sku = await getSkuById(infoRes.info.skuId);
+      if (sku) {
+        setSkuPreview({
+          name: sku.name,
+          description: sku.description ?? null,
+          imageUrl: sku.imageUrl ?? null,
+          taxCountry: sku.taxCountry ?? null,
+          taxScenario: sku.taxScenario ?? null,
+        });
+      } else {
+        setSkuPreview(null);
+      }
+    } catch {
+      setSkuPreview(null);
+    }
+
     if (clientSpaces.length === 1) {
       setSelectedSpaceId(clientSpaces[0].spaceId);
     } else {
@@ -83,7 +118,7 @@ export default function ClientSetupScreen() {
     if (clientSpaces.length === 0) {
       setErrorMessage('You need a client space to link. Create one first.');
     }
-  }, [token]);
+  }, [router, token]);
 
   useEffect(() => {
     load();
@@ -101,6 +136,51 @@ export default function ClientSetupScreen() {
 
   const handleConfirm = async () => {
     if (!inviteInfo || !selectedSpaceId || !token) return;
+
+    // 选择「Create a new」时：先快速创建一个 client 空间，再消费邀请并绑定
+    if (selectedSpaceId === NEW_SPACE_SENTINEL_ID) {
+      if (!newSpaceName.trim()) {
+        showToast('Please enter space name', 'error');
+        return;
+      }
+      setStatus('submitting');
+      const { space, error: createError } = await createSpace(
+        newSpaceName.trim(),
+        undefined,
+        { kind: 'client' }
+      );
+      if (!space || createError) {
+        setStatus('ready');
+        showToast(createError?.message ?? 'Failed to create space', 'error');
+        return;
+      }
+
+      const user = await getCurrentUser(true);
+      if (!user) {
+        setStatus('ready');
+        showToast('Please sign in again', 'error');
+        return;
+      }
+
+      const { result, error } = await acceptFirmClientInvite(
+        token,
+        space.id,
+        user.id
+      );
+
+      if (error || !result) {
+        setStatus('ready');
+        showToast(error?.message ?? 'Failed to link space', 'error');
+        return;
+      }
+
+      await setCurrentSpace(space.id);
+      setStatus('success');
+      showToast('Space created and linked. Engagement created.', 'success');
+      return;
+    }
+
+    // 选择已有空间：维持原有逻辑
     const user = await getCurrentUser();
     if (!user) {
       showToast('Please sign in again', 'error');
@@ -276,6 +356,35 @@ export default function ClientSetupScreen() {
 
             <View style={styles.cardBody}>
               <Text style={styles.sectionLabel}>Select a space</Text>
+
+              {skuPreview && (
+                <View style={styles.skuCard}>
+                  <Text style={styles.skuLabel}>Service you are joining</Text>
+                  <Text style={styles.skuTitle} numberOfLines={2}>
+                    {skuPreview.name}
+                  </Text>
+                  {skuPreview.description ? (
+                    <Text style={styles.skuDescription} numberOfLines={3}>
+                      {skuPreview.description}
+                    </Text>
+                  ) : null}
+                  {(skuPreview.taxCountry || skuPreview.taxScenario) && (
+                    <View style={styles.skuTagRow}>
+                      {skuPreview.taxCountry ? (
+                        <View style={styles.skuTagPill}>
+                          <Text style={styles.skuTagText}>{skuPreview.taxCountry}</Text>
+                        </View>
+                      ) : null}
+                      {skuPreview.taxScenario ? (
+                        <View style={styles.skuTagPill}>
+                          <Text style={styles.skuTagText}>{skuPreview.taxScenario}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                  )}
+                </View>
+              )}
+
               <View style={styles.spaceList}>
                 {spaces.map((us, i) => {
                   const isSelected = selectedSpaceId === us.spaceId;
@@ -303,7 +412,51 @@ export default function ClientSetupScreen() {
                     </TouchableOpacity>
                   );
                 })}
+
+                <TouchableOpacity
+                  style={[
+                    styles.spaceRow,
+                    selectedSpaceId === NEW_SPACE_SENTINEL_ID && styles.spaceRowSelected,
+                    styles.spaceRowLast,
+                  ]}
+                  onPress={() => setSelectedSpaceId(NEW_SPACE_SENTINEL_ID)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={
+                      selectedSpaceId === NEW_SPACE_SENTINEL_ID
+                        ? 'radio-button-on'
+                        : 'radio-button-off'
+                    }
+                    size={22}
+                    color={
+                      selectedSpaceId === NEW_SPACE_SENTINEL_ID ? '#6C5CE7' : '#BDC3C7'
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.spaceName,
+                      selectedSpaceId === NEW_SPACE_SENTINEL_ID && styles.spaceNameSelected,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    Create a new space
+                  </Text>
+                </TouchableOpacity>
               </View>
+
+              {selectedSpaceId === NEW_SPACE_SENTINEL_ID && (
+                <View style={styles.newSpaceInputContainer}>
+                  <Text style={styles.newSpaceLabel}>New space name</Text>
+                  <TextInput
+                    style={styles.newSpaceInput}
+                    placeholder="Enter space name"
+                    placeholderTextColor="#95A5A6"
+                    value={newSpaceName}
+                    onChangeText={setNewSpaceName}
+                  />
+                </View>
+              )}
 
               {spaces.length === 0 && (
                 <TouchableOpacity style={styles.createSpaceCta} onPress={handleCreateSpace}>
@@ -316,10 +469,17 @@ export default function ClientSetupScreen() {
                 style={[
                   styles.primaryButton,
                   styles.confirmButton,
-                  (!selectedSpaceId || status === 'submitting') && styles.buttonDisabled,
+                  ((!selectedSpaceId ||
+                    (selectedSpaceId === NEW_SPACE_SENTINEL_ID && !newSpaceName.trim()) ||
+                    status === 'submitting') &&
+                    styles.buttonDisabled),
                 ]}
                 onPress={handleConfirm}
-                disabled={!selectedSpaceId || status === 'submitting'}
+                disabled={
+                  !selectedSpaceId ||
+                  (selectedSpaceId === NEW_SPACE_SENTINEL_ID && !newSpaceName.trim()) ||
+                  status === 'submitting'
+                }
               >
                 {status === 'submitting' ? (
                   <ActivityIndicator color="#fff" size="small" />
