@@ -25,8 +25,7 @@ import { getPurposes } from '@/lib/purposes';
 import { getAccounts, mergeAccount } from '@/lib/accounts';
 import { getCustomerOptions } from '@/lib/customer-supplier-list';
 import { normalizeNameForCompare } from '@/lib/name-utils';
-import { mergeCustomer } from '@/lib/customers';
-import { mergeSupplier } from '@/lib/suppliers';
+import { mergeEntity } from '@/lib/entities';
 import { Invoice, InvoiceItem, Category, Purpose, VoucherStatus, Account } from '@/types';
 import { format } from 'date-fns';
 import { getLocalDateString } from '@/lib/date-utils';
@@ -186,8 +185,7 @@ export default function InvoiceDetailsScreen() {
             const targetId = payload.targetId;
             const targetSource = payload.targetSource;
             if (currentId && targetId && currentSource && targetSource && currentId !== targetId && currentSource === targetSource) {
-              if (currentSource === 'customer') await mergeCustomer([currentId], targetId);
-              else await mergeSupplier([currentId], targetId);
+              await mergeEntity([currentId], targetId);
             }
             await saveInvoice({ ...editedInvoice, id, status: 'confirmed' as VoucherStatus });
           }
@@ -472,11 +470,7 @@ export default function InvoiceDetailsScreen() {
         showToast('Current link type differs from target. Use "Replace this voucher" instead.', 'info');
         return;
       }
-      if (currentSource === 'customer') {
-        await mergeCustomer([currentId], finalTargetId);
-      } else {
-        await mergeSupplier([currentId], finalTargetId);
-      }
+      await mergeEntity([currentId], finalTargetId);
       setEditing(false);
       loadInvoice();
     } catch (e: any) {

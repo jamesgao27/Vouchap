@@ -10,6 +10,29 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Platform, ActivityIndicator, useWindowDimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Path, Rect, G, Circle, Text as SvgText } from 'react-native-svg';
+
+/** 堆叠横道图单段：仅左圆角 / 仅右圆角 / 无圆角。rx 圆角半径，x,y,w,h 矩形。 */
+function stackedBarSegmentPath(
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  rx: number,
+  roundLeft: boolean,
+  roundRight: boolean
+): string {
+  if (w <= 0) return '';
+  if (!roundLeft && !roundRight) return `M ${x} ${y} L ${x + w} ${y} L ${x + w} ${y + h} L ${x} ${y + h} Z`;
+  const r = Math.min(rx, w / 2, h / 2);
+  if (roundLeft && roundRight) {
+    return `M ${x + r} ${y} L ${x + w - r} ${y} Q ${x + w} ${y} ${x + w} ${y + r} L ${x + w} ${y + h - r} Q ${x + w} ${y + h} ${x + w - r} ${y + h} L ${x + r} ${y + h} Q ${x} ${y + h} ${x} ${y + h - r} L ${x} ${y + r} Q ${x} ${y} ${x + r} ${y} Z`;
+  }
+  if (roundLeft) {
+    return `M ${x + r} ${y} L ${x + w} ${y} L ${x + w} ${y + h} L ${x + r} ${y + h} Q ${x} ${y + h} ${x} ${y + h - r} L ${x} ${y + r} Q ${x} ${y} ${x + r} ${y} Z`;
+  }
+  // roundRight
+  return `M ${x} ${y} L ${x + w - r} ${y} Q ${x + w} ${y} ${x + w} ${y + r} L ${x + w} ${y + h - r} Q ${x + w} ${y + h} ${x + w - r} ${y + h} L ${x} ${y + h} L ${x} ${y} Z`;
+}
 import { getCurrentSpace } from '@/lib/auth';
 import {
   getFirmClientsWithDetails,
@@ -54,6 +77,9 @@ const ORDER_STATUS_LABELS: Record<FirmOrderStatus, string> = {
   completed: 'Completed',
   cancelled: 'Cancelled',
 };
+
+/** 图表内文字统一字体（与 WebDashboardView 一致） */
+const INSIGHTS_CHART_FONT = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
 
 /** 留空：四周与间距统一，卡片宽度=(视口宽-3*留空)/2，卡片高度=(视口高-3*留空)/2 */
 const INSIGHTS_SPACING = 32;
@@ -141,14 +167,27 @@ export default function CrmDashboardView() {
       .map((k) => [CLIENT_STATUS_LABELS[k], base[k]] as [string, number]);
   }, [clients]);
 
-  const clientAssigneeEntries = useMemo(() => {
-    const counts: Record<string, number> = {};
+  /** Clients by assignee: 每个 assignee 下按 status 分段的堆叠数据，用于堆叠横道图 */
+  const clientAssigneeStackedEntries = useMemo(() => {
+    const statusOrder: ClientDisplayStatus[] = ['new', 'to_follow_up', 'in_service', 'to_revisit', 'churned'];
+    const byAssignee: Record<string, Record<ClientDisplayStatus, number>> = {};
     clients.forEach((c) => {
       const key = c.assigneeName || 'Unassigned';
-      counts[key] = (counts[key] ?? 0) + 1;
+      if (!byAssignee[key]) {
+        byAssignee[key] = { new: 0, to_follow_up: 0, in_service: 0, to_revisit: 0, churned: 0 };
+      }
+      byAssignee[key][c.displayStatus] = (byAssignee[key][c.displayStatus] ?? 0) + 1;
     });
-    return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
+    return Object.entries(byAssignee)
+      .map(([assignee, statusCounts]) => {
+        const segments = statusOrder
+          .filter((k) => (statusCounts[k] ?? 0) > 0)
+          .map((k) => [CLIENT_STATUS_LABELS[k], statusCounts[k] ?? 0] as [string, number]);
+        const total = statusOrder.reduce((s, k) => s + (statusCounts[k] ?? 0), 0);
+        return { assignee, segments, total };
+      })
+      .filter((row) => row.total > 0)
+      .sort((a, b) => b.total - a.total)
       .slice(0, 6);
   }, [clients]);
 
@@ -263,7 +302,7 @@ export default function CrmDashboardView() {
               <ClientAssigneeBars
                 width={chartWidth}
                 height={barChartH}
-                entries={clientAssigneeEntries}
+                stackedEntries={clientAssigneeStackedEntries}
               />
             </View>
           </View>
@@ -313,7 +352,7 @@ function ClientStatusPie({ width, height, entries }: PieProps) {
   if (entries.length === 0) {
     return (
       <Svg width={width} height={height}>
-        <SvgText x={width / 2} y={height / 2} textAnchor="middle" fill="#95A5A6" fontSize={14}>
+        <SvgText x={width / 2} y={height / 2} textAnchor="middle" fill="#95A5A6" fontSize={14} fontFamily={INSIGHTS_CHART_FONT}>
           No data
         </SvgText>
       </Svg>
@@ -346,7 +385,7 @@ function ClientStatusPie({ width, height, entries }: PieProps) {
         })}
         {/* inner cutout to create donut effect */}
         <Circle cx={cx} cy={cy} r={rInner} fill="#FFF" />
-        <SvgText x={cx} y={cy - 4} textAnchor="middle" fill="#2D3436" fontSize={13} fontWeight="600">
+        <SvgText x={cx} y={cy - 4} textAnchor="middle" fill="#2D3436" fontSize={13} fontWeight="600" fontFamily={INSIGHTS_CHART_FONT}>
           {total} clients
         </SvgText>
         {entries.slice(0, 5).map(([name, val], i) => (
@@ -365,6 +404,7 @@ function ClientStatusPie({ width, height, entries }: PieProps) {
               textAnchor="start"
               fill="#4B5563"
               fontSize={11}
+              fontFamily={INSIGHTS_CHART_FONT}
             >
               {name.length > 14 ? `${name.slice(0, 13)}…` : name} {total ? `${((val / total) * 100).toFixed(0)}%` : ''}
             </SvgText>
@@ -381,11 +421,19 @@ type BarProps = {
   entries: [string, number][];
 };
 
-function ClientAssigneeBars({ width, height, entries }: BarProps) {
-  if (entries.length === 0) {
+type StackedBarRow = { assignee: string; segments: [string, number][]; total: number };
+
+type StackedBarProps = {
+  width: number;
+  height: number;
+  stackedEntries: StackedBarRow[];
+};
+
+function ClientAssigneeBars({ width, height, stackedEntries }: StackedBarProps) {
+  if (stackedEntries.length === 0) {
     return (
       <Svg width={width} height={height}>
-        <SvgText x={width / 2} y={height / 2} textAnchor="middle" fill="#95A5A6" fontSize={14}>
+        <SvgText x={width / 2} y={height / 2} textAnchor="middle" fill="#95A5A6" fontSize={14} fontFamily={INSIGHTS_CHART_FONT}>
           No data
         </SvgText>
       </Svg>
@@ -394,13 +442,19 @@ function ClientAssigneeBars({ width, height, entries }: BarProps) {
   const padding = { top: 20, right: 24, bottom: 20, left: 80 };
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
-  const maxVal = Math.max(...entries.map(([, v]) => v));
-  const rowH = chartH / entries.length;
+  const maxTotal = Math.max(...stackedEntries.map((row) => row.total), 1);
+  const rowH = chartH / stackedEntries.length;
+  const statusesInChart = Array.from(
+    new Set(stackedEntries.flatMap((row) => row.segments.map(([label]) => label)))
+  ).sort(
+    (a, b) =>
+      Object.keys(CLIENT_STATUS_CHART_COLORS).indexOf(a) - Object.keys(CLIENT_STATUS_CHART_COLORS).indexOf(b)
+  );
 
   return (
     <Svg width={width} height={height} style={{ overflow: 'visible' }}>
       {/* background stripes */}
-      {entries.map(([, ,], i) => {
+      {stackedEntries.map((_, i) => {
         const y = padding.top + i * rowH + rowH * 0.2;
         const barH = rowH * 0.6;
         return (
@@ -415,36 +469,73 @@ function ClientAssigneeBars({ width, height, entries }: BarProps) {
           />
         );
       })}
-      {entries.map(([name, val], i) => {
+      {stackedEntries.map((row, i) => {
         const y = padding.top + i * rowH + rowH * 0.2;
         const barH = rowH * 0.6;
-        const barW = maxVal ? (val / maxVal) * chartW : 0;
-        const color = FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length];
-        const label = name.length > 16 ? `${name.slice(0, 15)}…` : name;
+        const label = row.assignee.length > 16 ? `${row.assignee.slice(0, 15)}…` : row.assignee;
+        let offsetX = padding.left;
         return (
-          <G key={name}>
+          <G key={row.assignee}>
             <SvgText
               x={padding.left - 8}
               y={y + barH / 2 + 4}
               textAnchor="end"
               fill="#636E72"
               fontSize={11}
+              fontFamily={INSIGHTS_CHART_FONT}
             >
               {label}
             </SvgText>
-            <Rect x={padding.left} y={y} width={barW} height={barH} rx={4} fill={color} />
+            {row.segments.map(([statusLabel], segIdx) => {
+              const val = row.segments[segIdx][1];
+              const segmentW = maxTotal ? (val / maxTotal) * chartW : 0;
+              const color = CLIENT_STATUS_CHART_COLORS[statusLabel] ?? '#95A5A6';
+              const isFirst = segIdx === 0;
+              const isLast = segIdx === row.segments.length - 1;
+              const d = stackedBarSegmentPath(offsetX, y, segmentW, barH, 8, isFirst, isLast);
+              const seg = d ? (
+                <Path key={statusLabel} d={d} fill={color} />
+              ) : null;
+              offsetX += segmentW;
+              return seg;
+            })}
             <SvgText
-              x={padding.left + barW + 6}
+              x={padding.left + (row.total / maxTotal) * chartW + 6}
               y={y + barH / 2 + 3}
               textAnchor="start"
               fill="#636E72"
               fontSize={10}
+              fontFamily={INSIGHTS_CHART_FONT}
             >
-              {val}
+              {row.total}
             </SvgText>
           </G>
         );
       })}
+      {/* Status legend (only statuses present in data) */}
+      {statusesInChart.length > 0 &&
+        statusesInChart.slice(0, 5).map((statusLabel, idx) => (
+          <G key={statusLabel}>
+            <Rect
+              x={padding.left + idx * 72}
+              y={height - 14}
+              width={8}
+              height={8}
+              rx={2}
+              fill={CLIENT_STATUS_CHART_COLORS[statusLabel] ?? '#95A5A6'}
+            />
+            <SvgText
+              x={padding.left + idx * 72 + 12}
+              y={height - 5}
+              textAnchor="start"
+              fill="#636E72"
+              fontSize={9}
+              fontFamily={INSIGHTS_CHART_FONT}
+            >
+              {statusLabel.length > 10 ? `${statusLabel.slice(0, 9)}…` : statusLabel}
+            </SvgText>
+          </G>
+        ))}
     </Svg>
   );
 }
@@ -453,7 +544,7 @@ function OrderStatusBars({ width, height, entries }: BarProps) {
   if (entries.length === 0) {
     return (
       <Svg width={width} height={height}>
-        <SvgText x={width / 2} y={height / 2} textAnchor="middle" fill="#95A5A6" fontSize={14}>
+        <SvgText x={width / 2} y={height / 2} textAnchor="middle" fill="#95A5A6" fontSize={14} fontFamily={INSIGHTS_CHART_FONT}>
           No data
         </SvgText>
       </Svg>
@@ -498,6 +589,7 @@ function OrderStatusBars({ width, height, entries }: BarProps) {
               textAnchor="middle"
               fill="#636E72"
               fontSize={10}
+              fontFamily={INSIGHTS_CHART_FONT}
             >
               {label}
             </SvgText>
@@ -507,6 +599,7 @@ function OrderStatusBars({ width, height, entries }: BarProps) {
               textAnchor="middle"
               fill="#2D3436"
               fontSize={10}
+              fontFamily={INSIGHTS_CHART_FONT}
             >
               {val}
             </SvgText>
@@ -527,7 +620,7 @@ function FollowUpLines({ width, height, series }: LineProps) {
   if (series.length === 0) {
     return (
       <Svg width={width} height={height}>
-        <SvgText x={width / 2} y={height / 2} textAnchor="middle" fill="#95A5A6" fontSize={14}>
+        <SvgText x={width / 2} y={height / 2} textAnchor="middle" fill="#95A5A6" fontSize={14} fontFamily={INSIGHTS_CHART_FONT}>
           No data
         </SvgText>
       </Svg>
@@ -610,6 +703,7 @@ function FollowUpLines({ width, height, series }: LineProps) {
             textAnchor="start"
             fill="#636E72"
             fontSize={10}
+            fontFamily={INSIGHTS_CHART_FONT}
           >
             {s.assignee.length > 12 ? `${s.assignee.slice(0, 11)}…` : s.assignee}
           </SvgText>

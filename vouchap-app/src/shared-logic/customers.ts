@@ -13,7 +13,7 @@ export async function getCustomers(): Promise<Customer[]> {
     if (!spaceId) throw new Error('No space selected');
 
     const { data, error } = await supabase
-      .from('customers')
+      .from('entities')
       .select('*')
       .eq('space_id', spaceId)
       .is('merged_into_id', null)
@@ -39,7 +39,7 @@ export async function getCustomersForOptions(): Promise<Customer[]> {
     if (!spaceId) throw new Error('No space selected');
 
     const { data, error } = await supabase
-      .from('customers')
+      .from('entities')
       .select('*')
       .eq('space_id', spaceId)
       .order('is_ai_recognized', { ascending: false })
@@ -63,31 +63,30 @@ function mapCustomerRow(row: any): Customer {
     phone: row.phone,
     address: row.address,
     isAiRecognized: row.is_ai_recognized,
-    isSupplier: row.is_supplier || false,
+    isSupplier: false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-// 创建客户
+// 创建客户（写入 entities 表）
 export async function createCustomer(
   name: string,
   isAiRecognized: boolean = false,
   taxNumber?: string,
   phone?: string,
   address?: string,
-  isSupplier: boolean = false // 如果该客户同时也是供应商，设置为true
+  _isSupplier: boolean = false
 ): Promise<Customer> {
   try {
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
 
-    // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
     const { data, error } = await supabase
-      .from('customers')
+      .from('entities')
       .insert({
         space_id: spaceId,
         name: name.trim(),
@@ -95,7 +94,6 @@ export async function createCustomer(
         phone: phone?.trim() || null,
         address: address?.trim() || null,
         is_ai_recognized: isAiRecognized,
-        is_supplier: isSupplier,
       })
       .select('*')
       .single();
@@ -106,7 +104,7 @@ export async function createCustomer(
       if (error.code === '23505' && (error.message?.includes('name') || error.message?.includes('客户'))) {
         console.log('客户名称已存在（数据库约束），尝试查找已存在的客户:', name.trim());
         const { data: existingCustomer } = await supabase
-          .from('customers')
+          .from('entities')
           .select('*')
           .eq('space_id', spaceId)
           .eq('name', name.trim())
@@ -170,10 +168,8 @@ export async function updateCustomer(
     if (updates.taxNumber !== undefined) updateData.tax_number = updates.taxNumber?.trim() || null;
     if (updates.phone !== undefined) updateData.phone = updates.phone?.trim() || null;
     if (updates.address !== undefined) updateData.address = updates.address?.trim() || null;
-    if (updates.isSupplier !== undefined) updateData.is_supplier = updates.isSupplier;
-
     const { data: updated, error } = await supabase
-      .from('customers')
+      .from('entities')
       .update(updateData)
       .eq('id', customerId)
       .eq('space_id', spaceId)
@@ -208,7 +204,7 @@ export async function deleteCustomer(customerId: string): Promise<void> {
     if (!spaceId) throw new Error('No space selected');
 
     const { error } = await supabase
-      .from('customers')
+      .from('entities')
       .delete()
       .eq('id', customerId)
       .eq('space_id', spaceId);
@@ -278,7 +274,7 @@ export async function findOrCreateCustomer(
 
     // 获取所有客户
     const { data: allCustomers, error: fetchError } = await supabase
-      .from('customers')
+      .from('entities')
       .select('*')
       .eq('space_id', spaceId);
 
@@ -311,7 +307,7 @@ export async function findOrCreateCustomer(
         });
         // 重新获取更新后的客户信息
         const { data: updatedCustomer } = await supabase
-          .from('customers')
+          .from('entities')
           .select('*')
           .eq('id', exactMatch.id)
           .single();
@@ -324,7 +320,7 @@ export async function findOrCreateCustomer(
           phone: updatedCustomer.phone,
           address: updatedCustomer.address,
           isAiRecognized: updatedCustomer.is_ai_recognized,
-          isSupplier: updatedCustomer.is_supplier || false,
+          isSupplier: false,
           createdAt: updatedCustomer.created_at,
           updatedAt: updatedCustomer.updated_at,
         };
@@ -339,7 +335,7 @@ export async function findOrCreateCustomer(
         phone: exactMatch.phone,
         address: exactMatch.address,
         isAiRecognized: exactMatch.is_ai_recognized,
-        isSupplier: exactMatch.is_supplier || false,
+        isSupplier: false,
         createdAt: exactMatch.created_at,
         updatedAt: exactMatch.updated_at,
       };
@@ -368,7 +364,7 @@ export async function findOrCreateCustomer(
         }
         // 重新获取更新后的客户信息
         const { data: updatedCustomer } = await supabase
-          .from('customers')
+          .from('entities')
           .select('*')
           .eq('id', taxNumberMatch.id)
           .single();
@@ -381,7 +377,7 @@ export async function findOrCreateCustomer(
           phone: updatedCustomer.phone,
           address: updatedCustomer.address,
           isAiRecognized: updatedCustomer.is_ai_recognized,
-          isSupplier: updatedCustomer.is_supplier || false,
+          isSupplier: false,
           createdAt: updatedCustomer.created_at,
           updatedAt: updatedCustomer.updated_at,
         };
@@ -415,7 +411,7 @@ export async function mergeCustomer(
 
     const allIds = [...sourceCustomerIds, targetCustomerId];
     const { data: allCustomers, error: fetchError } = await supabase
-      .from('customers')
+      .from('entities')
       .select('id, merged_into_id')
       .eq('space_id', spaceId)
       .in('id', allIds);
@@ -426,7 +422,7 @@ export async function mergeCustomer(
     }
 
     const { data: withPointer } = await supabase
-      .from('customers')
+      .from('entities')
       .select('id, merged_into_id')
       .eq('space_id', spaceId)
       .not('merged_into_id', 'is', null);
@@ -449,14 +445,14 @@ export async function mergeCustomer(
 
     for (const sourceId of sourceCustomerIds) {
       const { error: updatePointers } = await supabase
-        .from('customers')
+        .from('entities')
         .update({ merged_into_id: finalTargetId })
         .eq('space_id', spaceId)
         .eq('merged_into_id', sourceId);
       if (updatePointers) throw updatePointers;
 
       const { error: setSource } = await supabase
-        .from('customers')
+        .from('entities')
         .update({ merged_into_id: finalTargetId })
         .eq('id', sourceId)
         .eq('space_id', spaceId);
@@ -477,7 +473,7 @@ export async function unmergeCustomer(customerId: string): Promise<void> {
     if (!spaceId) throw new Error('No space selected');
 
     const { error } = await supabase
-      .from('customers')
+      .from('entities')
       .update({ merged_into_id: null })
       .eq('id', customerId)
       .eq('space_id', spaceId);
@@ -502,7 +498,7 @@ export async function getCustomersForMergeHistory(): Promise<CustomersMergeHisto
   if (!spaceId) throw new Error('No space selected');
 
   const { data: allRows, error } = await supabase
-    .from('customers')
+    .from('entities')
     .select('*')
     .eq('space_id', spaceId)
     .order('name', { ascending: true });
@@ -545,7 +541,7 @@ export async function getCustomerUsageCounts(): Promise<CustomerUsageCounts> {
 /** 从 customers 表构建合并指向映射 id -> merged_into_id */
 export async function getCustomerMergeMap(spaceId: string): Promise<Map<string, string>> {
   const { data: rows } = await supabase
-    .from('customers')
+    .from('entities')
     .select('id, merged_into_id')
     .eq('space_id', spaceId)
     .not('merged_into_id', 'is', null);
@@ -577,7 +573,7 @@ export async function getCustomerById(id: string): Promise<Customer | null> {
   if (!spaceId) return null;
 
   const { data, error } = await supabase
-    .from('customers')
+    .from('entities')
     .select('*')
     .eq('id', id)
     .eq('space_id', spaceId)

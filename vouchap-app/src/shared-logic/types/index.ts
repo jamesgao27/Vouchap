@@ -454,20 +454,12 @@ export const CLIENT_DISPLAY_STATUS_LABELS: Record<ClientDisplayStatus, string> =
   churned: 'Churned',
 };
 
-// Firm 在服客户（关联 firm space 与 client space）
+// Firm 在服客户（关联 firm space 与 client space）。名称/联系人来自 space 或 invitee_clients，不再存于 clients 表
 export interface FirmClient {
   id: string;
   firmSpaceId: string;
   clientSpaceId: string;
-  /** 客户/组织名：创建时写入，对方接受邀请后更新为 client 自设名称 */
-  createdClientName?: string | null;
-  /** 创建时填入的联系人姓名（对方未确认前列表显示） */
-  createdContactName?: string | null;
-  /** 创建时填入的联系人邮箱/被邀请人邮箱（对方未确认前列表显示） */
-  createdContactEmail?: string | null;
-  /** 客户表状态 */
-  status?: FirmClientStatus;
-  /** 自定义标签（文本数组），status 可显示首个标签；仅在客户详情页编辑 */
+  /** 自定义标签（文本数组）；仅在客户详情页编辑 */
   labels?: string[];
   /** 负责人 user id（可选，列表负责人优先从 clients_assignee 取） */
   assignedUserId?: string | null;

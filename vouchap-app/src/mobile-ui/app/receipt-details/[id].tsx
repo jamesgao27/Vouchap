@@ -25,8 +25,7 @@ import { getPurposes } from '@/lib/purposes';
 import { getAccounts, mergeAccount } from '@/lib/accounts';
 import { getSupplierOptions } from '@/lib/customer-supplier-list';
 import { normalizeNameForCompare } from '@/lib/name-utils';
-import { mergeSupplier } from '@/lib/suppliers';
-import { mergeCustomer } from '@/lib/customers';
+import { mergeEntity } from '@/lib/entities';
 import { mergeEntity } from '@/lib/entities';
 import { getChatLogsByReceiptId } from '@/lib/chat-logs';
 import { getLocalDateString } from '@/lib/date-utils';
@@ -240,8 +239,7 @@ export default function ReceiptDetailsScreen() {
             const targetId = payload.targetId;
             const targetSource = payload.targetSource;
             if (currentId && targetId && currentSource && targetSource && currentId !== targetId && currentSource === targetSource) {
-              if (currentSource === 'supplier') await mergeSupplier([currentId], targetId);
-              else await mergeCustomer([currentId], targetId);
+              await mergeEntity([currentId], targetId);
             }
             await updateReceipt(id, { ...editedReceipt, status: 'confirmed' as ReceiptStatus });
           }

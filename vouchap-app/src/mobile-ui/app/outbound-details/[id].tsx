@@ -19,8 +19,7 @@ import { getOutboundById, saveOutbound, deleteOutbound } from '@/lib/outbound';
 import { supabase, uploadOutboundImage } from '@/lib/supabase';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getCustomerOptions } from '@/lib/customer-supplier-list';
-import { mergeSupplier } from '@/lib/suppliers';
-import { mergeCustomer } from '@/lib/customers';
+import { mergeEntity } from '@/lib/entities';
 import { Outbound, OutboundItem, VoucherStatus } from '@/types';
 import { format } from 'date-fns';
 import { showAiInventory } from '@/lib/feature-flags';
@@ -208,11 +207,7 @@ export default function OutboundDetailsScreen() {
       return;
     }
     try {
-      if (finalTargetSource === 'customer') {
-        await mergeCustomer([currentId], finalTargetId);
-      } else {
-        await mergeSupplier([currentId], finalTargetId);
-      }
+      await mergeEntity([currentId], finalTargetId);
       await saveOutbound({
         ...(editedOutbound || outbound),
         id: id!,

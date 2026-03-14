@@ -19,8 +19,7 @@ import { getInboundById, saveInbound, deleteInbound } from '@/lib/inbound';
 import { supabase, uploadInboundImage } from '@/lib/supabase';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getSupplierOptions } from '@/lib/customer-supplier-list';
-import { mergeSupplier } from '@/lib/suppliers';
-import { mergeCustomer } from '@/lib/customers';
+import { mergeEntity } from '@/lib/entities';
 import { Inbound, InboundItem, VoucherStatus } from '@/types';
 import { format } from 'date-fns';
 import { getChatLogsByReceiptId } from '@/lib/chat-logs';
@@ -227,11 +226,7 @@ export default function InboundDetailsScreen() {
       return;
     }
     try {
-      if (finalTargetSource === 'supplier') {
-        await mergeSupplier([currentId], finalTargetId);
-      } else {
-        await mergeCustomer([currentId], finalTargetId);
-      }
+      await mergeEntity([currentId], finalTargetId);
       await saveInbound({
         ...(editedInbound || inbound),
         id: id!,

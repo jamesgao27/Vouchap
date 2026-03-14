@@ -13,7 +13,7 @@ export async function getSuppliers(): Promise<Supplier[]> {
     if (!spaceId) throw new Error('No space selected');
 
     const { data, error } = await supabase
-      .from('suppliers')
+      .from('entities')
       .select('*')
       .eq('space_id', spaceId)
       .is('merged_into_id', null)
@@ -39,7 +39,7 @@ export async function getSuppliersForOptions(): Promise<Supplier[]> {
     if (!spaceId) throw new Error('No space selected');
 
     const { data, error } = await supabase
-      .from('suppliers')
+      .from('entities')
       .select('*')
       .eq('space_id', spaceId)
       .order('is_ai_recognized', { ascending: false })
@@ -63,31 +63,30 @@ function mapSupplierRow(row: any): Supplier {
     phone: row.phone,
     address: row.address,
     isAiRecognized: row.is_ai_recognized,
-    isCustomer: row.is_customer || false,
+    isCustomer: false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-// 创建供应商
+// 创建供应商（写入 entities 表）
 export async function createSupplier(
   name: string,
   isAiRecognized: boolean = false,
   taxNumber?: string,
   phone?: string,
   address?: string,
-  isCustomer: boolean = false // 若该供应商同时也是客户，设为 true
+  _isCustomer: boolean = false
 ): Promise<Supplier> {
   try {
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
 
-    // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
     const { data, error } = await supabase
-      .from('suppliers')
+      .from('entities')
       .insert({
         space_id: spaceId,
         name: name.trim(),
@@ -95,7 +94,6 @@ export async function createSupplier(
         phone: phone?.trim() || null,
         address: address?.trim() || null,
         is_ai_recognized: isAiRecognized,
-        is_customer: isCustomer,
       })
       .select('*')
       .single();
@@ -106,7 +104,7 @@ export async function createSupplier(
       if (error.code === '23505' && error.message?.includes('name') || error.message?.includes('供应商')) {
         console.log('供应商名称已存在（数据库约束），尝试查找已存在的供应商:', name.trim());
         const { data: existingSupplier } = await supabase
-          .from('suppliers')
+          .from('entities')
           .select('*')
           .eq('space_id', spaceId)
           .eq('name', name.trim())
@@ -170,10 +168,8 @@ export async function updateSupplier(
     if (updates.taxNumber !== undefined) updateData.tax_number = updates.taxNumber?.trim() || null;
     if (updates.phone !== undefined) updateData.phone = updates.phone?.trim() || null;
     if (updates.address !== undefined) updateData.address = updates.address?.trim() || null;
-    if (updates.isCustomer !== undefined) updateData.is_customer = updates.isCustomer;
-
     const { data: updated, error } = await supabase
-      .from('suppliers')
+      .from('entities')
       .update(updateData)
       .eq('id', supplierId)
       .eq('space_id', spaceId)
@@ -208,7 +204,7 @@ export async function deleteSupplier(supplierId: string): Promise<void> {
     if (!spaceId) throw new Error('No space selected');
 
     const { error } = await supabase
-      .from('suppliers')
+      .from('entities')
       .delete()
       .eq('id', supplierId)
       .eq('space_id', spaceId);
@@ -278,7 +274,7 @@ export async function findOrCreateSupplier(
 
     // 获取所有供应商
     const { data: allSuppliers, error: fetchError } = await supabase
-      .from('suppliers')
+      .from('entities')
       .select('*')
       .eq('space_id', spaceId);
 
@@ -321,7 +317,7 @@ export async function findOrCreateSupplier(
           }
           // 重新获取更新后的商家信息
           const { data: updatedSupplier } = await supabase
-            .from('suppliers')
+            .from('entities')
             .select('*')
             .eq('id', mergedSupplier.id)
             .single();
@@ -383,7 +379,7 @@ export async function findOrCreateSupplier(
         }
         // 重新获取更新后的商家信息
         const { data: updatedSupplier } = await supabase
-          .from('suppliers')
+          .from('entities')
           .select('*')
           .eq('id', exactMatch.id)
           .single();
@@ -456,7 +452,7 @@ export async function findOrCreateSupplier(
         }
         // 重新获取更新后的商家信息
         const { data: updatedSupplier } = await supabase
-          .from('suppliers')
+          .from('entities')
           .select('*')
           .eq('id', taxNumberMatch.id)
           .single();
@@ -506,7 +502,7 @@ export async function mergeSupplier(
 
     const allIds = [...sourceSupplierIds, targetSupplierId];
     const { data: allSuppliers, error: fetchError } = await supabase
-      .from('suppliers')
+      .from('entities')
       .select('id, merged_into_id')
       .eq('space_id', spaceId)
       .in('id', allIds);
@@ -518,7 +514,7 @@ export async function mergeSupplier(
 
     const mergeMap = new Map<string, string>();
     const { data: withPointer } = await supabase
-      .from('suppliers')
+      .from('entities')
       .select('id, merged_into_id')
       .eq('space_id', spaceId)
       .not('merged_into_id', 'is', null);
@@ -540,14 +536,14 @@ export async function mergeSupplier(
 
     for (const sourceId of sourceSupplierIds) {
       const { error: updatePointers } = await supabase
-        .from('suppliers')
+        .from('entities')
         .update({ merged_into_id: finalTargetId })
         .eq('space_id', spaceId)
         .eq('merged_into_id', sourceId);
       if (updatePointers) throw updatePointers;
 
       const { error: setSource } = await supabase
-        .from('suppliers')
+        .from('entities')
         .update({ merged_into_id: finalTargetId })
         .eq('id', sourceId)
         .eq('space_id', spaceId);
@@ -568,7 +564,7 @@ export async function unmergeSupplier(supplierId: string): Promise<void> {
     if (!spaceId) throw new Error('No space selected');
 
     const { error } = await supabase
-      .from('suppliers')
+      .from('entities')
       .update({ merged_into_id: null })
       .eq('id', supplierId)
       .eq('space_id', spaceId);
@@ -593,7 +589,7 @@ export async function getSuppliersForMergeHistory(): Promise<SuppliersMergeHisto
   if (!spaceId) throw new Error('No space selected');
 
   const { data: allRows, error } = await supabase
-    .from('suppliers')
+    .from('entities')
     .select('*')
     .eq('space_id', spaceId)
     .order('name', { ascending: true });
@@ -610,7 +606,7 @@ export async function getSuppliersForMergeHistory(): Promise<SuppliersMergeHisto
   return { roots, childrenByRootId };
 }
 
-/** 各供应商直接关联的 receipts 数量（按 supplier_id 统计，仅 suppliers 表 id） */
+/** 各关联方直接关联的 receipts 数量（按 entity_id 统计） */
 export type SupplierUsageCounts = {
   receiptCountBySupplierId: Record<string, number>;
 };
@@ -624,11 +620,11 @@ export async function getSupplierUsageCounts(): Promise<SupplierUsageCounts> {
   const receiptCountBySupplierId: Record<string, number> = {};
   const { data: receiptRows } = await supabase
     .from('receipts')
-    .select('supplier_id')
+    .select('entity_id')
     .eq('space_id', spaceId)
-    .not('supplier_id', 'is', null);
+    .not('entity_id', 'is', null);
   (receiptRows || []).forEach((r: any) => {
-    if (r.supplier_id) receiptCountBySupplierId[r.supplier_id] = (receiptCountBySupplierId[r.supplier_id] || 0) + 1;
+    if (r.entity_id) receiptCountBySupplierId[r.entity_id] = (receiptCountBySupplierId[r.entity_id] || 0) + 1;
   });
   return { receiptCountBySupplierId };
 }
@@ -636,7 +632,7 @@ export async function getSupplierUsageCounts(): Promise<SupplierUsageCounts> {
 /** 从 suppliers 表构建合并指向映射 id -> merged_into_id（用于解析） */
 export async function getSupplierMergeMap(spaceId: string): Promise<Map<string, string>> {
   const { data: rows } = await supabase
-    .from('suppliers')
+    .from('entities')
     .select('id, merged_into_id')
     .eq('space_id', spaceId)
     .not('merged_into_id', 'is', null);
@@ -673,7 +669,7 @@ export async function getSupplierById(id: string): Promise<Supplier | null> {
   if (!spaceId) return null;
 
   const { data, error } = await supabase
-    .from('suppliers')
+    .from('entities')
     .select('*')
     .eq('id', id)
     .eq('space_id', spaceId)
@@ -693,7 +689,7 @@ async function getMergeHistory(): Promise<Map<string, string>> {
     if (!spaceId) return new Map();
 
     const { data: withPointer, error } = await supabase
-      .from('suppliers')
+      .from('entities')
       .select('id, name, merged_into_id')
       .eq('space_id', spaceId)
       .not('merged_into_id', 'is', null);

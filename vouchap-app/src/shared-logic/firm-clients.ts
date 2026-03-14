@@ -581,7 +581,7 @@ export async function getPendingInviteesForEmail(
       firmName: r.firm_name ?? '',
       inviteeClientId: r.invitee_client_id,
       inviteeClientName: r.invitee_client_name ?? null,
-      inviteeContactEmail: r.invitee_contact_email ?? null,
+      inviteeContactEmail: r.invitee_email ?? null,
       skuId: r.sku_id ?? null,
     }));
     return { list, error: null };

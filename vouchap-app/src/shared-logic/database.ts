@@ -1027,7 +1027,7 @@ export async function deleteReceipt(receiptId: string): Promise<void> {
       return;
     }
 
-    const supplierId = receipt.supplierId;
+    const entityId = receipt.entityId;
     const accountId = receipt.accountId;
 
     // 1. 删除关联的图片
@@ -1113,36 +1113,35 @@ export async function deleteReceipt(receiptId: string): Promise<void> {
 
     if (error) throw error;
 
-    // 4. 清理孤立的供应商（如果未被其他小票引用）
-    if (supplierId) {
+    // 4. 清理孤立的关联方（如果未被其他小票引用）
+    if (entityId) {
       try {
-        const { count: supplierRefCount } = await supabase
+        const { count: entityRefCount } = await supabase
           .from('receipts')
           .select('id', { count: 'exact', head: true })
-          .eq('supplier_id', supplierId);
+          .eq('entity_id', entityId);
 
-        if (supplierRefCount === 0) {
-          // 检查是否有其他供应商的 merged_into_id 指向该供应商
+        if (entityRefCount === 0) {
           const { count: pointedCount } = await supabase
-            .from('suppliers')
+            .from('entities')
             .select('id', { count: 'exact', head: true })
-            .eq('merged_into_id', supplierId);
+            .eq('merged_into_id', entityId);
 
           if (!pointedCount || pointedCount === 0) {
-            const { error: deleteSupplierError } = await supabase
-              .from('suppliers')
+            const { error: deleteEntityError } = await supabase
+              .from('entities')
               .delete()
-              .eq('id', supplierId);
+              .eq('id', entityId);
 
-            if (deleteSupplierError) {
-              console.warn('Failed to delete orphan supplier:', deleteSupplierError);
+            if (deleteEntityError) {
+              console.warn('Failed to delete orphan entity:', deleteEntityError);
             } else {
-              console.log('Deleted orphan supplier:', supplierId);
+              console.log('Deleted orphan entity:', entityId);
             }
           }
         }
-      } catch (supplierError) {
-        console.warn('Error cleaning up supplier:', supplierError);
+      } catch (entityError) {
+        console.warn('Error cleaning up entity:', entityError);
       }
     }
 
