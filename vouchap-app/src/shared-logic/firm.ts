@@ -456,9 +456,13 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
   });
   const pendingInvitees = (inviteeList.data || []).filter((inv: any) => pendingInviteeIds.has(inv.id));
 
-  if (clients.length === 0 && pendingInvitees.length === 0) return [];
+  const orderClientSpaceIds = new Set((ordersData as any[]).map((o: any) => o.client_space_id).filter(Boolean));
+  const clientSpaceIdsFromClients = new Set(clients.map((c) => c.clientSpaceId));
+  const orphanClientSpaceIds = [...orderClientSpaceIds].filter((id) => !clientSpaceIdsFromClients.has(id));
 
-  const spaceIds = [...new Set(clients.map((c) => c.clientSpaceId))];
+  if (clients.length === 0 && pendingInvitees.length === 0 && orphanClientSpaceIds.length === 0) return [];
+
+  const spaceIds = [...new Set([...clients.map((c) => c.clientSpaceId), ...orphanClientSpaceIds])];
   const ctx = getTaxSeasonContext();
 
   const [spacesRes, userSpacesRes, ordersRes, memberClientsRes, followUpsRes] = await Promise.all([
@@ -586,7 +590,42 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     };
   });
 
-  return [...detailedClients, ...pendingRows];
+  const orphanRows: FirmClientWithDetails[] = orphanClientSpaceIds.map((csId) => {
+    const space = spaceMap[csId];
+    const contactUserId = spaceToUserId[csId];
+    const contactUser = contactUserId ? userMap[contactUserId] : null;
+    const assigneeIds = clientSpaceToUserIds[csId] || [];
+    const assigneeNames = assigneeIds.map((id) => userMap[id]?.name).filter(Boolean) as string[];
+    const assigneeName = assigneeNames.length > 0 ? assigneeNames.join('、') : null;
+    const assigneeEmailVal = assigneeIds[0] ? (userMap[assigneeIds[0]]?.email ?? null) : null;
+    const name = space?.name?.trim() || contactUser?.name || csId;
+    const displayStatus = computeClientDisplayStatus(csId, orders, ctx);
+    return {
+      id: 'orphan-' + csId,
+      firmSpaceId,
+      clientSpaceId: csId,
+      createdClientName: null,
+      createdContactName: null,
+      createdContactEmail: null,
+      status: 'active',
+      labels: [],
+      assignedUserId: assigneeIds[0] ?? null,
+      lastFollowUpAt: clientSpaceToLastFollowUp[csId] ?? null,
+      createdAt: null,
+      updatedAt: null,
+      name,
+      contactName: contactUser?.name ?? null,
+      contactEmail: contactUser?.email ?? null,
+      serviceStartAt: null,
+      displayStatus,
+      assigneeName,
+      assigneeEmail: assigneeEmailVal,
+      isPendingClaim: false,
+      inviteeClientId: null,
+    };
+  });
+
+  return [...detailedClients, ...orphanRows, ...pendingRows];
 }
 
 /** Firm 空间：获取订单列表（可选按客户筛选） */
@@ -649,8 +688,11 @@ export async function getFirmOrdersWithDetails(
   const createdByIds = [...new Set(orders.map((o) => o.createdBy).filter(Boolean))] as string[];
   const orderIds = [...new Set(orders.map((o) => o.id))];
 
-  const [spacesRes, skusRes, usersRes, projectsRes, inviteeRes] = await Promise.all([
+  const [spacesRes, clientsRes, skusRes, usersRes, projectsRes, inviteeRes] = await Promise.all([
     clientSpaceIds.length > 0 ? supabase.from('spaces').select('id, name').in('id', clientSpaceIds) : Promise.resolve({ data: [] as any[] }),
+    clientSpaceIds.length > 0
+      ? supabase.schema('firm').from('clients').select('client_space_id, created_client_name, created_contact_name').eq('firm_space_id', firmSpaceId).in('client_space_id', clientSpaceIds)
+      : Promise.resolve({ data: [] as any[] }),
     supabase.schema('firm').from('skus').select('id, name').in('id', skuIds),
     createdByIds.length > 0
       ? supabase.from('users').select('id, name, email').in('id', createdByIds)
@@ -667,6 +709,18 @@ export async function getFirmOrdersWithDetails(
   const spaceMap: Record<string, string> = {};
   (spacesRes.data || []).forEach((s: any) => {
     spaceMap[s.id] = s.name || s.id;
+  });
+  // Same client name resolution as getFirmClientsWithDetails: created_client_name || created_contact_name || space name
+  const clientNameBySpace: Record<string, string> = {};
+  (clientsRes.data || []).forEach((row: any) => {
+    const csId = row.client_space_id;
+    if (!csId) return;
+    const n = (row.created_client_name ?? '').trim() || (row.created_contact_name ?? '').trim() || spaceMap[csId] || csId;
+    clientNameBySpace[csId] = n;
+  });
+  // Fallback for client_space_id with no firm.clients row
+  clientSpaceIds.forEach((id) => {
+    if (!clientNameBySpace[id]) clientNameBySpace[id] = spaceMap[id] ?? id;
   });
   const inviteeMap: Record<string, { name: string; email: string }> = {};
   (inviteeRes.data || []).forEach((inv: any) => {
@@ -702,7 +756,7 @@ export async function getFirmOrdersWithDetails(
     const assigneeName = creator ? (creator.name || creator.email || null) : null;
     const project = projectMap[o.id];
     const clientName = o.clientSpaceId
-      ? (spaceMap[o.clientSpaceId] ?? o.clientSpaceId)
+      ? (clientNameBySpace[o.clientSpaceId] ?? o.clientSpaceId)
       : (o.inviteeClientId && inviteeMap[o.inviteeClientId]
           ? inviteeMap[o.inviteeClientId].name + (inviteeMap[o.inviteeClientId].email ? ` (${inviteeMap[o.inviteeClientId].email})` : '')
           : 'Pending claim');

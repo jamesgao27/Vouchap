@@ -20,6 +20,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { getCurrentSpace } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import {
   getFirmOrdersWithDetails,
   updateOrderStatus,
@@ -394,12 +395,14 @@ export default function FirmEngagementsScreen() {
     return () => document.removeEventListener('pointerdown', handler);
   }, [showGroupMenu, showFilterMenu]);
 
+  const [firmSpaceId, setFirmSpaceId] = useState<string | null>(null);
   const loadData = useCallback(async (forceRefresh = false) => {
     const space = await getCurrentSpace(forceRefresh);
     if (!space?.id || space.kind !== 'firm') {
       router.replace('/');
       return;
     }
+    setFirmSpaceId(space.id);
     const list = await getFirmOrdersWithDetails(space.id);
     setOrders(list);
   }, [router]);
@@ -411,6 +414,23 @@ export default function FirmEngagementsScreen() {
       setLoading(false);
     })();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!firmSpaceId) return;
+    let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+    const debouncedRefresh = () => {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      refreshTimeout = setTimeout(() => loadData(true), 300);
+    };
+    const ch = supabase
+      .channel(`firm-engagements-orders-${firmSpaceId}`)
+      .on('postgres_changes', { event: '*', schema: 'firm', table: 'orders', filter: `firm_space_id=eq.${firmSpaceId}` }, debouncedRefresh)
+      .subscribe();
+    return () => {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      supabase.removeChannel(ch);
+    };
+  }, [firmSpaceId, loadData]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);

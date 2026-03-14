@@ -20,6 +20,7 @@ import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
 import { getCurrentSpace } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import {
   getFirmClientsWithDetails,
   getFirmOrders,
@@ -36,11 +37,11 @@ import {
   buildFirmClientInviteUrl,
   createFirmClientInviteToken,
   createPendingOrderForInvitee,
+  createInviteeOnly,
   getFirmClientInviteHistory,
   setFirmClientInviteActive,
   deleteFirmClientInviteToken,
   type FirmClientInviteToken,
-  createClientOnBehalf,
 } from '@/lib/firm-clients';
 import { showToast } from '@/lib/toast';
 import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
@@ -322,6 +323,33 @@ export default function FirmClientsScreen() {
       setLoading(false);
     })();
   }, [loadData]);
+
+  useEffect(() => {
+    if (!firmSpaceId) return;
+    let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+    const debouncedRefresh = () => {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      refreshTimeout = setTimeout(() => loadData(true), 300);
+    };
+    const chClients = supabase
+      .channel(`firm-clients-${firmSpaceId}`)
+      .on('postgres_changes', { event: '*', schema: 'firm', table: 'clients', filter: `firm_space_id=eq.${firmSpaceId}` }, debouncedRefresh)
+      .subscribe();
+    const chOrders = supabase
+      .channel(`firm-orders-clients-${firmSpaceId}`)
+      .on('postgres_changes', { event: '*', schema: 'firm', table: 'orders', filter: `firm_space_id=eq.${firmSpaceId}` }, debouncedRefresh)
+      .subscribe();
+    const chInvitees = supabase
+      .channel(`firm-invitee-clients-${firmSpaceId}`)
+      .on('postgres_changes', { event: '*', schema: 'firm', table: 'invitee_clients', filter: `firm_space_id=eq.${firmSpaceId}` }, debouncedRefresh)
+      .subscribe();
+    return () => {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      supabase.removeChannel(chClients);
+      supabase.removeChannel(chOrders);
+      supabase.removeChannel(chInvitees);
+    };
+  }, [firmSpaceId, loadData]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -688,21 +716,22 @@ export default function FirmClientsScreen() {
       });
       error = pendingError;
     } else {
-      const { error: clientError } = await createClientOnBehalf(firmSpaceId, {
+      const { error: inviteeError } = await createInviteeOnly(firmSpaceId, {
         clientName: addClientClientName.trim(),
         contactName: addClientContactName.trim(),
         contactEmail: email,
-        skuId: null,
-        createInvitation: addClientSendInvite,
       });
-      error = clientError;
+      error = inviteeError;
     }
     setAddClientSubmitting(false);
     if (error) {
       setAddClientError(error.message);
       return;
     }
-    showToast(hasTemplate ? 'Pending engagement created.' : 'Client created without engagement.', 'success');
+    showToast(
+      hasTemplate ? 'Pending engagement created.' : 'Client saved. They can link their space when they sign in.',
+      'success'
+    );
     setShowAddClientModal(false);
     setAddClientClientName('');
     setAddClientContactName('');
@@ -1567,24 +1596,20 @@ export default function FirmClientsScreen() {
                   </View>
                 )}
               </View>
-              {/* spacer between template select and invite toggle */}
+              {/* Invite-by-email row: always shown, disabled (grayed out) until invite-email feature is built */}
               <View style={{ height: 48 }} />
-              <View style={styles.addClientField}>
-                <TouchableOpacity
-                  style={styles.addClientCheckboxRow}
-                  onPress={() => setAddClientSendInvite((v) => !v)}
-                  activeOpacity={0.7}
-                >
+              <View style={[styles.addClientField, { opacity: 0.6 }]}>
+                <View style={styles.addClientCheckboxRow} pointerEvents="none">
                   <Ionicons
-                    name={addClientSendInvite ? 'checkbox' : 'checkbox-outline'}
+                    name="square-outline"
                     size={18}
-                    color={addClientSendInvite ? '#6C5CE7' : '#B2BEC3'}
+                    color="#B2BEC3"
                     style={{ marginRight: 6 }}
                   />
-                  <Text style={styles.addClientCheckboxLabel}>
+                  <Text style={[styles.addClientCheckboxLabel, { color: '#95A5A6' }]}>
                     Invite to sign up Vouchap via email?
                   </Text>
-                </TouchableOpacity>
+                </View>
               </View>
               {addClientError ? (
                 <Text style={styles.addClientError}>{addClientError}</Text>
@@ -1607,7 +1632,7 @@ export default function FirmClientsScreen() {
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
                   <Text style={styles.addClientPrimaryBtnText}>
-                    {addClientSendInvite ? 'Create & invite' : 'Create engagement'}
+                    {addClientSkuId ? 'Create Engagement' : 'Save Client'}
                   </Text>
                 )}
               </TouchableOpacity>

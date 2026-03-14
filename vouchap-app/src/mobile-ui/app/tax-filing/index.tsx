@@ -29,6 +29,40 @@ const CARD_MAX_WIDTH = 320;
 const PINNED_ORDER_IDS_KEY = 'tax_filing_pinned_order_ids';
 const HIDDEN_ORDER_IDS_KEY = 'tax_filing_hidden_order_ids';
 
+/** In-memory fallback when AsyncStorage native module is null (e.g. Expo Go / unlinked build). */
+const memoryFallback = new Map<string, string>();
+async function safeGetItem(key: string): Promise<string | null> {
+  if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return memoryFallback.get(key) ?? null;
+    }
+  }
+  try {
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    return await AsyncStorage.getItem(key);
+  } catch {
+    return memoryFallback.get(key) ?? null;
+  }
+}
+async function safeSetItem(key: string, value: string): Promise<void> {
+  if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      memoryFallback.set(key, value);
+    }
+    return;
+  }
+  try {
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    await AsyncStorage.setItem(key, value);
+  } catch {
+    memoryFallback.set(key, value);
+  }
+}
+
 /** 订单阶段（6 阶段 + 取消），Onboarding = 启动/契约建立，与后端一致 */
 const STAGE_LABEL: Record<string, string> = {
   onboarding: 'Onboarding',
@@ -93,27 +127,25 @@ export default function TaxFilingScreen() {
 
   useEffect(() => {
     (async () => {
-      try {
-        const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
-        const raw = await AsyncStorage.getItem(PINNED_ORDER_IDS_KEY);
-        if (raw) {
+      const raw = await safeGetItem(PINNED_ORDER_IDS_KEY);
+      if (raw) {
+        try {
           const ids = JSON.parse(raw) as string[];
           if (Array.isArray(ids)) setPinnedOrderIds(ids);
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
     })();
   }, []);
 
   useEffect(() => {
     (async () => {
-      try {
-        const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
-        const raw = await AsyncStorage.getItem(HIDDEN_ORDER_IDS_KEY);
-        if (raw) {
+      const raw = await safeGetItem(HIDDEN_ORDER_IDS_KEY);
+      if (raw) {
+        try {
           const ids = JSON.parse(raw) as string[];
           if (Array.isArray(ids)) setHiddenOrderIds(ids);
-        }
-      } catch (_) {}
+        } catch (_) {}
+      }
     })();
   }, []);
 
@@ -131,9 +163,7 @@ export default function TaxFilingScreen() {
   const handleTogglePin = useCallback(async (orderId: string) => {
     setPinnedOrderIds((prev) => {
       const next = prev.includes(orderId) ? prev.filter((id) => id !== orderId) : [...prev, orderId];
-      import('@react-native-async-storage/async-storage').then(({ default: AsyncStorage }) => {
-        AsyncStorage.setItem(PINNED_ORDER_IDS_KEY, JSON.stringify(next)).catch(() => {});
-      }).catch(() => {});
+      safeSetItem(PINNED_ORDER_IDS_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
   }, []);
@@ -171,11 +201,7 @@ export default function TaxFilingScreen() {
     setHiddenOrderIds((prev) => {
       if (prev.includes(orderId)) return prev;
       const next = [...prev, orderId];
-      import('@react-native-async-storage/async-storage')
-        .then(({ default: AsyncStorage }) => {
-          AsyncStorage.setItem(HIDDEN_ORDER_IDS_KEY, JSON.stringify(next)).catch(() => {});
-        })
-        .catch(() => {});
+      safeSetItem(HIDDEN_ORDER_IDS_KEY, JSON.stringify(next)).catch(() => {});
       return next;
     });
   }, []);

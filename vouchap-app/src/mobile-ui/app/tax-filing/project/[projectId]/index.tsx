@@ -121,6 +121,8 @@ export default function ProjectTodosScreen() {
   const [infoEditing, setInfoEditing] = useState(false);
   const [rejectLoading, setRejectLoading] = useState(false);
   const [acceptLoading, setAcceptLoading] = useState(false);
+  const [abortLoading, setAbortLoading] = useState(false);
+  const [restartLoading, setRestartLoading] = useState(false);
   const infoTabRef = useRef<ProjectInfoTabHandle>(null);
 
   const handleReject = useCallback(async () => {
@@ -157,6 +159,43 @@ export default function ProjectTodosScreen() {
       return;
     }
     showToast('Order accepted', 'success');
+    load();
+  }, [orderId, load]);
+
+  const handleAbort = useCallback(async () => {
+    if (!orderId) return;
+    if (Platform.OS === 'web' && !window.confirm('Terminate this engagement? You can\'t undo this.')) return;
+    if (Platform.OS !== 'web') {
+      Alert.alert('Terminate engagement', 'Terminate this engagement? You can\'t undo this.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Terminate', style: 'destructive', onPress: () => doAbort() },
+      ]);
+      return;
+    }
+    await doAbort();
+    async function doAbort() {
+      setAbortLoading(true);
+      const { error } = await updateOrderStatus(orderId, 'cancelled');
+      setAbortLoading(false);
+      if (error) {
+        showToast(error.message ?? 'Failed to terminate', 'error');
+        return;
+      }
+      showToast('Engagement terminated', 'success');
+      router.back();
+    }
+  }, [orderId, router]);
+
+  const handleRestart = useCallback(async () => {
+    if (!orderId) return;
+    setRestartLoading(true);
+    const { error } = await updateOrderStatus(orderId, 'collecting');
+    setRestartLoading(false);
+    if (error) {
+      showToast(error.message ?? 'Failed to restart', 'error');
+      return;
+    }
+    showToast('Engagement restarted', 'success');
     load();
   }, [orderId, load]);
 
@@ -205,6 +244,10 @@ export default function ProjectTodosScreen() {
     );
   }
 
+  const orderStatus = header?.status === 'onboarding' || header?.status === 'collecting' || header?.status === 'cancelled'
+    ? header.status
+    : undefined;
+
   return (
     <ProjectDetailView
       viewerRole="client"
@@ -219,6 +262,11 @@ export default function ProjectTodosScreen() {
       rejectLoading={rejectLoading}
       onAcceptAndStart={header?.status === 'onboarding' ? handleAcceptAndStart : undefined}
       acceptAndStartLoading={acceptLoading}
+      orderStatus={orderStatus}
+      onAbort={header?.status === 'collecting' ? handleAbort : undefined}
+      abortLoading={abortLoading}
+      onRestart={header?.status === 'cancelled' ? handleRestart : undefined}
+      restartLoading={restartLoading}
       tree={tree}
       orderId={orderId ?? ''}
       projectId={projectId}

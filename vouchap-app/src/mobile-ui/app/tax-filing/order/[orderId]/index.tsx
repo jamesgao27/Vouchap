@@ -494,10 +494,52 @@ export default function OrderTodosScreen() {
     return () => { cancelled = true; };
   }, [selectedAttachmentId]);
 
+  const [abortLoading, setAbortLoading] = useState(false);
+  const [restartLoading, setRestartLoading] = useState(false);
+  const handleAbortOrder = useCallback(async () => {
+    if (!orderId) return;
+    if (Platform.OS === 'web' && !window.confirm('Terminate this engagement? You can\'t undo this.')) return;
+    if (Platform.OS !== 'web') {
+      Alert.alert('Terminate engagement', 'Terminate this engagement? You can\'t undo this.', [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Terminate', style: 'destructive', onPress: () => doAbort() },
+      ]);
+      return;
+    }
+    await doAbort();
+    async function doAbort() {
+      setAbortLoading(true);
+      const { error } = await updateOrderStatus(orderId, 'cancelled');
+      setAbortLoading(false);
+      if (error) {
+        showToast(error.message ?? 'Failed to terminate', 'error');
+        return;
+      }
+      showToast('Engagement terminated', 'success');
+      router.back();
+    }
+  }, [orderId, router]);
+  const handleRestartOrder = useCallback(async () => {
+    if (!orderId) return;
+    setRestartLoading(true);
+    const project = await getProjectByOrderId(orderId);
+    const nextStatus = project ? 'collecting' : 'onboarding';
+    const { error } = await updateOrderStatus(orderId, nextStatus);
+    setRestartLoading(false);
+    if (error) {
+      showToast(error.message ?? 'Failed to restart', 'error');
+      return;
+    }
+    showToast('Engagement restarted', 'success');
+    load();
+  }, [orderId, load]);
+
   const dateForYear = header?.dueAt || header?.createdAt || order?.dueAt || order?.createdAt || null;
   const taxSeasonYear = dateForYear ? new Date(dateForYear).getFullYear() : null;
   const navigation = useNavigation();
   const isOnboarding = (order?.status === 'onboarding') || (header?.status === 'onboarding');
+  const isCollecting = order?.status === 'collecting';
+  const isCancelled = order?.status === 'cancelled';
   useLayoutEffect(() => {
     navigation.setOptions({
       headerBackButtonVisible: true,
@@ -508,38 +550,79 @@ export default function OrderTodosScreen() {
           taxSeasonYear={taxSeasonYear ?? null}
         />
       ),
-      headerRight: () =>
-        isOnboarding ? (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-            <TouchableOpacity onPress={goToInfo} style={{ padding: 8 }} hitSlop={8}>
-              <Ionicons name="information-circle-outline" size={22} color="#636E72" />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleRejectOrder}
-              disabled={rejecting || accepting}
-              style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#FFE5E5' }}
-            >
-              <Text style={{ color: '#C0392B', fontWeight: '600', fontSize: 14 }}>Reject</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={handleAcceptOrder}
-              disabled={rejecting || accepting}
-              style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#6C5CE7' }}
-            >
-              {accepting ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>Accept</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-        ) : (
+      headerRight: () => {
+        if (isOnboarding) {
+          return (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <TouchableOpacity onPress={goToInfo} style={{ padding: 8 }} hitSlop={8}>
+                <Ionicons name="information-circle-outline" size={22} color="#636E72" />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleRejectOrder}
+                disabled={rejecting || accepting}
+                style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#FFE5E5' }}
+              >
+                <Text style={{ color: '#C0392B', fontWeight: '600', fontSize: 14 }}>Reject</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleAcceptOrder}
+                disabled={rejecting || accepting}
+                style={{ paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, backgroundColor: '#6C5CE7' }}
+              >
+                {accepting ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={{ color: '#fff', fontWeight: '600', fontSize: 14 }}>Accept</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          );
+        }
+        if (isCollecting) {
+          return (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 6 }}>
+              <TouchableOpacity
+                onPress={handleAbortOrder}
+                disabled={abortLoading}
+                style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#FFF3E0' }}
+              >
+                {abortLoading ? (
+                  <ActivityIndicator size="small" color="#D35400" />
+                ) : (
+                  <Text style={{ color: '#D35400', fontWeight: '600', fontSize: 15 }}>Terminate</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          );
+        }
+        if (isCancelled) {
+          return (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 6 }}>
+              <TouchableOpacity
+                onPress={handleRestartOrder}
+                disabled={restartLoading}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#6C5CE7' }}
+              >
+                {restartLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="play-circle" size={18} color="#fff" />
+                    <Text style={{ color: '#fff', fontWeight: '700', fontSize: 15 }}>Restart</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          );
+        }
+        return (
           <TouchableOpacity onPress={goToInfo} style={{ padding: 8 }} hitSlop={8}>
             <Ionicons name="settings-outline" size={22} color="#636E72" />
           </TouchableOpacity>
-        ),
+        );
+      },
     });
-  }, [navigation, header, order, taxSeasonYear, isOnboarding, goToInfo, handleRejectOrder, handleAcceptOrder, rejecting, accepting]);
+  }, [navigation, header, order, taxSeasonYear, isOnboarding, isCollecting, isCancelled, goToInfo, handleRejectOrder, handleAcceptOrder, rejecting, accepting, handleAbortOrder, abortLoading, handleRestartOrder, restartLoading]);
 
   if (loading) {
     return (

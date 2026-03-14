@@ -403,6 +403,62 @@ export interface CreatePendingOrderForInviteeResult {
   inviteeEmail: string;
 }
 
+export interface CreateInviteeOnlyResult {
+  inviteeClientId: string;
+  inviteeEmail: string;
+}
+
+/** Firm: create/update invitee_client only (no order). Client can later link space with empty SKU preview. */
+export async function createInviteeOnly(
+  firmSpaceId: string,
+  params: {
+    clientName: string;
+    contactName: string;
+    contactEmail: string;
+  }
+): Promise<{ result: CreateInviteeOnlyResult | null; error: Error | null }> {
+  try {
+    const { data, error } = await supabase.rpc('firm_create_invitee_only', {
+      p_firm_space_id: firmSpaceId,
+      p_client_name: (params.clientName || '').trim(),
+      p_contact_name: (params.contactName || '').trim(),
+      p_contact_email: (params.contactEmail || '').trim(),
+    });
+    if (error) {
+      if (typeof __DEV__ !== 'undefined' && __DEV__) {
+        console.error('[createInviteeOnly] RPC error object:', error);
+      }
+      const err = error as { message?: string; details?: string; hint?: string };
+      const parts = [err.message, err.details, err.hint].filter(Boolean);
+      const msg = parts.length ? parts.join(' ') : 'Failed to save invitee';
+      return { result: null, error: new Error(msg) };
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    const inviteeClientId = row?.invitee_client_id;
+    if (!inviteeClientId) {
+      return { result: null, error: new Error('Unexpected response from server') };
+    }
+    return {
+      result: {
+        inviteeClientId,
+        inviteeEmail: row?.invitee_email ?? params.contactEmail,
+      },
+      error: null,
+    };
+  } catch (e) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.error('[createInviteeOnly] catch:', e);
+    }
+    const msg =
+      e instanceof Error
+        ? e.message
+        : typeof (e as { message?: string })?.message === 'string'
+          ? (e as { message: string }).message
+          : 'Failed to save invitee';
+    return { result: null, error: new Error(msg) };
+  }
+}
+
 /** Firm 迁移模式：为某 invitee 创建 pending order（不创建 client space，仅 firm 可见） */
 export async function createPendingOrderForInvitee(
   firmSpaceId: string,

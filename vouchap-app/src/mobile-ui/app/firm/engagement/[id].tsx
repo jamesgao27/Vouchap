@@ -140,6 +140,44 @@ export default function FirmEngagementDetailScreen() {
     }
   }, [orderId, loadData]);
 
+  const [abortLoading, setAbortLoading] = useState(false);
+  const [completeLoading, setCompleteLoading] = useState(false);
+  const [restartLoading, setRestartLoading] = useState(false);
+  const handleAbort = useCallback(async () => {
+    if (!orderId) return;
+    setAbortLoading(true);
+    try {
+      const { error } = await updateOrderStatus(orderId, 'cancelled');
+      if (error) return;
+      await loadData();
+    } finally {
+      setAbortLoading(false);
+    }
+  }, [orderId, loadData]);
+  const handleComplete = useCallback(async () => {
+    if (!orderId) return;
+    setCompleteLoading(true);
+    try {
+      const { error } = await updateOrderStatus(orderId, 'completed');
+      if (error) return;
+      await loadData();
+    } finally {
+      setCompleteLoading(false);
+    }
+  }, [orderId, loadData]);
+  const handleRestart = useCallback(async () => {
+    if (!orderId) return;
+    setRestartLoading(true);
+    try {
+      const nextStatus = projectId ? 'collecting' : 'onboarding';
+      const { error } = await updateOrderStatus(orderId, nextStatus);
+      if (error) return;
+      await loadData();
+    } finally {
+      setRestartLoading(false);
+    }
+  }, [orderId, projectId, loadData]);
+
   // ── 进入订单详情：自动打开 chat-to-log（tax-filing 类型），onboarding 与已确认态统一体验 ──
   const openPanel = chatPanel?.openPanel;
   const setType = chatPanel?.setType;
@@ -215,6 +253,13 @@ export default function FirmEngagementDetailScreen() {
       acceptAndStartLoading={acceptLoading}
       headerRejectLabel="Terminate"
       headerAcceptLabel="Start service"
+      orderStatus={order.status as 'onboarding' | 'collecting' | 'cancelled'}
+      onAbort={order.status === 'collecting' ? handleAbort : undefined}
+      abortLoading={abortLoading}
+      onComplete={order.status === 'collecting' ? handleComplete : undefined}
+      completeLoading={completeLoading}
+      onRestart={order.status === 'cancelled' ? handleRestart : undefined}
+      restartLoading={restartLoading}
       tree={tree}
       orderId={orderId!}
       projectId={projectId}

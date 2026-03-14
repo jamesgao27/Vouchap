@@ -178,6 +178,15 @@ export interface ProjectDetailViewProps {
   headerRejectLabel?: string;
   /** 右侧主按钮文案，默认 Accept and Start；Firm onboarding 传 "Start" */
   headerAcceptLabel?: string;
+  /** Collecting 态：Terminate（警告色）；Firm 还可显示完成（绿色） */
+  orderStatus?: 'onboarding' | 'collecting' | 'cancelled';
+  onAbort?: () => Promise<void>;
+  abortLoading?: boolean;
+  onComplete?: () => Promise<void>;
+  completeLoading?: boolean;
+  /** Cancelled 态：重启（主色） */
+  onRestart?: () => Promise<void>;
+  restartLoading?: boolean;
   /** 内容：Todos */
   tree: ProjectTodoNode[];
   orderId: string;
@@ -209,6 +218,13 @@ export function ProjectDetailView({
   acceptAndStartLoading = false,
   headerRejectLabel = 'Reject',
   headerAcceptLabel = 'Accept and Start',
+  orderStatus,
+  onAbort,
+  abortLoading = false,
+  onComplete,
+  completeLoading = false,
+  onRestart,
+  restartLoading = false,
   tree,
   orderId,
   projectId,
@@ -229,52 +245,114 @@ export function ProjectDetailView({
     });
   }, [navigation, header.title, header.subtitle, header.taxSeasonYear, header.status?.label]);
 
-  const showAcceptInHeader = Boolean(isOnboarding && onAcceptAndStart && (viewerRole === 'client' || viewerRole === 'firm'));
+  const showOnboardingActions = Boolean(isOnboarding && onAcceptAndStart && (viewerRole === 'client' || viewerRole === 'firm'));
+  const showCollectingActions = orderStatus === 'collecting' && onAbort;
+  const showCancelledActions = orderStatus === 'cancelled' && onRestart;
+  const showHeaderActions = showOnboardingActions || showCollectingActions || showCancelledActions;
+
   useLayoutEffect(() => {
-    if (!showAcceptInHeader) {
+    if (!showHeaderActions) {
       navigation.setOptions({ headerBackButtonVisible: true, headerRight: undefined });
       return;
     }
     navigation.setOptions({
       headerBackButtonVisible: true,
-      headerRight: () => (
-        <View style={sharedStyles.headerActionsWrap}>
-          {onReject ? (
+      headerRight: () => {
+        if (showCancelledActions) {
+          return (
+            <View style={sharedStyles.headerActionsWrap}>
+              <TouchableOpacity
+                onPress={onRestart}
+                disabled={restartLoading}
+                style={sharedStyles.headerRestartBtn}
+                activeOpacity={0.85}
+              >
+                {restartLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="play-circle" size={18} color="#fff" />
+                    <Text style={sharedStyles.headerRestartBtnText}>Restart</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          );
+        }
+        if (showCollectingActions) {
+          return (
+            <View style={sharedStyles.headerActionsWrap}>
+              <TouchableOpacity
+                onPress={onAbort}
+                disabled={abortLoading || completeLoading}
+                style={sharedStyles.headerAbortBtn}
+                activeOpacity={0.85}
+              >
+                {abortLoading ? (
+                  <ActivityIndicator size="small" color="#D35400" />
+                ) : (
+                  <Text style={sharedStyles.headerAbortBtnText}>Terminate</Text>
+                )}
+              </TouchableOpacity>
+              {onComplete ? (
+                <TouchableOpacity
+                  onPress={onComplete}
+                  disabled={completeLoading || abortLoading}
+                  style={sharedStyles.headerCompleteBtn}
+                  activeOpacity={0.85}
+                >
+                  {completeLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                      <Text style={sharedStyles.headerCompleteBtnText}>Complete</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              ) : null}
+            </View>
+          );
+        }
+        return (
+          <View style={sharedStyles.headerActionsWrap}>
+            {onReject ? (
+              <TouchableOpacity
+                onPress={onReject}
+                disabled={rejectLoading || acceptAndStartLoading}
+                style={sharedStyles.headerRejectBtn}
+                activeOpacity={0.85}
+              >
+                {rejectLoading ? (
+                  <ActivityIndicator size="small" color="#C0392B" />
+                ) : (
+                  <Text style={sharedStyles.headerRejectBtnText}>{headerRejectLabel}</Text>
+                )}
+              </TouchableOpacity>
+            ) : null}
             <TouchableOpacity
-              onPress={onReject}
-              disabled={rejectLoading || acceptAndStartLoading}
-              style={sharedStyles.headerRejectBtn}
+              onPress={onAcceptAndStart}
+              disabled={acceptAndStartLoading || rejectLoading}
+              style={sharedStyles.headerAcceptBtn}
               activeOpacity={0.85}
             >
-              {rejectLoading ? (
-                <ActivityIndicator size="small" color="#C0392B" />
+              {acceptAndStartLoading ? (
+                <ActivityIndicator size="small" color="#fff" />
               ) : (
-                <Text style={sharedStyles.headerRejectBtnText}>{headerRejectLabel}</Text>
+                <>
+                  <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                  <Text style={sharedStyles.headerAcceptBtnText}>{headerAcceptLabel}</Text>
+                </>
               )}
             </TouchableOpacity>
-          ) : null}
-          <TouchableOpacity
-            onPress={onAcceptAndStart}
-            disabled={acceptAndStartLoading || rejectLoading}
-            style={sharedStyles.headerAcceptBtn}
-            activeOpacity={0.85}
-          >
-            {acceptAndStartLoading ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <>
-                <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                <Text style={sharedStyles.headerAcceptBtnText}>{headerAcceptLabel}</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </View>
-      ),
+          </View>
+        );
+      },
     });
     return () => {
       navigation.setOptions({ headerBackButtonVisible: true, headerRight: undefined });
     };
-  }, [navigation, showAcceptInHeader, onReject, rejectLoading, onAcceptAndStart, acceptAndStartLoading, headerRejectLabel, headerAcceptLabel]);
+  }, [navigation, showHeaderActions, showOnboardingActions, showCollectingActions, showCancelledActions, onReject, rejectLoading, onAcceptAndStart, acceptAndStartLoading, headerRejectLabel, headerAcceptLabel, onAbort, abortLoading, onComplete, completeLoading, onRestart, restartLoading]);
 
   return (
     <View style={sharedStyles.container}>
@@ -508,6 +586,55 @@ const sharedStyles = StyleSheet.create({
     ...(Platform.OS === 'android' ? { elevation: 2 } : {}),
   },
   headerRejectBtnText: { color: '#C0392B', fontWeight: '600', fontSize: 15 },
+  /** 顶栏 Abort（收集态）：警告色 */
+  headerAbortBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    minHeight: 40,
+    borderRadius: 10,
+    backgroundColor: '#FFF3E0',
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...(Platform.OS === 'web' || Platform.OS === 'ios'
+      ? { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.12, shadowRadius: 3 }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 2 } : {}),
+  },
+  headerAbortBtnText: { color: '#D35400', fontWeight: '600', fontSize: 15 },
+  /** 顶栏 Complete（收集态 firm）：绿色 */
+  headerCompleteBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    minHeight: 40,
+    borderRadius: 10,
+    backgroundColor: '#00B894',
+    ...(Platform.OS === 'web' || Platform.OS === 'ios'
+      ? { shadowColor: '#00B894', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4 }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 4 } : {}),
+  },
+  headerCompleteBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  /** 顶栏 Restart（取消态）：主按钮色 */
+  headerRestartBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    minHeight: 40,
+    borderRadius: 10,
+    backgroundColor: '#6C5CE7',
+    ...(Platform.OS === 'web' || Platform.OS === 'ios'
+      ? { shadowColor: '#6C5CE7', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4 }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 4 } : {}),
+  },
+  headerRestartBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
   /** 顶栏「Accept and Start」主按钮：规范主按钮样式 + 阴影 */
   headerAcceptBtn: {
     flexDirection: 'row',
