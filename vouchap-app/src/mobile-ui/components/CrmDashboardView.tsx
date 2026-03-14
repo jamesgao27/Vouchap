@@ -20,7 +20,25 @@ import { supabase } from '@/lib/supabase';
 import type { ClientDisplayStatus, FirmOrderStatus } from '@/types';
 import type { FirmClientWithDetails, FirmClientFollowUp, FirmOrder } from '@/lib/firm';
 
-const FIRM_CHART_COLORS = ['#6C5CE7', '#00B894', '#0984E3', '#FDCB6E', '#E17055'];
+/** 非 status 图表用（assignee / follow-up 系列） */
+const FIRM_CHART_COLORS = ['#6C5CE7', '#00B894', '#0298D1', '#FDCB6E', '#E17055'];
+
+/** 与列表/详情标签一致的 client 状态色（按 CLIENT_STATUS_LABELS 的 label 取色） */
+const CLIENT_STATUS_CHART_COLORS: Record<string, string> = {
+  'New': '#6C5CE7',
+  'To follow up': '#E67E22',
+  'In service': '#0298D1',
+  'To revisit': '#00B894',
+  'Churned': '#636E72',
+};
+
+/** 与列表/详情标签一致的 order 状态色（按 ORDER_STATUS_LABELS 的 label 取色） */
+const ORDER_STATUS_CHART_COLORS: Record<string, string> = {
+  'Onboarding': '#6C5CE7',
+  'Processing': '#29B6F6',
+  'Completed': '#00875A',
+  'Cancelled': '#636E72',
+};
 
 const CLIENT_STATUS_LABELS: Record<ClientDisplayStatus, string> = {
   new: 'New',
@@ -36,6 +54,15 @@ const ORDER_STATUS_LABELS: Record<FirmOrderStatus, string> = {
   completed: 'Completed',
   cancelled: 'Cancelled',
 };
+
+/** 留空：四周与间距统一，卡片宽度=(视口宽-3*留空)/2，卡片高度=(视口高-3*留空)/2 */
+const INSIGHTS_SPACING = 32;
+const INSIGHTS_PADDING = INSIGHTS_SPACING;
+const INSIGHTS_GAP = INSIGHTS_SPACING;
+const CARD_PADDING = 16;
+/** 视口为内容区：减去左侧栏（与 WebSidebar 一致）和顶标题行 */
+const SIDEBAR_WIDTH = 240;
+const INSIGHTS_HEADER_HEIGHT = 60;
 
 type FollowUpSeries = {
   assignee: string;
@@ -185,11 +212,17 @@ export default function CrmDashboardView() {
     });
   }, [followUps, authorNames]);
 
-  // Align chart proportions with client dashboard visuals
-  const chartWidth = Math.min(screenWidth - 80, 420);
-  const pieSize = Math.min(chartWidth, 220);
-  const barChartH = 180;
-  const lineChartH = 180;
+  // 视口 = 去除左侧栏与顶标题行的内容区
+  const viewportWidth = Platform.OS === 'web' ? screenWidth - SIDEBAR_WIDTH : screenWidth;
+  const viewportHeight = screenHeight - INSIGHTS_HEADER_HEIGHT;
+  // 卡片尺寸：宽度=(视口宽-3*留空)/2，高度=(视口高-3*留空)/2
+  const cardWidth = Math.floor((viewportWidth - 3 * INSIGHTS_SPACING) / 2);
+  const cardHeight = Math.floor((viewportHeight - 3 * INSIGHTS_SPACING) / 2);
+  const cardInnerWidth = Math.max(0, cardWidth - 2 * CARD_PADDING);
+  const chartWidth = Math.max(180, cardInnerWidth);
+  const pieSize = Math.min(chartWidth, cardHeight - 60);
+  const barChartH = Math.max(120, cardHeight - 60);
+  const lineChartH = Math.max(120, cardHeight - 60);
 
   if (loading && Platform.OS === 'web') {
     return (
@@ -207,15 +240,12 @@ export default function CrmDashboardView() {
       </View>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[
-          styles.scrollContent,
-          Platform.OS === 'web' ? { minHeight: Math.max(screenHeight - 160, 480) } : null,
-        ]}
+        contentContainerStyle={[styles.scrollContent, { padding: INSIGHTS_PADDING }]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.grid}>
+        <View style={[styles.grid, { gap: INSIGHTS_GAP }]}>
           {/* Clients by status (pie) */}
-          <View style={styles.card}>
+          <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
             <Text style={styles.cardTitle}>Clients by status</Text>
             <View style={styles.chartContainer}>
               <ClientStatusPie
@@ -227,7 +257,7 @@ export default function CrmDashboardView() {
           </View>
 
           {/* Clients by assignee (horizontal bar) */}
-          <View style={styles.card}>
+          <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
             <Text style={styles.cardTitle}>Clients by assignee</Text>
             <View style={styles.chartContainer}>
               <ClientAssigneeBars
@@ -239,7 +269,7 @@ export default function CrmDashboardView() {
           </View>
 
           {/* Engagements by status (bar) */}
-          <View style={styles.card}>
+          <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
             <Text style={styles.cardTitle}>Engagements by status</Text>
             <View style={styles.chartContainer}>
               <OrderStatusBars
@@ -251,7 +281,7 @@ export default function CrmDashboardView() {
           </View>
 
           {/* Follow-ups over time by assignee (line) */}
-          <View style={styles.card}>
+          <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
             <Text style={styles.cardTitle}>Follow-ups over time</Text>
             <View style={styles.chartContainer}>
               <FollowUpLines
@@ -296,7 +326,7 @@ function ClientStatusPie({ width, height, entries }: PieProps) {
       <G>
         {entries.map(([name, val], i) => {
           const ratio = total ? val / total : 0;
-          const color = FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length];
+          const color = CLIENT_STATUS_CHART_COLORS[name] ?? FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length];
           let slice: JSX.Element;
           if (ratio >= 1 - 1e-9) {
             slice = <Circle key={name} cx={cx} cy={cy} r={rOuter} fill={color} stroke="#fff" strokeWidth={2} />;
@@ -327,7 +357,7 @@ function ClientStatusPie({ width, height, entries }: PieProps) {
               width={8}
               height={8}
               rx={2}
-              fill={FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length]}
+              fill={CLIENT_STATUS_CHART_COLORS[name] ?? FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length]}
             />
             <SvgText
               x={width - 120 + 14}
@@ -458,7 +488,7 @@ function OrderStatusBars({ width, height, entries }: BarProps) {
         const barY = padding.top + chartH - barHeight;
         const safeName = name ?? '';
         const label = safeName.length > 10 ? `${safeName.slice(0, 9)}…` : safeName;
-        const color = FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length];
+        const color = ORDER_STATUS_CHART_COLORS[safeName] ?? FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length];
         return (
           <G key={safeName || `bar-${i}`}>
             <Rect x={barX} y={barY} width={barW} height={barHeight} rx={6} fill={color} />
@@ -604,22 +634,21 @@ const styles = StyleSheet.create({
   title: { fontSize: 22, fontWeight: '700', color: '#2D3436', marginLeft: 10 },
   scroll: { flex: 1 },
   scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 20,
+    paddingTop: 0,
+    paddingBottom: 0,
+    paddingHorizontal: 0,
   },
   grid: {
     flex: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    alignContent: 'space-between',
-    gap: 20,
+    justifyContent: 'flex-start',
+    alignContent: 'flex-start',
   },
   card: {
     backgroundColor: '#FFF',
     borderRadius: 16,
-    padding: 16,
+    padding: CARD_PADDING,
     borderWidth: 1,
     borderColor: '#E5E7EB',
     shadowColor: '#000',
@@ -627,16 +656,8 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 3,
-    marginBottom: 12,
-    width: '100%',
-    minHeight: 320,
     justifyContent: 'space-between',
-    ...(Platform.OS === 'web'
-      ? {
-          flexBasis: '48%',
-          maxWidth: '48%',
-        }
-      : null),
+    overflow: 'hidden',
   },
   cardTitle: {
     fontSize: 15,
