@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Platform } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { getSkuById } from '../../../shared-logic/firm';
@@ -87,14 +87,20 @@ export default function SetupSkuPreviewScreen() {
   }
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, Platform.OS !== 'web' && styles.containerMobile]}>
       <StatusBar style="dark" />
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          Platform.OS !== 'web' && styles.scrollContentMobile,
+        ]}
         showsVerticalScrollIndicator={true}
       >
-        <SkuPreview sku={sku} />
+        <SkuPreview
+          sku={sku}
+          variant={Platform.OS === 'web' ? 'card' : 'mobile-full'}
+        />
       </ScrollView>
     </View>
   );
@@ -127,5 +133,11 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#636E72',
     textAlign: 'center',
+  },
+  containerMobile: {
+    backgroundColor: '#FFFFFF',
+  },
+  scrollContentMobile: {
+    paddingHorizontal: 0,
   },
 });

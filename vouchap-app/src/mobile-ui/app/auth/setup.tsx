@@ -10,6 +10,8 @@ import {
   ActivityIndicator,
   Platform,
   TextInput,
+  KeyboardAvoidingView,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -35,6 +37,9 @@ type Status = 'checking' | 'need_login' | 'loading' | 'ready' | 'submitting' | '
 
 const NEW_SPACE_SENTINEL_ID = '__NEW_SPACE__';
 
+/** 移动端：视口高度减去头部、表单上边/标签、Create 区块、按钮栏、内边距后的高度，作为选项表最大高度 */
+const MOBILE_FIXED_HEIGHT_EXCLUDING_LIST = 566;
+
 export default function ClientSetupScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ token?: string }>();
@@ -48,7 +53,12 @@ export default function ClientSetupScreen() {
   const [skuPreview, setSkuPreview] = useState<FirmSku | null>(null);
   const [newSpaceName, setNewSpaceName] = useState<string>('');
   const [isNarrowWeb, setIsNarrowWeb] = useState<boolean>(false);
+  const [spaceListContentHeight, setSpaceListContentHeight] = useState(0);
   const isWeb = Platform.OS === 'web';
+  const { height: windowHeight } = useWindowDimensions();
+  const mobileSpaceListMaxHeight = Math.max(120, windowHeight - MOBILE_FIXED_HEIGHT_EXCLUDING_LIST);
+  const webPanelHeight = isWeb ? Math.round(windowHeight * 0.8) : 0;
+  const webPanelHeightRight = isWeb ? Math.round(windowHeight * 0.8) - 196 : 0;
 
   const load = useCallback(async () => {
     if (!token) {
@@ -362,36 +372,136 @@ export default function ClientSetupScreen() {
     </>
   );
 
-  const mainCard = (
-    <View style={styles.card}>
-      <View style={styles.cardHeader}>
-        {isWeb ? (
-          cardHeaderContent
-        ) : (
-          <TouchableOpacity
-            style={styles.cardHeaderTouchable}
-            onPress={skuPreview ? openSkuPreview : undefined}
-            activeOpacity={skuPreview ? 0.7 : 1}
-            disabled={!skuPreview}
-          >
-            {cardHeaderContent}
-            {skuPreview && (
-              <View style={styles.headerSkuHint}>
-                <Ionicons name="document-text-outline" size={18} color="#6C5CE7" />
-                <Text style={styles.headerSkuHintText}>Service preview</Text>
-              </View>
-            )}
-          </TouchableOpacity>
+  async function handleMobileBack() {
+    try {
+      const authed = await isAuthenticated();
+      if (authed) {
+        router.replace('/');
+      } else {
+        router.replace('/login');
+      }
+    } catch {
+      router.replace('/');
+    }
+  }
+
+  const renderSpaceForm = (variant?: 'web' | 'mobile') => {
+    const isMobileVariant = variant === 'mobile';
+    const bottomBlock = (
+      <>
+        <TouchableOpacity
+          style={[
+            styles.newSpaceOption,
+            isWeb && styles.newSpaceOptionWeb,
+            selectedSpaceId === NEW_SPACE_SENTINEL_ID && styles.newSpaceOptionSelected,
+          ]}
+          onPress={() => setSelectedSpaceId(NEW_SPACE_SENTINEL_ID)}
+          activeOpacity={0.8}
+        >
+          <Ionicons
+            name={
+              selectedSpaceId === NEW_SPACE_SENTINEL_ID
+                ? 'radio-button-on'
+                : 'radio-button-off'
+            }
+            size={22}
+            color={selectedSpaceId === NEW_SPACE_SENTINEL_ID ? '#6C5CE7' : '#BDC3C7'}
+          />
+          <View style={styles.newSpaceTextWrap}>
+            <Text
+              style={[
+                styles.newSpaceTitle,
+                selectedSpaceId === NEW_SPACE_SENTINEL_ID && styles.newSpaceTitleSelected,
+              ]}
+              numberOfLines={1}
+            >
+              Create a new space
+            </Text>
+            <Text style={styles.newSpaceSubtitle} numberOfLines={1}>
+              Start with a brand new client space
+            </Text>
+          </View>
+        </TouchableOpacity>
+        <View style={styles.newSpaceInputReserve}>
+          {selectedSpaceId === NEW_SPACE_SENTINEL_ID ? (
+            <TextInput
+              style={styles.newSpaceInput}
+              placeholder="Enter new space name"
+              placeholderTextColor="#95A5A6"
+              value={newSpaceName}
+              onChangeText={setNewSpaceName}
+            />
+          ) : null}
+        </View>
+        {isWeb && (
+          <View style={[styles.actionRow, styles.actionRowWeb]}>
+            <TouchableOpacity
+              style={[styles.secondaryActionButton, styles.secondaryActionButtonWeb]}
+              onPress={() => router.replace('/')}
+              disabled={status === 'submitting'}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.secondaryActionText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.primaryButton,
+                styles.primaryButtonWeb,
+                styles.confirmButton,
+                ((!selectedSpaceId ||
+                  (selectedSpaceId === NEW_SPACE_SENTINEL_ID && !newSpaceName.trim()) ||
+                  status === 'submitting') &&
+                  styles.buttonDisabled),
+              ]}
+              onPress={handleConfirm}
+              disabled={
+                !selectedSpaceId ||
+                (selectedSpaceId === NEW_SPACE_SENTINEL_ID && !newSpaceName.trim()) ||
+                status === 'submitting'
+              }
+              activeOpacity={0.8}
+            >
+              {status === 'submitting' ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <Text style={styles.primaryButtonText}>Confirm</Text>
+              )}
+            </TouchableOpacity>
+          </View>
         )}
-      </View>
+      </>
+    );
 
-      <View style={styles.cardBody}>
-        <View style={[styles.linkRow, isWeb && styles.linkRowWeb]}>
-          <View style={[styles.linkLeft, isWeb && styles.linkLeftWeb]}>
-            <View style={styles.linkLeftContent}>
-              <Text style={styles.sectionLabel}>Select a space</Text>
-
-              <View style={styles.spaceList}>
+    return (
+      <View style={[styles.linkLeft, isWeb && styles.linkLeftWeb]}>
+        <View style={[styles.linkLeftContent, isWeb && styles.linkLeftContentWeb, isMobileVariant && styles.linkLeftContentMobile]}>
+          <Text style={styles.sectionLabel}>Select a space</Text>
+          <View
+            style={[
+              styles.spaceListWrap,
+              isWeb && styles.spaceListWrapWeb,
+              isMobileVariant && styles.spaceListWrapMobile,
+              isMobileVariant && {
+                flex: undefined,
+                maxHeight: mobileSpaceListMaxHeight,
+                height: spaceListContentHeight > 0
+                  ? Math.min(spaceListContentHeight, mobileSpaceListMaxHeight)
+                  : mobileSpaceListMaxHeight,
+              },
+              !isWeb && !isMobileVariant && { height: Math.round(windowHeight * 0.28), flexDirection: 'column' as const },
+            ]}
+          >
+            <View style={styles.spaceList}>
+              <ScrollView
+                style={styles.spaceListInner}
+                contentContainerStyle={[
+                  styles.spaceListInnerContent,
+                  isMobileVariant && styles.spaceListInnerContentMobile,
+                ]}
+                nestedScrollEnabled
+                showsVerticalScrollIndicator={spaces.length > 4}
+                onContentSizeChange={isMobileVariant ? (_w, h) => setSpaceListContentHeight(h) : undefined}
+              >
                 {spaces.map((us, i) => {
                   const isSelected = selectedSpaceId === us.spaceId;
                   const name = us.space?.name ?? 'Unnamed space';
@@ -421,83 +531,190 @@ export default function ClientSetupScreen() {
                     </TouchableOpacity>
                   );
                 })}
-
-                <TouchableOpacity
-                  style={[
-                    styles.spaceRow,
-                    selectedSpaceId === NEW_SPACE_SENTINEL_ID && styles.spaceRowSelected,
-                    styles.spaceRowLast,
-                  ]}
-                  onPress={() => setSelectedSpaceId(NEW_SPACE_SENTINEL_ID)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name={
-                      selectedSpaceId === NEW_SPACE_SENTINEL_ID
-                        ? 'radio-button-on'
-                        : 'radio-button-off'
-                    }
-                    size={22}
-                    color={
-                      selectedSpaceId === NEW_SPACE_SENTINEL_ID ? '#6C5CE7' : '#BDC3C7'
-                    }
-                  />
+              </ScrollView>
+            </View>
+          </View>
+          {spaces.length === 0 && (
+            <TouchableOpacity
+              style={styles.createSpaceCta}
+              onPress={handleCreateSpace}
+            >
+              <Ionicons name="add-circle-outline" size={22} color="#6C5CE7" />
+              <Text style={styles.createSpaceCtaText}>
+                Create a client space first
+              </Text>
+            </TouchableOpacity>
+          )}
+          {isMobileVariant && spaces.length > 0 && (
+            <>
+              <TouchableOpacity
+                style={[
+                  styles.newSpaceOption,
+                  selectedSpaceId === NEW_SPACE_SENTINEL_ID && styles.newSpaceOptionSelected,
+                ]}
+                onPress={() => setSelectedSpaceId(NEW_SPACE_SENTINEL_ID)}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name={
+                    selectedSpaceId === NEW_SPACE_SENTINEL_ID
+                      ? 'radio-button-on'
+                      : 'radio-button-off'
+                  }
+                  size={22}
+                  color={selectedSpaceId === NEW_SPACE_SENTINEL_ID ? '#6C5CE7' : '#BDC3C7'}
+                />
+                <View style={styles.newSpaceTextWrap}>
                   <Text
                     style={[
-                      styles.spaceName,
-                      selectedSpaceId === NEW_SPACE_SENTINEL_ID &&
-                        styles.spaceNameSelected,
+                      styles.newSpaceTitle,
+                      selectedSpaceId === NEW_SPACE_SENTINEL_ID && styles.newSpaceTitleSelected,
                     ]}
                     numberOfLines={1}
                   >
                     Create a new space
                   </Text>
-                </TouchableOpacity>
-              </View>
-
-              {selectedSpaceId === NEW_SPACE_SENTINEL_ID && (
-                <View style={styles.newSpaceInputContainer}>
-                  <Text style={styles.newSpaceLabel}>New space name</Text>
+                  <Text style={styles.newSpaceSubtitle} numberOfLines={1}>
+                    Start with a brand new client space
+                  </Text>
+                </View>
+              </TouchableOpacity>
+              <View style={styles.newSpaceInputReserve}>
+                {selectedSpaceId === NEW_SPACE_SENTINEL_ID ? (
                   <TextInput
                     style={styles.newSpaceInput}
-                    placeholder="Enter space name"
+                    placeholder="Enter new space name"
                     placeholderTextColor="#95A5A6"
                     value={newSpaceName}
                     onChangeText={setNewSpaceName}
                   />
-                </View>
-              )}
-
-              {spaces.length === 0 && (
-                <TouchableOpacity
-                  style={styles.createSpaceCta}
-                  onPress={handleCreateSpace}
+                ) : null}
+              </View>
+            </>
+          )}
+        </View>
+        {isMobileVariant ? null : isWeb ? (
+          <View style={styles.linkLeftBottomWeb}>
+            {bottomBlock}
+          </View>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={[
+                styles.newSpaceOption,
+                selectedSpaceId === NEW_SPACE_SENTINEL_ID && styles.newSpaceOptionSelected,
+              ]}
+              onPress={() => setSelectedSpaceId(NEW_SPACE_SENTINEL_ID)}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name={
+                  selectedSpaceId === NEW_SPACE_SENTINEL_ID
+                    ? 'radio-button-on'
+                    : 'radio-button-off'
+                }
+                size={22}
+                color={selectedSpaceId === NEW_SPACE_SENTINEL_ID ? '#6C5CE7' : '#BDC3C7'}
+              />
+              <View style={styles.newSpaceTextWrap}>
+                <Text
+                  style={[
+                    styles.newSpaceTitle,
+                    selectedSpaceId === NEW_SPACE_SENTINEL_ID && styles.newSpaceTitleSelected,
+                  ]}
+                  numberOfLines={1}
                 >
-                  <Ionicons name="add-circle-outline" size={22} color="#6C5CE7" />
-                  <Text style={styles.createSpaceCtaText}>
-                    Create a client space first
-                  </Text>
-                </TouchableOpacity>
-              )}
+                  Create a new space
+                </Text>
+                <Text style={styles.newSpaceSubtitle} numberOfLines={1}>
+                  Start with a brand new client space
+                </Text>
+              </View>
+            </TouchableOpacity>
+            <View style={styles.newSpaceInputReserve}>
+              {selectedSpaceId === NEW_SPACE_SENTINEL_ID ? (
+                <TextInput
+                  style={styles.newSpaceInput}
+                  placeholder="Enter new space name"
+                  placeholderTextColor="#95A5A6"
+                  value={newSpaceName}
+                  onChangeText={setNewSpaceName}
+                />
+              ) : null}
+            </View>
+          </>
+        )}
+      </View>
+    );
+  };
+
+  const mainCard = (
+    <View style={[styles.card, isWeb && styles.cardWeb]}>
+      <View style={styles.cardHeader}>
+        {cardHeaderContent}
+      </View>
+
+      <View style={[styles.cardBody, isWeb && !isNarrowWeb && styles.cardBodyWeb]}>
+        <View style={[styles.linkRow, isWeb && styles.linkRowWeb]}>
+          {renderSpaceForm()}
+
+          {/* Mobile: SKU preview only via header tap → /auth/setup-sku-preview */}
+        </View>
+      </View>
+    </View>
+  );
+
+  if (!isWeb) {
+    return (
+      <KeyboardAvoidingView
+        style={styles.mobileContainer}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <StatusBar style="dark" />
+        <View style={styles.mobileContent}>
+          <View style={styles.mobileContentInner}>
+            <View style={styles.mobileHeader}>
+              <TouchableOpacity
+                style={styles.mobileBackButton}
+                onPress={handleMobileBack}
+              >
+                <Ionicons name="arrow-back" size={24} color="#2D3436" />
+              </TouchableOpacity>
+              <View style={styles.mobileIconContainer}>
+                <View style={styles.mobileCircle}>
+                  <Ionicons name="link" size={52} color="#6C5CE7" />
+                </View>
+              </View>
+              <Text style={styles.pageTitle}>Link your space with</Text>
+              <View style={styles.firmNameBlock}>
+                <Text style={styles.firmNameText}>{firmName}</Text>
+              </View>
+              <Text style={styles.pageSubtitle}>
+                Select a space to link and start tax filing:
+              </Text>
             </View>
 
-            <View style={styles.actionRow}>
+            <View style={styles.mobileForm}>
+              {renderSpaceForm('mobile')}
+            </View>
+          </View>
+
+          <View style={styles.mobileActionsBar}>
+            <View style={styles.mobileActions}>
               <TouchableOpacity
-                style={styles.secondaryActionButton}
+                style={styles.mobileSecondaryButton}
                 onPress={() => router.replace('/')}
                 disabled={status === 'submitting'}
                 activeOpacity={0.7}
               >
-                <Text style={styles.secondaryActionText}>Cancel</Text>
+                <Text style={styles.mobileSecondaryButtonText}>Cancel</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={[
-                  styles.primaryButton,
-                  styles.confirmButton,
+                  styles.mobilePrimaryButton,
                   ((!selectedSpaceId ||
-                    (selectedSpaceId === NEW_SPACE_SENTINEL_ID &&
-                      !newSpaceName.trim()) ||
+                    (selectedSpaceId === NEW_SPACE_SENTINEL_ID && !newSpaceName.trim()) ||
                     status === 'submitting') &&
                     styles.buttonDisabled),
                 ]}
@@ -512,17 +729,15 @@ export default function ClientSetupScreen() {
                 {status === 'submitting' ? (
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
-                  <Text style={styles.primaryButtonText}>Confirm</Text>
+                  <Text style={styles.mobilePrimaryButtonText}>Confirm</Text>
                 )}
               </TouchableOpacity>
             </View>
           </View>
-
-          {/* Mobile: SKU preview only via header tap → /auth/setup-sku-preview */}
         </View>
-      </View>
-    </View>
-  );
+      </KeyboardAvoidingView>
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -532,11 +747,46 @@ export default function ClientSetupScreen() {
         contentContainerStyle={[
           styles.scrollContent,
           isWeb && (isNarrowWeb ? styles.scrollContentWebNarrow : styles.scrollContentWeb),
+          isWeb &&
+            !isNarrowWeb && {
+              minHeight: windowHeight,
+              paddingTop: Math.round(windowHeight * 0.1),
+              paddingBottom: Math.round(windowHeight * 0.1),
+            },
         ]}
         keyboardShouldPersistTaps="handled"
       >
-        {isWeb ? (
-          <View style={[styles.webRow, isNarrowWeb && styles.webRowNarrow]}>
+        {isWeb && !isNarrowWeb ? (
+          <View style={[styles.webRowPanelsWrap, { height: webPanelHeight }]}>
+            <View style={styles.webRowPanelsSpacer} />
+            <View style={[styles.cardWrap, styles.cardWrapWeb, { height: webPanelHeight }]}>
+              {mainCard}
+            </View>
+            <View style={styles.webRowPanelsSpacer}>
+              {skuPreview && (
+                <>
+                  <View style={styles.webRowPanelsGap} />
+                  <View
+                    style={[
+                      styles.skuPreviewColumn,
+                      styles.skuPreviewColumnWeb,
+                      { height: webPanelHeightRight },
+                    ]}
+                  >
+                    <Text style={styles.skuPreviewTitle}>Service preview</Text>
+                    <View style={styles.skuPreviewContentWeb}>
+                      <SkuPreview
+                        sku={skuPreview}
+                        maxHeight={Math.max(0, webPanelHeightRight - 60)}
+                      />
+                    </View>
+                  </View>
+                </>
+              )}
+            </View>
+          </View>
+        ) : isWeb && isNarrowWeb ? (
+          <View style={[styles.webRow, styles.webRowNarrow]}>
             <View style={[styles.cardWrap, styles.cardWrapWeb]}>
               {mainCard}
             </View>
@@ -590,7 +840,7 @@ const styles = StyleSheet.create({
   },
   cardWrapWeb: {
     flex: 1,
-    maxWidth: 560,
+    maxWidth: 480,
     alignSelf: 'stretch',
   },
   cardHeaderTouchable: {
@@ -620,6 +870,18 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 4,
   },
+  cardWeb: {
+    flex: 1,
+    minHeight: 576,
+  },
+  cardMobile: {
+    borderRadius: 0,
+    borderWidth: 0,
+    borderColor: 'transparent',
+    shadowOpacity: 0,
+    shadowRadius: 0,
+    elevation: 0,
+  },
   cardHeader: {
     paddingHorizontal: 24,
     paddingTop: 24,
@@ -637,6 +899,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 20,
     paddingBottom: 24,
+  },
+  cardBodyWeb: {
+    flex: 1,
+    minHeight: 0,
+    paddingBottom: 0,
   },
   iconWrap: {
     width: 64,
@@ -709,14 +976,26 @@ const styles = StyleSheet.create({
   linkLeft: {
     flex: 1,
     minWidth: 0,
-    minHeight: 576,
-    justifyContent: 'space-between',
   },
   linkLeftWeb: {
     flex: 1,
+    flexDirection: 'column',
+    minHeight: 0,
   },
   linkLeftContent: {
     flexShrink: 1,
+  },
+  linkLeftContentWeb: {
+    flex: 1,
+    minHeight: 0,
+  },
+  linkLeftBottomWeb: {
+    flexShrink: 0,
+    marginTop: 8,
+    paddingBottom: 36,
+  },
+  actionRowWeb: {
+    marginTop: 16,
   },
   linkRight: {
     flexShrink: 0,
@@ -751,6 +1030,23 @@ const styles = StyleSheet.create({
     gap: 24,
     alignSelf: 'center',
   },
+  webRowPanelsWrap: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  webRowPanelsSpacer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  webRowPanelsGap: {
+    width: 12,
+  },
+  webRowPanels: {
+    alignItems: 'flex-end',
+    minHeight: 0,
+  },
   webRowNarrow: {
     flexDirection: 'column',
   },
@@ -770,19 +1066,45 @@ const styles = StyleSheet.create({
     elevation: 4,
     alignSelf: 'flex-end',
   },
+  skuPreviewColumnWeb: {
+    flexDirection: 'column',
+    paddingBottom: 36,
+  },
+  skuPreviewContentWeb: {
+    flex: 1,
+    minHeight: 0,
+  },
   skuPreviewTitle: {
     fontSize: 12,
     fontWeight: '600',
     color: '#636E72',
     marginBottom: 6,
   },
-  spaceList: {
+  spaceListWrap: {
     marginBottom: 20,
+  },
+  spaceListWrapWeb: {
+    flex: 1,
+    minHeight: 0,
+    marginBottom: 0,
+  },
+  spaceList: {
+    flex: 1,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E9ECEF',
     backgroundColor: '#FFF',
     overflow: 'hidden',
+  },
+  spaceListInner: {
+    flex: 1,
+  },
+  spaceListInnerContent: {
+    paddingBottom: 0,
+  },
+  /** 移动端：选项表内容不拉伸，超出时滚动 */
+  spaceListInnerContentMobile: {
+    flexGrow: 0,
   },
   spaceRow: {
     flexDirection: 'row',
@@ -821,8 +1143,50 @@ const styles = StyleSheet.create({
     color: '#6C5CE7',
     fontWeight: '600',
   },
+  newSpaceOption: {
+    marginTop: 10,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  newSpaceOptionWeb: {
+    marginTop: 0,
+  },
+  newSpaceOptionSelected: {
+    borderColor: '#6C5CE7',
+    backgroundColor: 'rgba(108, 92, 231, 0.05)',
+  },
+  newSpaceTextWrap: {
+    flex: 1,
+  },
+  newSpaceTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#2D3436',
+  },
+  newSpaceTitleSelected: {
+    color: '#6C5CE7',
+  },
+  newSpaceSubtitle: {
+    marginTop: 2,
+    fontSize: 12,
+    color: '#636E72',
+  },
   newSpaceInputContainer: {
+    marginTop: 16,
     marginBottom: 16,
+  },
+  newSpaceInputReserve: {
+    minHeight: 52,
+    marginTop: 12,
+    marginBottom: 0,
+    justifyContent: 'center',
   },
   newSpaceLabel: {
     fontSize: 13,
@@ -833,10 +1197,10 @@ const styles = StyleSheet.create({
   newSpaceInput: {
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    fontSize: 14,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
     color: '#2D3436',
     backgroundColor: '#FFFFFF',
   },
@@ -900,6 +1264,135 @@ const styles = StyleSheet.create({
     color: '#00B894',
     marginTop: 16,
   },
+  mobileContainer: {
+    flex: 1,
+    backgroundColor: '#F8F9FA',
+  },
+  mobileScrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 16,
+  },
+  mobileContentInner: {
+    flex: 1,
+    minHeight: 0,
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 16,
+  },
+  linkLeftContentMobile: {
+    flex: 1,
+    minHeight: 0,
+  },
+  spaceListWrapMobile: {
+    flex: 1,
+    minHeight: 0,
+    flexDirection: 'column' as const,
+    marginBottom: 0,
+  },
+  mobileHeader: {
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  mobileBackButton: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    padding: 8,
+  },
+  mobileIconContainer: {
+    marginBottom: 24,
+    marginTop: 20,
+  },
+  mobileCircle: {
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    backgroundColor: '#E9ECEF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  mobileTitle: {
+    fontSize: 26,
+    fontWeight: 'bold',
+    color: '#2D3436',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  mobileFirmName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#6C5CE7',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  mobileSubtitle: {
+    fontSize: 14,
+    color: '#636E72',
+    textAlign: 'center',
+    marginTop: 2,
+    marginBottom: 2,
+  },
+  mobileForm: {
+    flex: 1,
+    minHeight: 0,
+    paddingTop: 12,
+  },
+  mobileContent: {
+    flex: 1,
+  },
+  mobileActionsBar: {
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    paddingTop: 8,
+    backgroundColor: '#F8F9FA',
+  },
+  mobileActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  mobileSecondaryButton: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    backgroundColor: '#FFFFFF',
+    minHeight: 48,
+    minWidth: 0,
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  mobileSecondaryButtonText: {
+    fontSize: 15,
+    color: '#636E72',
+    fontWeight: '500',
+  },
+  mobilePrimaryButton: {
+    backgroundColor: '#6C5CE7',
+    borderRadius: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 0,
+    flex: 1,
+    shadowColor: '#6C5CE7',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.35,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  mobilePrimaryButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
   actionRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -918,8 +1411,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  secondaryActionButtonWeb: {
+    paddingVertical: 14,
+    minWidth: 140,
+    minHeight: 48,
+  },
+  primaryButtonWeb: {
+    paddingVertical: 14,
+    minWidth: 140,
+    minHeight: 48,
+  },
   secondaryActionText: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#636E72',
     fontWeight: '500',
   },

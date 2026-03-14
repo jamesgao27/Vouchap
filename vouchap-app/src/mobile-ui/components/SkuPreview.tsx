@@ -1,10 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, Image, StyleSheet, ActivityIndicator, ScrollView } from 'react-native';
+import { View, Text, Image, StyleSheet, ActivityIndicator, ScrollView, Platform } from 'react-native';
 import type { FirmSku } from '@/types';
 import { supabase } from '@/lib/supabase';
 
 type Props = {
   sku?: FirmSku | null;
+  /** 展示风格：默认 card；移动端全屏时用 mobile-full */
+  variant?: 'card' | 'mobile-full';
+  /** 可选：约束容器最大高度（如右浮窗内嵌时由父级传入），覆盖默认 560 */
+  maxHeight?: number;
 };
 
 type SkuItemRow = {
@@ -35,9 +39,12 @@ function getTagColor(s: string): [string, string] {
   return TAG_PALETTE[Math.abs(h) % TAG_PALETTE.length]!;
 }
 
-export default function SkuPreview({ sku }: Props) {
+export default function SkuPreview({ sku, variant = 'card', maxHeight }: Props) {
   const [items, setItems] = useState<SkuItemRow[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const isMobileFull = variant === 'mobile-full' && Platform.OS !== 'web';
+  const containerHeightStyle =
+    maxHeight != null ? { minHeight: 0 as number, maxHeight } : undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -80,7 +87,12 @@ export default function SkuPreview({ sku }: Props) {
 
   if (!sku) {
     return (
-      <View style={styles.container}>
+      <View
+        style={[
+          isMobileFull ? [styles.container, styles.containerMobileFull] : styles.container,
+          containerHeightStyle,
+        ]}
+      >
         <Text style={styles.emptyTitle}>No service template selected</Text>
         <Text style={styles.emptyDesc}>
           Choose a template on the left to preview its cover, description, and key tasks.
@@ -90,7 +102,12 @@ export default function SkuPreview({ sku }: Props) {
   }
 
   return (
-    <View style={styles.container}>
+    <View
+      style={[
+        isMobileFull ? [styles.container, styles.containerMobileFull] : styles.container,
+        containerHeightStyle,
+      ]}
+    >
       <View style={styles.headerRow}>
         {hasImage && (
           <Image source={{ uri: sku.imageUrl as string }} style={styles.cover} resizeMode="cover" />
@@ -215,6 +232,16 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     minHeight: 560,
     maxHeight: 560,
+  },
+  containerMobileFull: {
+    borderRadius: 0,
+    borderWidth: 0,
+    borderColor: 'transparent',
+    paddingTop: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 24,
+    minHeight: undefined,
+    maxHeight: undefined,
   },
   headerRow: {
     flexDirection: 'row',
