@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo, useLayoutEffect } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useLayoutEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -63,6 +63,13 @@ export default function FirmClientDetailScreen() {
   const [newTagInput, setNewTagInput] = useState('');
   const [savingLabels, setSavingLabels] = useState(false);
   const [showNewOrderSkuMenu, setShowNewOrderSkuMenu] = useState(false);
+  const [newOrderDropdownRect, setNewOrderDropdownRect] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const newOrderSelectRef = useRef<View>(null);
 
   const load = useCallback(async () => {
     const space = await getCurrentSpace();
@@ -520,7 +527,11 @@ export default function FirmClientDetailScreen() {
       <CenterModal
         visible={newOrderModalVisible}
         title="Create new order"
-        onClose={() => setNewOrderModalVisible(false)}
+        onClose={() => {
+          setNewOrderModalVisible(false);
+          setShowNewOrderSkuMenu(false);
+          setNewOrderDropdownRect(null);
+        }}
         maxWidth={840}
         cardHeight={660}
       >
@@ -567,10 +578,19 @@ export default function FirmClientDetailScreen() {
                   </Text>
                 </View>
               ) : (
-                <View style={styles.newOrderSelectWrapper}>
+                <View ref={newOrderSelectRef} style={styles.newOrderSelectWrapper} collapsable={false}>
                   <TouchableOpacity
                     style={styles.newOrderSelect}
-                    onPress={() => setShowNewOrderSkuMenu((v) => !v)}
+                    onPress={() => {
+                      if (showNewOrderSkuMenu) {
+                        setShowNewOrderSkuMenu(false);
+                      } else {
+                        newOrderSelectRef.current?.measureInWindow((x, y, w, h) => {
+                          setNewOrderDropdownRect({ x, y, width: w, height: h });
+                          setShowNewOrderSkuMenu(true);
+                        });
+                      }
+                    }}
                     activeOpacity={0.7}
                   >
                     <Text style={styles.newOrderSelectText} numberOfLines={1}>
@@ -584,40 +604,6 @@ export default function FirmClientDetailScreen() {
                       color="#636E72"
                     />
                   </TouchableOpacity>
-                  {showNewOrderSkuMenu && (
-                    <View style={styles.newOrderSelectDropdown}>
-                      <ScrollView
-                        style={styles.newOrderSelectDropdownScroll}
-                        contentContainerStyle={styles.newOrderSelectDropdownContent}
-                        nestedScrollEnabled
-                      >
-                        {selectableSkus.map((sku) => (
-                          <TouchableOpacity
-                            key={sku.id}
-                            style={[
-                              styles.newOrderSelectOption,
-                              selectedSkuId === sku.id && styles.newOrderSelectOptionSelected,
-                            ]}
-                            onPress={() => {
-                              setSelectedSkuId(sku.id);
-                              setShowNewOrderSkuMenu(false);
-                            }}
-                            activeOpacity={0.7}
-                          >
-                            <Text
-                              style={[
-                                styles.newOrderSelectOptionTitle,
-                                selectedSkuId === sku.id && styles.newOrderSelectOptionTitleSelected,
-                              ]}
-                              numberOfLines={1}
-                            >
-                              {sku.name}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </ScrollView>
-                    </View>
-                  )}
                 </View>
               )}
             </View>
@@ -654,6 +640,63 @@ export default function FirmClientDetailScreen() {
           </View>
         </View>
       </CenterModal>
+
+      {/* Create new order: template dropdown in a top-level Modal so it is never covered by buttons */}
+      <Modal
+        visible={showNewOrderSkuMenu && newOrderDropdownRect !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowNewOrderSkuMenu(false)}
+      >
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => setShowNewOrderSkuMenu(false)}
+        />
+        {newOrderDropdownRect && (
+          <View
+            style={[
+              styles.newOrderSelectDropdown,
+              {
+                position: 'absolute',
+                left: newOrderDropdownRect.x,
+                top: newOrderDropdownRect.y + newOrderDropdownRect.height + 4,
+                width: newOrderDropdownRect.width,
+              },
+            ]}
+          >
+            <ScrollView
+              style={styles.newOrderSelectDropdownScroll}
+              contentContainerStyle={styles.newOrderSelectDropdownContent}
+              nestedScrollEnabled
+            >
+              {selectableSkus.map((sku) => (
+                <TouchableOpacity
+                  key={sku.id}
+                  style={[
+                    styles.newOrderSelectOption,
+                    selectedSkuId === sku.id && styles.newOrderSelectOptionSelected,
+                  ]}
+                  onPress={() => {
+                    setSelectedSkuId(sku.id);
+                    setShowNewOrderSkuMenu(false);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[
+                      styles.newOrderSelectOptionTitle,
+                      selectedSkuId === sku.id && styles.newOrderSelectOptionTitleSelected,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {sku.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
+      </Modal>
 
       <Modal visible={showAssigneePicker} transparent animationType="fade" onRequestClose={() => setShowAssigneePicker(false)}>
         <Pressable style={styles.modalOverlay} onPress={() => setShowAssigneePicker(false)}>
@@ -910,14 +953,39 @@ const styles = StyleSheet.create({
   },
   previewItemTitle: { fontSize: 13, color: '#2D3436', flex: 1 },
   previewHint: { fontSize: 12, color: '#636E72', marginTop: 6 },
-  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 8 },
-  modalCancelBtn: { paddingVertical: 10, paddingHorizontal: 16 },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginTop: 8 },
+  modalCancelBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 2,
+  },
   modalCancelText: { fontSize: 14, color: '#636E72', fontWeight: '500' },
   modalConfirmBtn: {
+    flex: 1.618,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     paddingVertical: 10,
     paddingHorizontal: 20,
-    borderRadius: 10,
+    borderRadius: 8,
     backgroundColor: '#6C5CE7',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 4,
+    elevation: 2,
   },
   modalConfirmBtnDisabled: { opacity: 0.6 },
   modalConfirmText: { fontSize: 14, color: '#fff', fontWeight: '600' },
@@ -980,7 +1048,6 @@ const styles = StyleSheet.create({
   newOrderSelectWrapper: {
     marginTop: 4,
     position: 'relative' as const,
-    zIndex: 50,
   },
   newOrderSelect: {
     minHeight: 40,

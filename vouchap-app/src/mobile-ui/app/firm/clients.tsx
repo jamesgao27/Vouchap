@@ -19,7 +19,7 @@ import {
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
-import { getCurrentSpace } from '@/lib/auth';
+import { getCurrentSpace, getUserSpaces } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import {
   getFirmClientsWithDetails,
@@ -48,6 +48,7 @@ import { showToast } from '@/lib/toast';
 import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import CenterModal from '@/components/CenterModal';
 import SkuPreview from '@/components/SkuPreview';
+import ScrollViewWithScrollHint from '@/components/ScrollViewWithScrollHint';
 
 function formatServiceStart(iso: string | null): string {
   if (!iso) return '—';
@@ -226,6 +227,7 @@ export default function FirmClientsScreen() {
   const [assignSelectedMemberId, setAssignSelectedMemberId] = useState<string | null>(null);
   const [assignMembersLoading, setAssignMembersLoading] = useState(false);
   const [assignSaving, setAssignSaving] = useState(false);
+  const [isFirmAdmin, setIsFirmAdmin] = useState(false);
   const qrRef = useRef<any | null>(null);
   // Add client (on-behalf) modal
   const [showAddClientModal, setShowAddClientModal] = useState(false);
@@ -371,6 +373,14 @@ export default function FirmClientsScreen() {
       supabase.removeChannel(chInvitees);
     };
   }, [firmSpaceId, loadData]);
+
+  useEffect(() => {
+    if (!firmSpaceId) return;
+    getUserSpaces().then((spaces) => {
+      const m = spaces.find((us) => us.spaceId === firmSpaceId);
+      setIsFirmAdmin(m?.isAdmin === true);
+    });
+  }, [firmSpaceId]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -779,7 +789,7 @@ export default function FirmClientsScreen() {
 
   const renderMobileList = () => (
     <View style={styles.container}>
-      <View style={styles.toolbarSlot}>
+      <View style={[styles.toolbarSlot, (showGroupMenu || showFilterMenu) && styles.toolbarSlotDropdownOpen]}>
         <View style={styles.header}>
           <View style={styles.headerRow}>
             <TouchableOpacity style={styles.sortButton} onPress={() => setShowGroupMenu(!showGroupMenu)}>
@@ -943,10 +953,12 @@ export default function FirmClientsScreen() {
               {bulkDeleting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="trash-outline" size={18} color="#fff" />}
               <Text style={styles.bulkBtnText}>Delete</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.bulkBtn} onPress={handleOpenAssignPicker} activeOpacity={0.7}>
-              <Ionicons name="person-outline" size={18} color="#fff" />
-              <Text style={styles.bulkBtnText}>Assign</Text>
-            </TouchableOpacity>
+            {isFirmAdmin && (
+              <TouchableOpacity style={styles.bulkBtn} onPress={handleOpenAssignPicker} activeOpacity={0.7}>
+                <Ionicons name="person-outline" size={18} color="#fff" />
+                <Text style={styles.bulkBtnText}>Assign</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity style={styles.bulkBtnClear} onPress={() => setSelectedClientIds([])} activeOpacity={0.7}>
               <Text style={styles.bulkBtnClearText}>Clear</Text>
             </TouchableOpacity>
@@ -1114,7 +1126,8 @@ export default function FirmClientsScreen() {
               <View style={styles.inviteSkuHeaderRow}>
                 <Text style={[styles.inviteSkuHeaderText, { flex: 1.6 }]}>Service Template</Text>
               </View>
-              <ScrollView
+              <ScrollViewWithScrollHint
+                wrapperStyle={styles.inviteSkuListWrapper}
                 style={styles.inviteSkuList}
                 contentContainerStyle={styles.inviteSkuListContent}
               >
@@ -1147,7 +1160,7 @@ export default function FirmClientsScreen() {
                 {inviteSkus.length === 0 && (
                   <Text style={styles.inviteHintText}>Please configure Service Catalog in the Firm module first.</Text>
                 )}
-              </ScrollView>
+              </ScrollViewWithScrollHint>
             </View>
             <View style={{ marginTop: 36 }}>
               <Text style={styles.inviteSectionTitle}>Step 2 · Expiry setting</Text>
@@ -1203,46 +1216,52 @@ export default function FirmClientsScreen() {
                   </View>
                   {inviteError && <Text style={styles.inviteErrorText}>{inviteError}</Text>}
                   {inviteLink && (
-                    <View style={[styles.inviteResultRow, { marginTop: 36, flexDirection: 'column', alignItems: 'flex-start' }]}>
-                      <View style={styles.inviteQrRow}>
-                        <View style={styles.inviteQrBox}>
-                          {inviteLink ? (
+                    <View style={[styles.inviteResultRow, { marginTop: 36, flexDirection: 'column', alignItems: 'stretch' }]}>
+                      <View style={styles.inviteQrLinkRow}>
+                        <View style={styles.inviteResultBlock}>
+                          <View style={styles.inviteQrBox}>
                             <QRCode
                               value={inviteLink}
-                              size={96}
+                              size={112}
                               getRef={(c) => {
                                 qrRef.current = c;
                               }}
                             />
-                          ) : null}
-                        </View>
-                        {Platform.OS === 'web' && (
-                          <TouchableOpacity
-                            style={[styles.inviteSecondaryBtn, { marginLeft: 8 }]}
-                            onPress={handleDownloadInviteQr}
-                            activeOpacity={0.7}
-                          >
-                            <Ionicons name="download-outline" size={16} color="#6C5CE7" style={{ marginRight: 4 }} />
-                            <Text style={styles.inviteSecondaryBtnText}>Download QR</Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                      <View style={{ marginTop: 8, width: '100%' }}>
-                        <Text style={styles.inviteLinkLabel}>Invite link</Text>
-                        <View style={styles.inviteLinkCodeRow}>
-                          <View style={styles.inviteLinkCodeBox}>
-                            <Text style={styles.inviteLinkCodeText}>
-                              {inviteLink}
-                            </Text>
                           </View>
-                          <TouchableOpacity
-                            style={[styles.inviteSecondaryBtn, { marginLeft: 8 }]}
-                            onPress={handleCopyInviteLink}
-                            activeOpacity={0.7}
-                          >
+                          {Platform.OS === 'web' && (
+                            <TouchableOpacity
+                              style={[styles.inviteSecondaryBtn, { marginTop: 8 }]}
+                              onPress={handleDownloadInviteQr}
+                              activeOpacity={0.7}
+                            >
+                              <Ionicons name="download-outline" size={16} color="#6C5CE7" style={{ marginRight: 4 }} />
+                              <Text style={styles.inviteSecondaryBtnText}>Download QR</Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                        <View style={styles.inviteResultBlock}>
+                          <View style={styles.inviteLinkBlockInner}>
+                            <View style={styles.inviteLinkContentTop}>
+                              <Text style={styles.inviteLinkLabel}>Invite link</Text>
+                              <View style={styles.inviteLinkCodeBox}>
+                                <Text
+                                  style={styles.inviteLinkCodeText}
+                                  numberOfLines={5}
+                                  ellipsizeMode="tail"
+                                >
+                                  {inviteLink}
+                                </Text>
+                              </View>
+                            </View>
+                            <TouchableOpacity
+                              style={[styles.inviteSecondaryBtn, styles.inviteCopyBtn]}
+                              onPress={handleCopyInviteLink}
+                              activeOpacity={0.7}
+                            >
                             <Ionicons name="copy-outline" size={16} color="#6C5CE7" style={{ marginRight: 4 }} />
                             <Text style={styles.inviteSecondaryBtnText}>Copy link</Text>
-                          </TouchableOpacity>
+                            </TouchableOpacity>
+                          </View>
                         </View>
                       </View>
                     </View>
@@ -1554,7 +1573,10 @@ export default function FirmClientsScreen() {
                   </View>
                 ) : (
                   <View
-                    style={styles.addClientSelectWrapper}
+                    style={[
+                      styles.addClientSelectWrapper,
+                      showAddClientSkuMenu && Platform.OS !== 'web' && styles.addClientSelectWrapperMenuOpen,
+                    ]}
                     {...(Platform.OS === 'web' ? { nativeID: 'add-client-template-select' } : {})}
                   >
                     <TouchableOpacity
@@ -1651,7 +1673,7 @@ export default function FirmClientsScreen() {
                 <Text style={styles.addClientError}>{addClientError}</Text>
               ) : null}
             </View>
-            <View style={styles.addClientBtnRow}>
+            <View style={[styles.addClientBtnRow, styles.addClientBtnRowBelowDropdown]}>
               <TouchableOpacity style={styles.addClientSecondaryBtn} onPress={handleCloseAddClientModal} activeOpacity={0.7}>
                 <Text style={styles.addClientSecondaryBtnText}>Cancel</Text>
               </TouchableOpacity>
@@ -1851,6 +1873,10 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E9ECEF',
     justifyContent: 'center',
     overflow: 'visible' as const,
+  },
+  toolbarSlotDropdownOpen: {
+    zIndex: 100000,
+    elevation: 100000,
   },
   header: {
     height: 52,
@@ -2096,15 +2122,18 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   inviteSkuTable: {
-    maxHeight: 320,
+    maxHeight: 236,
     borderWidth: 1,
     borderColor: '#E9ECEF',
     borderRadius: 10,
     backgroundColor: '#FFF',
     overflow: 'hidden',
   },
+  inviteSkuListWrapper: {
+    flex: 1,
+  },
   inviteSkuList: {
-    maxHeight: 320,
+    flex: 1,
   },
   inviteSkuListContent: {
     paddingVertical: 0,
@@ -2206,7 +2235,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   inviteQrBox: {
-    width: 120,
+    width: 128,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2266,6 +2295,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  inviteQrLinkRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    width: '100%',
+    gap: 16,
+  },
+  inviteResultBlock: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    minWidth: 0,
+  },
+  inviteLinkBlockInner: {
+    width: 148,
+    maxWidth: 148,
+    alignItems: 'flex-start',
+    overflow: 'hidden',
+  },
+  inviteLinkContentTop: {
+    minHeight: 112,
+    width: '100%',
+    maxWidth: 148,
+  },
+  inviteCopyBtn: {
+    marginTop: 8,
+    alignSelf: 'center',
+  },
+  inviteLinkColumn: {
+    flex: 1,
+    minWidth: 0,
+    maxWidth: 144,
+  },
   inviteLinkCodeRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2278,15 +2340,31 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E1E4FF',
     backgroundColor: '#F7F8FF',
-    maxWidth: 270,
-    flexShrink: 1,
+    alignSelf: 'stretch',
+    maxWidth: 148,
+    maxHeight: 94,
+    overflow: 'hidden',
   },
   inviteLinkCodeText: {
     fontSize: 11,
     color: '#2D3436',
     fontFamily: Platform.select({ web: 'monospace', default: 'System' }),
-    flexShrink: 1,
+    maxWidth: '100%',
     flexWrap: 'wrap',
+    ...(Platform.OS === 'web'
+      ? {
+          display: '-webkit-box' as const,
+          WebkitLineClamp: 6,
+          WebkitBoxOrient: 'vertical' as const,
+          overflow: 'hidden',
+        }
+      : {}),
+  },
+  inviteResultButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 10,
   },
   inviteSecondaryBtn: {
     flexDirection: 'row',
@@ -2499,6 +2577,14 @@ const styles = StyleSheet.create({
     marginTop: 4,
     position: 'relative' as const,
     zIndex: 50,
+  },
+  addClientSelectWrapperMenuOpen: {
+    zIndex: 10000,
+    elevation: 10000,
+  },
+  addClientBtnRowBelowDropdown: {
+    zIndex: 0,
+    elevation: 0,
   },
   addClientSelect: {
     minHeight: 40,

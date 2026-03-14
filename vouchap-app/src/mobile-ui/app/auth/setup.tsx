@@ -13,6 +13,7 @@ import {
   KeyboardAvoidingView,
   useWindowDimensions,
 } from 'react-native';
+import ScrollViewWithScrollHint from '@/components/ScrollViewWithScrollHint';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -550,7 +551,7 @@ export default function ClientSetupScreen() {
             ]}
           >
             <View style={styles.spaceList}>
-              <ScrollView
+              <ScrollViewWithScrollHint
                 style={styles.spaceListInner}
                 contentContainerStyle={[
                   styles.spaceListInnerContent,
@@ -589,7 +590,7 @@ export default function ClientSetupScreen() {
                     </TouchableOpacity>
                   );
                 })}
-              </ScrollView>
+              </ScrollViewWithScrollHint>
             </View>
           </View>
           {spaces.length === 0 && (

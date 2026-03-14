@@ -1,5 +1,15 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, Image, StyleSheet, ActivityIndicator, ScrollView, Platform } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import {
+  View,
+  Text,
+  Image,
+  StyleSheet,
+  ActivityIndicator,
+  ScrollView,
+  Platform,
+  Animated,
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import type { FirmSku } from '@/types';
 import { supabase } from '@/lib/supabase';
 
@@ -42,9 +52,19 @@ function getTagColor(s: string): [string, string] {
 export default function SkuPreview({ sku, variant = 'card', maxHeight }: Props) {
   const [items, setItems] = useState<SkuItemRow[] | null>(null);
   const [loading, setLoading] = useState(false);
+  const [listLayoutHeight, setListLayoutHeight] = useState(0);
+  const [listContentHeight, setListContentHeight] = useState(0);
+  const [atScrollBottom, setAtScrollBottom] = useState(false);
+  const bounceAnim = useRef(new Animated.Value(0)).current;
+  const layoutHeightRef = useRef(0);
+  const contentHeightRef = useRef(0);
+  layoutHeightRef.current = listLayoutHeight;
+  contentHeightRef.current = listContentHeight;
   const isMobileFull = variant === 'mobile-full' && Platform.OS !== 'web';
   const containerHeightStyle =
     maxHeight != null ? { minHeight: 0 as number, maxHeight } : undefined;
+  const canScroll = listLayoutHeight > 0 && listContentHeight > listLayoutHeight + 2;
+  const showScrollHint = canScroll && !atScrollBottom;
 
   useEffect(() => {
     let cancelled = false;
@@ -77,6 +97,34 @@ export default function SkuPreview({ sku, variant = 'card', maxHeight }: Props) 
       cancelled = true;
     };
   }, [sku?.id]);
+
+  useEffect(() => {
+    if (loading || !items || items.length === 0) {
+      setListLayoutHeight(0);
+      setListContentHeight(0);
+      setAtScrollBottom(false);
+    }
+  }, [loading, items]);
+
+  useEffect(() => {
+    if (!showScrollHint) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(bounceAnim, {
+          toValue: 5,
+          duration: 450,
+          useNativeDriver: true,
+        }),
+        Animated.timing(bounceAnim, {
+          toValue: 0,
+          duration: 450,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [showScrollHint, bounceAnim]);
 
   const hasImage = !!sku?.imageUrl;
   const description = sku?.description || '';
@@ -162,12 +210,23 @@ export default function SkuPreview({ sku, variant = 'card', maxHeight }: Props) 
           <Text style={styles.todoStubText}>No template tasks configured yet.</Text>
         )}
         {!loading && items && items.length > 0 && (
-          <ScrollView
-            style={[styles.todoList, isWeb && styles.todoListWeb]}
-            contentContainerStyle={{ paddingBottom: 4 }}
-            showsVerticalScrollIndicator={false}
-          >
-            {buildCompactWbs(items).map((row) => {
+          <View style={styles.todoListWrapper}>
+            <ScrollView
+              style={[styles.todoList, isWeb && styles.todoListWeb]}
+              contentContainerStyle={{ paddingBottom: 4 }}
+              showsVerticalScrollIndicator={false}
+              onLayout={(e) => setListLayoutHeight(e.nativeEvent.layout.height)}
+              onContentSizeChange={(_, h) => setListContentHeight(h)}
+              onScroll={(e) => {
+                const y = e.nativeEvent.contentOffset.y;
+                const layoutH = layoutHeightRef.current;
+                const contentH = contentHeightRef.current;
+                const atBottom = layoutH > 0 && contentH > 0 && y + layoutH >= contentH - 10;
+                setAtScrollBottom(atBottom);
+              }}
+              scrollEventThrottle={32}
+            >
+              {buildCompactWbs(items).map((row) => {
               const isPhase = row.level === 2;
               const isSection = row.level === 3;
               const isTask = row.level === 4;
@@ -215,7 +274,20 @@ export default function SkuPreview({ sku, variant = 'card', maxHeight }: Props) 
                 </View>
               );
             })}
-          </ScrollView>
+            </ScrollView>
+            {showScrollHint && (
+              <View style={styles.scrollHintOverlay} pointerEvents="none">
+                <Animated.View
+                  style={[
+                    styles.scrollHintIcon,
+                    { transform: [{ translateY: bounceAnim }] },
+                  ]}
+                >
+                  <Ionicons name="chevron-down" size={24} color="#6C5CE7" />
+                </Animated.View>
+              </View>
+            )}
+          </View>
         )}
       </View>
     </View>
@@ -334,14 +406,26 @@ const styles = StyleSheet.create({
     color: '#A0A4A8',
     marginLeft: 6,
   },
-  todoList: {
+  todoListWrapper: {
+    flex: 1,
+    position: 'relative',
     marginTop: 4,
+  },
+  todoList: {
     flex: 1,
   },
   /** Web: 列表区参与 flex 并保证可滚动 */
   todoListWeb: {
     minHeight: 0,
   },
+  scrollHintOverlay: {
+    position: 'absolute',
+    bottom: 4,
+    right: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scrollHintIcon: {},
   todoRow: {
     flexDirection: 'row',
     alignItems: 'center',
