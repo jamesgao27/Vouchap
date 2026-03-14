@@ -25,6 +25,7 @@ import {
   getFirmSpaceMembers,
   updateFirmClientAssignee,
 } from '@/lib/firm';
+import { createPendingOrderForInvitee } from '@/lib/firm-clients';
 import { showToast } from '../../../../shared-logic/toast';
 import type { FirmClientWithDetails, FirmOrder, FirmClientFollowUp, FirmSku, FirmSpaceMember } from '@/lib/firm';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
@@ -34,8 +35,14 @@ import SkuPreview from '../../../components/SkuPreview';
 
 type TabKey = 'info' | 'orders';
 
+const INVITEE_PREFIX = 'invitee-';
+
 export default function FirmClientDetailScreen() {
-  const { clientSpaceId } = useLocalSearchParams<{ clientSpaceId: string }>();
+  const { clientSpaceId: segment } = useLocalSearchParams<{ clientSpaceId: string }>();
+  const isInvitee = typeof segment === 'string' && segment.startsWith(INVITEE_PREFIX);
+  const inviteeClientId = isInvitee ? segment!.slice(INVITEE_PREFIX.length) : undefined;
+  const resolvedClientSpaceId = isInvitee ? undefined : segment ?? undefined;
+
   const router = useRouter();
   const navigation = useNavigation();
   const [loading, setLoading] = useState(true);
@@ -59,24 +66,26 @@ export default function FirmClientDetailScreen() {
 
   const load = useCallback(async () => {
     const space = await getCurrentSpace();
-    if (!space?.id || space.kind !== 'firm' || !clientSpaceId || typeof clientSpaceId !== 'string') {
+    if (!space?.id || space.kind !== 'firm' || !segment || typeof segment !== 'string') {
       setLoading(false);
       return;
     }
     setLoading(true);
     const [clients, ords, fus, skuList] = await Promise.all([
       getFirmClientsWithDetails(space.id),
-      getFirmOrders(space.id, clientSpaceId),
-      getFirmClientFollowUps(space.id, clientSpaceId),
+      getFirmOrders(space.id, resolvedClientSpaceId, inviteeClientId),
+      getFirmClientFollowUps(space.id, resolvedClientSpaceId, inviteeClientId),
       getFirmSkus(space.id),
     ]);
-    const found = clients.find((c) => c.clientSpaceId === clientSpaceId) ?? null;
+    const found = inviteeClientId
+      ? clients.find((c) => c.inviteeClientId === inviteeClientId || c.id === inviteeClientId) ?? null
+      : clients.find((c) => c.clientSpaceId === resolvedClientSpaceId) ?? null;
     setClient(found);
     setOrders(ords);
     setFollowUps(fus);
     setSkus(skuList);
     setLoading(false);
-  }, [clientSpaceId]);
+  }, [segment, resolvedClientSpaceId, inviteeClientId]);
 
   useEffect(() => {
     load();
@@ -91,7 +100,7 @@ export default function FirmClientDetailScreen() {
   }, [client?.firmSpaceId]);
 
   const handleSaveLabels = useCallback(async (labels: string[]) => {
-    if (!client?.id) return;
+    if (!client?.id || client.isPendingClaim) return;
     setSavingLabels(true);
     const { error } = await updateFirmClientLabels(client.id, labels);
     setSavingLabels(false);
@@ -129,9 +138,9 @@ export default function FirmClientDetailScreen() {
   }, [client?.firmSpaceId]);
 
   const handleSelectAssignee = useCallback(async (userId: string | null) => {
-    if (!client?.id) return;
+    if (!client?.id || !client?.firmSpaceId) return;
     setSavingAssignee(true);
-    const { error } = await updateFirmClientAssignee(client.id, userId);
+    const { error } = await updateFirmClientAssignee(client.id, userId, client.firmSpaceId);
     setSavingAssignee(false);
     setShowAssigneePicker(false);
     if (error) {
@@ -141,11 +150,13 @@ export default function FirmClientDetailScreen() {
     const space = await getCurrentSpace();
     if (space?.id && space.kind === 'firm') {
       const [clientsRes] = await Promise.all([getFirmClientsWithDetails(space.id)]);
-      const found = clientsRes.find((c) => c.clientSpaceId === clientSpaceId) ?? null;
+      const found = client.isPendingClaim
+        ? clientsRes.find((c) => c.id === client.id || c.inviteeClientId === client.id) ?? null
+        : clientsRes.find((c) => c.clientSpaceId === client.clientSpaceId) ?? null;
       if (found) setClient(found);
     }
     showToast('Assignee updated.', 'success');
-  }, [client?.id, client?.clientSpaceId, clientSpaceId]);
+  }, [client?.id, client?.firmSpaceId, client?.clientSpaceId, client?.isPendingClaim]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -206,9 +217,13 @@ export default function FirmClientDetailScreen() {
       return;
     }
     setAddingFollowUp(true);
-    const { error } = await addFirmClientFollowUp(firmSpaceId, client.clientSpaceId, content);
+    const { error } = client.isPendingClaim
+      ? await addFirmClientFollowUp(firmSpaceId, '', content, client.id)
+      : await addFirmClientFollowUp(firmSpaceId, client.clientSpaceId, content);
     if (!error) {
-      const fus = await getFirmClientFollowUps(firmSpaceId, client.clientSpaceId);
+      const fus = client.isPendingClaim
+        ? await getFirmClientFollowUps(firmSpaceId, undefined, client.id)
+        : await getFirmClientFollowUps(firmSpaceId, client.clientSpaceId);
       setFollowUps(fus);
       setFollowUpContent('');
       showToast('Follow-up saved.', 'success');
@@ -230,12 +245,29 @@ export default function FirmClientDetailScreen() {
     const space = await getCurrentSpace();
     if (!space?.id || space.kind !== 'firm') return false;
     setCreatingOrder(true);
-    const { error } = await createFirmOrder(space.id, client.clientSpaceId, selectedSkuId, null);
-    if (!error) {
-      const fresh = await getFirmOrders(space.id, client.clientSpaceId);
-      setOrders(fresh);
+    let error: Error | null = null;
+    if (client.isPendingClaim) {
+      const res = await createPendingOrderForInvitee(space.id, {
+        clientName: client.name || '',
+        contactName: client.contactName ?? '',
+        contactEmail: client.contactEmail ?? '',
+        skuId: selectedSkuId,
+      });
+      error = res.error;
+      if (!error) {
+        const fresh = await getFirmOrders(space.id, undefined, client.id);
+        setOrders(fresh);
+      }
+    } else {
+      const res = await createFirmOrder(space.id, client.clientSpaceId, selectedSkuId, null);
+      error = res?.error ?? null;
+      if (!error) {
+        const fresh = await getFirmOrders(space.id, client.clientSpaceId);
+        setOrders(fresh);
+      }
     }
     setCreatingOrder(false);
+    if (error) showToast(error.message ?? 'Failed to create order.', 'error');
     return !error;
   }, [client, selectedSkuId]);
 
@@ -244,7 +276,7 @@ export default function FirmClientDetailScreen() {
     if (ok) setNewOrderModalVisible(false);
   }, [handleCreateOrder]);
 
-  if (!clientSpaceId || typeof clientSpaceId !== 'string') {
+  if (!segment || typeof segment !== 'string') {
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>Invalid client.</Text>
@@ -320,39 +352,41 @@ export default function FirmClientDetailScreen() {
                   )}
                 </View>
               </View>
-              <View style={styles.infoItem}>
-                <Text style={styles.infoLabel}>Labels</Text>
-                <View style={styles.labelsRow}>
-                  {(client.labels ?? []).map((tag, i) => (
-                    <View key={i} style={styles.tagChipWrap}>
-                      <View style={[styles.labelBadge, { backgroundColor: '#6C5CE7' }]}>
-                        <Text style={styles.labelBadgeText}>{tag}</Text>
+              {!client.isPendingClaim && (
+                <View style={styles.infoItem}>
+                  <Text style={styles.infoLabel}>Labels</Text>
+                  <View style={styles.labelsRow}>
+                    {(client.labels ?? []).map((tag, i) => (
+                      <View key={i} style={styles.tagChipWrap}>
+                        <View style={[styles.labelBadge, { backgroundColor: '#6C5CE7' }]}>
+                          <Text style={styles.labelBadgeText}>{tag}</Text>
+                        </View>
+                        <TouchableOpacity onPress={() => handleRemoveTag(i)} hitSlop={8} style={styles.tagRemove}>
+                          <Ionicons name="close-circle" size={18} color="#636E72" />
+                        </TouchableOpacity>
                       </View>
-                      <TouchableOpacity onPress={() => handleRemoveTag(i)} hitSlop={8} style={styles.tagRemove}>
-                        <Ionicons name="close-circle" size={18} color="#636E72" />
+                    ))}
+                    <View style={styles.tagAddRow}>
+                      <TextInput
+                        style={styles.tagInput}
+                        placeholder="Add tag"
+                        placeholderTextColor="#95A5A6"
+                        value={newTagInput}
+                        onChangeText={setNewTagInput}
+                        onSubmitEditing={handleAddTag}
+                        returnKeyType="done"
+                      />
+                      <TouchableOpacity
+                        style={[styles.tagAddBtn, (!newTagInput.trim() || savingLabels) && styles.followUpBtnDisabled]}
+                        onPress={handleAddTag}
+                        disabled={!newTagInput.trim() || savingLabels}
+                      >
+                        {savingLabels ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.tagAddBtnText}>Add</Text>}
                       </TouchableOpacity>
                     </View>
-                  ))}
-                  <View style={styles.tagAddRow}>
-                    <TextInput
-                      style={styles.tagInput}
-                      placeholder="Add tag"
-                      placeholderTextColor="#95A5A6"
-                      value={newTagInput}
-                      onChangeText={setNewTagInput}
-                      onSubmitEditing={handleAddTag}
-                      returnKeyType="done"
-                    />
-                    <TouchableOpacity
-                      style={[styles.tagAddBtn, (!newTagInput.trim() || savingLabels) && styles.followUpBtnDisabled]}
-                      onPress={handleAddTag}
-                      disabled={!newTagInput.trim() || savingLabels}
-                    >
-                      {savingLabels ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.tagAddBtnText}>Add</Text>}
-                    </TouchableOpacity>
                   </View>
                 </View>
-              </View>
+              )}
               <View style={styles.infoItem}>
                 <Text style={styles.infoLabel}>Assignee</Text>
                 <View style={styles.infoValueRow}>

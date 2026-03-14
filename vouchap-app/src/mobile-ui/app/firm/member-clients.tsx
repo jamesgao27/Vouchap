@@ -1,5 +1,5 @@
 /**
- * Firm - Assignment (legacy route): assign clients to firm members (firm.member_clients).
+ * Firm - Assignment (legacy route): assign clients to firm members (firm.clients_assignee).
  */
 import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView } from 'react-native';
@@ -26,7 +26,7 @@ export default function FirmAssignmentsScreen() {
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <Text style={styles.title}>Assignment</Text>
-      <Text style={styles.subtitle}>Assign clients to firm members for service (firm.member_clients)</Text>
+      <Text style={styles.subtitle}>Assign clients to firm members for service (firm.clients_assignee)</Text>
       <View style={styles.placeholder}>
         <Text style={styles.placeholderText}>Coming soon: list and edit member–client assignments</Text>
       </View>

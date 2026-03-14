@@ -42,6 +42,12 @@ const STATUS_COLOR: Record<string, string> = {
   cancelled: '#B2BEC3',
 };
 
+/** Client type dot: green = claimed (order has clientSpaceId), amber = invitee only (pending claim). Align with clients list. */
+const CLIENT_TYPE_DOT = { client: '#27AE60', pendingInvitee: '#F39C12' };
+function isOrderInviteeOnly(o: { clientSpaceId?: string | null; inviteeClientId?: string | null }): boolean {
+  return !!o.inviteeClientId && !o.clientSpaceId;
+}
+
 // 与报税项目 Info 页相同的标签配色
 const TAG_PALETTE: [string, string][] = [
   ['#E3F2FD', '#1E88E5'],  // blue
@@ -162,11 +168,18 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
       id: 'clientName',
       label: 'Client',
       minWidth: 140,
-      getValue: (r) => (
-        <Text style={cellText} numberOfLines={1}>
-          {r.clientName || '—'}
-        </Text>
-      ),
+      getValue: (r) => {
+        const isInvitee = isOrderInviteeOnly(r);
+        const dotColor = isInvitee ? CLIENT_TYPE_DOT.pendingInvitee : CLIENT_TYPE_DOT.client;
+        return (
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dotColor }} />
+            <Text style={cellText} numberOfLines={1}>
+              {r.clientName || '—'}
+            </Text>
+          </View>
+        );
+      },
       getSortValue: (r) => (r.clientName || '').toLowerCase(),
     },
     {
@@ -628,7 +641,18 @@ export default function FirmEngagementsScreen() {
                   </View>
                 </View>
                 <View style={styles.secondRow}>
-                  <Text style={styles.amount} numberOfLines={1}>{o.clientName ?? '—'}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                    <View
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: 4,
+                        backgroundColor: isOrderInviteeOnly(o) ? CLIENT_TYPE_DOT.pendingInvitee : CLIENT_TYPE_DOT.client,
+                        marginRight: 6,
+                      }}
+                    />
+                    <Text style={styles.amount} numberOfLines={1}>{o.clientName ?? '—'}</Text>
+                  </View>
                   <Text style={styles.createdDate}>{formatTimeAgo(o.updatedAt)}</Text>
                 </View>
               </View>

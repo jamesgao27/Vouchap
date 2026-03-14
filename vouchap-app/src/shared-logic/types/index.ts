@@ -469,7 +469,7 @@ export interface FirmClient {
   status?: FirmClientStatus;
   /** 自定义标签（文本数组），status 可显示首个标签；仅在客户详情页编辑 */
   labels?: string[];
-  /** 负责人 user id（可选，列表负责人优先从 member_clients 取） */
+  /** 负责人 user id（可选，列表负责人优先从 clients_assignee 取） */
   assignedUserId?: string | null;
   /** 最近跟进时间 */
   lastFollowUpAt?: string | null;

@@ -25,6 +25,7 @@ import {
   getFirmClientsWithDetails,
   getFirmOrders,
   deleteFirmClients,
+  deleteFirmInviteeClients,
   getFirmSkus,
   getFirmSpaceMembers,
   updateFirmClientAssignee,
@@ -96,7 +97,7 @@ function getClientColumns(): DataTableColumn<FirmClientWithDetails>[] {
       id: 'name',
       label: 'Client',
       minWidth: 140,
-      getValue: (r) => <Text style={cellText} numberOfLines={1}>{r.name || '—'}</Text>,
+      getValue: (r) => <ClientNameCell name={r.name ?? ''} isPendingClaim={r.isPendingClaim} />,
       getSortValue: (r) => (r.name || '').toLowerCase(),
     },
     {
@@ -171,6 +172,22 @@ function getClientColumns(): DataTableColumn<FirmClientWithDetails>[] {
 
 const cellText = { fontSize: 14, color: '#2D3436' };
 
+/** Color dot for client type: green = confirmed client, amber = pending invitee */
+const CLIENT_TYPE_DOT = {
+  client: '#27AE60',
+  pendingInvitee: '#F39C12',
+} as const;
+
+function ClientNameCell({ name, isPendingClaim }: { name: string; isPendingClaim?: boolean }) {
+  const color = isPendingClaim ? CLIENT_TYPE_DOT.pendingInvitee : CLIENT_TYPE_DOT.client;
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color, marginRight: 6 }} />
+      <Text style={cellText} numberOfLines={1}>{name || '—'}</Text>
+    </View>
+  );
+}
+
 export default function FirmClientsScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -184,6 +201,7 @@ export default function FirmClientsScreen() {
   const [showGroupMenu, setShowGroupMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [orderCountByClient, setOrderCountByClient] = useState<Record<string, number>>({});
+  const [orderCountByInvitee, setOrderCountByInvitee] = useState<Record<string, number>>({});
   const [groupPopoverRect, setGroupPopoverRect] = useState<{ left: number; top: number } | null>(null);
   const [sortKey, setSortKey] = useState<string | null>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -309,11 +327,14 @@ export default function FirmClientsScreen() {
       getFirmOrders(space.id),
     ]);
     setClients(list);
-    const counts: Record<string, number> = {};
+    const countsClient: Record<string, number> = {};
+    const countsInvitee: Record<string, number> = {};
     orders.forEach((o) => {
-      counts[o.clientSpaceId] = (counts[o.clientSpaceId] ?? 0) + 1;
+      if (o.clientSpaceId) countsClient[o.clientSpaceId] = (countsClient[o.clientSpaceId] ?? 0) + 1;
+      if (o.inviteeClientId) countsInvitee[o.inviteeClientId] = (countsInvitee[o.inviteeClientId] ?? 0) + 1;
     });
-    setOrderCountByClient(counts);
+    setOrderCountByClient(countsClient);
+    setOrderCountByInvitee(countsInvitee);
   }, [router]);
 
   useEffect(() => {
@@ -435,16 +456,27 @@ export default function FirmClientsScreen() {
   const handleBulkDelete = useCallback(async () => {
     if (selectedClientIds.length === 0) return;
     if (typeof window !== 'undefined' && !window.confirm(`Delete ${selectedClientIds.length} selected client(s)?`)) return;
+    const clientIds = selectedClientIds.filter((id) => {
+      const row = clients.find((c) => c.id === id);
+      return row && !row.isPendingClaim && !String(id).startsWith('orphan-');
+    });
+    const inviteeIds = selectedClientIds.filter((id) => {
+      const row = clients.find((c) => c.id === id);
+      return row && row.isPendingClaim === true;
+    });
     setBulkDeleting(true);
-    const { error } = await deleteFirmClients(selectedClientIds);
+    const [clientErr, inviteeErr] = await Promise.all([
+      clientIds.length ? deleteFirmClients(clientIds) : Promise.resolve({ error: null }),
+      inviteeIds.length ? deleteFirmInviteeClients(inviteeIds) : Promise.resolve({ error: null }),
+    ]);
     setBulkDeleting(false);
-    if (error) {
-      if (typeof window !== 'undefined') window.alert(error.message);
+    if (clientErr?.error || inviteeErr?.error) {
+      if (typeof window !== 'undefined') window.alert([clientErr?.error?.message, inviteeErr?.error?.message].filter(Boolean).join('\n') || 'Delete failed');
       return;
     }
     setSelectedClientIds([]);
     await loadData(true);
-  }, [selectedClientIds, loadData]);
+  }, [selectedClientIds, clients, loadData]);
 
   const handleOpenAssignPicker = useCallback(async () => {
     if (selectedClientIds.length === 0 || !firmSpaceId) return;
@@ -462,7 +494,11 @@ export default function FirmClientsScreen() {
     setAssignSaving(true);
     let lastError: string | null = null;
     for (const clientId of selectedClientIds) {
-      const { error } = await updateFirmClientAssignee(clientId, assignSelectedMemberId);
+      const { error } = await updateFirmClientAssignee(
+        clientId,
+        assignSelectedMemberId,
+        firmSpaceId ?? undefined
+      );
       if (error) lastError = error.message;
     }
     setAssignSaving(false);
@@ -470,7 +506,7 @@ export default function FirmClientsScreen() {
     setSelectedClientIds([]);
     await loadData(true);
     if (lastError && typeof window !== 'undefined') window.alert(lastError);
-  }, [selectedClientIds, assignSelectedMemberId, loadData]);
+  }, [selectedClientIds, assignSelectedMemberId, firmSpaceId, loadData]);
 
   const handleCopyInviteLink = useCallback(async () => {
     if (!inviteLink) return;
@@ -828,30 +864,30 @@ export default function FirmClientsScreen() {
           sections={clientSections}
           keyExtractor={(c) => c.id}
           renderItem={({ item: c }) => {
-            const orderCount = orderCountByClient[c.clientSpaceId] ?? 0;
+            const orderCount = c.isPendingClaim ? (orderCountByInvitee[c.id] ?? 0) : (orderCountByClient[c.clientSpaceId] ?? 0);
             const firstTag = c.labels?.[0];
             const statusLabel = firstTag ?? (CLIENT_DISPLAY_STATUS_LABELS[c.displayStatus ?? ''] ?? c.displayStatus ?? '—');
             const statusColor = firstTag ? '#6C5CE7' : (DISPLAY_STATUS_COLOR[c.displayStatus ?? ''] ?? '#636E72');
             const isPending = c.isPendingClaim === true || !c.clientSpaceId;
+            const detailPath = isPending ? `invitee-${c.id}` : c.clientSpaceId;
             return (
               <TouchableOpacity
                 style={[styles.receiptItem, isPending && styles.receiptItemPending]}
-                onPress={() => {
-                  if (isPending) return;
-                  router.push(`/firm/client/${c.clientSpaceId}`);
-                }}
-                activeOpacity={isPending ? 1 : 0.7}
-                disabled={isPending}
+                onPress={() => router.push(`/firm/client/${detailPath}`)}
+                activeOpacity={0.7}
               >
                 <View style={styles.receiptContent}>
                   <View style={styles.firstRow}>
-                    <Text style={styles.storeName} numberOfLines={1}>{c.name || '—'}</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
+                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.isPendingClaim ? CLIENT_TYPE_DOT.pendingInvitee : CLIENT_TYPE_DOT.client, marginRight: 6 }} />
+                      <Text style={styles.storeName} numberOfLines={1}>{c.name || '—'}</Text>
+                    </View>
                     <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-                      <Text style={styles.statusText}>{isPending ? 'Pending claim' : statusLabel}</Text>
+                      <Text style={styles.statusText}>{statusLabel}</Text>
                     </View>
                   </View>
                   <View style={styles.secondRow}>
-                    <Text style={styles.amount}>{orderCount} orders{isPending ? ' (awaiting client)' : ''}</Text>
+                    <Text style={styles.amount}>{orderCount} orders</Text>
                     <Text style={styles.createdDate}>{formatLastFollowUp(c.lastFollowUpAt ?? null)}</Text>
                   </View>
                 </View>
@@ -1046,8 +1082,8 @@ export default function FirmClientsScreen() {
             sortDirection={sortDirection}
             onSort={(key, dir) => { setSortKey(key); setSortDirection(dir); }}
             onRowPress={(row) => {
-              if (row.isPendingClaim === true || !row.clientSpaceId) return;
-              router.push(`/firm/client/${row.clientSpaceId}`);
+              const detailPath = row.isPendingClaim === true || !row.clientSpaceId ? `invitee-${row.id}` : row.clientSpaceId;
+              router.push(`/firm/client/${detailPath}`);
             }}
             keyExtractor={(r) => r.id}
             emptyMessage={tableEmptyMessage}
