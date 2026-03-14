@@ -803,21 +803,26 @@ export default function FirmClientsScreen() {
             const firstTag = c.labels?.[0];
             const statusLabel = firstTag ?? (CLIENT_DISPLAY_STATUS_LABELS[c.displayStatus ?? ''] ?? c.displayStatus ?? '—');
             const statusColor = firstTag ? '#6C5CE7' : (DISPLAY_STATUS_COLOR[c.displayStatus ?? ''] ?? '#636E72');
+            const isPending = c.isPendingClaim === true || !c.clientSpaceId;
             return (
               <TouchableOpacity
-                style={styles.receiptItem}
-                onPress={() => router.push(`/firm/client/${c.clientSpaceId}`)}
-                activeOpacity={0.7}
+                style={[styles.receiptItem, isPending && styles.receiptItemPending]}
+                onPress={() => {
+                  if (isPending) return;
+                  router.push(`/firm/client/${c.clientSpaceId}`);
+                }}
+                activeOpacity={isPending ? 1 : 0.7}
+                disabled={isPending}
               >
                 <View style={styles.receiptContent}>
                   <View style={styles.firstRow}>
                     <Text style={styles.storeName} numberOfLines={1}>{c.name || '—'}</Text>
                     <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
-                      <Text style={styles.statusText}>{statusLabel}</Text>
+                      <Text style={styles.statusText}>{isPending ? 'Pending claim' : statusLabel}</Text>
                     </View>
                   </View>
                   <View style={styles.secondRow}>
-                    <Text style={styles.amount}>{orderCount} orders</Text>
+                    <Text style={styles.amount}>{orderCount} orders{isPending ? ' (awaiting client)' : ''}</Text>
                     <Text style={styles.createdDate}>{formatLastFollowUp(c.lastFollowUpAt ?? null)}</Text>
                   </View>
                 </View>
@@ -1011,7 +1016,10 @@ export default function FirmClientsScreen() {
             sortKey={sortKey}
             sortDirection={sortDirection}
             onSort={(key, dir) => { setSortKey(key); setSortDirection(dir); }}
-            onRowPress={(row) => router.push(`/firm/client/${row.clientSpaceId}`)}
+            onRowPress={(row) => {
+              if (row.isPendingClaim === true || !row.clientSpaceId) return;
+              router.push(`/firm/client/${row.clientSpaceId}`);
+            }}
             keyExtractor={(r) => r.id}
             emptyMessage={tableEmptyMessage}
             storageKey="firm-clients-table"
@@ -1871,6 +1879,10 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E9ECEF',
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  receiptItemPending: {
+    backgroundColor: '#F8F9FA',
+    opacity: 0.95,
   },
   receiptContent: { flex: 1 },
   firstRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },

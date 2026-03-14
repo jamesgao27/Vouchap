@@ -436,19 +436,34 @@ export interface FirmClientWithDetails extends FirmClient {
   assigneeName: string | null;
   /** 服务负责人 email（多人时取第一个） */
   assigneeEmail: string | null;
+  /** 是否为待认领（仅 invitee，尚无 client space） */
+  isPendingClaim?: boolean;
+  /** 对应 firm.invitee_clients.id，仅 isPendingClaim 时有值 */
+  inviteeClientId?: string | null;
 }
 
-/** Firm 空间：获取在服客户列表（含名称、联系人、服务负责人、自动计算 displayStatus、最近跟进时间） */
+/** Firm 空间：获取在服客户列表（含名称、联系人、服务负责人、自动计算 displayStatus、最近跟进时间）；含待认领 invitee（无 client space 的订单联系人） */
 export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<FirmClientWithDetails[]> {
-  const clients = await getFirmClients(firmSpaceId);
-  if (clients.length === 0) return [];
+  const [clients, ordersAll, inviteeList] = await Promise.all([
+    getFirmClients(firmSpaceId),
+    supabase.schema('firm').from('orders').select('client_space_id, invitee_client_id').eq('firm_space_id', firmSpaceId),
+    supabase.schema('firm').from('invitee_clients').select('id, invitee_client_name, invitee_contact_name, invitee_contact_email, created_at').eq('firm_space_id', firmSpaceId),
+  ]);
+  const ordersData = ordersAll.data || [];
+  const pendingInviteeIds = new Set<string>();
+  ordersData.forEach((o: any) => {
+    if (o.client_space_id == null && o.invitee_client_id) pendingInviteeIds.add(o.invitee_client_id);
+  });
+  const pendingInvitees = (inviteeList.data || []).filter((inv: any) => pendingInviteeIds.has(inv.id));
+
+  if (clients.length === 0 && pendingInvitees.length === 0) return [];
 
   const spaceIds = [...new Set(clients.map((c) => c.clientSpaceId))];
   const ctx = getTaxSeasonContext();
 
   const [spacesRes, userSpacesRes, ordersRes, memberClientsRes, followUpsRes] = await Promise.all([
-    supabase.from('spaces').select('id, name').in('id', spaceIds),
-    supabase.from('user_spaces').select('space_id, user_id, is_admin').in('space_id', spaceIds),
+    spaceIds.length > 0 ? supabase.from('spaces').select('id, name').in('id', spaceIds) : Promise.resolve({ data: [] as any[] }),
+    spaceIds.length > 0 ? supabase.from('user_spaces').select('space_id, user_id, is_admin').in('space_id', spaceIds) : Promise.resolve({ data: [] as any[] }),
     supabase.schema('firm').from('orders').select('client_space_id, status, due_at, created_at').eq('firm_space_id', firmSpaceId),
     supabase.schema('firm').from('member_clients').select('client_space_id, user_id').eq('firm_space_id', firmSpaceId),
     supabase
@@ -515,7 +530,7 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     });
   }
 
-  return clients.map((c) => {
+  const detailedClients = clients.map((c) => {
     const space = spaceMap[c.clientSpaceId];
     const contactUserId = spaceToUserId[c.clientSpaceId];
     const contactUser = contactUserId ? userMap[contactUserId] : null;
@@ -524,7 +539,6 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     const assigneeName = assigneeNames.length > 0 ? assigneeNames.join('、') : null;
     const assigneeEmailVal = assigneeIds[0] ? (userMap[assigneeIds[0]]?.email ?? null) : null;
     const displayStatus = computeClientDisplayStatus(c.clientSpaceId, orders, ctx);
-    // 对方已确认注册：有该 client 空间的成员，显示 client 自设的 created_client_name 及成员姓名/邮箱；未确认时即为创建时的客户名
     const hasConfirmed = contactUserId != null;
     const name = c.createdClientName?.trim() || space?.name || contactUser?.name || c.createdContactName?.trim() || c.clientSpaceId;
     const contactName = hasConfirmed ? (contactUser?.name ?? null) : (c.createdContactName ?? null);
@@ -540,8 +554,39 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
       displayStatus,
       assigneeName,
       assigneeEmail: assigneeEmailVal,
+      isPendingClaim: false,
+      inviteeClientId: null,
     };
   });
+
+  const pendingRows: FirmClientWithDetails[] = pendingInvitees.map((inv: any) => {
+    const name = inv.invitee_client_name || inv.invitee_contact_name || inv.invitee_contact_email || 'Pending';
+    return {
+      id: inv.id,
+      firmSpaceId,
+      clientSpaceId: '',
+      createdClientName: inv.invitee_client_name ?? null,
+      createdContactName: inv.invitee_contact_name ?? null,
+      createdContactEmail: inv.invitee_contact_email ?? null,
+      status: 'active',
+      labels: [],
+      assignedUserId: null,
+      lastFollowUpAt: null,
+      createdAt: inv.created_at,
+      updatedAt: inv.created_at,
+      name,
+      contactName: inv.invitee_contact_name ?? null,
+      contactEmail: inv.invitee_contact_email ?? null,
+      serviceStartAt: null,
+      displayStatus: 'new' as ClientDisplayStatus,
+      assigneeName: null,
+      assigneeEmail: null,
+      isPendingClaim: true,
+      inviteeClientId: inv.id,
+    };
+  });
+
+  return [...detailedClients, ...pendingRows];
 }
 
 /** Firm 空间：获取订单列表（可选按客户筛选） */
@@ -590,7 +635,7 @@ export interface FirmOrderWithDetails extends FirmOrder {
   taxSeasonYear?: number | null;
 }
 
-/** Firm 空间：获取订单列表（含客户名、SKU 名、来源、负责人），用于表格展示 */
+/** Firm 空间：获取订单列表（含客户名、SKU 名、来源、负责人），用于表格展示；含 pending（client_space_id 为空）订单，客户名取自 invitee_clients */
 export async function getFirmOrdersWithDetails(
   firmSpaceId: string,
   clientSpaceId?: string
@@ -598,13 +643,14 @@ export async function getFirmOrdersWithDetails(
   const orders = await getFirmOrders(firmSpaceId, clientSpaceId);
   if (orders.length === 0) return [];
 
-  const clientSpaceIds = [...new Set(orders.map((o) => o.clientSpaceId))];
+  const clientSpaceIds = [...new Set(orders.map((o) => o.clientSpaceId).filter(Boolean))] as string[];
+  const inviteeClientIds = [...new Set(orders.map((o) => o.inviteeClientId).filter(Boolean))] as string[];
   const skuIds = [...new Set(orders.map((o) => o.skuId))];
   const createdByIds = [...new Set(orders.map((o) => o.createdBy).filter(Boolean))] as string[];
   const orderIds = [...new Set(orders.map((o) => o.id))];
 
-  const [spacesRes, skusRes, usersRes, projectsRes] = await Promise.all([
-    supabase.from('spaces').select('id, name').in('id', clientSpaceIds),
+  const [spacesRes, skusRes, usersRes, projectsRes, inviteeRes] = await Promise.all([
+    clientSpaceIds.length > 0 ? supabase.from('spaces').select('id, name').in('id', clientSpaceIds) : Promise.resolve({ data: [] as any[] }),
     supabase.schema('firm').from('skus').select('id, name').in('id', skuIds),
     createdByIds.length > 0
       ? supabase.from('users').select('id, name, email').in('id', createdByIds)
@@ -613,11 +659,19 @@ export async function getFirmOrdersWithDetails(
       .from('projects')
       .select('order_id, tax_country, tax_scenario, tags')
       .in('order_id', orderIds),
+    inviteeClientIds.length > 0
+      ? supabase.schema('firm').from('invitee_clients').select('id, invitee_client_name, invitee_contact_name, invitee_contact_email').in('id', inviteeClientIds)
+      : Promise.resolve({ data: [] as any[] }),
   ]);
 
   const spaceMap: Record<string, string> = {};
   (spacesRes.data || []).forEach((s: any) => {
     spaceMap[s.id] = s.name || s.id;
+  });
+  const inviteeMap: Record<string, { name: string; email: string }> = {};
+  (inviteeRes.data || []).forEach((inv: any) => {
+    const name = inv.invitee_client_name || inv.invitee_contact_name || inv.invitee_contact_email || 'Pending';
+    inviteeMap[inv.id] = { name, email: inv.invitee_contact_email || '' };
   });
   const skuMap: Record<string, string> = {};
   (skusRes.data || []).forEach((s: any) => {
@@ -647,9 +701,14 @@ export async function getFirmOrdersWithDetails(
     const creator = o.createdBy ? userMap[o.createdBy] : null;
     const assigneeName = creator ? (creator.name || creator.email || null) : null;
     const project = projectMap[o.id];
+    const clientName = o.clientSpaceId
+      ? (spaceMap[o.clientSpaceId] ?? o.clientSpaceId)
+      : (o.inviteeClientId && inviteeMap[o.inviteeClientId]
+          ? inviteeMap[o.inviteeClientId].name + (inviteeMap[o.inviteeClientId].email ? ` (${inviteeMap[o.inviteeClientId].email})` : '')
+          : 'Pending claim');
     return {
       ...o,
-      clientName: o.clientSpaceId ? spaceMap[o.clientSpaceId] ?? o.clientSpaceId : 'Pending (no client space)',
+      clientName,
       skuName: skuMap[o.skuId] ?? o.skuId,
       source: 'Manual',
       assigneeName,

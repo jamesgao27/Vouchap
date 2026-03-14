@@ -322,6 +322,7 @@ export default function ManagementScreen() {
 
   const menuItems = [
     { id: 'members', title: 'Members', icon: 'people-outline', route: '/space-members', description: 'Manage members & invitations' },
+    { id: 'claim', title: 'Claim engagement', icon: 'link-outline', route: '/auth/claim', description: 'Link your space with a pending engagement from a firm' },
     { id: 'categories', title: 'Categories', icon: 'pricetags-outline', route: '/categories-manage', description: 'Expense & income categories' },
     { id: 'purposes', title: 'Purposes & Sources', icon: 'briefcase-outline', route: '/purposes-manage', description: 'For expenses & income tracking' },
     { id: 'accounts', title: 'Accounts', icon: 'wallet-outline', route: '/accounts-manage', description: 'Manage and merge accounts' },

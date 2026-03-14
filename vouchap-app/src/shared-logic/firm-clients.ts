@@ -366,15 +366,17 @@ export async function createClientOnBehalf(
       return { result: null, error: new Error(msg) };
     }
     const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.client_space_id) {
+    // RPC returns out_* columns to avoid PL/pgSQL ambiguity; support both for backwards compatibility
+    const clientSpaceId = row?.out_client_space_id ?? row?.client_space_id;
+    if (!clientSpaceId) {
       return { result: null, error: new Error('Unexpected response from server') };
     }
     return {
       result: {
-        clientSpaceId: row.client_space_id,
-        invitationId: row.invitation_id ?? null,
-        spaceName: row.space_name ?? '',
-        inviteeEmail: row.invitee_email ?? '',
+        clientSpaceId,
+        invitationId: row?.out_invitation_id ?? row?.invitation_id ?? null,
+        spaceName: row?.out_space_name ?? row?.space_name ?? '',
+        inviteeEmail: row?.out_invitee_email ?? row?.invitee_email ?? '',
       },
       error: null,
     };
@@ -429,15 +431,16 @@ export async function createPendingOrderForInvitee(
       return { result: null, error: new Error(msg) };
     }
     const row = Array.isArray(data) ? data[0] : data;
-    if (!row?.order_id) {
+    const orderId = row?.out_order_id ?? row?.order_id;
+    if (!orderId) {
       return { result: null, error: new Error('Unexpected response from server for pending order') };
     }
     return {
       result: {
-        orderId: row.order_id,
-        firmSpaceId: row.firm_space_id,
-        inviteeClientId: row.invitee_client_id,
-        inviteeEmail: row.invitee_email,
+        orderId,
+        firmSpaceId: row?.out_firm_space_id ?? row?.firm_space_id ?? '',
+        inviteeClientId: row?.out_invitee_client_id ?? row?.invitee_client_id ?? '',
+        inviteeEmail: row?.out_invitee_email ?? row?.invitee_email ?? '',
       },
       error: null,
     };
@@ -490,6 +493,75 @@ export async function migratePendingOrdersToClientSpace(
           ? (e as { message: string }).message
           : 'Failed to migrate pending orders';
     return { migratedOrderIds: [], error: new Error(msg) };
+  }
+}
+
+// ---------------- Client 认领（invitee 无 token 时按邮箱认领） ----------------
+
+export interface PendingInviteeForClaim {
+  firmSpaceId: string;
+  firmName: string;
+  inviteeClientId: string;
+  inviteeClientName: string | null;
+  inviteeContactEmail: string | null;
+  /** SKU id for the engagement (for preview); from first pending order */
+  skuId: string | null;
+}
+
+/** Client 按邮箱查询可认领的 engagement 列表 */
+export async function getPendingInviteesForEmail(
+  email: string
+): Promise<{ list: PendingInviteeForClaim[]; error: Error | null }> {
+  try {
+    const { data, error } = await supabase.rpc('get_pending_invitees_for_email', {
+      p_email: email || '',
+    });
+    if (error) {
+      return { list: [], error: new Error(error.message || 'Failed to load pending invitees') };
+    }
+    const rows = Array.isArray(data) ? data : data ? [data] : [];
+    const list = rows.map((r: any) => ({
+      firmSpaceId: r.firm_space_id,
+      firmName: r.firm_name ?? '',
+      inviteeClientId: r.invitee_client_id,
+      inviteeClientName: r.invitee_client_name ?? null,
+      inviteeContactEmail: r.invitee_contact_email ?? null,
+      skuId: r.sku_id ?? null,
+    }));
+    return { list, error: null };
+  } catch (e) {
+    return {
+      list: [],
+      error: e instanceof Error ? e : new Error('Failed to load pending invitees'),
+    };
+  }
+}
+
+/** Client 认领 engagement：创建/绑定 client space，迁移 pending orders，加入 space */
+export async function inviteeClaimEngagement(
+  inviteeClientId: string,
+  clientSpaceId: string
+): Promise<{ result: { clientSpaceId: string; firmSpaceId: string } | null; error: Error | null }> {
+  try {
+    const { data, error } = await supabase.rpc('invitee_claim_engagement', {
+      p_invitee_client_id: inviteeClientId,
+      p_client_space_id: clientSpaceId,
+    });
+    if (error) {
+      const msg = [error.message, (error as any).details, (error as any).hint].filter(Boolean).join(' ');
+      return { result: null, error: new Error(msg || 'Failed to claim engagement') };
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    if (!row?.client_space_id) return { result: null, error: null };
+    return {
+      result: { clientSpaceId: row.client_space_id, firmSpaceId: row.firm_space_id },
+      error: null,
+    };
+  } catch (e) {
+    return {
+      result: null,
+      error: e instanceof Error ? e : new Error('Failed to claim engagement'),
+    };
   }
 }
 

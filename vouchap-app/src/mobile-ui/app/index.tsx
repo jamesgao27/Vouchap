@@ -26,6 +26,7 @@ import CrmDashboardView from '@/components/CrmDashboardView';
 import { FirmPendingOverlay } from '@/components/FirmPendingOverlay';
 import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
 import { getFirmClientsWithDetails, getFirmOrders } from '@/lib/firm';
+import { getPendingInviteesForEmail } from '@/lib/firm-clients';
 import type { ClientDisplayStatus } from '@/types';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
 
@@ -69,6 +70,7 @@ export default function HomeScreen() {
     churned: 0,
   });
   const [firmOrderCountByStatus, setFirmOrderCountByStatus] = useState<Record<string, number>>({});
+  const [pendingClaimCount, setPendingClaimCount] = useState(0);
 
   // Check if running in Expo Go
   const isExpoGo = Constants.appOwnership === 'expo';
@@ -308,13 +310,21 @@ export default function HomeScreen() {
     }
   }, [isLoggedIn]);
 
-  // 使用 useFocusEffect 在页面获得焦点时检查 pending invitations 和重新加载空间信息（用于从其他页面返回时刷新）
+  // 使用 useFocusEffect 在页面获得焦点时检查 pending invitations、待认领 engagement 和重新加载空间信息（用于从其他页面返回时刷新）
   useFocusEffect(
     useCallback(() => {
       if (isLoggedIn) {
         // 重新加载空间信息（用于从管理页切换空间后返回时更新）
         loadSpace();
         checkPendingInvitations();
+        // 刷新待认领 engagement 数量（从 /auth/claim 返回后横幅会更新或消失）
+        (async () => {
+          const user = await getCurrentUser();
+          if (user?.email) {
+            const { list } = await getPendingInviteesForEmail(user.email);
+            setPendingClaimCount(list.length);
+          }
+        })();
       }
     }, [isLoggedIn])
   );
@@ -748,7 +758,21 @@ export default function HomeScreen() {
           <Ionicons name="settings-outline" size={24} color="#2D3436" />
         </TouchableOpacity>
       </View>
-      
+
+      {pendingClaimCount > 0 && (
+        <TouchableOpacity
+          style={styles.pendingClaimBanner}
+          onPress={() => router.push('/auth/claim')}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="briefcase-outline" size={20} color="#fff" />
+          <Text style={styles.pendingClaimBannerText}>
+            You have {pendingClaimCount} pending engagement{pendingClaimCount !== 1 ? 's' : ''}. Tap to claim.
+          </Text>
+          <Ionicons name="chevron-forward" size={18} color="#fff" />
+        </TouchableOpacity>
+      )}
+
       <View style={styles.content}>
         {isFirmPending ? (
           <FirmPendingOverlay />
@@ -1247,6 +1271,23 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  pendingClaimBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#6C5CE7',
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: 12,
+    gap: 8,
+  },
+  pendingClaimBannerText: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '500',
   },
   householdNameContainer: {
     flex: 1,

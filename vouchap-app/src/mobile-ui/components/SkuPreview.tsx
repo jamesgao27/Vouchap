@@ -84,6 +84,7 @@ export default function SkuPreview({ sku, variant = 'card', maxHeight }: Props) 
   const taxCountry = sku?.taxCountry || '';
   const taxScenario = sku?.taxScenario || '';
   const hasTags = !!taxCountry || !!taxScenario;
+  const isWeb = Platform.OS === 'web';
 
   if (!sku) {
     return (
@@ -106,6 +107,7 @@ export default function SkuPreview({ sku, variant = 'card', maxHeight }: Props) 
       style={[
         isMobileFull ? [styles.container, styles.containerMobileFull] : styles.container,
         containerHeightStyle,
+        isWeb && !isMobileFull && styles.containerWeb,
       ]}
     >
       <View style={styles.headerRow}>
@@ -148,7 +150,7 @@ export default function SkuPreview({ sku, variant = 'card', maxHeight }: Props) 
         </View>
       </View>
 
-      <View style={styles.todoStub}>
+      <View style={[styles.todoStub, isWeb && styles.todoStubWeb]}>
         <Text style={styles.todoStubTitle}>Documents list</Text>
         {loading && (
           <View style={styles.todoLoadingRow}>
@@ -161,7 +163,7 @@ export default function SkuPreview({ sku, variant = 'card', maxHeight }: Props) 
         )}
         {!loading && items && items.length > 0 && (
           <ScrollView
-            style={styles.todoList}
+            style={[styles.todoList, isWeb && styles.todoListWeb]}
             contentContainerStyle={{ paddingBottom: 4 }}
             showsVerticalScrollIndicator={false}
           >
@@ -233,6 +235,11 @@ const styles = StyleSheet.create({
     minHeight: 560,
     maxHeight: 560,
   },
+  /** Web: 固定高度，保证内部 flex 列表区能正确计算高度并滚动 */
+  containerWeb: {
+    height: 560,
+    minHeight: 0,
+  },
   containerMobileFull: {
     borderRadius: 0,
     borderWidth: 0,
@@ -303,6 +310,9 @@ const styles = StyleSheet.create({
     borderTopColor: '#EAECEF',
     flex: 1,
   },
+  todoStubWeb: {
+    minHeight: 0,
+  },
   todoStubTitle: {
     fontSize: 12,
     fontWeight: '600',
@@ -327,6 +337,10 @@ const styles = StyleSheet.create({
   todoList: {
     marginTop: 4,
     flex: 1,
+  },
+  /** Web: 列表区参与 flex 并保证可滚动 */
+  todoListWeb: {
+    minHeight: 0,
   },
   todoRow: {
     flexDirection: 'row',

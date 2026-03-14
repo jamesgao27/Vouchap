@@ -83,6 +83,19 @@ export default function LoginScreen() {
         return;
       }
     } catch (_) {}
+    // Invitee 认领：与 open invite 一致，有待认领 engagement 时直接进入认领流程
+    try {
+      const { getCurrentUser } = await import('@/lib/auth');
+      const { getPendingInviteesForEmail } = await import('@/lib/firm-clients');
+      const user = await getCurrentUser();
+      if (user?.email) {
+        const { list } = await getPendingInviteesForEmail(user.email);
+        if (list.length > 0) {
+          router.replace('/auth/claim');
+          return;
+        }
+      }
+    } catch (_) {}
     router.replace('/');
   };
 

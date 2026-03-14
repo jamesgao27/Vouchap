@@ -26,6 +26,8 @@ import {
 import {
   getFirmClientInviteInfo,
   acceptFirmClientInvite,
+  getPendingInviteesForEmail,
+  inviteeClaimEngagement,
   type FirmClientInviteInfo,
 } from '@/lib/firm-clients';
 import { getSkuById } from '../../../shared-logic/firm';
@@ -42,11 +44,14 @@ const MOBILE_FIXED_HEIGHT_EXCLUDING_LIST = 566;
 
 export default function ClientSetupScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ token?: string }>();
+  const params = useLocalSearchParams<{ token?: string; inviteeClientId?: string }>();
   const token = (params.token ?? '').trim();
+  const inviteeClientIdParam = (params.inviteeClientId ?? '').trim();
+  const claimMode = Boolean(inviteeClientIdParam);
 
   const [status, setStatus] = useState<Status>('checking');
   const [inviteInfo, setInviteInfo] = useState<FirmClientInviteInfo | null>(null);
+  const [claimInviteeId, setClaimInviteeId] = useState<string | null>(null);
   const [spaces, setSpaces] = useState<UserSpace[]>([]);
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -61,7 +66,7 @@ export default function ClientSetupScreen() {
   const webPanelHeightRight = isWeb ? Math.round(windowHeight * 0.8) - 196 : 0;
 
   const load = useCallback(async () => {
-    if (!token) {
+    if (!token && !claimMode) {
       setStatus('error');
       setErrorMessage('Invalid link. Missing invite token.');
       return;
@@ -69,16 +74,86 @@ export default function ClientSetupScreen() {
 
     const authed = await isAuthenticated();
     if (!authed) {
-      // 未登录时直接跳到登录页，并带上 redirect + token，登录后返回本页继续流程
       router.replace({
         pathname: '/login',
-        params: { redirect: '/auth/setup', token },
+        params: claimMode ? { redirect: '/auth/setup', inviteeClientId: inviteeClientIdParam } : { redirect: '/auth/setup', token },
       });
       return;
     }
 
     setStatus('loading');
     setErrorMessage('');
+    setClaimInviteeId(claimMode ? inviteeClientIdParam : null);
+
+    if (claimMode) {
+      const user = await getCurrentUser();
+      if (!user?.email) {
+        setStatus('error');
+        setErrorMessage('Please sign in to claim engagements.');
+        return;
+      }
+      const { list: pending, error } = await getPendingInviteesForEmail(user.email);
+      if (error || !pending?.length) {
+        setStatus('error');
+        setErrorMessage(error?.message ?? 'No pending engagements found.');
+        return;
+      }
+      const inv = pending.find((p) => p.inviteeClientId === inviteeClientIdParam);
+      if (!inv) {
+        setStatus('error');
+        setErrorMessage('This engagement is not available for your account.');
+        return;
+      }
+      const userSpaces = await getUserSpaces();
+      const clientSpaces = userSpaces.filter((us) => us.space?.kind === 'client');
+      setSpaces(clientSpaces);
+      setInviteInfo({
+        firmSpaceId: inv.firmSpaceId,
+        firmName: inv.firmName ?? undefined,
+        inviterUserId: '',
+        skuId: inv.skuId ?? '',
+        tokenId: inv.inviteeClientId,
+      });
+
+      if (inv.skuId) {
+        try {
+          const sku = await getSkuById(inv.skuId);
+          if (sku) {
+            setSkuPreview({
+              id: inv.skuId,
+              firmSpaceId: inv.firmSpaceId,
+              name: sku.name,
+              description: sku.description ?? undefined,
+              imageUrl: sku.imageUrl ?? null,
+              isPublished: sku.isPublished ?? false,
+              templateStatus: sku.templateStatus ?? undefined,
+              itemsCount: undefined,
+              taxCountry: sku.taxCountry ?? null,
+              taxScenario: sku.taxScenario ?? null,
+              createdAt: undefined,
+              updatedAt: undefined,
+            });
+          } else {
+            setSkuPreview(null);
+          }
+        } catch {
+          setSkuPreview(null);
+        }
+      } else {
+        setSkuPreview(null);
+      }
+
+      if (clientSpaces.length === 1) {
+        setSelectedSpaceId(clientSpaces[0].spaceId);
+      } else {
+        setSelectedSpaceId(null);
+      }
+      setStatus(clientSpaces.length === 0 ? 'error' : 'ready');
+      if (clientSpaces.length === 0) {
+        setErrorMessage('You need a client space to link. Create one first.');
+      }
+      return;
+    }
 
     const [infoRes, userSpaces] = await Promise.all([
       getFirmClientInviteInfo(token),
@@ -87,7 +162,6 @@ export default function ClientSetupScreen() {
 
     if (infoRes.error || !infoRes.info) {
       setStatus('error');
-      // 与 Invite history 中 Inactive 一致：落地页对已关闭/过期/达上限的邀请显示已失效
       const message =
         infoRes.error?.message ??
         (token ? '此邀请已失效，无法继续使用。' : 'Invalid or expired invite link.');
@@ -99,7 +173,6 @@ export default function ClientSetupScreen() {
     setInviteInfo(infoRes.info);
     setSpaces(clientSpaces);
 
-    // 加载 SKU 预览信息：用于在「Link your space with」页右侧展示关联服务
     try {
       const sku = await getSkuById(infoRes.info.skuId);
       if (sku) {
@@ -134,19 +207,19 @@ export default function ClientSetupScreen() {
     if (clientSpaces.length === 0) {
       setErrorMessage('You need a client space to link. Create one first.');
     }
-  }, [router, token]);
+  }, [router, token, claimMode, inviteeClientIdParam]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  // 无 token 时直接报错
+  // 无 token 且非 claim 时直接报错
   useEffect(() => {
-    if (!token && status === 'checking') {
+    if (!token && !claimMode && status === 'checking') {
       setStatus('error');
       setErrorMessage('Invalid link. Missing invite token.');
     }
-  }, [token, status]);
+  }, [token, claimMode, status]);
 
   useEffect(() => {
     if (!isWeb) return;
@@ -164,14 +237,17 @@ export default function ClientSetupScreen() {
   // 未登录时展示落地页，由用户点击 "Sign in" 再跳转
 
   const handleConfirm = async () => {
-    if (!inviteInfo || !selectedSpaceId || !token) return;
+    if (!inviteInfo || !selectedSpaceId) return;
+    if (!claimMode && !token) return;
 
-    // 选择「Create a new」时：先快速创建一个 client 空间，再消费邀请并绑定
-    if (selectedSpaceId === NEW_SPACE_SENTINEL_ID) {
-      if (!newSpaceName.trim()) {
-        showToast('Please enter space name', 'error');
-        return;
-      }
+    const isNewSpace = selectedSpaceId === NEW_SPACE_SENTINEL_ID;
+    if (isNewSpace && !newSpaceName.trim()) {
+      showToast('Please enter space name', 'error');
+      return;
+    }
+
+    let clientSpaceId: string;
+    if (isNewSpace) {
       setStatus('submitting');
       const { space, error: createError } = await createSpace(
         newSpaceName.trim(),
@@ -183,38 +259,26 @@ export default function ClientSetupScreen() {
         showToast(createError?.message ?? 'Failed to create space', 'error');
         return;
       }
+      clientSpaceId = space.id;
+    } else {
+      clientSpaceId = selectedSpaceId;
+    }
 
-      const user = await getCurrentUser(true);
-      if (!user) {
-        setStatus('ready');
-        showToast('Please sign in again', 'error');
-        return;
-      }
-
-      const { result, error } = await acceptFirmClientInvite(
-        token,
-        space.id,
-        user.id
-      );
+    if (claimInviteeId) {
+      setStatus('submitting');
+      const { result, error } = await inviteeClaimEngagement(claimInviteeId, clientSpaceId);
       if (error || !result) {
         setStatus('ready');
-        showToast(error?.message ?? 'Failed to link space', 'error');
+        showToast(error?.message ?? 'Failed to claim engagement', 'error');
         return;
       }
-
-      await setCurrentSpace(space.id);
-      showToast(
-        'Space created and linked. Engagement created.',
-        'success',
-        2200,
-        'center-success',
-      );
+      await setCurrentSpace(result.clientSpaceId);
+      showToast('Space linked. Engagement created.', 'success', 2200, 'center-success');
       router.replace('/tax-filing');
       return;
     }
 
-    // 选择已有空间：维持原有逻辑
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(isNewSpace ? true : undefined);
     if (!user) {
       showToast('Please sign in again', 'error');
       setStatus('need_login');
@@ -222,11 +286,7 @@ export default function ClientSetupScreen() {
     }
 
     setStatus('submitting');
-    const { result, error } = await acceptFirmClientInvite(
-      token,
-      selectedSpaceId,
-      user.id
-    );
+    const { result, error } = await acceptFirmClientInvite(token, clientSpaceId, user.id);
 
     if (error) {
       setStatus('ready');
@@ -235,13 +295,8 @@ export default function ClientSetupScreen() {
     }
 
     if (result) {
-      await setCurrentSpace(selectedSpaceId);
-      showToast(
-        'Space linked. Engagement created.',
-        'success',
-        2200,
-        'center-success',
-      );
+      await setCurrentSpace(clientSpaceId);
+      showToast('Space linked. Engagement created.', 'success', 2200, 'center-success');
       router.replace('/tax-filing');
     } else {
       setStatus('ready');
@@ -252,11 +307,11 @@ export default function ClientSetupScreen() {
   const handleCreateSpace = () => {
     router.replace({
       pathname: '/setup-space',
-      params: { redirect: '/auth/setup', token },
+      params: claimMode ? { redirect: '/auth/setup', inviteeClientId: inviteeClientIdParam } : { redirect: '/auth/setup', token },
     });
   };
 
-  if (status === 'need_login' && token) {
+  if (status === 'need_login' && (token || claimMode)) {
     return (
       <View style={styles.container}>
         <StatusBar style="dark" />
@@ -277,14 +332,14 @@ export default function ClientSetupScreen() {
                 onPress={() =>
                   router.replace({
                     pathname: '/login',
-                    params: { redirect: '/auth/setup', token },
+                    params: claimMode ? { redirect: '/auth/setup', inviteeClientId: inviteeClientIdParam } : { redirect: '/auth/setup', token },
                   })
                 }
               >
                 <Text style={styles.primaryButtonText}>Sign in</Text>
               </TouchableOpacity>
-              <TouchableOpacity style={styles.cancelLink} onPress={() => router.replace('/')}>
-                <Text style={styles.cancelLinkText}>Cancel</Text>
+              <TouchableOpacity style={styles.cancelLink} onPress={() => router.replace(cancelOrBackTarget)}>
+                <Text style={styles.cancelLinkText}>{claimMode ? 'Deal with later' : 'Cancel'}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -372,16 +427,19 @@ export default function ClientSetupScreen() {
     </>
   );
 
+  // Claim mode: "Deal with later" = leave flow to home (avoid loop: claim → setup → Cancel → claim → redirect to setup)
+  const cancelOrBackTarget = '/';
+
   async function handleMobileBack() {
     try {
       const authed = await isAuthenticated();
       if (authed) {
-        router.replace('/');
+        router.replace(cancelOrBackTarget);
       } else {
         router.replace('/login');
       }
     } catch {
-      router.replace('/');
+      router.replace(cancelOrBackTarget);
     }
   }
 
@@ -437,11 +495,11 @@ export default function ClientSetupScreen() {
           <View style={[styles.actionRow, styles.actionRowWeb]}>
             <TouchableOpacity
               style={[styles.secondaryActionButton, styles.secondaryActionButtonWeb]}
-              onPress={() => router.replace('/')}
+              onPress={() => router.replace(cancelOrBackTarget)}
               disabled={status === 'submitting'}
               activeOpacity={0.7}
             >
-              <Text style={styles.secondaryActionText}>Cancel</Text>
+              <Text style={styles.secondaryActionText}>{claimMode ? 'Deal with later' : 'Cancel'}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[
@@ -703,11 +761,11 @@ export default function ClientSetupScreen() {
             <View style={styles.mobileActions}>
               <TouchableOpacity
                 style={styles.mobileSecondaryButton}
-                onPress={() => router.replace('/')}
+                onPress={() => router.replace(cancelOrBackTarget)}
                 disabled={status === 'submitting'}
                 activeOpacity={0.7}
               >
-                <Text style={styles.mobileSecondaryButtonText}>Cancel</Text>
+                <Text style={styles.mobileSecondaryButtonText}>{claimMode ? 'Deal with later' : 'Cancel'}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
