@@ -189,7 +189,7 @@ export default function ProjectTodosScreen() {
   const handleRestart = useCallback(async () => {
     if (!orderId) return;
     setRestartLoading(true);
-    const { error } = await updateOrderStatus(orderId, 'collecting');
+    const { error } = await updateOrderStatus(orderId, 'processing');
     setRestartLoading(false);
     if (error) {
       showToast(error.message ?? 'Failed to restart', 'error');
@@ -244,7 +244,7 @@ export default function ProjectTodosScreen() {
     );
   }
 
-  const orderStatus = header?.status === 'onboarding' || header?.status === 'collecting' || header?.status === 'cancelled'
+  const orderStatus = header?.status === 'onboarding' || header?.status === 'processing' || header?.status === 'cancelled'
     ? header.status
     : undefined;
 
@@ -263,7 +263,7 @@ export default function ProjectTodosScreen() {
       onAcceptAndStart={header?.status === 'onboarding' ? handleAcceptAndStart : undefined}
       acceptAndStartLoading={acceptLoading}
       orderStatus={orderStatus}
-      onAbort={header?.status === 'collecting' ? handleAbort : undefined}
+      onAbort={header?.status === 'processing' ? handleAbort : undefined}
       abortLoading={abortLoading}
       onRestart={header?.status === 'cancelled' ? handleRestart : undefined}
       restartLoading={restartLoading}

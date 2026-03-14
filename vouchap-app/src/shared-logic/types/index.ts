@@ -555,13 +555,10 @@ export interface FirmSku {
   updatedAt?: string;
 }
 
-// 订单阶段（6 阶段 + 取消）：Onboarding = 启动/契约建立，无 pending
+// 订单阶段（4 态）：onboarding / processing / completed / cancelled
 export type FirmOrderStatus =
   | 'onboarding'   // 启动
-  | 'collecting'   // 资料中
-  | 'processing'   // 处理中
-  | 'reviewing'    // 待确认
-  | 'filing'       // 申报中
+  | 'processing'   // 进行中
   | 'completed'    // 已完成
   | 'cancelled';   // 取消
 

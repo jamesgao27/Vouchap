@@ -35,9 +35,9 @@ const SHOW_AI_INVENTORY_ENTRY = Constants.expoConfig?.extra?.showAiInventory !==
 
 const FIRM_CHART_COLORS = ['#6C5CE7', '#00B894', '#0984E3', '#FDCB6E', '#E17055'];
 const FIRM_ORDER_STATUS_LABELS: Record<string, string> = {
-  pending: 'Pending',
-  submitted: 'Submitted',
-  confirmed: 'Confirmed',
+  onboarding: 'Onboarding',
+  processing: 'Processing',
+  completed: 'Completed',
   cancelled: 'Cancelled',
 };
 

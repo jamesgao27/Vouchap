@@ -35,15 +35,12 @@ import {
 import { supabase, uploadProjectCover } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 
-// ── Stage display configs（与列表页保持一致） ──
+// ── Stage display configs（4 态，与 firm.orders.status 一致） ──
 const STAGE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   onboarding: { label: 'Onboarding', color: '#6C5CE7', bg: '#EDE9FD' },
-  collecting:  { label: 'Collecting',  color: '#0984E3', bg: '#E3F2FD' },
-  processing:  { label: 'Processing',  color: '#B07D00', bg: '#FFF8E1' },
-  reviewing:   { label: 'Reviewing',   color: '#C0392B', bg: '#FEECEB' },
-  filing:      { label: 'Filing',      color: '#00838F', bg: '#E0F7FA' },
-  completed:   { label: 'Completed',   color: '#00875A', bg: '#E3FCEF' },
-  cancelled:   { label: 'Cancelled',   color: '#636E72', bg: '#F0F2F5' },
+  processing: { label: 'Processing', color: '#0288D1', bg: '#E1F5FE' },
+  completed:  { label: 'Completed',  color: '#00875A', bg: '#E3FCEF' },
+  cancelled:  { label: 'Cancelled',  color: '#636E72', bg: '#F0F2F5' },
 };
 
 // ── Tax season 颜色（与 index.tsx headerStyles 保持一致） ──

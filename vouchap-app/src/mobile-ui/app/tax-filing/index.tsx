@@ -63,23 +63,17 @@ async function safeSetItem(key: string, value: string): Promise<void> {
   }
 }
 
-/** 订单阶段（6 阶段 + 取消），Onboarding = 启动/契约建立，与后端一致 */
+/** 订单阶段（4 态），与 firm.orders.status 一致 */
 const STAGE_LABEL: Record<string, string> = {
   onboarding: 'Onboarding',
-  collecting: 'Collecting',
   processing: 'Processing',
-  reviewing: 'Reviewing',
-  filing: 'Filing',
   completed: 'Completed',
   cancelled: 'Cancelled',
 };
 
 const STAGE_COLOR: Record<string, string> = {
   onboarding: '#6C5CE7',
-  collecting: '#0984E3',
-  processing: '#FDCB6E',
-  reviewing: '#E17055',
-  filing: '#00CEC9',
+  processing: '#29B6F6',
   completed: '#00B894',
   cancelled: '#636E72',
 };

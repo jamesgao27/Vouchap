@@ -81,8 +81,7 @@ function computeClientDisplayStatus(
   const currentYearOrders = clientOrders.filter((o) => getOrderYear(o) === ctx.currentYear);
   const lastYearOrders = clientOrders.filter((o) => getOrderYear(o) === ctx.lastYear);
   const hasCurrentYearInProgress = currentYearOrders.some((o) =>
-    o.status === 'onboarding' || o.status === 'collecting' || o.status === 'processing' ||
-    o.status === 'reviewing' || o.status === 'filing'
+    o.status === 'onboarding' || o.status === 'processing'
   );
   const hasLastYearCompleted = lastYearOrders.some((o) => o.status === 'completed');
 
@@ -94,14 +93,14 @@ function computeClientDisplayStatus(
   return 'to_follow_up';
 }
 
-/** 客户端空间：获取推送给本空间的待办（订单阶段为 onboarding..filing 即有 project 的） */
+/** 客户端空间：获取推送给本空间的待办（订单阶段为 onboarding / processing 即有 project 的） */
 export async function getClientTodosForClientSpace(clientSpaceId: string): Promise<FirmClientTodo[]> {
   const { data: ordersData, error: ordersErr } = await supabase
     .schema('firm')
     .from('orders')
     .select('id, firm_space_id, client_space_id, due_at, created_at')
     .eq('client_space_id', clientSpaceId)
-    .in('status', ['onboarding', 'collecting', 'processing', 'reviewing', 'filing'])
+    .in('status', ['onboarding', 'processing'])
     .order('due_at', { ascending: true, nullsFirst: false });
 
   if (ordersErr || !ordersData?.length) {
@@ -802,7 +801,7 @@ export async function createFirmOrder(
   return { id: (data as any)?.id ?? null, error: null };
 }
 
-/** 客户端确认订单：复制 sku -> project，复制 sku_items -> project_todos，并将订单标记为 collecting（资料中） */
+/** 客户端确认订单：复制 sku -> project，复制 sku_items -> project_todos，并将订单标记为 processing */
 export async function confirmOrderAndCreateProjectTodos(
   orderId: string
 ): Promise<{ error: Error | null }> {
@@ -923,7 +922,7 @@ export async function confirmOrderAndCreateProjectTodos(
     }
   }
 
-  const { error: updateErr } = await updateOrderStatus(orderId, 'collecting');
+  const { error: updateErr } = await updateOrderStatus(orderId, 'processing');
   return { error: updateErr };
 }
 
@@ -2348,17 +2347,23 @@ export async function updateProjectStatus(
   return { error: null };
 }
 
-/** 更新订单状态（整单提交/确认） */
+/** 更新订单状态（整单提交/确认）。
+ * 使用 .select() 检测是否真的更新到行：RLS 导致 0 行更新时 Supabase 不返回 error，会静默失败。 */
 export async function updateOrderStatus(
   orderId: string,
   status: FirmOrderStatus
 ): Promise<{ error: Error | null }> {
-  const { error } = await supabase
+  const { data, error } = await supabase
     .schema('firm')
     .from('orders')
     .update({ status, updated_at: new Date().toISOString() })
-    .eq('id', orderId);
-  return { error: error ? new Error(error.message) : null };
+    .eq('id', orderId)
+    .select('id');
+  if (error) return { error: new Error(error.message) };
+  if (!data?.length) {
+    return { error: new Error('Order not found or you do not have permission to update it.') };
+  }
+  return { error: null };
 }
 
 /** 兼容：按 project_todo id 更新状态（原 updateClientTodoStatus） */

@@ -30,20 +30,14 @@ import DataTable, { type DataTableColumn, WEB_POPOVER } from '@/components/DataT
 
 const STATUS_LABEL: Record<string, string> = {
   onboarding: 'Onboarding',
-  collecting: 'Collecting',
   processing: 'Processing',
-  reviewing: 'Reviewing',
-  filing: 'Filing',
   completed: 'Completed',
   cancelled: 'Cancelled',
 };
 
 const STATUS_COLOR: Record<string, string> = {
   onboarding: '#6C5CE7',
-  collecting: '#0984E3',
-  processing: '#FDCB6E',
-  reviewing: '#E17055',
-  filing: '#00CEC9',
+  processing: '#29B6F6',
   completed: '#00B894',
   cancelled: '#B2BEC3',
 };
@@ -158,7 +152,7 @@ function matchQuery(q: string, row: FirmOrderWithDetails): boolean {
 }
 
 type GroupByType = 'none' | 'byClient' | 'byStatus';
-type FilterStatus = 'all' | 'onboarding' | 'collecting' | 'processing' | 'reviewing' | 'filing' | 'completed' | 'cancelled';
+type FilterStatus = 'all' | 'onboarding' | 'processing' | 'completed' | 'cancelled';
 
 const cellText = { fontSize: 14, color: '#2D3436' };
 
@@ -487,7 +481,7 @@ export default function FirmEngagementsScreen() {
         if (!byStatus[key]) byStatus[key] = [];
         byStatus[key].push(o);
       });
-      const order = ['onboarding', 'collecting', 'processing', 'reviewing', 'filing', 'completed', 'cancelled'];
+      const order = ['onboarding', 'processing', 'completed', 'cancelled'];
       const keys = order.filter((k) => (byStatus[k]?.length ?? 0) > 0);
       return keys.map((k) => ({
         title: STATUS_LABEL[k] ?? k,
@@ -603,7 +597,7 @@ export default function FirmEngagementsScreen() {
         )}
         {showFilterMenu && (
           <View style={styles.groupDropdown}>
-            {(['all', 'onboarding', 'collecting', 'processing', 'reviewing', 'filing', 'completed', 'cancelled'] as FilterStatus[]).map((key) => (
+            {(['all', 'onboarding', 'processing', 'completed', 'cancelled'] as FilterStatus[]).map((key) => (
               <TouchableOpacity key={key} style={[styles.groupOption, filterStatus === key && styles.groupOptionSelected]} onPress={() => { setFilterStatus(key); setShowFilterMenu(false); }}>
                 <Text style={[styles.groupOptionText, filterStatus === key && styles.groupOptionTextSelected]}>{key === 'all' ? 'All' : STATUS_LABEL[key] ?? key}</Text>
               </TouchableOpacity>
@@ -827,10 +821,7 @@ export default function FirmEngagementsScreen() {
                       [
                         ['all', 'All'],
                         ['onboarding', 'Onboarding'],
-                        ['collecting', 'Collecting'],
                         ['processing', 'Processing'],
-                        ['reviewing', 'Reviewing'],
-                        ['filing', 'Filing'],
                         ['completed', 'Completed'],
                         ['cancelled', 'Cancelled'],
                       ] as const
@@ -998,10 +989,7 @@ export default function FirmEngagementsScreen() {
                 [
                   ['all', 'All'],
                   ['onboarding', 'Onboarding'],
-                  ['collecting', 'Collecting'],
                   ['processing', 'Processing'],
-                  ['reviewing', 'Reviewing'],
-                  ['filing', 'Filing'],
                   ['completed', 'Completed'],
                   ['cancelled', 'Cancelled'],
                 ] as const

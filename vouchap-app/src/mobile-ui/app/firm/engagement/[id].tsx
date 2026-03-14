@@ -36,17 +36,18 @@ import { withWbsCodes, type ProjectSkuInfo, type TodoRow } from '@/components/Pr
 import { ProjectDetailView, type ProjectDetailHeader } from '@/components/ProjectDetailView';
 import { ProjectInfoTab, type ProjectInfoTabHandle } from '../../tax-filing/project/[projectId]/info';
 import { useChatPanel } from '../../../contexts/ChatPanelContext';
+import { showToast } from '@/lib/toast';
 
-// ── 订单状态显示配置 ──
+// ── 订单状态：与 firm.orders.status（4 态）及类型 FirmOrderStatus 一致 ──
 const ORDER_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   onboarding:  { label: 'Onboarding',  color: '#6C5CE7', bg: '#EDE9FD' },
-  collecting:  { label: 'Collecting',  color: '#0984E3', bg: '#E3F2FD' },
-  processing:  { label: 'Processing',  color: '#B07D00', bg: '#FFF8E1' },
-  reviewing:   { label: 'Reviewing',   color: '#C0392B', bg: '#FEECEB' },
-  filing:      { label: 'Filing',      color: '#00838F', bg: '#E0F7FA' },
+  processing:  { label: 'Processing',  color: '#0288D1', bg: '#E1F5FE' },
   completed:   { label: 'Completed',   color: '#00875A', bg: '#E3FCEF' },
   cancelled:   { label: 'Cancelled',   color: '#636E72', bg: '#F0F2F5' },
 };
+
+/** Status where Firm can show Terminate + Complete (active, not onboarding/cancelled/completed). */
+const ACTIVE_ORDER_STATUSES = ['processing'] as const;
 
 export default function FirmEngagementDetailScreen() {
   const { id: orderId } = useLocalSearchParams<{ id: string }>();
@@ -159,7 +160,10 @@ export default function FirmEngagementDetailScreen() {
     setCompleteLoading(true);
     try {
       const { error } = await updateOrderStatus(orderId, 'completed');
-      if (error) return;
+      if (error) {
+        showToast(error.message, 'error');
+        return;
+      }
       await loadData();
     } finally {
       setCompleteLoading(false);
@@ -169,7 +173,7 @@ export default function FirmEngagementDetailScreen() {
     if (!orderId) return;
     setRestartLoading(true);
     try {
-      const nextStatus = projectId ? 'collecting' : 'onboarding';
+      const nextStatus = projectId ? 'processing' : 'onboarding';
       const { error } = await updateOrderStatus(orderId, nextStatus);
       if (error) return;
       await loadData();
@@ -253,10 +257,10 @@ export default function FirmEngagementDetailScreen() {
       acceptAndStartLoading={acceptLoading}
       headerRejectLabel="Terminate"
       headerAcceptLabel="Start service"
-      orderStatus={order.status as 'onboarding' | 'collecting' | 'cancelled'}
-      onAbort={order.status === 'collecting' ? handleAbort : undefined}
+      orderStatus={order.status}
+      onAbort={ACTIVE_ORDER_STATUSES.includes(order.status) ? handleAbort : undefined}
       abortLoading={abortLoading}
-      onComplete={order.status === 'collecting' ? handleComplete : undefined}
+      onComplete={ACTIVE_ORDER_STATUSES.includes(order.status) ? handleComplete : undefined}
       completeLoading={completeLoading}
       onRestart={order.status === 'cancelled' ? handleRestart : undefined}
       restartLoading={restartLoading}

@@ -69,10 +69,7 @@ export interface ProjectDetailHeader {
 /** 订单状态配置（client/firm 顶栏状态标签共用） */
 export const ORDER_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   onboarding:  { label: 'Onboarding',  color: '#6C5CE7', bg: '#EDE9FD' },
-  collecting:  { label: 'Collecting',  color: '#0984E3', bg: '#E3F2FD' },
-  processing:  { label: 'Processing',  color: '#B07D00', bg: '#FFF8E1' },
-  reviewing:   { label: 'Reviewing',   color: '#C0392B', bg: '#FEECEB' },
-  filing:      { label: 'Filing',      color: '#00838F', bg: '#E0F7FA' },
+  processing:  { label: 'Processing',  color: '#0288D1', bg: '#E1F5FE' },
   completed:   { label: 'Completed',   color: '#00875A', bg: '#E3FCEF' },
   cancelled:   { label: 'Cancelled',   color: '#636E72', bg: '#F0F2F5' },
 };
@@ -111,23 +108,24 @@ const headerStyles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     flexDirection: 'row',
-    alignItems: 'stretch',
+    alignItems: 'center',
     paddingVertical: 10,
     paddingRight: 8,
     overflow: 'visible',
     gap: 8,
     minHeight: 56,
   },
-  /** 税季 / 状态 pill 统一样式：占两行、与税季同大，位置跟随两行较高者 */
+  /** 税季 / 状态 pill：高度略小、圆角略大，与顶栏按钮（minHeight 40, borderRadius 10）区分 */
   pill: {
     minWidth: 56,
-    minHeight: 36,
-    borderRadius: 10,
-    paddingHorizontal: 10,
+    maxHeight: 32,
+    borderRadius: 16,
+    paddingVertical: 4, 
+    paddingHorizontal: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  pillText: { fontSize: 17, fontWeight: '700', lineHeight: 22 },
+  pillText: { fontSize: 15, fontWeight: '700', lineHeight: 20 },
   textCol: { flex: 1, minWidth: 0, justifyContent: 'center' },
   title: { fontSize: 15, fontWeight: '600', color: '#2D3436', lineHeight: 20 },
   sub: { fontSize: 12, color: '#95A5A6', lineHeight: 16, marginTop: 4 },
@@ -178,8 +176,8 @@ export interface ProjectDetailViewProps {
   headerRejectLabel?: string;
   /** 右侧主按钮文案，默认 Accept and Start；Firm onboarding 传 "Start" */
   headerAcceptLabel?: string;
-  /** Collecting 态：Terminate（警告色）；Firm 还可显示完成（绿色） */
-  orderStatus?: 'onboarding' | 'collecting' | 'cancelled';
+  /** 进行中态（processing）：Terminate + 可选 Complete */
+  orderStatus?: 'onboarding' | 'processing' | 'completed' | 'cancelled';
   onAbort?: () => Promise<void>;
   abortLoading?: boolean;
   onComplete?: () => Promise<void>;
@@ -246,7 +244,7 @@ export function ProjectDetailView({
   }, [navigation, header.title, header.subtitle, header.taxSeasonYear, header.status?.label]);
 
   const showOnboardingActions = Boolean(isOnboarding && onAcceptAndStart && (viewerRole === 'client' || viewerRole === 'firm'));
-  const showCollectingActions = orderStatus === 'collecting' && onAbort;
+  const showCollectingActions = orderStatus === 'processing' && onAbort;
   const showCancelledActions = orderStatus === 'cancelled' && onRestart;
   const showHeaderActions = showOnboardingActions || showCollectingActions || showCancelledActions;
 
@@ -285,13 +283,13 @@ export function ProjectDetailView({
               <TouchableOpacity
                 onPress={onAbort}
                 disabled={abortLoading || completeLoading}
-                style={sharedStyles.headerAbortBtn}
+                style={sharedStyles.headerRejectBtn}
                 activeOpacity={0.85}
               >
                 {abortLoading ? (
-                  <ActivityIndicator size="small" color="#D35400" />
+                  <ActivityIndicator size="small" color="#C0392B" />
                 ) : (
-                  <Text style={sharedStyles.headerAbortBtnText}>Terminate</Text>
+                  <Text style={sharedStyles.headerRejectBtnText}>Terminate</Text>
                 )}
               </TouchableOpacity>
               {onComplete ? (

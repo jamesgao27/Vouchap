@@ -523,7 +523,7 @@ export default function OrderTodosScreen() {
     if (!orderId) return;
     setRestartLoading(true);
     const project = await getProjectByOrderId(orderId);
-    const nextStatus = project ? 'collecting' : 'onboarding';
+    const nextStatus = project ? 'processing' : 'onboarding';
     const { error } = await updateOrderStatus(orderId, nextStatus);
     setRestartLoading(false);
     if (error) {
@@ -538,7 +538,7 @@ export default function OrderTodosScreen() {
   const taxSeasonYear = dateForYear ? new Date(dateForYear).getFullYear() : null;
   const navigation = useNavigation();
   const isOnboarding = (order?.status === 'onboarding') || (header?.status === 'onboarding');
-  const isCollecting = order?.status === 'collecting';
+  const isProcessing = order?.status === 'processing';
   const isCancelled = order?.status === 'cancelled';
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -578,7 +578,7 @@ export default function OrderTodosScreen() {
             </View>
           );
         }
-        if (isCollecting) {
+        if (isProcessing) {
           return (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 6 }}>
               <TouchableOpacity
@@ -622,7 +622,7 @@ export default function OrderTodosScreen() {
         );
       },
     });
-  }, [navigation, header, order, taxSeasonYear, isOnboarding, isCollecting, isCancelled, goToInfo, handleRejectOrder, handleAcceptOrder, rejecting, accepting, handleAbortOrder, abortLoading, handleRestartOrder, restartLoading]);
+  }, [navigation, header, order, taxSeasonYear, isOnboarding, isProcessing, isCancelled, goToInfo, handleRejectOrder, handleAcceptOrder, rejecting, accepting, handleAbortOrder, abortLoading, handleRestartOrder, restartLoading]);
 
   if (loading) {
     return (

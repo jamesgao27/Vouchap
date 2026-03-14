@@ -31,9 +31,9 @@ const CLIENT_STATUS_LABELS: Record<ClientDisplayStatus, string> = {
 };
 
 const ORDER_STATUS_LABELS: Record<FirmOrderStatus, string> = {
-  pending: 'Pending',
-  submitted: 'Submitted',
-  confirmed: 'Confirmed',
+  onboarding: 'Onboarding',
+  processing: 'Processing',
+  completed: 'Completed',
   cancelled: 'Cancelled',
 };
 
@@ -127,9 +127,9 @@ export default function CrmDashboardView() {
 
   const orderStatusEntries = useMemo(() => {
     const base: Record<FirmOrderStatus, number> = {
-      pending: 0,
-      submitted: 0,
-      confirmed: 0,
+      onboarding: 0,
+      processing: 0,
+      completed: 0,
       cancelled: 0,
     };
     orders.forEach((o) => {

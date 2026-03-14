@@ -30,10 +30,7 @@ import { showToast } from '@/lib/toast';
 
 const STAGE_LABEL: Record<string, string> = {
   onboarding: 'Onboarding',
-  collecting: 'Collecting',
   processing: 'Processing',
-  reviewing: 'Reviewing',
-  filing: 'Filing',
   completed: 'Completed',
   cancelled: 'Cancelled',
 };
