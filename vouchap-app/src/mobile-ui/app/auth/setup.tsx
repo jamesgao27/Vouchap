@@ -63,8 +63,60 @@ export default function ClientSetupScreen() {
   const isWeb = Platform.OS === 'web';
   const { height: windowHeight } = useWindowDimensions();
   const mobileSpaceListMaxHeight = Math.max(120, windowHeight - MOBILE_FIXED_HEIGHT_EXCLUDING_LIST);
-  const webPanelHeight = isWeb ? Math.round(windowHeight * 0.8) : 0;
-  const webPanelHeightRight = isWeb ? Math.round(windowHeight * 0.8) - 196 : 0;
+
+  // Web 端：两段自适应。基准 H=990 → 上下留白各 99，选项表最大高度 330。
+  // 第一段 990→860：只减小上下留白；在 H=860 时留白各 34，选项表仍 330。
+  // 第二段 H<860：留白固定各 34，只减小选项表最大高度（如 H=678 时约 148）。
+  const WEB_BASE_HEIGHT = 990;
+  const WEB_PADDING_AT_BASE = 99; // 990 时上下各 99
+  const WEB_LIST_MAX_AT_BASE = 330;
+  const WEB_PADDING_FLOOR_HEIGHT = 860; // 低于此高度后只减列表
+  const WEB_PADDING_FLOOR = 34; // H<=860 时上下留白固定 34
+  const WEB_LIST_MIN_HEIGHT = 120;
+  const WEB_FREEZE_HEIGHT = 678; // 低于此高度后不再继续压缩布局，转为整页滚动
+
+  let webTopPadding = 24;
+  let webBottomPadding = 48;
+  let webSpaceListMaxHeight: number | undefined;
+  let webPanelHeight = isWeb ? Math.round(windowHeight * 0.8) : 0;
+  let webPanelHeightRight = isWeb ? Math.round(windowHeight * 0.8) - 196 : 0;
+
+  if (isWeb && !isNarrowWeb) {
+    // H 用于布局计算；当视口低于 678 时，始终按 678 的布局计算，
+    // 从而保持 678 以下的上下留白和选项表高度不再继续缩小，只通过页面滚动适配。
+    const H = Math.max(windowHeight, WEB_FREEZE_HEIGHT);
+
+    if (H >= WEB_BASE_HEIGHT) {
+      webTopPadding = Math.round(WEB_BASE_HEIGHT * (WEB_PADDING_AT_BASE / WEB_BASE_HEIGHT));
+      webBottomPadding = webTopPadding;
+      webSpaceListMaxHeight = WEB_LIST_MAX_AT_BASE;
+    } else if (H >= WEB_PADDING_FLOOR_HEIGHT) {
+      // 990→860：仅减留白，线性从 99 到 34
+      const t = (H - WEB_PADDING_FLOOR_HEIGHT) / (WEB_BASE_HEIGHT - WEB_PADDING_FLOOR_HEIGHT);
+      const pad = WEB_PADDING_FLOOR + t * (WEB_PADDING_AT_BASE - WEB_PADDING_FLOOR);
+      webTopPadding = Math.round(pad);
+      webBottomPadding = webTopPadding;
+      webSpaceListMaxHeight = WEB_LIST_MAX_AT_BASE;
+    } else {
+      // H<860：留白固定 34，只减列表最大高度
+      webTopPadding = WEB_PADDING_FLOOR;
+      webBottomPadding = WEB_PADDING_FLOOR;
+      const listReduction = WEB_PADDING_FLOOR_HEIGHT - H;
+      webSpaceListMaxHeight = Math.max(WEB_LIST_MIN_HEIGHT, WEB_LIST_MAX_AT_BASE - listReduction);
+    }
+
+    webTopPadding = Math.max(0, webTopPadding);
+    webBottomPadding = Math.max(0, webBottomPadding);
+    if (typeof webSpaceListMaxHeight === 'number') {
+      webSpaceListMaxHeight = Math.round(webSpaceListMaxHeight);
+    }
+
+    // 浮窗高度 = 计算高度 H - 上留白 - 下留白
+    // 当 windowHeight >= 678 时，H=windowHeight，整页内容高度等于视口，高度变化都体现在留白+列表里；
+    // 当 windowHeight < 678 时，H 被钳制为 678，浮窗高度和留白保持 678 的布局，整页内容高于视口，通过滚动适配。
+    webPanelHeight = H - webTopPadding - webBottomPadding;
+    webPanelHeightRight = webPanelHeight - 196;
+  }
 
   const load = useCallback(async () => {
     if (!token && !claimMode) {
@@ -543,11 +595,31 @@ export default function ClientSetupScreen() {
               isMobileVariant && {
                 flex: undefined,
                 maxHeight: mobileSpaceListMaxHeight,
-                height: spaceListContentHeight > 0
-                  ? Math.min(spaceListContentHeight, mobileSpaceListMaxHeight)
-                  : mobileSpaceListMaxHeight,
+                height:
+                  spaceListContentHeight > 0
+                    ? Math.min(spaceListContentHeight, mobileSpaceListMaxHeight)
+                    : mobileSpaceListMaxHeight,
               },
-              !isWeb && !isMobileVariant && { height: Math.round(windowHeight * 0.28), flexDirection: 'column' as const },
+              !isWeb &&
+                !isMobileVariant && {
+                  height: Math.round(windowHeight * 0.28),
+                  flexDirection: 'column' as const,
+                },
+              isWeb &&
+                !isMobileVariant &&
+                !isNarrowWeb &&
+                typeof webSpaceListMaxHeight === 'number' &&
+                styles.spaceListWrapWebAdaptive,
+              isWeb &&
+                !isMobileVariant &&
+                !isNarrowWeb &&
+                typeof webSpaceListMaxHeight === 'number' && {
+                  maxHeight: webSpaceListMaxHeight,
+                  height:
+                    spaceListContentHeight > 0
+                      ? Math.min(spaceListContentHeight, webSpaceListMaxHeight)
+                      : webSpaceListMaxHeight,
+                },
             ]}
           >
             <View style={styles.spaceList}>
@@ -559,7 +631,7 @@ export default function ClientSetupScreen() {
                 ]}
                 nestedScrollEnabled
                 showsVerticalScrollIndicator={spaces.length > 4}
-                onContentSizeChange={isMobileVariant ? (_w, h) => setSpaceListContentHeight(h) : undefined}
+                onContentSizeChange={(_w, h) => setSpaceListContentHeight(h)}
               >
                 {spaces.map((us, i) => {
                   const isSelected = selectedSpaceId === us.spaceId;
@@ -809,8 +881,8 @@ export default function ClientSetupScreen() {
           isWeb &&
             !isNarrowWeb && {
               minHeight: windowHeight,
-              paddingTop: Math.round(windowHeight * 0.1),
-              paddingBottom: Math.round(windowHeight * 0.1),
+              paddingTop: webTopPadding,
+              paddingBottom: webBottomPadding,
             },
         ]}
         keyboardShouldPersistTaps="handled"
@@ -1051,7 +1123,8 @@ const styles = StyleSheet.create({
   linkLeftBottomWeb: {
     flexShrink: 0,
     marginTop: 8,
-    paddingBottom: 36,
+    // 视觉上希望按钮行到底部约 16px，这里扣掉卡片边框等因素，用 7px 实际 padding
+    paddingBottom: 7,
   },
   actionRowWeb: {
     marginTop: 16,
@@ -1144,6 +1217,13 @@ const styles = StyleSheet.create({
   },
   spaceListWrapWeb: {
     flex: 1,
+    minHeight: 0,
+    marginBottom: 0,
+  },
+  /** Web 宽屏自适应：选项表高度由 webSpaceListMaxHeight 控制，不参与 flex 填充 */
+  spaceListWrapWebAdaptive: {
+    flex: 0,
+    flexShrink: 0,
     minHeight: 0,
     marginBottom: 0,
   },

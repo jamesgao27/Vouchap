@@ -26,7 +26,6 @@ import { getAccounts, mergeAccount } from '@/lib/accounts';
 import { getSupplierOptions } from '@/lib/customer-supplier-list';
 import { normalizeNameForCompare } from '@/lib/name-utils';
 import { mergeEntity } from '@/lib/entities';
-import { mergeEntity } from '@/lib/entities';
 import { getChatLogsByReceiptId } from '@/lib/chat-logs';
 import { getLocalDateString } from '@/lib/date-utils';
 import { playAudio, stopPlayback } from '@/lib/audio';
