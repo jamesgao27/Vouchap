@@ -36,7 +36,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_COLOR: Record<string, string> = {
-  onboarding: '#6C5CE7',
+  onboarding: '#E67E22',
   processing: '#29B6F6',
   completed: '#00B894',
   cancelled: '#B2BEC3',

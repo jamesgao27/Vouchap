@@ -40,7 +40,7 @@ import { showToast } from '@/lib/toast';
 
 // ── 订单状态：与 firm.orders.status（4 态）及类型 FirmOrderStatus 一致 ──
 const ORDER_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  onboarding:  { label: 'Onboarding',  color: '#6C5CE7', bg: '#EDE9FD' },
+  onboarding:  { label: 'Onboarding',  color: '#E67E22', bg: '#FFF3E0' },
   processing:  { label: 'Processing',  color: '#0288D1', bg: '#E1F5FE' },
   completed:   { label: 'Completed',   color: '#00875A', bg: '#E3FCEF' },
   cancelled:   { label: 'Cancelled',   color: '#636E72', bg: '#F0F2F5' },

@@ -32,10 +32,13 @@ import {
   confirmOrderAndCreateProjectTodos,
   updateOrderStatus,
   getSkuItems,
+  getSkuById,
   type ProjectTodoNode,
   type ProjectTodoReceiptSummary,
 } from '@/lib/firm';
+import { ProjectDetailView, ORDER_STATUS_CONFIG, type ProjectDetailHeader } from '@/components/ProjectDetailView';
 import type { FirmSkuItem } from '@/types';
+import type { ProjectSkuInfo } from '@/components/ProjectSkuDetail';
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 import { TODO_STATUS_LABEL, TODO_STATUS_COLOR } from '@/lib/constants/project-todo-status';
 import { uploadTaxFilingFile } from '@/lib/supabase';
@@ -49,6 +52,36 @@ const TAX_SEASON_COLORS = [
 ];
 function getTaxSeasonColor(year: number): string {
   return TAX_SEASON_COLORS[Math.abs(year) % 10] ?? TAX_SEASON_COLORS[0];
+}
+
+/** 将 sku_items 转成 TaxFilingTodosView 需要的 ProjectTodoNode 树结构（与 firm 侧预览一致） */
+function skuItemsToProjectTodoTree(items: FirmSkuItem[]): ProjectTodoNode[] {
+  const byParent = new Map<string | null, FirmSkuItem[]>();
+  items.forEach((it) => {
+    const k = it.parentId ?? null;
+    if (!byParent.has(k)) byParent.set(k, []);
+    byParent.get(k)!.push(it);
+  });
+  for (const list of byParent.values()) list.sort((a, b) => a.sortOrder - b.sortOrder);
+  function build(parentKey: string | null, depth: number): ProjectTodoNode[] {
+    const list = byParent.get(parentKey) ?? [];
+    return list.map((it) => ({
+      id: it.id,
+      orderId: '',
+      parentId: it.parentId ?? null,
+      type: it.type,
+      initialResponsibleSide: it.type,
+      title: it.title,
+      description: it.description ?? null,
+      status: 'in_progress' as const,
+      sortOrder: it.sortOrder,
+      depth,
+      itemKind: it.itemKind,
+      dependsOnId: it.dependsOnId ?? null,
+      children: build(it.id, depth + 1),
+    }));
+  }
+  return build(null, 0);
 }
 
 /** Stack 顶栏标题：税季 pill 占两行凸显；项目名与 Services from 左端对齐 */
@@ -186,6 +219,11 @@ export default function OrderTodosScreen() {
   const [taskFilesMap, setTaskFilesMap] = useState<Record<string, ProjectTodoReceiptSummary[]>>({});
   /** onboarding 时展示的 SKU checklist（只读） */
   const [skuItems, setSkuItems] = useState<FirmSkuItem[]>([]);
+  const [skuInfo, setSkuInfo] = useState<ProjectSkuInfo | null>(null);
+  const [skuDetailForInfo, setSkuDetailForInfo] = useState<{ taxCountry?: string | null; taxScenario?: string | null } | null>(null);
+  const [activeTab, setActiveTab] = useState<'todos' | 'info'>('todos');
+  const [infoEditing, setInfoEditing] = useState(false);
+  const infoTabRef = useRef<any>(null);
 
   const load = useCallback(async () => {
     if (!orderId) return;
@@ -205,6 +243,14 @@ export default function OrderTodosScreen() {
         setTree([]);
         const items = order.skuId ? await getSkuItems(order.skuId) : [];
         setSkuItems(items);
+        if (order.skuId) {
+          const sku = await getSkuById(order.skuId);
+          setSkuInfo(sku ? { name: sku.name, description: sku.description, imageUrl: sku.imageUrl } : { name: 'Service' });
+          setSkuDetailForInfo(sku ? { taxCountry: sku.taxCountry ?? null, taxScenario: sku.taxScenario ?? null } : null);
+        } else {
+          setSkuInfo(null);
+          setSkuDetailForInfo(null);
+        }
         setLoading(false);
         return;
       }
@@ -652,29 +698,16 @@ export default function OrderTodosScreen() {
         />
       ) : null}
       {isOnboarding ? (
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          <View style={styles.treeCard}>
-            {skuItems.length === 0 ? (
-              <View style={styles.emptyRow}>
-                <Text style={styles.emptyRowText}>No checklist items</Text>
-              </View>
-            ) : (
-              skuItemsWithDepth.map(({ item, depth }) => {
-                const kindLabel = item.itemKind === 'phase' ? 'Phase' : item.itemKind === 'section' ? 'Section' : 'Task';
-                return (
-                  <View
-                    key={item.id}
-                    style={[styles.treeRowWrap, { paddingLeft: 12 + depth * 14, backgroundColor: '#FFF' }]}
-                  >
-                    <Text style={[styles.treeRowTitle, { fontSize: depth === 0 ? 15 : depth === 1 ? 14 : 13 }]} numberOfLines={2}>
-                      [{kindLabel}] {item.title}
-                    </Text>
-                  </View>
-                );
-              })
-            )}
-          </View>
-        </ScrollView>
+        <TaxFilingTodosView
+          tree={skuItemsToProjectTodoTree(skuItems)}
+          orderId=""
+          clientSpaceId=""
+          viewerRole="client"
+          onRefresh={async () => {}}
+          createProjectTodo={async () => ({ id: null, error: null })}
+          catalogMode
+          catalogPreviewReadOnly
+        />
       ) : (
         <>
           <View style={styles.operationBar}>

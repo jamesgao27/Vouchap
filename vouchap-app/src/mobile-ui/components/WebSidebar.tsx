@@ -393,6 +393,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 6,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
   },
   invitationsBadgeText: {
     color: '#fff',

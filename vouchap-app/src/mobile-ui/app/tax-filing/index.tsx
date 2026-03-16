@@ -84,7 +84,7 @@ const STAGE_LABEL: Record<string, string> = {
 };
 
 const STAGE_COLOR: Record<string, string> = {
-  onboarding: '#6C5CE7',
+  onboarding: '#E67E22',
   processing: '#29B6F6',
   completed: '#00B894',
   cancelled: '#636E72',
@@ -281,26 +281,28 @@ export default function TaxFilingScreen() {
                 <Text style={styles.emptySectionText}>No orders yet</Text>
               </View>
             ) : viewMode === 'list' ? (
-              <View style={projectListStyles.list}>
-                {sortedOrders.map((o) => {
-                  const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
-                  return (
-                    <ProjectListRow
-                      key={o.id}
-                      item={item}
-                      isPinned={pinnedOrderIds.includes(o.id)}
-                      onTogglePin={() => handleTogglePin(o.id)}
-                      onPress={() => goToTodos(o)}
-                      onSettings={
-                        o.status === 'cancelled'
-                          ? () => hideOrderForClient(o.id)
-                          : o.status !== 'onboarding'
-                            ? () => goToInfo(o)
-                            : undefined
-                      }
-                    />
-                  );
-                })}
+              <View style={styles.listWrapper}>
+                <View style={projectListStyles.list}>
+                  {sortedOrders.map((o) => {
+                    const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
+                    return (
+                      <ProjectListRow
+                        key={o.id}
+                        item={item}
+                        isPinned={pinnedOrderIds.includes(o.id)}
+                        onTogglePin={() => handleTogglePin(o.id)}
+                        onPress={() => goToTodos(o)}
+                        onSettings={
+                          o.status === 'cancelled'
+                            ? () => hideOrderForClient(o.id)
+                            : o.status !== 'onboarding'
+                              ? () => goToInfo(o)
+                              : undefined
+                        }
+                      />
+                    );
+                  })}
+                </View>
               </View>
             ) : (
               <View style={styles.grid}>
@@ -330,20 +332,22 @@ export default function TaxFilingScreen() {
               <View style={styles.hiddenSection}>
                 <Text style={styles.hiddenSectionTitle}>Hidden ({hiddenOrders.length})</Text>
                 {viewMode === 'list' ? (
-                  <View style={projectListStyles.list}>
-                    {hiddenOrders.map((o) => {
-                      const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
-                      return (
-                        <ProjectListRow
-                          key={o.id}
-                          item={item}
-                          isPinned={pinnedOrderIds.includes(o.id)}
-                          onTogglePin={() => handleTogglePin(o.id)}
-                          onPress={() => goToTodos(o)}
-                          onSettings={() => unhideOrderForClient(o.id)}
-                        />
-                      );
-                    })}
+                  <View style={styles.listWrapper}>
+                    <View style={projectListStyles.list}>
+                      {hiddenOrders.map((o) => {
+                        const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
+                        return (
+                          <ProjectListRow
+                            key={o.id}
+                            item={item}
+                            isPinned={pinnedOrderIds.includes(o.id)}
+                            onTogglePin={() => handleTogglePin(o.id)}
+                            onPress={() => goToTodos(o)}
+                            onSettings={() => unhideOrderForClient(o.id)}
+                          />
+                        );
+                      })}
+                    </View>
                   </View>
                 ) : (
                   <View style={styles.grid}>
@@ -434,4 +438,11 @@ const styles = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },
   hiddenSection: { marginTop: 24 },
   hiddenSectionTitle: { fontSize: 14, fontWeight: '600', color: '#636E72', marginBottom: 12 },
+  listWrapper: {
+    borderRadius: 12,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    ...(Platform.OS === 'web' ? { borderWidth: 1 } : {}),
+  },
 });

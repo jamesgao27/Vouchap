@@ -26,6 +26,8 @@ import { getAccounts, mergeAccount } from '@/lib/accounts';
 import { getCustomerOptions } from '@/lib/customer-supplier-list';
 import { normalizeNameForCompare } from '@/lib/name-utils';
 import { mergeEntity } from '@/lib/entities';
+import { getChatLogsPaginated } from '@/lib/chat-logs';
+import { playAudio, stopPlayback } from '@/lib/audio';
 import { Invoice, InvoiceItem, Category, Purpose, VoucherStatus, Account } from '@/types';
 import { format } from 'date-fns';
 import { getLocalDateString } from '@/lib/date-utils';
@@ -52,6 +54,8 @@ export default function InvoiceDetailsScreen() {
   const [customerOptions, setCustomerOptions] = useState<{ id: string; name: string; source: 'customer' | 'supplier' }[]>([]);
   const [showCurrencyPicker, setShowCurrencyPicker] = useState<boolean>(false);
   const [showDatePicker, setShowDatePicker] = useState<boolean>(false);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [taxInputText, setTaxInputText] = useState<string>('');
   const [priceInputTexts, setPriceInputTexts] = useState<{ [index: number]: string }>({});
   const [showDuplicateNameModal, setShowDuplicateNameModal] = useState(false);
@@ -142,6 +146,24 @@ export default function InvoiceDetailsScreen() {
       const data = await getInvoiceById(id);
       setInvoice(data);
       setEditedInvoice(data);
+      // 加载与该收入单相关的语音记录（用于回放按钮）：仅匹配 responseData.invoicePreview.id === 当前收入单 id
+      try {
+        const chatLogs = await getChatLogsPaginated(50, undefined, 'invoice');
+        const targetId = String(data.id);
+        const audioLog = chatLogs.find(
+          (log) =>
+            log.audioUrl &&
+            log.responseData?.invoicePreview &&
+            String(log.responseData.invoicePreview.id) === targetId
+        );
+        if (audioLog?.audioUrl) {
+          setAudioUrl(audioLog.audioUrl);
+        } else {
+          setAudioUrl(null);
+        }
+      } catch (chatError) {
+        console.log('Failed to get chat logs for invoice audio:', chatError);
+      }
       if (isNew === 'true') {
         setEditing(true);
         const current = editedInvoice || data;
@@ -252,6 +274,19 @@ export default function InvoiceDetailsScreen() {
       }
       showToast('Failed to save', 'error');
       console.error(error);
+    }
+  };
+
+  const handlePlayAudio = async () => {
+    if (!audioUrl) return;
+    if (isPlayingAudio) {
+      await stopPlayback();
+      setIsPlayingAudio(false);
+    } else {
+      setIsPlayingAudio(true);
+      await playAudio(audioUrl, () => {
+        setIsPlayingAudio(false);
+      });
     }
   };
 
@@ -826,6 +861,21 @@ export default function InvoiceDetailsScreen() {
                 </View>
               )}
             </TouchableOpacity>
+            {audioUrl && (
+              <TouchableOpacity
+                style={[
+                  styles.audioPlayButton,
+                  isPlayingAudio && styles.audioPlayButtonActive,
+                ]}
+                onPress={handlePlayAudio}
+              >
+                <Ionicons
+                  name={isPlayingAudio ? 'pause' : 'play'}
+                  size={14}
+                  color="#fff"
+                />
+              </TouchableOpacity>
+            )}
           </View>
           <View style={styles.summaryContent}>
             <View style={styles.summaryContentTop}>
@@ -1432,6 +1482,27 @@ const styles = StyleSheet.create({
   summaryCard: { backgroundColor: '#fff', borderRadius: 12, padding: 12, marginBottom: 12, flexDirection: 'row', alignItems: 'stretch' },
   imageContainer: { position: 'relative', marginRight: 12 },
   imagePlaceholder: { width: 80, height: 80, borderRadius: 8, backgroundColor: '#E9ECEF', overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
+  audioPlayButton: {
+    position: 'absolute',
+    bottom: 0,
+    left: '50%',
+    marginLeft: -12,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#6C5CE7',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingLeft: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3,
+    elevation: 4,
+  },
+  audioPlayButtonActive: {
+    backgroundColor: '#E74C3C',
+  },
   imagePlaceholderContent: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
   receiptImage: { width: '100%', height: '100%' },
   thumbAlignTopLeft: Platform.select({ web: { objectFit: 'cover' as const, objectPosition: 'top left' as const }, default: {} }),

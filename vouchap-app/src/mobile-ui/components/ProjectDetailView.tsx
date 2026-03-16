@@ -68,7 +68,7 @@ export interface ProjectDetailHeader {
 
 /** 订单状态配置（client/firm 顶栏状态标签共用） */
 export const ORDER_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  onboarding:  { label: 'Onboarding',  color: '#6C5CE7', bg: '#EDE9FD' },
+  onboarding:  { label: 'Onboarding',  color: '#E67E22', bg: '#FFF3E0' },
   processing:  { label: 'Processing',  color: '#0288D1', bg: '#E1F5FE' },
   completed:   { label: 'Completed',   color: '#00875A', bg: '#E3FCEF' },
   cancelled:   { label: 'Cancelled',   color: '#636E72', bg: '#F0F2F5' },
