@@ -1113,23 +1113,37 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         showToast('Photo library access is required to add images.', 'info');
         return;
       }
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsMultipleSelection: true,
-        quality: 0.9,
-      });
-      if (result.canceled || !result.assets?.length) return;
-      const now = Date.now();
-      setStagedAttachmentFiles(prev => [
-        ...prev,
-        ...result.assets.map((a, i: number) => ({
-          id: `${a.uri}-${now}-${i}`,
-          uri: a.uri,
-          name: (a.fileName != null ? a.fileName : `image-${i + 1}.jpg`),
-          mimeType: 'image/jpeg' as const,
-        })),
-      ]);
-      setIsVoiceMode(false);
+      // Android: defer launch so ActivityResultLauncher is registered (avoids IllegalStateException)
+      const launchPicker = async () => {
+        try {
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ImagePicker.MediaTypeOptions.Images,
+            allowsMultipleSelection: true,
+            quality: 0.9,
+          });
+          if (result.canceled || !result.assets?.length) return;
+          const now = Date.now();
+          setStagedAttachmentFiles(prev => [
+            ...prev,
+            ...result.assets.map((a, i: number) => ({
+              id: `${a.uri}-${now}-${i}`,
+              uri: a.uri,
+              name: (a.fileName != null ? a.fileName : `image-${i + 1}.jpg`),
+              mimeType: 'image/jpeg' as const,
+            })),
+          ]);
+          setIsVoiceMode(false);
+        } catch (e) {
+          showToast(e instanceof Error ? e.message : 'Failed to add files', 'error');
+        }
+      };
+      if (Platform.OS === 'android') {
+        InteractionManager.runAfterInteractions(() => {
+          setTimeout(launchPicker, 0);
+        });
+      } else {
+        await launchPicker();
+      }
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Failed to add files', 'error');
     }

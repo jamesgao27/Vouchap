@@ -216,20 +216,23 @@ export async function getCurrentSpace(forceRefresh: boolean = false): Promise<Sp
       .from('spaces')
       .select('*')
       .eq('id', spaceId)
-      .single();
+      .maybeSingle();
 
-    if (error) {
-      // 如果是权限错误，记录但不抛出
-      if (error.code === '42501' || error.message?.includes('permission denied')) {
+    // 0 行（空间已删除或用户被移出 RLS 不可见）、权限错误等：视为当前空间失效，清除 DB 并返回 null
+    if (error || !data) {
+      const isZeroRows = error?.code === 'PGRST116' || (error?.message?.includes('0 rows') ?? false);
+      const isPermission = error?.code === '42501' || error?.message?.includes('permission denied');
+      if (isZeroRows || isPermission || !data) {
         updateCachedSpace(null);
+        try {
+          await supabase.from('users').update({ current_space_id: null }).eq('id', user.id);
+          updateCachedUser(user ? { ...user, currentSpaceId: undefined, spaceId: null } : null);
+        } catch (clearErr) {
+          // 清除失败不阻塞，缓存已置空，调用方会走「无当前空间」流程
+        }
         return null;
       }
       throw error;
-    }
-    
-    if (!data) {
-      updateCachedSpace(null);
-      return null;
     }
 
     let firmStatus: 'pending' | 'approved' | undefined;

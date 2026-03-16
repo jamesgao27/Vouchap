@@ -450,11 +450,11 @@ function TodoTree({
 
         // phase/section 判定（section 用 depth===1 兜底）
         const isPhaseOrSectionRow = node.itemKind === 'phase' || node.itemKind === 'section' || (depth === 1 && !isTask);
-        // row-level hover：用于显示 +（section/phase）或 -/restart / Upload / 提交按钮；任务行在可终止/可重启时也显示；catalog 模式 task 显示删除
-        const showRowIconsOnTouch =
-          (onStartAddChild && canAddChild) ||
+        // row-level hover：用于显示 +（section/phase）或 -/restart / Upload / 提交按钮；任务行在可终止/可重启时也显示；catalog 模式 task 显示删除。只读时全部不显示。
+        const showRowIconsOnTouch = !hideDepsEditor &&
+          ((onStartAddChild && canAddChild) ||
           (isTask && (catalogMode ? !!onCatalogDeleteItem : (canUpload || canCancelRestore || canTerminateForRow || isCanceled || node.status === 'completed'))) ||
-          (onRequestDeletePhase != null && isPhaseOrSectionRow);
+          (onRequestDeletePhase != null && isPhaseOrSectionRow));
 
         // phase 上 +Section，section 上 +Task；其他非 task 节点兜底为 Child
         const addChildLabel =
@@ -512,11 +512,11 @@ function TodoTree({
 
         const showTaskIcons = rowIdShowingAdd === node.id;
 
-        // zone2：文件计数列 + 右侧空白，单独控制 Upload 按钮显示
-        const showUpload = rowFileColHoverId === node.id;
+        // zone2：文件计数列 + 右侧空白，单独控制 Upload 按钮显示；只读时不显示 Upload 且不响应 hover
+        const showUpload = !hideDepsEditor && rowFileColHoverId === node.id;
 
-        // zone2：文件计数列 + 右侧空白，hover 时点亮 Upload（高度充满整行）
-        const fileColHoverHandlers = setRowFileColHoverId
+        // zone2：文件计数列 + 右侧空白，hover 时点亮 Upload（高度充满整行）；只读时不绑定
+        const fileColHoverHandlers = !hideDepsEditor && setRowFileColHoverId
           ? {
               onMouseEnter: () => setRowFileColHoverId(node.id),
               onMouseLeave: () => setRowFileColHoverId(null),
@@ -545,7 +545,7 @@ function TodoTree({
                   <Ionicons name={filesExpanded ? 'document' : 'document-outline'} size={14} color="#6C5CE7" />
                   <Text style={ts.filesToggleText} numberOfLines={1}>{files.length}</Text>
                 </TouchableOpacity>
-                {showUpload && onUploadFile && !isCanceled && !nodeIsBlocked && canUpload ? (
+                {showUpload && onUploadFile && !isCanceled && !nodeIsBlocked && canUpload && !hideDepsEditor ? (
                   <Pressable style={ts.uploadTaskBtnHotzone} onPress={() => onUploadFile(node.id)}>
                     <View style={ts.uploadTaskBtn}>
                       <Ionicons name="cloud-upload-outline" size={12} color="#FFF" />
@@ -594,7 +594,7 @@ function TodoTree({
           }
         }
 
-        const showStatusVerb = rowIdShowingStatusVerb === node.id && handoffButtons.length > 0;
+        const showStatusVerb = !hideDepsEditor && rowIdShowingStatusVerb === node.id && handoffButtons.length > 0;
 
         // catalog 模式不显示状态列
         const statusColContent = catalogMode ? null : (isTask && isCanceled)
@@ -772,8 +772,8 @@ function TodoTree({
           return { depId, wbs: item?.wbs ?? '?', title: item?.title ?? '', status: st };
         });
 
-        // 终止：client 仅能终止当前责任方为 client 的非 completed 任务；firm 可终止所有非 completed 任务；catalog 模式下 task 的 - 为删除
-        const CancelTaskSlot = !catalogMode &&
+        // 终止：client 仅能终止当前责任方为 client 的非 completed 任务；firm 可终止所有非 completed 任务；catalog 模式下 task 的 - 为删除；只读不显示
+        const CancelTaskSlot = !catalogMode && !hideDepsEditor &&
           isTask && !isCanceled && onCancelTask && showTaskIcons && !nodeIsBlocked && canTerminateForRow ? (
             <Pressable style={ts.terminateTaskBtnHotzone} onPress={() => onCancelTask(node.id)}>
               <View style={ts.terminateTaskBtnIcon}>
@@ -790,8 +790,8 @@ function TodoTree({
             </Pressable>
           ) : null;
 
-        // 重启（已终止）：双方都可重启 canceled 任务；catalog 模式不显示
-        const RestoreTaskSlot = !catalogMode &&
+        // 重启（已终止）：双方都可重启 canceled 任务；catalog 模式不显示；只读不显示
+        const RestoreTaskSlot = !catalogMode && !hideDepsEditor &&
           isTask && isCanceled && onRestoreTask && showTaskIcons ? (
             <Pressable style={ts.restoreTaskBtnHotzone} onPress={() => onRestoreTask(node.id, node.initialResponsibleSide)}>
               <View style={ts.restoreTaskBtnIcon}>
@@ -800,8 +800,8 @@ function TodoTree({
             </Pressable>
           ) : null;
 
-        // 重启（已完成）：双方都可重启 completed 任务；catalog 模式不显示
-        const RestartTaskSlot = !catalogMode &&
+        // 重启（已完成）：双方都可重启 completed 任务；catalog 模式不显示；只读不显示
+        const RestartTaskSlot = !catalogMode && !hideDepsEditor &&
           isTask && node.status === 'completed' && onRestoreTask && showTaskIcons ? (
             <Pressable style={ts.restoreTaskBtnHotzone} onPress={() => onRestoreTask(node.id, node.initialResponsibleSide)}>
               <View style={ts.restoreTaskBtnIcon}>
@@ -872,8 +872,8 @@ function TodoTree({
           </>
         );
 
-        // 状态列（Zone3）：整列为 hover 热区，高度覆盖整行
-        const statusHoverHandlers = handoffButtons.length > 0 && setRowIdShowingStatusVerb
+        // 状态列（Zone3）：整列为 hover 热区，高度覆盖整行；只读时不响应触摸
+        const statusHoverHandlers = !hideDepsEditor && handoffButtons.length > 0 && setRowIdShowingStatusVerb
           ? {
               onMouseEnter: () => setRowIdShowingStatusVerb(node.id),
               onMouseLeave: () => setRowIdShowingStatusVerb(null),
@@ -929,10 +929,10 @@ function TodoTree({
             }
           : {};
 
-        // 项目详情：无关联行仅 Depends on 列热区触摸/悬停时显；有关联行常显。SKU 详情（catalogMode）：Depends on 常显，不需触摸
+        // 项目详情：无关联行仅 Depends on 列热区触摸/悬停时显；有关联行常显。SKU 详情（catalogMode）：Depends on 常显。只读时仅显示有值的，空的不显示且不响应触摸
         const hasDeps = depChipInfos.length > 0;
-        const showDepsContent = hasDeps || rowIdShowingDeps === node.id || catalogMode;
-        const depsColHotzoneHandlers = !catalogMode && setRowIdShowingDeps && hideDepsTimeoutRef
+        const showDepsContent = (hasDeps || catalogMode) || (rowIdShowingDeps === node.id && !hideDepsEditor);
+        const depsColHotzoneHandlers = !catalogMode && !hideDepsEditor && setRowIdShowingDeps && hideDepsTimeoutRef
           ? {
               onTouchStart: () => setRowIdShowingDeps(node.id),
               onTouchEnd: () => setRowIdShowingDeps(null),
@@ -950,7 +950,7 @@ function TodoTree({
             }
           : {};
         const TaskDepsCol = isTask ? (
-          showDepsContent ? (
+          hideDepsEditor && !hasDeps ? <View style={ts.taskDepsCol} /> : showDepsContent ? (
             hideDepsEditor ? (
               <View style={ts.taskDepsCol}>
                 <Text style={ts.taskDepsLabel}>Depends on</Text>
@@ -1139,7 +1139,7 @@ function TodoTree({
                             <View style={ts.fileColNameDesc}>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                                 <Text style={ts.fileRowName} numberOfLines={1}>{displayName}</Text>
-                                {canShowRetryIcon && (
+                                {!hideDepsEditor && canShowRetryIcon && (
                                   <Pressable
                                     style={ts.restoreTaskBtnHotzone}
                                     onPress={() => onRetryRecognizeFile?.(f.id)}
@@ -1154,22 +1154,24 @@ function TodoTree({
                             </View>
                             <Text style={ts.fileColTime} numberOfLines={1}>{formatFileDate(f.createdAt)}</Text>
                             <Text style={ts.fileColUploader} numberOfLines={1}>{f.uploaderName ?? '—'}</Text>
-                            <View style={ts.fileRowActions}>
-                              <TouchableOpacity
-                                style={ts.fileRowActionBtn}
-                                onPress={() => onRemoveFile?.(node.id, f.id)}
-                                hitSlop={8}
-                              >
-                                <Ionicons name="trash-outline" size={18} color="#E74C3C" />
-                              </TouchableOpacity>
-                              <TouchableOpacity
-                                style={ts.fileRowActionBtn}
-                                onPress={() => onRequestMoveFile?.(f.id, node.id)}
-                                hitSlop={8}
-                              >
-                                <Ionicons name="arrow-redo-outline" size={18} color="#6C5CE7" />
-                              </TouchableOpacity>
-                            </View>
+                            {!hideDepsEditor && (
+                              <View style={ts.fileRowActions}>
+                                <TouchableOpacity
+                                  style={ts.fileRowActionBtn}
+                                  onPress={() => onRemoveFile?.(node.id, f.id)}
+                                  hitSlop={8}
+                                >
+                                  <Ionicons name="trash-outline" size={18} color="#E74C3C" />
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                  style={ts.fileRowActionBtn}
+                                  onPress={() => onRequestMoveFile?.(f.id, node.id)}
+                                  hitSlop={8}
+                                >
+                                  <Ionicons name="arrow-redo-outline" size={18} color="#6C5CE7" />
+                                </TouchableOpacity>
+                              </View>
+                            )}
                           </TouchableOpacity>
                         );
                       })}

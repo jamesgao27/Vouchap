@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { showTaxFiling } from '@/lib/feature-flags';
 import { getCurrentSpace } from '@/lib/auth';
@@ -13,6 +14,8 @@ import {
   confirmOrderAndCreateProjectTodos,
   getProjectByOrderId,
   updateOrderStatus,
+  hideOrderForClientSpace,
+  unhideOrderForClientSpace,
   type FirmOrderForClient,
 } from '@/lib/firm';
 import { showToast } from '@/lib/toast';
@@ -27,10 +30,12 @@ import {
 
 const CARD_MAX_WIDTH = 320;
 const PINNED_ORDER_IDS_KEY = 'tax_filing_pinned_order_ids';
-const HIDDEN_ORDER_IDS_KEY = 'tax_filing_hidden_order_ids';
 
 /** In-memory fallback when AsyncStorage native module is null (e.g. Expo Go / unlinked build). */
 const memoryFallback = new Map<string, string>();
+/** On native, only try AsyncStorage when not in Expo Go (Expo Go has no linked native module; avoids red-screen). */
+const useNativeAsyncStorage = Platform.OS !== 'web' && Constants.appOwnership !== 'expo';
+
 async function safeGetItem(key: string): Promise<string | null> {
   if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
     try {
@@ -38,6 +43,9 @@ async function safeGetItem(key: string): Promise<string | null> {
     } catch {
       return memoryFallback.get(key) ?? null;
     }
+  }
+  if (!useNativeAsyncStorage) {
+    return memoryFallback.get(key) ?? null;
   }
   try {
     const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
@@ -53,6 +61,10 @@ async function safeSetItem(key: string, value: string): Promise<void> {
     } catch {
       memoryFallback.set(key, value);
     }
+    return;
+  }
+  if (!useNativeAsyncStorage) {
+    memoryFallback.set(key, value);
     return;
   }
   try {
@@ -99,7 +111,8 @@ export default function TaxFilingScreen() {
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [pinnedOrderIds, setPinnedOrderIds] = useState<string[]>([]);
-  const [hiddenOrderIds, setHiddenOrderIds] = useState<string[]>([]);
+  const [hidingId, setHidingId] = useState<string | null>(null);
+  const [unhidingId, setUnhidingId] = useState<string | null>(null);
 
   const loadOrders = useCallback(async () => {
     const space = await getCurrentSpace(true);
@@ -131,20 +144,8 @@ export default function TaxFilingScreen() {
     })();
   }, []);
 
-  useEffect(() => {
-    (async () => {
-      const raw = await safeGetItem(HIDDEN_ORDER_IDS_KEY);
-      if (raw) {
-        try {
-          const ids = JSON.parse(raw) as string[];
-          if (Array.isArray(ids)) setHiddenOrderIds(ids);
-        } catch (_) {}
-      }
-    })();
-  }, []);
-
   const sortedOrders = useMemo(() => {
-    const visible = orders.filter((o) => !hiddenOrderIds.includes(o.id));
+    const visible = orders.filter((o) => !o.hiddenFromClientAt);
     return [...visible].sort((a, b) => {
       const pa = pinnedOrderIds.includes(a.id);
       const pb = pinnedOrderIds.includes(b.id);
@@ -152,7 +153,13 @@ export default function TaxFilingScreen() {
       if (!pa && pb) return 1;
       return (b.createdAt || '').localeCompare(a.createdAt || '');
     });
-  }, [orders, pinnedOrderIds, hiddenOrderIds]);
+  }, [orders, pinnedOrderIds]);
+
+  const hiddenOrders = useMemo(() => {
+    return orders
+      .filter((o) => o.hiddenFromClientAt)
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  }, [orders]);
 
   const handleTogglePin = useCallback(async (orderId: string) => {
     setPinnedOrderIds((prev) => {
@@ -192,13 +199,26 @@ export default function TaxFilingScreen() {
   }, [loadOrders]);
 
   const hideOrderForClient = useCallback(async (orderId: string) => {
-    setHiddenOrderIds((prev) => {
-      if (prev.includes(orderId)) return prev;
-      const next = [...prev, orderId];
-      safeSetItem(HIDDEN_ORDER_IDS_KEY, JSON.stringify(next)).catch(() => {});
-      return next;
-    });
-  }, []);
+    setHidingId(orderId);
+    const { error } = await hideOrderForClientSpace(orderId);
+    setHidingId(null);
+    if (error) {
+      showToast(error.message ?? 'Failed to hide', 'error');
+      return;
+    }
+    setOrders(await loadOrders());
+  }, [loadOrders]);
+
+  const unhideOrderForClient = useCallback(async (orderId: string) => {
+    setUnhidingId(orderId);
+    const { error } = await unhideOrderForClientSpace(orderId);
+    setUnhidingId(null);
+    if (error) {
+      showToast(error.message ?? 'Failed to unhide', 'error');
+      return;
+    }
+    setOrders(await loadOrders());
+  }, [loadOrders]);
 
   /** 点击卡片/行：已接受订单进 project 路由（client 主权），未接受进 order 路由 */
   const goToTodos = (order: FirmOrderForClient) => {
@@ -256,7 +276,7 @@ export default function TaxFilingScreen() {
                 </TouchableOpacity>
               </View>
             </View>
-            {sortedOrders.length === 0 ? (
+            {sortedOrders.length === 0 && hiddenOrders.length === 0 ? (
               <View style={styles.emptySection}>
                 <Text style={styles.emptySectionText}>No orders yet</Text>
               </View>
@@ -306,6 +326,45 @@ export default function TaxFilingScreen() {
                 })}
               </View>
             )}
+            {hiddenOrders.length > 0 ? (
+              <View style={styles.hiddenSection}>
+                <Text style={styles.hiddenSectionTitle}>Hidden ({hiddenOrders.length})</Text>
+                {viewMode === 'list' ? (
+                  <View style={projectListStyles.list}>
+                    {hiddenOrders.map((o) => {
+                      const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
+                      return (
+                        <ProjectListRow
+                          key={o.id}
+                          item={item}
+                          isPinned={pinnedOrderIds.includes(o.id)}
+                          onTogglePin={() => handleTogglePin(o.id)}
+                          onPress={() => goToTodos(o)}
+                          onSettings={() => unhideOrderForClient(o.id)}
+                        />
+                      );
+                    })}
+                  </View>
+                ) : (
+                  <View style={styles.grid}>
+                    {hiddenOrders.map((o) => {
+                      const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
+                      return (
+                        <ProjectListCard
+                          key={o.id}
+                          item={item}
+                          cardWidth={cardWidth}
+                          isPinned={pinnedOrderIds.includes(o.id)}
+                          onTogglePin={() => handleTogglePin(o.id)}
+                          onPress={() => goToTodos(o)}
+                          onSettings={() => unhideOrderForClient(o.id)}
+                        />
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            ) : null}
           </>
         )}
     </ScrollView>
@@ -373,4 +432,6 @@ const styles = StyleSheet.create({
   emptySection: { paddingVertical: 24, alignItems: 'center' },
   emptySectionText: { fontSize: 14, color: '#95A5A6' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },
+  hiddenSection: { marginTop: 24 },
+  hiddenSectionTitle: { fontSize: 14, fontWeight: '600', color: '#636E72', marginBottom: 12 },
 });

@@ -69,7 +69,7 @@ export default function ClientSetupScreen() {
   // 第二段 H<860：留白固定各 34，只减小选项表最大高度（如 H=678 时约 148）。
   const WEB_BASE_HEIGHT = 990;
   const WEB_PADDING_AT_BASE = 99; // 990 时上下各 99
-  const WEB_LIST_MAX_AT_BASE = 330;
+  const WEB_LIST_MAX_AT_BASE = 315; // 较原 330 减 15，抵消 header 中 SKU 名称行增加的高度
   const WEB_PADDING_FLOOR_HEIGHT = 860; // 低于此高度后只减列表
   const WEB_PADDING_FLOOR = 34; // H<=860 时上下留白固定 34
   const WEB_LIST_MIN_HEIGHT = 120;
@@ -198,13 +198,13 @@ export default function ClientSetupScreen() {
 
       if (clientSpaces.length === 1) {
         setSelectedSpaceId(clientSpaces[0].spaceId);
-      } else {
+      } else if (clientSpaces.length > 1) {
         setSelectedSpaceId(null);
+      } else {
+        // 无 client 空间时，默认选中新建入口
+        setSelectedSpaceId(NEW_SPACE_SENTINEL_ID);
       }
-      setStatus(clientSpaces.length === 0 ? 'error' : 'ready');
-      if (clientSpaces.length === 0) {
-        setErrorMessage('You need a client space to link. Create one first.');
-      }
+      setStatus('ready');
       return;
     }
 
@@ -253,13 +253,13 @@ export default function ClientSetupScreen() {
 
     if (clientSpaces.length === 1) {
       setSelectedSpaceId(clientSpaces[0].spaceId);
-    } else {
+    } else if (clientSpaces.length > 1) {
       setSelectedSpaceId(null);
+    } else {
+      // 无 client 空间时，默认选中新建入口
+      setSelectedSpaceId(NEW_SPACE_SENTINEL_ID);
     }
-    setStatus(clientSpaces.length === 0 ? 'error' : 'ready');
-    if (clientSpaces.length === 0) {
-      setErrorMessage('You need a client space to link. Create one first.');
-    }
+    setStatus('ready');
   }, [router, token, claimMode, inviteeClientIdParam]);
 
   useEffect(() => {
@@ -453,6 +453,7 @@ export default function ClientSetupScreen() {
   // ready: 与落地页一致的卡片样式
   const firmName = inviteInfo?.firmName ?? 'Your tax firm';
   const skuId = inviteInfo?.skuId ?? '';
+  const skuName = skuPreview?.name ?? '';
 
   const openSkuPreview = () => {
     if (skuId && inviteInfo?.firmSpaceId) {
@@ -477,6 +478,16 @@ export default function ClientSetupScreen() {
       <Text style={styles.pageSubtitle}>
         Select a space to link and start tax filing:
       </Text>
+      {skuName ? (
+        <View style={styles.skuNameBlock}>
+          <Text
+            style={styles.skuNameText}
+            numberOfLines={2}
+          >
+            {skuName}
+          </Text>
+        </View>
+      ) : null}
     </>
   );
 
@@ -591,8 +602,17 @@ export default function ClientSetupScreen() {
             style={[
               styles.spaceListWrap,
               isWeb && styles.spaceListWrapWeb,
-              isMobileVariant && styles.spaceListWrapMobile,
-              isMobileVariant && {
+              isMobileVariant && spaces.length > 0 && styles.spaceListWrapMobile,
+              spaces.length === 0 && {
+                flex: 0,
+                flexGrow: 0,
+                flexShrink: 0,
+                height: 0,
+                minHeight: 0,
+                overflow: 'hidden' as const,
+                marginBottom: 0,
+              },
+              spaces.length > 0 && isMobileVariant && {
                 flex: undefined,
                 maxHeight: mobileSpaceListMaxHeight,
                 height:
@@ -600,17 +620,20 @@ export default function ClientSetupScreen() {
                     ? Math.min(spaceListContentHeight, mobileSpaceListMaxHeight)
                     : mobileSpaceListMaxHeight,
               },
-              !isWeb &&
+              spaces.length > 0 &&
+                !isWeb &&
                 !isMobileVariant && {
                   height: Math.round(windowHeight * 0.28),
                   flexDirection: 'column' as const,
                 },
-              isWeb &&
+              spaces.length > 0 &&
+                isWeb &&
                 !isMobileVariant &&
                 !isNarrowWeb &&
                 typeof webSpaceListMaxHeight === 'number' &&
                 styles.spaceListWrapWebAdaptive,
-              isWeb &&
+              spaces.length > 0 &&
+                isWeb &&
                 !isMobileVariant &&
                 !isNarrowWeb &&
                 typeof webSpaceListMaxHeight === 'number' && {
@@ -665,18 +688,7 @@ export default function ClientSetupScreen() {
               </ScrollViewWithScrollHint>
             </View>
           </View>
-          {spaces.length === 0 && (
-            <TouchableOpacity
-              style={styles.createSpaceCta}
-              onPress={handleCreateSpace}
-            >
-              <Ionicons name="add-circle-outline" size={22} color="#6C5CE7" />
-              <Text style={styles.createSpaceCtaText}>
-                Create a client space first
-              </Text>
-            </TouchableOpacity>
-          )}
-          {isMobileVariant && spaces.length > 0 && (
+          {isMobileVariant && (
             <>
               <TouchableOpacity
                 style={[
@@ -817,12 +829,27 @@ export default function ClientSetupScreen() {
                 </View>
               </View>
               <Text style={styles.pageTitle}>Link your space with</Text>
-              <View style={styles.firmNameBlock}>
+              <TouchableOpacity
+                style={styles.firmNameBlock}
+                activeOpacity={0.8}
+                onPress={openSkuPreview}
+                disabled={!skuId}
+              >
                 <Text style={styles.firmNameText}>{firmName}</Text>
-              </View>
+              </TouchableOpacity>
               <Text style={styles.pageSubtitle}>
                 Select a space to link and start tax filing:
               </Text>
+              {skuName ? (
+                <View style={styles.skuNameBlock}>
+                  <Text
+                    style={styles.skuNameText}
+                    numberOfLines={2}
+                  >
+                    {skuName}
+                  </Text>
+                </View>
+              ) : null}
             </View>
 
             <View style={styles.mobileForm}>
@@ -1072,7 +1099,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   firmNameBlock: {
-    marginBottom: 6,
+    marginBottom: 4,
   },
   firmNameText: {
     fontSize: 17,
@@ -1085,10 +1112,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
   },
   pageSubtitle: {
-    fontSize: 13,
+    fontSize: 12,
     color: '#636E72',
     textAlign: 'center',
-    lineHeight: 18,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  skuNameBlock: {
+    marginTop: 2,
+    marginBottom: 2,
+    paddingHorizontal: 8,
+  },
+  skuNameText: {
+    fontSize: 12,
+    color: '#2D3436',
+    textAlign: 'center',
+    lineHeight: 16,
   },
   sectionLabel: {
     fontSize: 13,

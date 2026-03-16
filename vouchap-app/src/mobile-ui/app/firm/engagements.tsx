@@ -236,25 +236,6 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
       getSortValue: (r) => formatCategory(r).toLowerCase(),
     },
     {
-      id: 'createdAt',
-      label: 'Created',
-      minWidth: 110,
-      getValue: (r) => <Text style={cellText}>{formatDate(r.createdAt)}</Text>,
-      getSortValue: (r) => r.createdAt ?? '',
-    },
-    {
-      id: 'source',
-      label: 'Source',
-      minWidth: 90,
-      visible: false,
-      getValue: (r) => (
-        <Text style={cellText} numberOfLines={1}>
-          {r.source || '—'}
-        </Text>
-      ),
-      getSortValue: (r) => (r.source || '').toLowerCase(),
-    },
-    {
       id: 'status',
       label: 'Status',
       minWidth: 100,
@@ -285,8 +266,15 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
       getSortValue: (r) => r.status ?? '',
     },
     {
+      id: 'updatedAt',
+      label: 'Updated',
+      minWidth: 120,
+      getValue: (r) => <Text style={cellText}>{formatDateTime(r.updatedAt)}</Text>,
+      getSortValue: (r) => r.updatedAt ?? '',
+    },
+    {
       id: 'assigneeName',
-      label: 'Assignee',
+      label: 'Creator',
       minWidth: 100,
       getValue: (r) => (
         <Text style={cellText} numberOfLines={1}>
@@ -296,11 +284,23 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
       getSortValue: (r) => (r.assigneeName ?? '').toLowerCase(),
     },
     {
-      id: 'updatedAt',
-      label: 'Updated',
-      minWidth: 120,
-      getValue: (r) => <Text style={cellText}>{formatDateTime(r.updatedAt)}</Text>,
-      getSortValue: (r) => r.updatedAt ?? '',
+      id: 'createdAt',
+      label: 'Created date',
+      minWidth: 110,
+      getValue: (r) => <Text style={cellText}>{formatDate(r.createdAt)}</Text>,
+      getSortValue: (r) => r.createdAt ?? '',
+    },
+    {
+      id: 'source',
+      label: 'Source',
+      minWidth: 90,
+      visible: false,
+      getValue: (r) => (
+        <Text style={cellText} numberOfLines={1}>
+          {r.source || '—'}
+        </Text>
+      ),
+      getSortValue: (r) => (r.source || '').toLowerCase(),
     },
   ];
 }

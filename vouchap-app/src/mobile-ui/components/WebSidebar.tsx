@@ -16,6 +16,7 @@ import { useRouter, usePathname } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getCurrentUser, getCurrentSpace } from '@/lib/auth';
 import { getPendingInvitationsForUser, subscribePendingInvitationsRealtime } from '@/lib/space-invitations';
+import { getPendingInviteesForEmail } from '@/lib/firm-clients';
 import { Space, User } from '@/types';
 import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
 
@@ -26,7 +27,6 @@ const HIDE_SIDEBAR_ROUTES = [
   'reset-password',
   'set-password',
   'setup-space',
-  'space-select',
   'handle-invitations',
   'auth',
   'invite',
@@ -57,6 +57,7 @@ export default function WebSidebar() {
   const [currentSpace, setCurrentSpaceState] = useState<Space | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [pendingInvitationsCount, setPendingInvitationsCount] = useState(0);
+  const [pendingClaimCount, setPendingClaimCount] = useState(0);
   const [spaceLoaded, setSpaceLoaded] = useState(false);
 
   const loadData = useCallback(async (forceRefresh = false) => {
@@ -69,6 +70,12 @@ export default function WebSidebar() {
       setCurrentSpaceState(spaceData ?? null);
       setUser(userData ?? null);
       setPendingInvitationsCount(invitations?.length ?? 0);
+      if (userData?.email) {
+        const { list: claimList } = await getPendingInviteesForEmail(userData.email).catch(() => ({ list: [] }));
+        setPendingClaimCount(claimList?.length ?? 0);
+      } else {
+        setPendingClaimCount(0);
+      }
     } catch (e) {
       console.error('WebSidebar loadData:', e);
     } finally {
@@ -211,7 +218,7 @@ export default function WebSidebar() {
         )}
       </View>
 
-      {/* 用户信息：邀请通知 icon+角标 浮在卡片右上角 */}
+      {/* 用户信息卡片：member 邀请 + engagement claim 两个 icon+角标（不同颜色）浮在卡片右上角 */}
       <View style={styles.userCardWrap}>
         <TouchableOpacity
           style={styles.userCard}
@@ -232,19 +239,37 @@ export default function WebSidebar() {
             </Text>
           </View>
         </TouchableOpacity>
-        {pendingInvitationsCount > 0 && (
-          <TouchableOpacity
-            style={styles.invitationsFloating}
-            onPress={() => router.push('/handle-invitations')}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="mail-outline" size={24} color="#6C5CE7" />
-            <View style={styles.invitationsBadge}>
-              <Text style={styles.invitationsBadgeText}>
-                {pendingInvitationsCount > 99 ? '99+' : pendingInvitationsCount}
-              </Text>
-            </View>
-          </TouchableOpacity>
+        {(pendingInvitationsCount > 0 || pendingClaimCount > 0) && (
+          <View style={styles.pendingBadgesRow}>
+            {pendingInvitationsCount > 0 && (
+              <TouchableOpacity
+                style={styles.pendingBadgeFloating}
+                onPress={() => router.push('/handle-invitations')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="mail-outline" size={24} color="#6C5CE7" />
+                <View style={styles.invitationsBadge}>
+                  <Text style={styles.invitationsBadgeText}>
+                    {pendingInvitationsCount > 99 ? '99+' : pendingInvitationsCount}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+            {pendingClaimCount > 0 && (
+              <TouchableOpacity
+                style={styles.pendingBadgeFloating}
+                onPress={() => router.push('/auth/claim')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="briefcase-outline" size={24} color="#6C5CE7" />
+                <View style={styles.claimBadge}>
+                  <Text style={styles.invitationsBadgeText}>
+                    {pendingClaimCount > 99 ? '99+' : pendingClaimCount}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+          </View>
         )}
       </View>
     </View>
@@ -342,14 +367,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  invitationsFloating: {
+  pendingBadgesRow: {
     position: 'absolute',
     top: -6,
     right: -6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 0,
+  },
+  pendingBadgeFloating: {
     width: 44,
     height: 44,
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'relative',
   },
   invitationsBadge: {
     position: 'absolute',
@@ -368,6 +399,20 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
+  },
+  claimBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: '#6C5CE7',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
   },
   userInitial: {
     fontSize: 16,

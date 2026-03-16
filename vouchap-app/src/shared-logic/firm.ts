@@ -190,6 +190,8 @@ export interface FirmOrderForClient extends FirmOrder {
   taskTotal?: number;
   /** Firm 空间名称（来自 public.spaces），用于卡片展示 */
   firmName?: string;
+  /** Space-level hidden: when set, order is hidden from client list for this space (all members). */
+  hiddenFromClientAt?: string | null;
 }
 
 /** 单笔订单（用于详情页） */
@@ -404,8 +406,23 @@ export async function getClientOrdersForClientSpace(clientSpaceId: string): Prom
       taskTotal: counts?.total,
       taskCompleted: counts?.completed,
       firmName: spaceNameByFirmSpaceId[row.firm_space_id] || undefined,
+      hiddenFromClientAt: row.hidden_from_client_at ?? null,
     };
   });
+}
+
+/** Client-space member hides order from list (space-level; all members see the same). */
+export async function hideOrderForClientSpace(orderId: string): Promise<{ error: Error | null }> {
+  const { error } = await supabase.schema('firm').rpc('hide_order_for_client', { p_order_id: orderId });
+  if (error) return { error: new Error(error.message) };
+  return { error: null };
+}
+
+/** Client-space member unhides order. */
+export async function unhideOrderForClientSpace(orderId: string): Promise<{ error: Error | null }> {
+  const { error } = await supabase.schema('firm').rpc('unhide_order_for_client', { p_order_id: orderId });
+  if (error) return { error: new Error(error.message) };
+  return { error: null };
 }
 
 /** Firm 空间：获取在服客户列表（仅已认领的 client；名称/联系人由 getFirmClientsWithDetails 从 space / invitee_clients 解析） */
@@ -665,7 +682,32 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     };
   });
 
-  return [...detailedClients, ...orphanRows, ...pendingRows];
+  // Defensive filter: when not firm admin, only show clients/orphans/pending where current user is assignee
+  // (RLS on firm.clients / firm.orders should already enforce this; this guards against misconfiguration or service role)
+  const { data: { user: currentUser } } = await supabase.auth.getUser();
+  const currentUserId = currentUser?.id ?? null;
+  let result: FirmClientWithDetails[] = [...detailedClients, ...orphanRows, ...pendingRows];
+  if (currentUserId) {
+    const us = await supabase
+      .from('user_spaces')
+      .select('is_admin')
+      .eq('space_id', firmSpaceId)
+      .eq('user_id', currentUserId)
+      .maybeSingle();
+    const isAdmin = us.data?.is_admin === true;
+    if (!isAdmin) {
+      const assigneeSetForClient = (clientSpaceId: string) =>
+        (clientSpaceToUserIds[clientSpaceId] ?? []).includes(currentUserId);
+      result = result.filter((row) => {
+        if (row.isPendingClaim && row.inviteeClientId) {
+          return inviteeToAssigneeId[row.inviteeClientId] === currentUserId;
+        }
+        return row.clientSpaceId ? assigneeSetForClient(row.clientSpaceId) : false;
+      });
+    }
+  }
+
+  return result;
 }
 
 /** Firm 空间：获取订单列表（可选按 client 或 invitee 筛选） */
@@ -730,7 +772,7 @@ export async function getFirmOrdersWithDetails(
   const createdByIds = [...new Set(orders.map((o) => o.createdBy).filter(Boolean))] as string[];
   const orderIds = [...new Set(orders.map((o) => o.id))];
 
-  const [spacesRes, skusRes, projectsRes, inviteeRes, inviteeAssigneesRes] = await Promise.all([
+  const [spacesRes, skusRes, projectsRes, inviteeRes] = await Promise.all([
     clientSpaceIds.length > 0 ? supabase.from('spaces').select('id, name').in('id', clientSpaceIds) : Promise.resolve({ data: [] as any[] }),
     supabase.schema('firm').from('skus').select('id, name').in('id', skuIds),
     supabase
@@ -740,20 +782,12 @@ export async function getFirmOrdersWithDetails(
     inviteeClientIds.length > 0
       ? supabase.schema('firm').from('invitee_clients').select('id, invitee_client_name, invitee_contact_name, invitee_email').in('id', inviteeClientIds)
       : Promise.resolve({ data: [] as any[] }),
-    inviteeClientIds.length > 0
-      ? supabase.schema('firm').from('clients_assignee').select('invitee_client_id, user_id').eq('firm_space_id', firmSpaceId).in('invitee_client_id', inviteeClientIds)
-      : Promise.resolve({ data: [] as any[] }),
   ]);
 
-  const orderInviteeToAssigneeId: Record<string, string> = {};
-  (inviteeAssigneesRes.data || []).forEach((row: any) => {
-    orderInviteeToAssigneeId[row.invitee_client_id] = row.user_id;
-  });
-  const inviteeAssigneeIds = Object.values(orderInviteeToAssigneeId);
-  const allUserIdsForOrders = [...new Set([...createdByIds, ...inviteeAssigneeIds])];
+  // Created-by column: only need creator (created_by) display; permissions use clients_assignee
   let userMap: Record<string, { name: string | null; email: string }> = {};
-  if (allUserIdsForOrders.length > 0) {
-    const usersRes = await supabase.from('users').select('id, name, email').in('id', allUserIdsForOrders);
+  if (createdByIds.length > 0) {
+    const usersRes = await supabase.from('users').select('id, name, email').in('id', createdByIds);
     (usersRes.data || []).forEach((u: any) => {
       userMap[u.id] = { name: u.name ?? null, email: u.email || '' };
     });
@@ -767,13 +801,10 @@ export async function getFirmOrdersWithDetails(
   clientSpaceIds.forEach((id) => {
     clientNameBySpace[id] = spaceMap[id] ?? id;
   });
-  const inviteeMap: Record<string, { name: string; email: string; assigneeName: string | null }> = {};
+  const inviteeMap: Record<string, { name: string; email: string }> = {};
   (inviteeRes.data || []).forEach((inv: any) => {
     const name = inv.invitee_client_name || inv.invitee_contact_name || inv.invitee_email || 'Pending';
-    const assigneeUserId = orderInviteeToAssigneeId[inv.id];
-    const assigneeUser = assigneeUserId ? userMap[assigneeUserId] : null;
-    const assigneeName = assigneeUser ? (assigneeUser.name || assigneeUser.email || null) : null;
-    inviteeMap[inv.id] = { name, email: inv.invitee_email || '', assigneeName };
+    inviteeMap[inv.id] = { name, email: inv.invitee_email || '' };
   });
   const skuMap: Record<string, string> = {};
   (skusRes.data || []).forEach((s: any) => {
@@ -797,7 +828,8 @@ export async function getFirmOrdersWithDetails(
 
   return orders.map((o) => {
     const inviteeInfo = o.inviteeClientId ? inviteeMap[o.inviteeClientId] : null;
-    const assigneeName = inviteeInfo?.assigneeName ?? (o.createdBy ? (userMap[o.createdBy]?.name || userMap[o.createdBy]?.email || null) : null);
+    // "Created by" column: show order creator (created_by), not used for permissions
+    const assigneeName = o.createdBy ? (userMap[o.createdBy]?.name || userMap[o.createdBy]?.email || null) : null;
     const project = projectMap[o.id];
     const clientName = o.clientSpaceId
       ? (clientNameBySpace[o.clientSpaceId] ?? o.clientSpaceId)

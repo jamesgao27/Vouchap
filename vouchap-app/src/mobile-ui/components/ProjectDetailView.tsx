@@ -247,6 +247,8 @@ export function ProjectDetailView({
   const showCollectingActions = orderStatus === 'processing' && onAbort;
   const showCancelledActions = orderStatus === 'cancelled' && onRestart;
   const showHeaderActions = showOnboardingActions || showCollectingActions || showCancelledActions;
+  /** Detail content (Todos + Info) is read-only when onboarding, cancelled, or completed — same as onboarding. */
+  const isDetailReadOnly = isOnboarding || orderStatus === 'cancelled' || orderStatus === 'completed';
 
   useLayoutEffect(() => {
     if (!showHeaderActions) {
@@ -373,7 +375,7 @@ export function ProjectDetailView({
           </TouchableOpacity>
         </View>
 
-        {!(isOnboarding && (viewerRole === 'firm' || (viewerRole === 'client' && (skuItems?.length ?? 0) > 0))) ? (
+        {!(isOnboarding && (viewerRole === 'firm' || (viewerRole === 'client' && (skuItems?.length ?? 0) > 0))) && !isDetailReadOnly ? (
           <>
             {activeTab === 'info' && !infoEditing && (
               <TouchableOpacity
@@ -503,6 +505,7 @@ export function ProjectDetailView({
           viewerRole={viewerRole}
           onRefresh={onRefresh}
           createProjectTodo={createProjectTodo}
+          catalogPreviewReadOnly={isDetailReadOnly}
         />
       )}
     </View>

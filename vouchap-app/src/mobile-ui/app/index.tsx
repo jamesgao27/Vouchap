@@ -7,7 +7,7 @@ import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
 import { isAuthenticated, getCurrentUser, getCurrentSpace, setCurrentSpace, getUserSpaces, createSpace } from '@/lib/auth';
 import { initializeAuthCache, isCacheInitialized } from '@/lib/auth-cache';
-import { Space, UserSpace } from '@/types';
+import { Space, UserSpace, User } from '@/types';
 import { getPendingInvitationsForUser } from '@/lib/space-invitations';
 import { uploadReceiptImageTempWithSpace } from '@/lib/supabase';
 import { saveReceipt } from '@/lib/database';
@@ -164,8 +164,21 @@ export default function HomeScreen() {
       setIsLoggedIn(true);
       return;
     } else {
-      // 多个空间但没有当前空间，跳转到空间选择页面
-      router.replace('/space-select');
+      // 多个空间但没有当前空间：自动选择最新空间并进入
+      const sortedSpaces = [...spaces].sort((a, b) => {
+        const at = a.createdAt ? Date.parse(a.createdAt) || 0 : 0;
+        const bt = b.createdAt ? Date.parse(b.createdAt) || 0 : 0;
+        if (at !== bt) return bt - at;
+        return (a.spaceId || '').localeCompare(b.spaceId || '');
+      });
+      const latest = sortedSpaces[0];
+      if (latest) {
+        await setCurrentSpace(latest.spaceId);
+        const updatedUser = await getCurrentUser(true);
+        const updatedSpace = updatedUser ? await getCurrentSpace(true) : null;
+        await initializeAuthCache(updatedUser, updatedSpace);
+      }
+      setIsLoggedIn(true);
       return;
     }
   };
@@ -201,36 +214,24 @@ export default function HomeScreen() {
   };
 
   const continueAuthCheck = async () => {
-    // 流程：登录成功 -> 判断是否已关联家庭 -> 有关联家庭 -> 进入上次登录的家庭的index
-    // 如果用户已有关联空间，即使有 pending invitations，也允许进入应用（用户可以通过 Later 按钮忽略邀请）
-    
-    // 首先检查用户是否有当前空间（使用缓存，如果缓存未初始化则从数据库读取）
-    let user;
+    // 流程：登录成功 -> member 邀请 -> firm 邀请 -> 当前/最新空间或新建空间（由本页与 login 共同完成）
+    // 并行拉取 user + spaces，减少卡顿，直接进入后续流程
+    const { getUserSpaces } = await import('@/lib/auth');
+    let user: User | null;
+    let spaces: UserSpace[];
     try {
-      user = await getCurrentUser(true); // 强制刷新，确保获取最新的currentSpaceId
-    } catch (userError) {
+      [user, spaces] = await Promise.all([getCurrentUser(true), getUserSpaces()]);
+    } catch {
       console.log('Index: Error getting user, redirecting to setup-space');
       router.replace('/setup-space');
       return;
     }
-    
+
     if (!user) {
       console.log('Index: No user, redirecting to setup-space');
       router.replace('/setup-space');
       return;
     }
-
-    // 如果用户已经有当前空间（currentSpaceId 或 spaceId），直接进入应用（进入上次登录的空间）
-    // 即使有 pending invitations，也允许进入应用（用户可以通过 setup-space 页面的 Invitations 按钮处理）
-    if (user.currentSpaceId || user.spaceId) {
-      console.log('Index: User has current space, entering app (pending invitations can be handled later)');
-      setIsLoggedIn(true);
-      return;
-    }
-
-    // 用户没有当前空间，检查用户是否有空间（区分新用户和老用户）
-    const { getUserSpaces } = await import('@/lib/auth');
-    const spaces = await getUserSpaces();
     
     console.log('Index: User spaces count:', spaces.length);
     if (spaces.length > 0) {
@@ -240,7 +241,23 @@ export default function HomeScreen() {
       })));
     }
     
-    // 新用户：没有空间，检查是否有待处理的邀请
+    // 先判断 currentSpaceId / spaceId 是否仍然指向一个「仍然属于该用户」的空间
+    const ownedSpaceIds = new Set(spaces.map((s) => s.spaceId));
+    const hasValidCurrentSpace =
+      (user.currentSpaceId && ownedSpaceIds.has(user.currentSpaceId)) ||
+      (user.spaceId && ownedSpaceIds.has(user.spaceId));
+
+    if (hasValidCurrentSpace) {
+      console.log('Index: User has valid current space, entering app');
+      setIsLoggedIn(true);
+      return;
+    }
+
+    // 走到这里说明：
+    // - 要么用户从未设置 currentSpaceId；
+    // - 要么 currentSpaceId 指向的空间已经不在用户的空间列表里（例如被 admin 踢出或空间被删除）。
+
+    // 没有任何空间：按新用户流程处理（可能是被踢出了最后一个空间）
     if (spaces.length === 0) {
       // 检查是否有待处理的邀请（新用户需要处理邀请）
       try {
@@ -264,10 +281,10 @@ export default function HomeScreen() {
       return;
     }
 
-    // 老用户：有空间但没有当前空间
+    // 老用户：有空间但 currentSpaceId 已失效或从未设置
     if (spaces.length === 1) {
-      // 只有一个空间，自动设置并进入（这就是上次登录的空间）
-      console.log('Index: Setting single space:', spaces[0].spaceId);
+      // 只有一个空间，自动设置并进入
+      console.log('Index: Setting single space for user without valid current:', spaces[0].spaceId);
       const { setCurrentSpace } = await import('@/lib/auth');
       await setCurrentSpace(spaces[0].spaceId);
       // 更新缓存（使用已设置的空间ID，避免再次查询）
@@ -277,9 +294,26 @@ export default function HomeScreen() {
       setIsLoggedIn(true);
       return;
     } else {
-      // 多个空间但没有当前空间，跳转到空间选择页面
-      console.log('Index: Multiple spaces, redirecting to space-select');
-      router.replace('/space-select');
+      // 多个空间：自动选择「创建时间最新」的空间作为当前空间；
+      // 如果没有 createdAt 字段，则退化为按 id 排序的最后一个。
+      const sortedSpaces = [...spaces].sort((a, b) => {
+        const at = a.createdAt ? Date.parse(a.createdAt) || 0 : 0;
+        const bt = b.createdAt ? Date.parse(b.createdAt) || 0 : 0;
+        if (at !== bt) return bt - at; // 新的在前
+        // createdAt 相同或缺失时，按 id 字符串排序保证稳定性
+        return (a.spaceId || '').localeCompare(b.spaceId || '');
+      });
+      const latest = sortedSpaces[0];
+      if (latest) {
+        console.log('Index: Auto-select latest space for user without valid current:', latest.spaceId);
+        const { setCurrentSpace } = await import('@/lib/auth');
+        await setCurrentSpace(latest.spaceId);
+        const updatedUser = await getCurrentUser(true);
+        const updatedSpace = updatedUser ? await getCurrentSpace(true) : null;
+        await initializeAuthCache(updatedUser, updatedSpace);
+      }
+      // 兜底：即使 sortedSpaces 为空（理论上不会），也进入首页
+      setIsLoggedIn(true);
       return;
     }
   };
@@ -704,7 +738,7 @@ export default function HomeScreen() {
 
   const isFirmPending = currentSpace?.kind === 'firm' && currentSpace?.firmStatus !== 'approved';
 
-  // Web 端：firm 待审核遮罩由 _layout 统一处理（含首页及所有 /firm/* 子模块），此处仅渲染已审核内容
+  // Web 端：firm 待审核遮罩由 _layout 统一处理；pending 角标在左侧栏 WebSidebar 个人信息卡片上
   if (Platform.OS === 'web') {
     return (
       <View style={styles.container}>
@@ -723,12 +757,12 @@ export default function HomeScreen() {
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
-      {/* 顶部栏：家庭名称和管理入口 */}
+      {/* 顶部栏：家庭名称和管理入口；左上角为 pending 角标（member 邀请 + engagement claim），样式复用、双类型时不同颜色角标 */}
       <View style={styles.topBar}>
         <View style={styles.topBarLeft}>
           {pendingInvitationsCount > 0 && (
             <TouchableOpacity
-              style={styles.invitationsBadgeButton}
+              style={styles.pendingBadgeButton}
               onPress={() => router.push('/handle-invitations')}
               activeOpacity={0.7}
             >
@@ -736,6 +770,20 @@ export default function HomeScreen() {
               <View style={styles.invitationsBadge}>
                 <Text style={styles.invitationsBadgeText}>
                   {pendingInvitationsCount > 99 ? '99+' : pendingInvitationsCount}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
+          {pendingClaimCount > 0 && (
+            <TouchableOpacity
+              style={styles.pendingBadgeButton}
+              onPress={() => router.push('/auth/claim')}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="briefcase-outline" size={24} color="#6C5CE7" />
+              <View style={styles.claimBadge}>
+                <Text style={styles.invitationsBadgeText}>
+                  {pendingClaimCount > 99 ? '99+' : pendingClaimCount}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -758,20 +806,6 @@ export default function HomeScreen() {
           <Ionicons name="settings-outline" size={24} color="#2D3436" />
         </TouchableOpacity>
       </View>
-
-      {pendingClaimCount > 0 && (
-        <TouchableOpacity
-          style={styles.pendingClaimBanner}
-          onPress={() => router.push('/auth/claim')}
-          activeOpacity={0.8}
-        >
-          <Ionicons name="briefcase-outline" size={20} color="#fff" />
-          <Text style={styles.pendingClaimBannerText}>
-            You have {pendingClaimCount} pending engagement{pendingClaimCount !== 1 ? 's' : ''}. Tap to claim.
-          </Text>
-          <Ionicons name="chevron-forward" size={18} color="#fff" />
-        </TouchableOpacity>
-      )}
 
       <View style={styles.content}>
         {isFirmPending ? (
@@ -1239,13 +1273,13 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   topBarLeft: {
-    width: 44,
+    flexDirection: 'row',
     minWidth: 44,
     height: 44,
-    justifyContent: 'center',
-    alignItems: 'flex-start',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
   },
-  invitationsBadgeButton: {
+  pendingBadgeButton: {
     width: 44,
     height: 44,
     justifyContent: 'center',
@@ -1266,28 +1300,25 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#fff',
   },
+  claimBadge: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    backgroundColor: '#6C5CE7',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    paddingHorizontal: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
   invitationsBadgeText: {
     color: '#fff',
     fontSize: 11,
     fontWeight: '700',
     textAlign: 'center',
-  },
-  pendingClaimBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#6C5CE7',
-    marginHorizontal: 16,
-    marginBottom: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    borderRadius: 12,
-    gap: 8,
-  },
-  pendingClaimBannerText: {
-    flex: 1,
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: '500',
   },
   householdNameContainer: {
     flex: 1,

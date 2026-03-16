@@ -71,11 +71,11 @@ export default function LoginScreen() {
       showToast(error.message, 'error');
       return;
     }
-    // 若从 auth/setup 跳转过来，登录后带回 token 继续设置流程
     if (params.redirect === '/auth/setup' && params.token) {
       router.replace({ pathname: '/auth/setup', params: { token: params.token } });
       return;
     }
+    // 顺序：先查 member 邀请，再查 firm 邀请，最后进入首页（首页会进入当前/最新空间或新建空间）
     try {
       const { getPendingInvitationsForUser } = await import('@/lib/space-invitations');
       if ((await getPendingInvitationsForUser()).length > 0) {
@@ -83,7 +83,6 @@ export default function LoginScreen() {
         return;
       }
     } catch (_) {}
-    // Invitee 认领：与 open invite 一致，有待认领 engagement 时直接进入认领流程
     try {
       const { getCurrentUser } = await import('@/lib/auth');
       const { getPendingInviteesForEmail } = await import('@/lib/firm-clients');

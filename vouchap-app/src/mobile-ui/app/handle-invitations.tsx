@@ -13,6 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getCurrentUser, getCurrentSpace, setCurrentSpace, getUserSpaces, isAuthenticated } from '@/lib/auth';
 import { initializeAuthCache } from '@/lib/auth-cache';
 import { getPendingInvitationsForUser, acceptInvitation, declineInvitation } from '@/lib/space-invitations';
+import { getPendingInviteesForEmail } from '@/lib/firm-clients';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '@/lib/alertWeb';
@@ -137,77 +138,87 @@ export default function HandleInvitationsScreen() {
 
   const continueAfterInvitations = async () => {
     try {
-      console.log('continueAfterInvitations: Starting...');
-      
-      // 检查用户是否有当前空间（使用缓存，如果缓存未初始化则从数据库读取）
-      const user = await getCurrentUser(true); // 强制刷新，确保获取最新的currentSpaceId
-      console.log('continueAfterInvitations: User:', {
-        id: user?.id,
-        currentSpaceId: user?.currentSpaceId,
-        spaceId: user?.spaceId,
-      });
-      
+      // 并行拉取 user + spaces，减少卡顿，直接进入后续流程（Later/回退后不卡）
+      const [user, spaces] = await Promise.all([getCurrentUser(true), getUserSpaces()]);
+
       if (!user) {
-        console.log('continueAfterInvitations: No user, redirecting to setup-space');
         router.replace('/setup-space');
         return;
       }
-
-      // 检查用户是否有空间（区分新用户和老用户）
-      const spaces = await getUserSpaces();
-      console.log('continueAfterInvitations: Spaces:', {
-        count: spaces.length,
-        spaceIds: spaces.map(s => s.spaceId),
-      });
       
-      // 新用户：没有空间，跳转到设置空间页面（创建空间）
       if (spaces.length === 0) {
-        console.log('continueAfterInvitations: No spaces, redirecting to setup-space');
+        if (user.email) {
+          const { list } = await getPendingInviteesForEmail(user.email).catch(() => ({ list: [] }));
+          if (list?.length > 0) {
+            router.replace('/auth/claim');
+            return;
+          }
+        }
         router.replace('/setup-space');
         return;
       }
 
-      // 老用户：有空间
-      // 如果用户已经有当前空间（currentSpaceId 或 spaceId），直接进入应用（登录到上次登录的空间）
-      // 即使有 pending invitations，也允许用户进入应用（用户可以通过 Later 按钮忽略邀请）
-      if (user.currentSpaceId || user.spaceId) {
-        const targetSpaceId = user.currentSpaceId || user.spaceId;
-        console.log('continueAfterInvitations: User has current space, redirecting to home (ignoring pending invitations):', targetSpaceId);
-        
-        // 确保缓存已更新
+      const ownedSpaceIds = new Set(spaces.map((s) => s.spaceId));
+      const hasValidCurrent =
+        (user.currentSpaceId && ownedSpaceIds.has(user.currentSpaceId)) ||
+        (user.spaceId && ownedSpaceIds.has(user.spaceId));
+
+      if (hasValidCurrent) {
         try {
           const updatedSpace = await getCurrentSpace(true);
           await initializeAuthCache(user, updatedSpace);
-        } catch (cacheError) {
-          console.warn('continueAfterInvitations: Cache update failed, continuing:', cacheError);
+        } catch (_) {}
+        if (user.email) {
+          const { list } = await getPendingInviteesForEmail(user.email).catch(() => ({ list: [] }));
+          if (list?.length > 0) {
+            router.replace('/auth/claim');
+            return;
+          }
         }
-        
         router.replace('/');
         return;
       }
 
-      // 老用户：有空间但没有当前空间
       if (spaces.length === 1) {
-        // 只有一个空间，自动设置并进入（这就是上次登录的空间）
-        console.log('continueAfterInvitations: Setting single space:', spaces[0].spaceId);
         await setCurrentSpace(spaces[0].spaceId);
-        
-        // 更新缓存（强制刷新，确保获取最新的currentSpaceId）
         try {
           const updatedUser = await getCurrentUser(true);
           const updatedSpace = updatedUser ? await getCurrentSpace(true) : null;
           await initializeAuthCache(updatedUser, updatedSpace);
-          console.log('continueAfterInvitations: Cache updated, redirecting to home');
-        } catch (cacheError) {
-          console.warn('continueAfterInvitations: Cache update failed, continuing:', cacheError);
+        } catch (_) {}
+        if (user.email) {
+          const { list } = await getPendingInviteesForEmail(user.email).catch(() => ({ list: [] }));
+          if (list?.length > 0) {
+            router.replace('/auth/claim');
+            return;
+          }
         }
-        
         router.replace('/');
         return;
-      } else {
-        // 多个空间但没有当前空间，跳转到空间选择页面
-        console.log('continueAfterInvitations: Multiple spaces, redirecting to space-select');
-        router.replace('/space-select');
+      }
+
+      if (spaces.length > 1) {
+        if (user.email) {
+          const { list } = await getPendingInviteesForEmail(user.email).catch(() => ({ list: [] }));
+          if (list?.length > 0) {
+            router.replace('/auth/claim');
+            return;
+          }
+        }
+        // 自动选择最新空间并进入首页
+        const sorted = [...spaces].sort((a, b) => {
+          const at = a.createdAt ? Date.parse(a.createdAt) || 0 : 0;
+          const bt = b.createdAt ? Date.parse(b.createdAt) || 0 : 0;
+          return at !== bt ? bt - at : (a.spaceId || '').localeCompare(b.spaceId || '');
+        });
+        const latest = sorted[0];
+        if (latest) {
+          await setCurrentSpace(latest.spaceId);
+          const updatedUser = await getCurrentUser(true);
+          const updatedSpace = updatedUser ? await getCurrentSpace(true) : null;
+          await initializeAuthCache(updatedUser, updatedSpace);
+        }
+        router.replace('/');
         return;
       }
     } catch (error) {
@@ -331,79 +342,20 @@ export default function HandleInvitationsScreen() {
   };
 
   const handleLaterInvitation = async () => {
-    // 后续处理：关闭对话框，不处理邀请
-    // 根据用户类型（新/老）执行不同流程：
-    // - 新用户（无空间）：跳转到创建空间页面
-    // - 老用户（有空间）：登录到上次登录的空间
-    console.log('handleLaterInvitation: Called');
-    
     setShowInviteModal(false);
     setInviteId(null);
     setInviteSpaceId(null);
-    
-    // 检查用户是否已有关联空间
-    try {
-      const user = await getCurrentUser(true);
-      const spaces = await getUserSpaces();
-      
-      // 如果用户已有关联空间，直接跳转到 index（忽略 pending invitations）
-      if (spaces.length > 0) {
-        // 如果有当前空间，直接进入
-        if (user?.currentSpaceId || user?.spaceId) {
-          console.log('handleLaterInvitation: User has current space, redirecting to index');
-          // 更新缓存
-          try {
-            const updatedSpace = await getCurrentSpace(true);
-            await initializeAuthCache(user, updatedSpace);
-          } catch (cacheError) {
-            console.warn('handleLaterInvitation: Cache update failed, continuing:', cacheError);
-          }
-          router.replace('/');
-          return;
-        }
-        
-        // 如果只有一个空间，自动设置并进入
-        if (spaces.length === 1) {
-          console.log('handleLaterInvitation: Setting single space and redirecting to index');
-          await setCurrentSpace(spaces[0].spaceId);
-          // 更新缓存
-          try {
-            const updatedUser = await getCurrentUser(true);
-            const updatedSpace = updatedUser ? await getCurrentSpace(true) : null;
-            await initializeAuthCache(updatedUser, updatedSpace);
-          } catch (cacheError) {
-            console.warn('handleLaterInvitation: Cache update failed, continuing:', cacheError);
-          }
-          router.replace('/');
-          return;
-        }
-        
-        // 多个空间，跳转到空间选择页面
-        if (spaces.length > 1) {
-          console.log('handleLaterInvitation: Multiple spaces, redirecting to space-select');
-          router.replace('/space-select');
-          return;
-        }
-      }
-    } catch (error) {
-      console.error('Error checking user spaces in handleLaterInvitation:', error);
-    }
-    
-    // 如果没有空间，继续处理邀请或跳转到 setup-space
-    // 检查是否还有更多邀请
+
     const nextIndex = currentInvitationIndex + 1;
     if (nextIndex < pendingInvitations.length) {
-      // 还有更多邀请，显示下一个
-      console.log('handleLaterInvitation: More invitations, showing next');
       setCurrentInvitationIndex(nextIndex);
       showNextInvitation(nextIndex, pendingInvitations);
-    } else {
-      // 所有邀请都处理完了，跳转到 setup-space（新用户需要创建空间）
-      console.log('handleLaterInvitation: All invitations processed, redirecting to setup-space');
-      setPendingInvitations([]);
-      setCurrentInvitationIndex(0);
-      router.replace('/setup-space');
+      return;
     }
+
+    setPendingInvitations([]);
+    setCurrentInvitationIndex(0);
+    await continueAfterInvitations();
   };
 
   // 未认证时不渲染（等待重定向）

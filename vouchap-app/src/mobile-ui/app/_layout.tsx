@@ -372,12 +372,6 @@ function LayoutContent() {
           }} 
         />
         <Stack.Screen 
-          name="space-select" 
-          options={{ 
-            headerShown: false
-          }} 
-        />
-        <Stack.Screen 
           name="profile" 
           options={{ 
             title: 'Personal Information'
