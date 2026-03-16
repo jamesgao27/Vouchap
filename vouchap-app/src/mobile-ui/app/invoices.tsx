@@ -551,6 +551,33 @@ export default function InvoicesScreen() {
     return sortRowsByColumn(searchedInvoices, col, sortDirection);
   }, [groupBy, searchedInvoices, sortKey, sortDirection, invoiceColumns, sortRowsByColumn]);
 
+  const allSectionForTable = useMemo(() => {
+    const dataForStats = sortedDataForTable;
+    const confirmed = dataForStats.filter((inv: Invoice) => inv.status === 'confirmed');
+    const currencies = confirmed.map((r: Invoice) => r.currency || 'USD');
+    const dominantCurrency = currencies.length > 0
+      ? (currencies.sort((a: string, b: string) =>
+          currencies.filter((v: string) => v === a).length - currencies.filter((v: string) => v === b).length
+        ).pop() as string)
+      : 'USD';
+    const totalAmount = exchangeRates
+      ? sumAmountsInCurrency(
+          confirmed.map((r: Invoice) => ({ amount: r.totalAmount, currency: r.currency || 'USD' })),
+          dominantCurrency || 'USD',
+          exchangeRates
+        )
+      : 0;
+    return [{
+      title: 'All',
+      data: sortedDataForTable,
+      count: confirmed.length,
+      countLabel: 'income',
+      totalAmount,
+      currency: dominantCurrency,
+      amountColor: '#D35400',
+    }];
+  }, [sortedDataForTable, exchangeRates]);
+
   const tableEmptyMessage = useMemo(() => {
     const isEmpty = sections.length === 0 || (refreshing && searchQuery.trim());
     const loadInProgress = loading || refreshing || !fullDataLoaded;
@@ -690,8 +717,12 @@ export default function InvoicesScreen() {
           ) : (
             <DataTable<Invoice>
               columns={invoiceColumns}
-              data={groupBy === 'none' && !(refreshing && searchQuery.trim()) ? sortedDataForTable : undefined}
-              sections={groupBy === 'none' || (refreshing && searchQuery.trim()) ? undefined : tableSections}
+              data={undefined}
+              sections={
+                refreshing && searchQuery.trim()
+                  ? undefined
+                  : (groupBy === 'none' ? allSectionForTable : tableSections)
+              }
               sortKey={sortKey}
               sortDirection={sortDirection}
               onSort={(key, dir) => { setSortKey(key); setSortDirection(dir); }}
@@ -773,7 +804,6 @@ export default function InvoicesScreen() {
           );
         }}
         renderSectionHeader={({ section }) => {
-          if (section.monthKey === 'all') return null;
           const isCollapsed = collapsedSections.has(section.monthKey);
           const dataForStats = section.originalData || section.data;
           const confirmed = dataForStats.filter((inv: Invoice) => inv.status === 'confirmed');

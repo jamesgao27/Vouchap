@@ -1008,6 +1008,33 @@ export default function ReceiptsScreen() {
     return sortRowsByColumn(searchedReceipts, col, sortDirection);
   }, [groupBy, searchedReceipts, sortKey, sortDirection, receiptColumns, sortRowsByColumn]);
 
+  const allSectionForTable = useMemo(() => {
+    const dataForStats = sortedDataForTable;
+    const confirmed = dataForStats.filter((r: Receipt) => r.status === 'confirmed');
+    const currencies = confirmed.map((r: Receipt) => r.currency || 'USD');
+    const dominantCurrency = currencies.length > 0
+      ? (currencies.sort((a: string, b: string) =>
+          currencies.filter((v: string) => v === a).length - currencies.filter((v: string) => v === b).length
+        ).pop() as string)
+      : 'USD';
+    const totalAmount = exchangeRates
+      ? sumAmountsInCurrency(
+          confirmed.map((r: Receipt) => ({ amount: r.totalAmount, currency: r.currency || 'USD' })),
+          dominantCurrency || 'USD',
+          exchangeRates
+        )
+      : 0;
+    return [{
+      title: 'All',
+      data: sortedDataForTable,
+      count: confirmed.length,
+      countLabel: 'receipts',
+      totalAmount,
+      currency: dominantCurrency,
+      amountColor: '#6C5CE7',
+    }];
+  }, [sortedDataForTable, exchangeRates]);
+
   const tableEmptyMessage = useMemo(() => {
     const isEmpty = sections.length === 0 || (refreshing && searchQuery.trim());
     const loadInProgress = loading || refreshing || !fullDataLoaded;
@@ -1157,8 +1184,12 @@ export default function ReceiptsScreen() {
           ) : (
             <DataTable<Receipt>
               columns={receiptColumns}
-              data={groupBy === 'none' && !(refreshing && searchQuery.trim()) ? sortedDataForTable : undefined}
-              sections={groupBy === 'none' || (refreshing && searchQuery.trim()) ? undefined : tableSections}
+              data={undefined}
+              sections={
+                refreshing && searchQuery.trim()
+                  ? undefined
+                  : (groupBy === 'none' ? allSectionForTable : tableSections)
+              }
               sortKey={sortKey}
               sortDirection={sortDirection}
               onSort={(key, dir) => { setSortKey(key); setSortDirection(dir); }}
@@ -1276,7 +1307,6 @@ export default function ReceiptsScreen() {
           );
         }}
         renderSectionHeader={({ section }: { section: SectionData }) => {
-          if (section.monthKey === 'all') return null;
           const isCollapsed = collapsedSections.has(section.monthKey);
           // 使用原始数据（originalData）或当前数据（data）进行统计，确保折叠后统计也正确
           const dataForStats = section.originalData || section.data;

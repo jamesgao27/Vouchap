@@ -103,8 +103,12 @@ export function ProjectListCard({
   return (
     <View
       style={[s.cardWrap, cardWidth != null && { width: cardWidth }]}
-      onMouseEnter={Platform.OS === 'web' ? () => setHover(true) : undefined}
-      onMouseLeave={Platform.OS === 'web' ? () => setHover(false) : undefined}
+      {...(Platform.OS === 'web'
+        ? ({
+            onMouseEnter: () => setHover(true),
+            onMouseLeave: () => setHover(false),
+          } as any)
+        : {})}
     >
       <TouchableOpacity
         style={[s.card, hover && s.cardHover, item.isMuted && s.cardMuted]}
@@ -307,8 +311,12 @@ export function ProjectListRow({
   return (
     <View
       style={s.listRowWrap}
-      onMouseEnter={Platform.OS === 'web' ? () => setHover(true) : undefined}
-      onMouseLeave={Platform.OS === 'web' ? () => setHover(false) : undefined}
+      {...(Platform.OS === 'web'
+        ? ({
+            onMouseEnter: () => setHover(true),
+            onMouseLeave: () => setHover(false),
+          } as any)
+        : {})}
     >
       <TouchableOpacity style={[s.listRow, item.isMuted && s.listRowMuted]} onPress={onPress} activeOpacity={0.7}>
         {onTogglePin != null && !item.isMuted && (isPinned || hover) && (

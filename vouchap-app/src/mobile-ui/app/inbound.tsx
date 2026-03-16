@@ -607,6 +607,27 @@ export default function InboundScreen() {
     return base.map(sec => ({ ...sec, data: sortRowsByColumn(sec.data, col, sortDirection) }));
   }, [sections, sortKey, sortDirection, inboundColumns, sortRowsByColumn]);
 
+  const allSectionForTable = useMemo(() => {
+    const dataForStats = sortedDataForTable;
+    const confirmed = dataForStats.filter((inv: Inbound) => inv.status === 'confirmed');
+    const currencies = confirmed.map((r: Inbound) => r.currency || 'USD');
+    const dominantCurrency = currencies.length > 0
+      ? (currencies.sort((a: string, b: string) =>
+          currencies.filter((v: string) => v === a).length - currencies.filter((v: string) => v === b).length
+        ).pop() as string)
+      : 'USD';
+    const totalAmount = confirmed.reduce((sum: number, r: Inbound) => sum + (r.totalAmount ?? 0), 0);
+    return [{
+      title: 'All',
+      data: sortedDataForTable,
+      count: confirmed.length,
+      countLabel: 'inbounds',
+      totalAmount,
+      currency: dominantCurrency,
+      amountColor: '#6C5CE7',
+    }];
+  }, [sortedDataForTable]);
+
   const sortedDataForTable = useMemo(() => {
     if (groupBy !== 'none') return searchedList;
     const col = sortKey ? inboundColumns.find(c => c.id === sortKey) : null;
@@ -754,8 +775,12 @@ export default function InboundScreen() {
           ) : (
             <DataTable<Inbound>
               columns={inboundColumns}
-              data={groupBy === 'none' && !(refreshing && searchQuery.trim()) ? sortedDataForTable : undefined}
-              sections={groupBy === 'none' || (refreshing && searchQuery.trim()) ? undefined : tableSections}
+              data={undefined}
+              sections={
+                refreshing && searchQuery.trim()
+                  ? undefined
+                  : (groupBy === 'none' ? allSectionForTable : tableSections)
+              }
               sortKey={sortKey}
               sortDirection={sortDirection}
               onSort={(key, dir) => { setSortKey(key); setSortDirection(dir); }}
@@ -834,7 +859,6 @@ export default function InboundScreen() {
           );
         }}
         renderSectionHeader={({ section }) => {
-          if (section.monthKey === 'all') return null;
           const isCollapsed = collapsedSections.has(section.monthKey);
           const dataForStats = section.originalData || section.data;
           const confirmed = dataForStats.filter((inv: Inbound) => inv.status === 'confirmed');
