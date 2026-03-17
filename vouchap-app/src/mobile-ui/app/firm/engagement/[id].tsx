@@ -233,7 +233,10 @@ export default function FirmEngagementDetailScreen() {
   const isOnboarding = order.status === 'onboarding';
   const statusCfg = ORDER_STATUS_CONFIG[order.status] ?? ORDER_STATUS_CONFIG.onboarding;
   const dateForYear = order.dueAt || order.createdAt;
-  const taxYear = dateForYear ? new Date(dateForYear).getFullYear() : null;
+  const explicitTaxSeasonYear = (order as any).taxSeasonYear ?? null;
+  const taxYear = explicitTaxSeasonYear != null
+    ? explicitTaxSeasonYear
+    : (dateForYear ? new Date(dateForYear).getFullYear() : null);
   const detailHeader: ProjectDetailHeader = {
     title: order.skuName ?? 'Engagement',
     subtitle: clientName ? `Service for ${clientName}` : '',

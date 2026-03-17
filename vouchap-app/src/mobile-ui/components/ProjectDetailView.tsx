@@ -236,6 +236,8 @@ export function ProjectDetailView({
 }: ProjectDetailViewProps) {
   const navigation = useNavigation();
 
+  const isWeb = Platform.OS === 'web';
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerBackButtonVisible: true,
@@ -244,115 +246,8 @@ export function ProjectDetailView({
   }, [navigation, header.title, header.subtitle, header.taxSeasonYear, header.status?.label]);
 
   const showOnboardingActions = Boolean(isOnboarding && onAcceptAndStart && (viewerRole === 'client' || viewerRole === 'firm'));
-  const showCollectingActions = orderStatus === 'processing' && onAbort;
-  const showCancelledActions = orderStatus === 'cancelled' && onRestart;
-  const showHeaderActions = showOnboardingActions || showCollectingActions || showCancelledActions;
   /** Detail content (Todos + Info) is read-only when onboarding, cancelled, or completed — same as onboarding. */
   const isDetailReadOnly = isOnboarding || orderStatus === 'cancelled' || orderStatus === 'completed';
-
-  useLayoutEffect(() => {
-    if (!showHeaderActions) {
-      navigation.setOptions({ headerBackButtonVisible: true, headerRight: undefined });
-      return;
-    }
-    navigation.setOptions({
-      headerBackButtonVisible: true,
-      headerRight: () => {
-        if (showCancelledActions) {
-          return (
-            <View style={sharedStyles.headerActionsWrap}>
-              <TouchableOpacity
-                onPress={onRestart}
-                disabled={restartLoading}
-                style={sharedStyles.headerRestartBtn}
-                activeOpacity={0.85}
-              >
-                {restartLoading ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
-                    <Ionicons name="play-circle" size={18} color="#fff" />
-                    <Text style={sharedStyles.headerRestartBtnText}>Restart</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          );
-        }
-        if (showCollectingActions) {
-          return (
-            <View style={sharedStyles.headerActionsWrap}>
-              <TouchableOpacity
-                onPress={onAbort}
-                disabled={abortLoading || completeLoading}
-                style={sharedStyles.headerRejectBtn}
-                activeOpacity={0.85}
-              >
-                {abortLoading ? (
-                  <ActivityIndicator size="small" color="#C0392B" />
-                ) : (
-                  <Text style={sharedStyles.headerRejectBtnText}>Terminate</Text>
-                )}
-              </TouchableOpacity>
-              {onComplete ? (
-                <TouchableOpacity
-                  onPress={onComplete}
-                  disabled={completeLoading || abortLoading}
-                  style={sharedStyles.headerCompleteBtn}
-                  activeOpacity={0.85}
-                >
-                  {completeLoading ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                      <Text style={sharedStyles.headerCompleteBtnText}>Complete</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              ) : null}
-            </View>
-          );
-        }
-        return (
-          <View style={sharedStyles.headerActionsWrap}>
-            {onReject ? (
-              <TouchableOpacity
-                onPress={onReject}
-                disabled={rejectLoading || acceptAndStartLoading}
-                style={sharedStyles.headerRejectBtn}
-                activeOpacity={0.85}
-              >
-                {rejectLoading ? (
-                  <ActivityIndicator size="small" color="#C0392B" />
-                ) : (
-                  <Text style={sharedStyles.headerRejectBtnText}>{headerRejectLabel}</Text>
-                )}
-              </TouchableOpacity>
-            ) : null}
-            <TouchableOpacity
-              onPress={onAcceptAndStart}
-              disabled={acceptAndStartLoading || rejectLoading}
-              style={sharedStyles.headerAcceptBtn}
-              activeOpacity={0.85}
-            >
-              {acceptAndStartLoading ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                  <Text style={sharedStyles.headerAcceptBtnText}>{headerAcceptLabel}</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-        );
-      },
-    });
-    return () => {
-      navigation.setOptions({ headerBackButtonVisible: true, headerRight: undefined });
-    };
-  }, [navigation, showHeaderActions, showOnboardingActions, showCollectingActions, showCancelledActions, onReject, rejectLoading, onAcceptAndStart, acceptAndStartLoading, headerRejectLabel, headerAcceptLabel, onAbort, abortLoading, onComplete, completeLoading, onRestart, restartLoading]);
 
   return (
     <View style={sharedStyles.container}>
@@ -375,41 +270,91 @@ export function ProjectDetailView({
           </TouchableOpacity>
         </View>
 
-        {!(isOnboarding && (viewerRole === 'firm' || (viewerRole === 'client' && (skuItems?.length ?? 0) > 0))) && !isDetailReadOnly ? (
-          <>
-            {activeTab === 'info' && !infoEditing && (
+        <View style={sharedStyles.operationRight}>
+          {showOnboardingActions ? (
+            <View style={sharedStyles.headerActionsWrap}>
+              {onReject ? (
+                <TouchableOpacity
+                  onPress={onReject}
+                  disabled={rejectLoading || acceptAndStartLoading}
+                  style={sharedStyles.headerRejectBtn}
+                  activeOpacity={0.85}
+                >
+                  {rejectLoading ? (
+                    <ActivityIndicator size="small" color="#C0392B" />
+                  ) : (
+                    <Text style={sharedStyles.headerRejectBtnText}>{headerRejectLabel}</Text>
+                  )}
+                </TouchableOpacity>
+              ) : null}
               <TouchableOpacity
-                style={sharedStyles.operationBtn}
-                onPress={() => { infoTabRef.current?.startEditing(); setInfoEditing(true); }}
-                activeOpacity={0.7}
+                onPress={onAcceptAndStart}
+                disabled={acceptAndStartLoading || rejectLoading}
+                style={sharedStyles.headerAcceptBtn}
+                activeOpacity={0.85}
               >
-                <Ionicons name="create-outline" size={16} color="#6C5CE7" />
-                <Text style={sharedStyles.operationBtnText}>Edit info</Text>
+                {acceptAndStartLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                    <Text style={sharedStyles.headerAcceptBtnText}>{headerAcceptLabel}</Text>
+                  </>
+                )}
               </TouchableOpacity>
-            )}
-            {activeTab === 'info' && infoEditing && (
-              <View style={sharedStyles.operationEditGroup}>
+            </View>
+          ) : orderStatus === 'processing' && onAbort ? (
+            <View style={sharedStyles.headerActionsWrap}>
+              <TouchableOpacity
+                onPress={onAbort}
+                disabled={abortLoading || completeLoading}
+                style={sharedStyles.headerAbortBtn}
+                activeOpacity={0.85}
+              >
+                {abortLoading ? (
+                  <ActivityIndicator size="small" color="#D35400" />
+                ) : (
+                  <Text style={sharedStyles.headerAbortBtnText}>Terminate</Text>
+                )}
+              </TouchableOpacity>
+              {onComplete ? (
                 <TouchableOpacity
-                  style={[sharedStyles.operationBtn, sharedStyles.operationBtnSmall]}
-                  onPress={() => { infoTabRef.current?.cancelEditing(); setInfoEditing(false); }}
-                  activeOpacity={0.7}
+                  onPress={onComplete}
+                  disabled={completeLoading || abortLoading}
+                  style={sharedStyles.headerCompleteBtn}
+                  activeOpacity={0.85}
                 >
-                  <Text style={sharedStyles.operationBtnText}>Cancel</Text>
+                  {completeLoading ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                      <Text style={sharedStyles.headerCompleteBtnText}>Complete</Text>
+                    </>
+                  )}
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={[sharedStyles.operationBtn, sharedStyles.operationBtnPrimary, sharedStyles.operationBtnSmall]}
-                  onPress={async () => {
-                    const ok = await infoTabRef.current?.saveEditing();
-                    if (ok) setInfoEditing(false);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[sharedStyles.operationBtnText, { color: '#FFF' }]}>Save</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </>
-        ) : null}
+              ) : null}
+            </View>
+          ) : orderStatus === 'cancelled' && onRestart ? (
+            <View style={sharedStyles.headerActionsWrap}>
+              <TouchableOpacity
+                onPress={onRestart}
+                disabled={restartLoading}
+                style={sharedStyles.headerRestartBtn}
+                activeOpacity={0.85}
+              >
+                {restartLoading ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <>
+                    <Ionicons name="play-circle" size={18} color="#fff" />
+                    <Text style={sharedStyles.headerRestartBtnText}>Restart</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : null}
+        </View>
       </View>
 
       {/* 内容区：client onboarding 无 sku 数据时仅提示接受订单；有 sku 或 firm onboarding 时展示只读 Todos + Info */}
@@ -732,4 +677,142 @@ const sharedStyles = StyleSheet.create({
     borderColor: '#E9ECEF',
   },
   confirmNoteText: { flex: 1, fontSize: 13, color: '#636E72', lineHeight: 18 },
+  /** 移动端 Firm 收集态底部浮层按钮区域 */
+  bottomActionBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
+    paddingTop: 8,
+    backgroundColor: 'transparent',
+  },
+  bottomActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    justifyContent: 'center',
+  },
+  /** 移动端底部 Reject（client & firm onboarding）：浅红底，阴影与凭证 Cancel 一致 */
+  bottomRejectBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: '#FFE5E5',
+    borderWidth: 1,
+    borderColor: '#FFE5E5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...(Platform.OS === 'ios'
+      ? {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 6,
+        }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 2 } : {}),
+  },
+  bottomRejectBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#C0392B',
+  },
+  /** 移动端底部主按钮（Accept / Start）：主紫色，阴影与凭证 Confirm 一致 */
+  bottomAcceptBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: '#6C5CE7',
+    ...(Platform.OS === 'ios'
+      ? {
+          shadowColor: '#6C5CE7',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.25,
+          shadowRadius: 6,
+        }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 3 } : {}),
+  },
+  bottomAcceptBtnText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  bottomAbortBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: '#FFE5E5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    ...(Platform.OS === 'ios'
+      ? {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.12,
+          shadowRadius: 3,
+        }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 2 } : {}),
+  },
+  bottomAbortBtnText: {
+    color: '#C0392B',
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  bottomCompleteBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: '#00B894',
+    ...(Platform.OS === 'ios'
+      ? { shadowColor: '#00B894', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 4 }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 4 } : {}),
+  },
+  bottomCompleteBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
+  /** 移动端底部 Restart（取消态）：主紫色主按钮 */
+  bottomRestartBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 18,
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: '#6C5CE7',
+    ...(Platform.OS === 'ios'
+      ? { shadowColor: '#6C5CE7', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 6 }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 3 } : {}),
+  },
+  bottomRestartBtnText: {
+    color: '#fff',
+    fontWeight: '700',
+    fontSize: 15,
+  },
 });

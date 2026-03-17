@@ -581,7 +581,10 @@ export default function OrderTodosScreen() {
   }, [orderId, load]);
 
   const dateForYear = header?.dueAt || header?.createdAt || order?.dueAt || order?.createdAt || null;
-  const taxSeasonYear = dateForYear ? new Date(dateForYear).getFullYear() : null;
+  const explicitTaxSeasonYear = (order as any)?.taxSeasonYear ?? null;
+  const taxSeasonYear = explicitTaxSeasonYear != null
+    ? explicitTaxSeasonYear
+    : (dateForYear ? new Date(dateForYear).getFullYear() : null);
   const navigation = useNavigation();
   const isOnboarding = (order?.status === 'onboarding') || (header?.status === 'onboarding');
   const isProcessing = order?.status === 'processing';

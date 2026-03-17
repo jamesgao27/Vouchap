@@ -192,6 +192,12 @@ export interface FirmOrderForClient extends FirmOrder {
   firmName?: string;
   /** Space-level hidden: when set, order is hidden from client list for this space (all members). */
   hiddenFromClientAt?: string | null;
+  /** 报税分类：项目维度上的国家 / 场景 / 自定义标签（来自 projects.tax_country / tax_scenario / tags） */
+  taxCountry?: string | null;
+  taxScenario?: string | null;
+  tags?: string[] | null;
+  /** 显式税季年份（来自关联 project.tax_season_year），用于客户端 Tax Filing 列表税季标签 */
+  taxSeasonYear?: number | null;
 }
 
 /** 单笔订单（用于详情页） */
@@ -204,6 +210,8 @@ export interface FirmOrderById {
   dueAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
+  /** 显式税季年份（来自关联 project.tax_season_year），用于 Firm/client 详情顶行与分类展示 */
+  taxSeasonYear?: number | null;
   /** SKU 名称（附带查询，用于项目信息展示） */
   skuName?: string | null;
   /** SKU 描述（附带查询，用于项目信息展示） */
@@ -225,6 +233,7 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
   // 附带拉取 SKU 名称与描述，供详情页展示
   let skuName: string | null = null;
   let skuDescription: string | null = null;
+  let taxSeasonYear: number | null = null;
   if (row.sku_id) {
     const { data: skuRow } = await supabase
       .schema('firm')
@@ -238,6 +247,17 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
     }
   }
 
+  // 附带拉取关联 project 的 tax_season_year 作为显式税季年份
+  const { data: projectRow } = await supabase
+    .schema('firm')
+    .from('projects')
+    .select('tax_season_year')
+    .eq('order_id', row.id)
+    .maybeSingle();
+  if (projectRow && typeof (projectRow as any).tax_season_year === 'number') {
+    taxSeasonYear = (projectRow as any).tax_season_year;
+  }
+
   return {
     id: row.id,
     firmSpaceId: row.firm_space_id,
@@ -247,6 +267,7 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
     dueAt: row.due_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    taxSeasonYear,
     skuName,
     skuDescription,
   };
@@ -272,12 +293,15 @@ export async function getOrderHeaderForClient(orderId: string): Promise<{
   dueAt: string | null;
   createdAt: string | null;
   status: string;
+  /** 来自 project.tax_season_year，用于客户端项目详情顶行 Tax season pill */
+  taxSeasonYear?: number | null;
 } | null> {
   const order = await getOrderById(orderId);
   if (!order) return null;
   const isOnboarding = order.status === 'onboarding';
   let projectName = 'Service order';
   let firmName = '';
+  let taxSeasonYear: number | null = null;
   if (!isOnboarding) {
     const [project, spaceRow] = await Promise.all([
       getProjectByOrderId(orderId),
@@ -286,6 +310,7 @@ export async function getOrderHeaderForClient(orderId: string): Promise<{
         : Promise.resolve({ data: null }),
     ]);
     projectName = project?.name ?? 'Project';
+    taxSeasonYear = project?.taxSeasonYear ?? null;
     firmName = (spaceRow.data as any)?.name ?? '';
   } else {
     const sku = await getSkuById(order.skuId);
@@ -301,6 +326,7 @@ export async function getOrderHeaderForClient(orderId: string): Promise<{
     dueAt: order.dueAt ?? null,
     createdAt: order.createdAt ?? null,
     status: order.status,
+    taxSeasonYear,
   };
 }
 
@@ -346,7 +372,10 @@ export async function getClientOrdersForClientSpace(clientSpaceId: string): Prom
 
   const [skusRes, projectsRes] = await Promise.all([
     supabase.schema('firm').from('skus').select('id, name, description, image_url').in('id', skuIds),
-    supabase.from('projects').select('id, order_id, name, description, image_url').in('order_id', orderIds),
+    supabase
+      .from('projects')
+      .select('id, order_id, name, description, image_url, tax_country, tax_scenario, tags, tax_season_year')
+      .in('order_id', orderIds),
   ]);
 
   const skuMap: Record<string, { name: string; description?: string | null; image_url?: string | null }> = {};
@@ -354,9 +383,30 @@ export async function getClientOrdersForClientSpace(clientSpaceId: string): Prom
     skuMap[s.id] = { name: s.name || '', description: s.description ?? null, image_url: s.image_url ?? null };
   });
   const projectsList = (projectsRes.data || []) as any[];
-  const projectByOrderId: Record<string, { id: string; name: string; description?: string | null; image_url?: string | null }> = {};
+  const projectByOrderId: Record<
+    string,
+    {
+      id: string;
+      name: string;
+      description?: string | null;
+      image_url?: string | null;
+      tax_country?: string | null;
+      tax_scenario?: string | null;
+      tags?: string[] | null;
+      tax_season_year?: number | null;
+    }
+  > = {};
   projectsList.forEach((p: any) => {
-    projectByOrderId[p.order_id] = { id: p.id, name: p.name || '', description: p.description ?? null, image_url: p.image_url ?? null };
+    projectByOrderId[p.order_id] = {
+      id: p.id,
+      name: p.name || '',
+      description: p.description ?? null,
+      image_url: p.image_url ?? null,
+      tax_country: p.tax_country ?? null,
+      tax_scenario: p.tax_scenario ?? null,
+      tags: Array.isArray(p.tags) ? (p.tags as string[]) : null,
+      tax_season_year: typeof p.tax_season_year === 'number' ? p.tax_season_year : null,
+    };
   });
   const projectIds = projectsList.map((p: any) => p.id);
   let todoCountByProjectId: Record<string, { total: number; completed: number }> = {};
@@ -407,6 +457,11 @@ export async function getClientOrdersForClientSpace(clientSpaceId: string): Prom
       taskCompleted: counts?.completed,
       firmName: spaceNameByFirmSpaceId[row.firm_space_id] || undefined,
       hiddenFromClientAt: row.hidden_from_client_at ?? null,
+      // 报税分类与税季：与 Firm 端 getFirmOrdersWithDetails 保持一致
+      taxCountry: project?.tax_country ?? null,
+      taxScenario: project?.tax_scenario ?? null,
+      tags: project?.tags ?? null,
+      taxSeasonYear: project?.tax_season_year ?? null,
     };
   });
 }
@@ -916,6 +971,17 @@ export async function confirmOrderAndCreateProjectTodos(
       image_url: (sku as any).image_url ?? null,
       tax_country: (sku as any).tax_country ?? null,
       tax_scenario: (sku as any).tax_scenario ?? null,
+      // 初始税季：按算法计算一次并写入 tax_season_year，之后各处只从该字段读取
+      tax_season_year: (() => {
+        const d = (order as any).due_at || (order as any).created_at || null;
+        if (!d) return null;
+        try {
+          const y = new Date(d).getFullYear();
+          return Number.isNaN(y) ? null : y;
+        } catch {
+          return null;
+        }
+      })(),
     })
     .select('id')
     .maybeSingle();

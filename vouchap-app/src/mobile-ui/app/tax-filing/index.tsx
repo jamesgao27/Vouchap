@@ -8,6 +8,7 @@ import {
   Text,
   StyleSheet,
   SectionList,
+  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   RefreshControl,
@@ -32,24 +33,8 @@ import { confirmDestructive } from '../../../shared-logic/alertWeb';
 
 const PINNED_ORDER_IDS_KEY = 'tax_filing_pinned_order_ids';
 
-/** In-memory fallback when AsyncStorage native module is null (e.g. Expo Go / unlinked build). */
+/** In-memory fallback for pinned IDs (跨平台、安全，不依赖原生 AsyncStorage）。 */
 const memoryFallback = new Map<string, string>();
-const useNativeAsyncStorage = Platform.OS !== 'web' && Constants.appOwnership !== 'expo';
-
-/** Resolve once: try loading AsyncStorage; if native module is null we get null and use memory only. */
-let asyncStoragePromise: Promise<typeof import('@react-native-async-storage/async-storage').default | null> | null = null;
-function getAsyncStorage(): Promise<typeof import('@react-native-async-storage/async-storage').default | null> {
-  if (asyncStoragePromise != null) return asyncStoragePromise;
-  asyncStoragePromise = (async () => {
-    try {
-      const m = await import('@react-native-async-storage/async-storage');
-      return m.default;
-    } catch {
-      return null;
-    }
-  })();
-  return asyncStoragePromise;
-}
 
 async function safeGetItem(key: string): Promise<string | null> {
   if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
@@ -59,16 +44,8 @@ async function safeGetItem(key: string): Promise<string | null> {
       return memoryFallback.get(key) ?? null;
     }
   }
-  if (!useNativeAsyncStorage) {
-    return memoryFallback.get(key) ?? null;
-  }
-  const AsyncStorage = await getAsyncStorage();
-  if (AsyncStorage == null) return memoryFallback.get(key) ?? null;
-  try {
-    return await AsyncStorage.getItem(key);
-  } catch {
-    return memoryFallback.get(key) ?? null;
-  }
+  // 非 Web 端一律使用内存 fallback，避免依赖原生 AsyncStorage（在 Expo Go / 未链接场景下会为 null）。
+  return memoryFallback.get(key) ?? null;
 }
 async function safeSetItem(key: string, value: string): Promise<void> {
   if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
@@ -79,20 +56,8 @@ async function safeSetItem(key: string, value: string): Promise<void> {
     }
     return;
   }
-  if (!useNativeAsyncStorage) {
-    memoryFallback.set(key, value);
-    return;
-  }
-  const AsyncStorage = await getAsyncStorage();
-  if (AsyncStorage == null) {
-    memoryFallback.set(key, value);
-    return;
-  }
-  try {
-    await AsyncStorage.setItem(key, value);
-  } catch {
-    memoryFallback.set(key, value);
-  }
+  // 非 Web 端：仅使用内存 fallback，不调用原生 AsyncStorage。
+  memoryFallback.set(key, value);
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -102,7 +67,22 @@ const STAGE_LABEL: Record<string, string> = {
   cancelled: 'Cancelled',
 };
 
-const STAGE_COLOR: Record<string, string> = {
+// 状态标签配色（移动端）：与详情页浅底 + 深字一致
+const STAGE_BG: Record<string, string> = {
+  onboarding: '#FFF3E0',
+  processing: '#E1F5FE',
+  completed: '#E3FCEF',
+  cancelled: '#F0F2F5',
+};
+const STAGE_FG: Record<string, string> = {
+  onboarding: '#E67E22',
+  processing: '#0288D1',
+  completed: '#00875A',
+  cancelled: '#636E72',
+};
+
+// Web 列表沿用原来的实底色配色（白字），避免影响已有设计
+const STAGE_SOLID: Record<string, string> = {
   onboarding: '#E67E22',
   processing: '#29B6F6',
   completed: '#00B894',
@@ -121,6 +101,10 @@ function getTaxSeasonColor(year: number): string {
 type SectionData = { title: string; monthKey: string; data: FirmOrderForClient[] };
 
 function getTaxSeasonYear(order: FirmOrderForClient): number | null {
+  // 优先使用项目上的显式 taxSeasonYear（来自 shared-logic/firm.ts 的 project.tax_season_year）
+  if (order.taxSeasonYear != null) {
+    return order.taxSeasonYear;
+  }
   const d = order.dueAt || order.createdAt || null;
   if (!d) return null;
   try {
@@ -135,6 +119,13 @@ function getOrderDisplayName(order: FirmOrderForClient, isOnboarding: boolean): 
 }
 
 export default function TaxFilingScreen() {
+  if (Platform.OS === 'web') {
+    return <TaxFilingWebScreen />;
+  }
+  return <TaxFilingMobileScreen />;
+}
+
+function TaxFilingMobileScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -324,11 +315,27 @@ export default function TaxFilingScreen() {
               ) : null}
             </View>
             <View style={styles.secondRow}>
-              <View style={[styles.statusBadge, { backgroundColor: STAGE_COLOR[order.status] ?? '#95A5A6' }]}>
-                <Text style={styles.statusText}>{STAGE_LABEL[order.status] ?? order.status}</Text>
+              <View
+                style={[
+                  styles.statusBadge,
+                  Platform.OS === 'web'
+                    ? { backgroundColor: STAGE_SOLID[order.status] ?? '#95A5A6' }
+                    : { backgroundColor: STAGE_BG[order.status] ?? '#F0F2F5' },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.statusText,
+                    Platform.OS === 'web'
+                      ? { color: '#FFFFFF' }
+                      : { color: STAGE_FG[order.status] ?? '#636E72' },
+                  ]}
+                >
+                  {STAGE_LABEL[order.status] ?? order.status}
+                </Text>
               </View>
               {order.firmName ? (
-                <Text style={styles.footerText}>By {order.firmName}</Text>
+                <Text style={styles.footerText}>by {order.firmName}</Text>
               ) : null}
             </View>
             {isOnboarding && !isCancelled && !isHiddenSection ? (
@@ -591,7 +598,7 @@ const styles = StyleSheet.create({
   progressBarFill: {
     height: '100%',
     borderRadius: 999,
-    backgroundColor: '#6C5CE7',
+    backgroundColor: '#00B894',
   },
   progressDetailText: {
     fontSize: 12,
@@ -686,5 +693,439 @@ const styles = StyleSheet.create({
     color: '#636E72',
     marginTop: 16,
     fontWeight: '600',
+  },
+});
+
+// ────────────────────────────────────────────────────────────────
+// Web 端：沿用 commit faefe4ba0c56ac2a55037feea311f9a19a44cc76 的卡片/Grid 列表设计
+// ────────────────────────────────────────────────────────────────
+
+import {
+  ProjectListCard,
+  ProjectListRow,
+  GRID_GAP as GRID_GAP_WEB,
+  projectListStyles as projectListStylesWeb,
+  type ProjectListCardItem as ProjectListCardItemWeb,
+} from '@/components/ProjectListCardAndRow';
+import { useWindowDimensions } from 'react-native';
+
+const CARD_MAX_WIDTH_WEB = 320;
+const PINNED_ORDER_IDS_KEY_WEB = 'tax_filing_pinned_order_ids_web';
+
+const memoryFallbackWeb = new Map<string, string>();
+const useNativeAsyncStorageWeb = Platform.OS !== 'web' && Constants.appOwnership !== 'expo';
+
+async function safeGetItemWeb(key: string): Promise<string | null> {
+  if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return memoryFallbackWeb.get(key) ?? null;
+    }
+  }
+  if (!useNativeAsyncStorageWeb) {
+    return memoryFallbackWeb.get(key) ?? null;
+  }
+  try {
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    return await AsyncStorage.getItem(key);
+  } catch {
+    return memoryFallbackWeb.get(key) ?? null;
+  }
+}
+
+async function safeSetItemWeb(key: string, value: string): Promise<void> {
+  if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      memoryFallbackWeb.set(key, value);
+    }
+    return;
+  }
+  if (!useNativeAsyncStorageWeb) {
+    memoryFallbackWeb.set(key, value);
+    return;
+  }
+  try {
+    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
+    await AsyncStorage.setItem(key, value);
+  } catch {
+    memoryFallbackWeb.set(key, value);
+  }
+}
+
+const STAGE_LABEL_WEB: Record<string, string> = {
+  onboarding: 'Onboarding',
+  processing: 'Processing',
+  completed: 'Completed',
+  cancelled: 'Cancelled',
+};
+
+// Web 列表状态标签：浅底色，深字色在 ProjectListCardAndRow 中统一为深色
+const STAGE_COLOR_WEB: Record<string, string> = {
+  onboarding: '#FFF3E0',
+  processing: '#E1F5FE',
+  completed: '#E3FCEF',
+  cancelled: '#F0F2F5',
+};
+
+const TAX_SEASON_COLORS_WEB = [
+  '#6C5CE7', '#E17055', '#00B894', '#0984E3', '#FDCB6E',
+  '#E84393', '#00CEC9', '#74B9FF', '#A29BFE', '#FD79A8',
+];
+
+function getTaxSeasonColorWeb(year: number): string {
+  return TAX_SEASON_COLORS_WEB[Math.abs(year) % 10] ?? TAX_SEASON_COLORS_WEB[0];
+}
+
+type ViewModeWeb = 'grid' | 'list';
+
+function TaxFilingWebScreen() {
+  const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
+  const [loading, setLoading] = useState(true);
+  const [orders, setOrders] = useState<FirmOrderForClient[]>([]);
+  const [viewMode, setViewMode] = useState<ViewModeWeb>('grid');
+  const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [rejectingId, setRejectingId] = useState<string | null>(null);
+  const [pinnedOrderIds, setPinnedOrderIds] = useState<string[]>([]);
+  const [hidingId, setHidingId] = useState<string | null>(null);
+  const [unhidingId, setUnhidingId] = useState<string | null>(null);
+
+  const loadOrders = useCallback(async () => {
+    const space = await getCurrentSpace(true);
+    if (!space?.id) return [];
+    return getClientOrdersForClientSpace(space.id);
+  }, []);
+
+  useEffect(() => {
+    if (!showTaxFiling) {
+      router.replace('/');
+      return;
+    }
+    (async () => {
+      setLoading(true);
+      setOrders(await loadOrders());
+      setLoading(false);
+    })();
+  }, [showTaxFiling, loadOrders, router]);
+
+  useEffect(() => {
+    (async () => {
+      const raw = await safeGetItemWeb(PINNED_ORDER_IDS_KEY_WEB);
+      if (raw) {
+        try {
+          const ids = JSON.parse(raw) as string[];
+          if (Array.isArray(ids)) setPinnedOrderIds(ids);
+        } catch (_) {}
+      }
+    })();
+  }, []);
+
+  const sortedOrders = useMemo(() => {
+    const visible = orders.filter((o) => !o.hiddenFromClientAt);
+    return [...visible].sort((a, b) => {
+      const pa = pinnedOrderIds.includes(a.id);
+      const pb = pinnedOrderIds.includes(b.id);
+      if (pa && !pb) return -1;
+      if (!pa && pb) return 1;
+      return (b.createdAt || '').localeCompare(a.createdAt || '');
+    });
+  }, [orders, pinnedOrderIds]);
+
+  const hiddenOrders = useMemo(() => {
+    return orders
+      .filter((o) => o.hiddenFromClientAt)
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+  }, [orders]);
+
+  const handleTogglePin = useCallback(async (orderId: string) => {
+    setPinnedOrderIds((prev) => {
+      const next = prev.includes(orderId) ? prev.filter((id) => id !== orderId) : [...prev, orderId];
+      safeSetItemWeb(PINNED_ORDER_IDS_KEY_WEB, JSON.stringify(next)).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const handleConfirmOrder = async (order: FirmOrderForClient) => {
+    setConfirmingId(order.id);
+    const { error } = await confirmOrderAndCreateProjectTodos(order.id);
+    setConfirmingId(null);
+    if (error) return;
+    setOrders(await loadOrders());
+    const project = await getProjectByOrderId(order.id);
+    if (project?.id) router.push(`/tax-filing/project/${project.id}`);
+  };
+
+  const handleRejectOrder = useCallback((order: FirmOrderForClient) => {
+    confirmDestructive(
+      'Reject order',
+      'Are you sure you want to reject this order? You can’t undo this.',
+      async () => {
+        setRejectingId(order.id);
+        const { error } = await updateOrderStatus(order.id, 'cancelled');
+        setRejectingId(null);
+        if (error) {
+          showToast(error.message ?? 'Failed to reject', 'error');
+          return;
+        }
+        showToast('Order rejected', 'success');
+        setOrders(await loadOrders());
+      },
+      { confirmLabel: 'Reject order' },
+    );
+  }, [loadOrders]);
+
+  const hideOrderForClient = useCallback(async (orderId: string) => {
+    setHidingId(orderId);
+    const { error } = await hideOrderForClientSpace(orderId);
+    setHidingId(null);
+    if (error) {
+      showToast(error.message ?? 'Failed to hide', 'error');
+      return;
+    }
+    setOrders(await loadOrders());
+  }, [loadOrders]);
+
+  const unhideOrderForClient = useCallback(async (orderId: string) => {
+    setUnhidingId(orderId);
+    const { error } = await unhideOrderForClientSpace(orderId);
+    setUnhidingId(null);
+    if (error) {
+      showToast(error.message ?? 'Failed to unhide', 'error');
+      return;
+    }
+    setOrders(await loadOrders());
+  }, [loadOrders]);
+
+  const goToTodos = (order: FirmOrderForClient) => {
+    if (order.projectId) {
+      router.push(`/tax-filing/project/${order.projectId}`);
+    } else {
+      router.push(`/tax-filing/order/${order.id}`);
+    }
+  };
+
+  const goToInfo = (order: FirmOrderForClient) => {
+    if (order.projectId) {
+      router.push(`/tax-filing/project/${order.projectId}?tab=info&edit=1`);
+    } else {
+      router.push(`/tax-filing/order/${order.id}/info`);
+    }
+  };
+
+  const numColumns = Math.max(2, Math.floor((windowWidth - 48) / (200 + GRID_GAP_WEB)));
+  const cardWidth = Math.min(
+    CARD_MAX_WIDTH_WEB,
+    (windowWidth - 48 - GRID_GAP_WEB * (numColumns - 1)) / numColumns,
+  );
+
+  if (!showTaxFiling) return null;
+
+  return (
+    <ScrollView style={stylesWeb.container} contentContainerStyle={stylesWeb.content}>
+      {loading ? (
+        <ActivityIndicator size="large" color="#6C5CE7" style={stylesWeb.loader} />
+      ) : (
+        <>
+          <View style={stylesWeb.header}>
+            <Text style={stylesWeb.sectionTitle}>Service engagements</Text>
+            <View style={stylesWeb.viewToggle}>
+              <TouchableOpacity
+                style={[stylesWeb.viewToggleBtn, viewMode === 'grid' && stylesWeb.viewToggleBtnActive]}
+                onPress={() => setViewMode('grid')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="grid-outline" size={20} color={viewMode === 'grid' ? '#6C5CE7' : '#636E72'} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[stylesWeb.viewToggleBtn, viewMode === 'list' && stylesWeb.viewToggleBtnActive]}
+                onPress={() => setViewMode('list')}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="list" size={22} color={viewMode === 'list' ? '#6C5CE7' : '#636E72'} />
+              </TouchableOpacity>
+            </View>
+          </View>
+          {sortedOrders.length === 0 && hiddenOrders.length === 0 ? (
+            <View style={stylesWeb.emptySection}>
+              <Text style={stylesWeb.emptySectionText}>No orders yet</Text>
+            </View>
+          ) : viewMode === 'list' ? (
+            <View style={stylesWeb.listWrapper}>
+              <View style={projectListStylesWeb.list}>
+                {sortedOrders.map((o) => {
+                  const item = orderToItemWeb(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
+                  return (
+                    <ProjectListRow
+                      key={o.id}
+                      item={item}
+                      isPinned={pinnedOrderIds.includes(o.id)}
+                      onTogglePin={() => handleTogglePin(o.id)}
+                      onPress={() => goToTodos(o)}
+                      onSettings={
+                        o.status === 'cancelled'
+                          ? () => hideOrderForClient(o.id)
+                          : o.status !== 'onboarding'
+                            ? () => goToInfo(o)
+                            : undefined
+                      }
+                    />
+                  );
+                })}
+              </View>
+            </View>
+          ) : (
+            <View style={stylesWeb.grid}>
+              {sortedOrders.map((o) => {
+                const item = orderToItemWeb(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
+                return (
+                  <ProjectListCard
+                    key={o.id}
+                    item={item}
+                    cardWidth={cardWidth}
+                    isPinned={pinnedOrderIds.includes(o.id)}
+                    onTogglePin={() => handleTogglePin(o.id)}
+                    onPress={() => goToTodos(o)}
+                    onSettings={
+                      o.status === 'cancelled'
+                        ? () => hideOrderForClient(o.id)
+                        : o.status !== 'onboarding'
+                          ? () => goToInfo(o)
+                          : undefined
+                    }
+                  />
+                );
+              })}
+            </View>
+          )}
+          {hiddenOrders.length > 0 ? (
+            <View style={stylesWeb.hiddenSection}>
+              <Text style={stylesWeb.hiddenSectionTitle}>Hidden ({hiddenOrders.length})</Text>
+              {viewMode === 'list' ? (
+                <View style={stylesWeb.listWrapper}>
+                  <View style={projectListStylesWeb.list}>
+                    {hiddenOrders.map((o) => {
+                      const item = orderToItemWeb(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
+                      return (
+                        <ProjectListRow
+                          key={o.id}
+                          item={item}
+                          isPinned={pinnedOrderIds.includes(o.id)}
+                          onTogglePin={() => handleTogglePin(o.id)}
+                          onPress={() => goToTodos(o)}
+                          onSettings={() => unhideOrderForClient(o.id)}
+                        />
+                      );
+                    })}
+                  </View>
+                </View>
+              ) : (
+                <View style={stylesWeb.grid}>
+                  {hiddenOrders.map((o) => {
+                    const item = orderToItemWeb(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
+                    return (
+                      <ProjectListCard
+                        key={o.id}
+                        item={item}
+                        cardWidth={cardWidth}
+                        isPinned={pinnedOrderIds.includes(o.id)}
+                        onTogglePin={() => handleTogglePin(o.id)}
+                        onPress={() => goToTodos(o)}
+                        onSettings={() => unhideOrderForClient(o.id)}
+                      />
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          ) : null}
+        </>
+      )}
+    </ScrollView>
+  );
+}
+
+function getTaxSeasonYearWeb(order: FirmOrderForClient): number | null {
+  if (order.taxSeasonYear != null) {
+    return order.taxSeasonYear;
+  }
+  const d = order.dueAt || order.createdAt || null;
+  if (!d) return null;
+  try {
+    return new Date(d).getFullYear();
+  } catch {
+    return null;
+  }
+}
+
+function getOrderDisplayNameWeb(order: FirmOrderForClient, isOnboarding: boolean): string {
+  return isOnboarding ? (order.skuName ?? 'Service order') : (order.projectName ?? order.skuName ?? 'Project');
+}
+
+function orderToItemWeb(
+  order: FirmOrderForClient,
+  confirmingId: string | null,
+  rejectingId: string | null,
+  onConfirm: (order: FirmOrderForClient) => void,
+  onReject: (order: FirmOrderForClient) => void,
+): ProjectListCardItemWeb {
+  const isOnboarding = order.status === 'onboarding';
+  const taxSeasonYear = getTaxSeasonYearWeb(order);
+  const isCancelled = order.status === 'cancelled';
+  return {
+    id: order.id,
+    displayName: getOrderDisplayNameWeb(order, isOnboarding),
+    imageUrl: isOnboarding ? order.skuImageUrl ?? null : order.projectImageUrl ?? null,
+    tagPill: taxSeasonYear != null ? { label: String(taxSeasonYear), color: getTaxSeasonColorWeb(taxSeasonYear) } : null,
+    statusLabel: STAGE_LABEL_WEB[order.status] ?? order.status,
+    statusColor: STAGE_COLOR_WEB[order.status] ?? '#F0F2F5',
+    statusFgColor:
+      order.status === 'onboarding'
+        ? '#E67E22'
+        : order.status === 'processing'
+          ? '#0288D1'
+          : order.status === 'completed'
+            ? '#00875A'
+            : '#636E72',
+    isMuted: order.status === 'cancelled',
+    footerText: order.firmName ? `By ${order.firmName}` : null,
+    progress:
+      !isOnboarding && !isCancelled && (order.taskTotal ?? 0) > 0
+        ? { completed: order.taskCompleted ?? 0, total: order.taskTotal ?? 0 }
+        : null,
+    action: isOnboarding && !isCancelled
+      ? {
+          label: 'Accept and Start',
+          onPress: () => onConfirm(order),
+          confirming: confirmingId === order.id,
+          onReject: () => onReject(order),
+          rejecting: rejectingId === order.id,
+        }
+      : null,
+  };
+}
+
+const stylesWeb = StyleSheet.create({
+  container: { flex: 1, backgroundColor: '#F8F9FA' },
+  content: { padding: 20, paddingBottom: 40 },
+  loader: { marginTop: 40 },
+  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
+  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#2D3436' },
+  viewToggle: { flexDirection: 'row', gap: 4 },
+  viewToggleBtn: { padding: 8, borderRadius: 8 },
+  viewToggleBtnActive: { backgroundColor: '#EDE9FE' },
+  emptySection: { paddingVertical: 24, alignItems: 'center' },
+  emptySectionText: { fontSize: 14, color: '#95A5A6' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP_WEB },
+  hiddenSection: { marginTop: 24 },
+  hiddenSectionTitle: { fontSize: 14, fontWeight: '600', color: '#636E72', marginBottom: 12 },
+  listWrapper: {
+    borderRadius: 12,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    borderWidth: 1,
   },
 });

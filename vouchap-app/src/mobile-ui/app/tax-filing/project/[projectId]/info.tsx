@@ -21,6 +21,7 @@ import {
   ActivityIndicator,
   Image,
   TextInput,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -110,7 +111,8 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
   const [project, setProject]           = useState<FirmProjectInfo | null>(null);
   const [firmName, setFirmName]         = useState('');
   const [firmDesc, setFirmDesc]         = useState('');
-  const [editing, setEditing]           = useState(false);
+  const [editingHero, setEditingHero]           = useState(false);
+  const [editingClassification, setEditingClassification] = useState(false);
 
   // edit state
   const [editName, setEditName]               = useState('');
@@ -178,7 +180,7 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
   useEffect(() => { load(); }, [load]);
 
   const handlePickImage = useCallback(async () => {
-    if (!editing || uploadingCover) return;
+    if (!editingHero || uploadingCover) return;
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') { showToast('Need photo library access', 'info'); return; }
@@ -201,9 +203,10 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
     } finally {
       setUploadingCover(false);
     }
-  }, [editing, uploadingCover, project?.id, order?.clientSpaceId]);
+  }, [editingHero, uploadingCover, project?.id, order?.clientSpaceId]);
 
-  const handleSave = useCallback(async (): Promise<boolean> => {
+  /** 保存全部字段（供外部 ref 使用的兜底入口） */
+  const handleSaveAll = useCallback(async (): Promise<boolean> => {
     if (!project?.id) return false;
     setSaving(true);
     try {
@@ -220,7 +223,8 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
         })(),
       });
       if (err) throw err;
-      setEditing(false);
+      setEditingHero(false);
+      setEditingClassification(false);
       showToast('Saved', 'success');
       load();
       return true;
@@ -232,7 +236,53 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
     }
   }, [project?.id, editName, editDesc, editImageUrl, editTaxCountry, editTaxScenario, editTags, editTaxSeasonYear, load]);
 
-  const handleCancelEdit = useCallback(() => {
+  /** 仅保存 Hero 卡片字段（名称 / 描述 / 封面） */
+  const handleSaveHero = useCallback(async (): Promise<void> => {
+    if (!project?.id) return;
+    setSaving(true);
+    try {
+      const { error: err } = await updateProject(project.id, {
+        name: editName.trim() || project.name,
+        description: editDesc.trim() || null,
+        imageUrl: editImageUrl ?? undefined,
+      });
+      if (err) throw err;
+      setEditingHero(false);
+      showToast('Saved', 'success');
+      load();
+    } catch {
+      showToast('Failed to save', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }, [project?.id, project?.name, editName, editDesc, editImageUrl, load]);
+
+  /** 仅保存 Classification 卡片字段（税季 / 国别 / 场景 / 标签） */
+  const handleSaveClassification = useCallback(async (): Promise<void> => {
+    if (!project?.id) return;
+    setSaving(true);
+    try {
+      const { error: err } = await updateProject(project.id, {
+        taxCountry: editTaxCountry.trim() || null,
+        taxScenario: editTaxScenario.trim() || null,
+        tags: editTags.length > 0 ? editTags : null,
+        taxSeasonYear: (() => {
+          const y = parseInt(editTaxSeasonYear.trim(), 10);
+          return Number.isFinite(y) ? y : null;
+        })(),
+      });
+      if (err) throw err;
+      setEditingClassification(false);
+      showToast('Saved', 'success');
+      load();
+    } catch {
+      showToast('Failed to save', 'error');
+    } finally {
+      setSaving(false);
+    }
+  }, [project?.id, editTaxCountry, editTaxScenario, editTags, editTaxSeasonYear, load]);
+
+  const handleCancelEditAll = useCallback(() => {
     if (!project) return;
     setEditName(project.name ?? '');
     setEditDesc(project.description ?? '');
@@ -241,23 +291,60 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
     setEditTaxScenario(project.taxScenario ?? '');
     setEditTags(project.tags ?? []);
     setTagInput('');
-    setEditing(false);
+    setEditingHero(false);
+    setEditingClassification(false);
   }, [project]);
+
+  /** 仅取消 Hero 卡片的编辑（还原名称/描述/封面） */
+  const handleCancelHero = useCallback(() => {
+    if (!project) return;
+    setEditName(project.name ?? '');
+    setEditDesc(project.description ?? '');
+    setEditImageUrl(project.imageUrl ?? null);
+    setEditingHero(false);
+  }, [project]);
+
+  /** 仅取消 Classification 卡片编辑（还原税季/国别/场景/标签） */
+  const handleCancelClassification = useCallback(() => {
+    if (!project) return;
+    setEditTaxCountry(project.taxCountry ?? '');
+    setEditTaxScenario(project.taxScenario ?? '');
+    setEditTags(project.tags ?? []);
+    setTagInput('');
+    setEditTaxSeasonYear(
+      project.taxSeasonYear != null
+        ? String(project.taxSeasonYear)
+        : (() => {
+            const baseYear =
+              order?.dueAt || order?.createdAt
+                ? new Date((order.dueAt || order.createdAt)!).getFullYear()
+                : null;
+            return baseYear != null ? String(baseYear) : '';
+          })(),
+    );
+    setEditingClassification(false);
+  }, [project, order?.dueAt, order?.createdAt]);
 
   // useImperativeHandle 放在 handleSave / handleCancelEdit 定义之后，避免暂时性死区
   useImperativeHandle(
     ref,
     () => ({
-      startEditing: () => setEditing(true),
-      cancelEditing: () => handleCancelEdit(),
-      saveEditing: () => handleSave(),
+      startEditing: () => {
+        setEditingHero(true);
+        setEditingClassification(true);
+      },
+      cancelEditing: () => handleCancelEditAll(),
+      saveEditing: () => handleSaveAll(),
     }),
-    [handleCancelEdit, handleSave]
+    [handleCancelEditAll, handleSaveAll]
   );
 
   const addTag = () => {
     const t = tagInput.trim();
-    if (t && !editTags.includes(t)) { setEditTags((p) => [...p, t]); setTagInput(''); }
+    if (!t) return;
+    setEditTags((prev) => (prev.includes(t) ? prev : [...prev, t]));
+    setAllSpaceTags((prev) => (prev.includes(t) ? prev : [...prev, t]));
+    setTagInput('');
   };
   const removeTag = (t: string) => setEditTags((p) => p.filter((x) => x !== t));
 
@@ -283,7 +370,7 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
   const taxSeasonYear =
     project.taxSeasonYear != null ? project.taxSeasonYear : derivedTaxSeasonYear;
   const stageConfig = STAGE_CONFIG[order.status] ?? STAGE_CONFIG.onboarding;
-  const displayImageUrl = editing ? editImageUrl : project.imageUrl;
+  const displayImageUrl = editingHero ? editImageUrl : project.imageUrl;
 
   return (
     <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
@@ -292,14 +379,46 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
           Card 1 — Hero：封面 + 名称 + 描述
       ══════════════════════════════════════════════ */}
       <View style={s.card}>
+        {/* Info 编辑入口：Hero 卡片右上角铅笔 / 取消 / 保持 */}
+        {!editingHero ? (
+          <TouchableOpacity
+            style={s.cardEditIcon}
+            onPress={() => setEditingHero(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="create-outline" size={18} color="#636E72" />
+          </TouchableOpacity>
+        ) : (
+          <View style={s.cardEditActions}>
+            <TouchableOpacity
+              style={[s.cardEditBtn, s.cardEditCancelBtn]}
+              onPress={handleCancelHero}
+              activeOpacity={0.7}
+            >
+              <Text style={s.cardEditCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.cardEditBtn, s.cardEditSaveBtn]}
+              onPress={handleSaveHero}
+              disabled={saving}
+              activeOpacity={0.7}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={s.cardEditSaveText}>Save</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
         {/* 顶行：封面 + 右侧信息 */}
         <View style={s.heroRow}>
           {/* 封面 */}
           <TouchableOpacity
             style={s.coverWrap}
             onPress={handlePickImage}
-            activeOpacity={editing ? 0.8 : 1}
-            disabled={!editing || uploadingCover}
+            activeOpacity={editingHero ? 0.8 : 1}
+            disabled={!editingHero || uploadingCover}
           >
             {displayImageUrl
               ? <Image source={{ uri: displayImageUrl }} style={s.coverImg} resizeMode="cover" />
@@ -308,7 +427,7 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
                     ? <ActivityIndicator size="small" color="#6C5CE7" />
                     : <Ionicons name="image-outline" size={44} color="#BDC3C7" />}
                 </View>}
-            {editing && !uploadingCover && (
+            {editingHero && !uploadingCover && (
               <View style={s.coverOverlay as any}>
                 <Ionicons name="camera" size={22} color="#fff" />
               </View>
@@ -320,10 +439,10 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
             )}
           </TouchableOpacity>
 
-          {/* 名称 + 描述 + 编辑按钮 */}
+          {/* 名称 + 描述 */}
           <View style={s.heroMeta}>
             {/* 名称 */}
-            {editing
+            {editingHero
               ? <TextInput
                   style={s.nameInput}
                   value={editName}
@@ -335,7 +454,7 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
               : <Text style={s.nameText} numberOfLines={3}>{project.name ?? '—'}</Text>}
 
             {/* 描述 */}
-            {editing
+            {editingHero
               ? <TextInput
                   style={s.descInput}
                   value={editDesc}
@@ -359,17 +478,49 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
           布局：左列为提示文字（右对齐），右列为实际标签（左对齐）
       ══════════════════════════════════════════════ */}
       <View style={s.card}>
+        {/* Classification 卡片编辑入口：右上角铅笔 / 取消 / 保持 */}
+        {!editingClassification ? (
+          <TouchableOpacity
+            style={s.cardEditIcon}
+            onPress={() => setEditingClassification(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="create-outline" size={18} color="#636E72" />
+          </TouchableOpacity>
+        ) : (
+          <View style={s.cardEditActions}>
+            <TouchableOpacity
+              style={[s.cardEditBtn, s.cardEditCancelBtn]}
+              onPress={handleCancelClassification}
+              activeOpacity={0.7}
+            >
+              <Text style={s.cardEditCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[s.cardEditBtn, s.cardEditSaveBtn]}
+              onPress={handleSaveClassification}
+              disabled={saving}
+              activeOpacity={0.7}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={s.cardEditSaveText}>Save</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        )}
         <Text style={s.cardTitle}>Classification</Text>
 
-        {/* Tax season — 彩色 pill；编辑态支持选择/自定义年份 */}
+        {/* Tax season — 彩色 pill；编辑态支持选择 + 自定义年份 */}
         <View style={s.cfRow}>
           <View style={s.cfTagCol}>
             <Text style={s.cfLabel}>Tax season</Text>
           </View>
           <View style={s.cfValueCol}>
-            {editing ? (
-              <View style={[s.optionRow, { alignItems: 'flex-start' }]}>
-                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+            {editingClassification ? (
+              <View style={[s.optionRow, { alignItems: 'center', justifyContent: 'space-between' }]}>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, flex: 1 }}>
                   {(() => {
                     const base = derivedTaxSeasonYear ?? new Date().getFullYear();
                     const candidates = Array.from(new Set([base - 1, base, base + 1]));
@@ -395,18 +546,15 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
                     ));
                   })()}
                 </View>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Text style={[s.cfLabel, { marginRight: 4 }]}>Custom</Text>
-                  <TextInput
-                    style={[s.tagsInput, { flex: 0, minWidth: 80, maxWidth: 100 }]}
-                    value={editTaxSeasonYear}
-                    onChangeText={setEditTaxSeasonYear}
-                    placeholder="YYYY"
-                    placeholderTextColor="#B2BEC3"
-                    keyboardType="numeric"
-                    maxLength={4}
-                  />
-                </View>
+                <TextInput
+                  style={[s.tagsInput, { width: 80, marginLeft: 8 }]}
+                  value={editTaxSeasonYear}
+                  onChangeText={setEditTaxSeasonYear}
+                  placeholder="YYYY"
+                  placeholderTextColor="#B2BEC3"
+                  keyboardType="numeric"
+                  maxLength={4}
+                />
               </View>
             ) : taxSeasonYear != null ? (
               <View
@@ -431,10 +579,10 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
             <Text style={s.cfLabel}>Jurisdiction</Text>
           </View>
           <View style={s.cfValueCol}>
-            {editing
+            {editingClassification
               ? (
-                <View style={s.optionRow}>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                <View style={[s.optionRow, { alignItems: 'center', justifyContent: 'space-between' }]}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, flex: 1 }}>
                     {TAX_COUNTRY_OPTIONS.map((opt) => (
                       <TouchableOpacity
                         key={opt.value || '_c'}
@@ -448,16 +596,13 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
                       </TouchableOpacity>
                     ))}
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Text style={[s.cfLabel, { marginRight: 4 }]}>Custom</Text>
-                    <TextInput
-                      style={[s.tagsInput, { flex: 1, maxWidth: 220 }]}
-                      value={editTaxCountry}
-                      onChangeText={setEditTaxCountry}
-                      placeholder="Enter jurisdiction…"
-                      placeholderTextColor="#B2BEC3"
-                    />
-                  </View>
+                  <TextInput
+                    style={[s.tagsInput, { width: 120, marginLeft: 8 }]}
+                    value={editTaxCountry}
+                    onChangeText={setEditTaxCountry}
+                    placeholder=""
+                    placeholderTextColor="#B2BEC3"
+                  />
                 </View>
               )
               : project.taxCountry
@@ -474,10 +619,10 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
             <Text style={s.cfLabel}>Scenario</Text>
           </View>
           <View style={s.cfValueCol}>
-            {editing
+            {editingClassification
               ? (
-                <View style={s.optionRow}>
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 }}>
+                <View style={[s.optionRow, { alignItems: 'center', justifyContent: 'space-between' }]}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, flex: 1 }}>
                     {TAX_SCENARIO_OPTIONS.map((opt) => (
                       <TouchableOpacity
                         key={opt.value || '_s'}
@@ -491,16 +636,13 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
                       </TouchableOpacity>
                     ))}
                   </View>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Text style={[s.cfLabel, { marginRight: 4 }]}>Custom</Text>
-                    <TextInput
-                      style={[s.tagsInput, { flex: 1, maxWidth: 220 }]}
-                      value={editTaxScenario}
-                      onChangeText={setEditTaxScenario}
-                      placeholder="Enter scenario…"
-                      placeholderTextColor="#B2BEC3"
-                    />
-                  </View>
+                  <TextInput
+                    style={[s.tagsInput, { width: 120, marginLeft: 8 }]}
+                    value={editTaxScenario}
+                    onChangeText={setEditTaxScenario}
+                    placeholder=""
+                    placeholderTextColor="#B2BEC3"
+                  />
                 </View>
               )
               : project.taxScenario
@@ -511,76 +653,63 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
 
         <View style={s.divider} />
 
-        {/* Tags — 编辑态内联，行高与阅读态一致 */}
-        <View style={editing ? [s.cfRow, { alignItems: 'flex-start', paddingTop: 12, paddingBottom: 4 }] : s.cfRow}>
+        {/* Tags — 已有标签 + 行内新增入口（同一行：chips + 输入框+号） */}
+        <View style={s.cfRow}>
           <View style={s.cfTagCol}>
             <Text style={s.cfLabel}>Tags</Text>
           </View>
           <View style={[s.cfValueCol, { gap: 8 }]}>
-            {editing ? (
-              <>
-                {/* 已选标签 + 内联输入框 */}
-                <View style={s.tagsRow}>
-                  {editTags.map((t) => (
-                    <View key={t} style={s.tagEditPill}>
-                      <Text style={s.tagEditPillText}>{t}</Text>
-                      <TouchableOpacity onPress={() => removeTag(t)} hitSlop={6} activeOpacity={0.7}>
-                        <Ionicons name="close-circle" size={14} color="#6C5CE7" style={{ marginLeft: 2 }} />
-                      </TouchableOpacity>
-                    </View>
-                  ))}
-                  {/* 内联输入框，无蓝色边框 */}
-                  <View style={s.tagInlineInputWrap}>
-                    <TextInput
-                      style={s.tagInlineInput}
-                      value={tagInput}
-                      onChangeText={setTagInput}
-                      placeholder="New tag…"
-                      placeholderTextColor="#B2BEC3"
-                      onSubmitEditing={addTag}
-                      returnKeyType="done"
-                      blurOnSubmit={false}
-                    />
-                    {tagInput.trim() ? (
-                      <TouchableOpacity onPress={addTag} hitSlop={6} activeOpacity={0.7}>
-                        <Ionicons name="return-down-back-outline" size={15} color="#6C5CE7" />
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-                </View>
-                {/* 空间内已有标签建议（排除已选） */}
-                {allSpaceTags.filter((t) => !editTags.includes(t)).length > 0 && (
-                  <View style={s.tagsRow}>
-                    {allSpaceTags.filter((t) => !editTags.includes(t)).map((t) => {
-                      const [bg, fg] = getTagColor(t);
-                      return (
-                        <TouchableOpacity
-                          key={t}
-                          style={[s.tagSuggestionPill, { backgroundColor: bg, borderColor: fg + '40' }]}
-                          onPress={() => setEditTags((prev) => [...prev, t])}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[s.tagSuggestionText, { color: fg }]}>+ {t}</Text>
-                        </TouchableOpacity>
+            <View style={s.tagsRow}>
+              {(allSpaceTags.length > 0 ? allSpaceTags : editTags).map((t) => {
+                const isSelected = editTags.includes(t);
+                const [bg, fg] = getTagColor(t);
+                return (
+                  <TouchableOpacity
+                    key={t}
+                    style={[
+                      s.tagPill,
+                      isSelected && { backgroundColor: bg, borderColor: 'transparent' },
+                    ]}
+                    onPress={() => {
+                      setEditTags((prev) =>
+                        prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
                       );
-                    })}
-                  </View>
-                )}
-              </>
-            ) : editTags.length > 0 ? (
-              <View style={s.tagsRow}>
-                {editTags.map((t) => {
-                  const [bg, fg] = getTagColor(t);
-                  return (
-                    <View key={t} style={[s.tagPill, { backgroundColor: bg }]}>
-                      <Text style={[s.tagPillText, { color: fg }]}>{t}</Text>
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <Text style={s.cfEmptyTag}>—</Text>
-            )}
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={[
+                        s.tagPillText,
+                        isSelected && { color: fg },
+                      ]}
+                    >
+                      {t}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+              {editingClassification && (
+                <View style={s.tagInlineInputWrap}>
+                  <TextInput
+                    style={[s.tagInlineInput, { flex: 1 }]}
+                    value={tagInput}
+                    onChangeText={setTagInput}
+                    placeholder=""
+                    placeholderTextColor="#B2BEC3"
+                    onSubmitEditing={addTag}
+                    returnKeyType="done"
+                    blurOnSubmit={false}
+                  />
+                  <TouchableOpacity
+                    onPress={addTag}
+                    activeOpacity={0.7}
+                    hitSlop={6}
+                  >
+                    <Text style={s.tagPillText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
           </View>
         </View>
       </View>
@@ -684,6 +813,59 @@ const s = StyleSheet.create({
     paddingTop: 14,
     paddingBottom: 6,
     position: 'relative',
+  },
+  cardEditIcon: {
+    position: 'absolute',
+    top: 10,
+    right: 12,
+    padding: 4,
+    zIndex: 1,
+  },
+  cardEditActions: {
+    position: 'absolute',
+    right: 12,
+    bottom: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    zIndex: 1,
+  },
+  cardEditBtn: {
+    minWidth: 64,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // 阴影参考凭证详情底部 Confirm/Cancel 规范
+    ...(Platform.OS === 'ios'
+      ? {
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.12,
+          shadowRadius: 4,
+        }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 2 } : {}),
+  },
+  cardEditCancelBtn: {
+    borderColor: '#E0E0E0',
+    backgroundColor: '#FFFFFF',
+  },
+  cardEditSaveBtn: {
+    borderColor: '#6C5CE7',
+    backgroundColor: '#6C5CE7',
+  },
+  cardEditCancelText: {
+    fontSize: 12,
+    color: '#636E72',
+    fontWeight: '500',
+  },
+  cardEditSaveText: {
+    fontSize: 12,
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
   cardTitle: {
     fontSize: 11,
@@ -806,7 +988,7 @@ const s = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: '#DFE6E9',
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#FFFFFF',
   },
   optChipActive: { borderColor: '#6C5CE7', backgroundColor: '#EDE9FD' },
   optChipText: { fontSize: 12, color: '#636E72', fontWeight: '500' },
@@ -822,10 +1004,12 @@ const s = StyleSheet.create({
     gap: 6,
   },
   tagPill: {
-    backgroundColor: '#F0F2F5',
+    backgroundColor: '#FFFFFF',
     paddingHorizontal: 9,
     paddingVertical: 4,
-    borderRadius: 20,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#DFE6E9',
   },
   tagPillText: { fontSize: 12, color: '#2D3436', fontWeight: '500' },
   tagEditPill: {
@@ -843,10 +1027,10 @@ const s = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 9,
     paddingVertical: 4,
-    borderRadius: 20,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#DFE6E9',
-    backgroundColor: '#F8F9FA',
+    backgroundColor: '#FFFFFF',
     gap: 4,
     minWidth: 72,
   },

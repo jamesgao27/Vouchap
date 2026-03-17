@@ -30,7 +30,10 @@ export interface ProjectListCardItem {
   /** 可选左侧 tag（如税季年份） */
   tagPill?: { label: string; color: string } | null;
   statusLabel: string;
+  /** 状态标签背景色 */
   statusColor: string;
+  /** 可选：状态标签前景色（文字颜色），不传则使用组件默认值 */
+  statusFgColor?: string;
   /** 已取消/拒绝等需视觉弱化置灰 */
   isMuted?: boolean;
   /** 可选左上角状态角标（如 Draft/Private/Published 的首字母） */
@@ -186,8 +189,18 @@ export function ProjectListCard({
               <View />
             )}
             {!item.statusCorner && (
-              <View style={[s.statusPill, { backgroundColor: item.statusColor }]}>
-                <Text style={s.statusPillText}>{item.statusLabel}</Text>
+              <View style={[
+                s.statusPill,
+                { backgroundColor: item.statusColor },
+              ]}>
+                <Text
+                  style={[
+                    s.statusPillText,
+                    item.statusFgColor ? { color: item.statusFgColor } : null,
+                  ]}
+                >
+                  {item.statusLabel}
+                </Text>
               </View>
             )}
           </View>
@@ -399,7 +412,14 @@ export function ProjectListRow({
             <View style={s.listStatusWrap}>
               {!item.statusCorner && (
                 <View style={[s.listStatusPill, { backgroundColor: item.statusColor }]}>
-                  <Text style={s.listStatusPillText}>{item.statusLabel}</Text>
+                  <Text
+                    style={[
+                      s.listStatusPillText,
+                      item.statusFgColor ? { color: item.statusFgColor } : null,
+                    ]}
+                  >
+                    {item.statusLabel}
+                  </Text>
                 </View>
               )}
             </View>
@@ -634,6 +654,7 @@ const s = StyleSheet.create({
   classificationPillText: { fontSize: 11, fontWeight: '500' },
   cardRowFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 0 },
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
+  // 默认白字；若需要浅底深字，由调用方通过 item.statusFgColor 覆盖
   statusPillText: { fontSize: 12, color: '#FFF', fontWeight: '600' },
   cardFirmName: { fontSize: 11, color: '#95A5A6', textAlign: 'right' },
   acceptBtnWrap: {

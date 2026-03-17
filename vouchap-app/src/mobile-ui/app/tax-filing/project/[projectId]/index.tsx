@@ -217,7 +217,10 @@ export default function ProjectTodosScreen() {
   }, [activeTab, infoEditing]);
 
   const dateForYear = header?.dueAt || header?.createdAt || null;
-  const taxSeasonYear = dateForYear ? new Date(dateForYear).getFullYear() : null;
+  const explicitTaxSeasonYear = header?.taxSeasonYear ?? null;
+  const taxSeasonYear = explicitTaxSeasonYear != null
+    ? explicitTaxSeasonYear
+    : (dateForYear ? new Date(dateForYear).getFullYear() : null);
   const detailHeader: ProjectDetailHeader = {
     title: header?.projectName ?? '',
     subtitle: header?.firmName ? `Services from ${header.firmName}` : '',
