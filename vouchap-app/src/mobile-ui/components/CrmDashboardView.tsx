@@ -86,6 +86,9 @@ const INSIGHTS_SPACING = 32;
 const INSIGHTS_PADDING = INSIGHTS_SPACING;
 const INSIGHTS_GAP = INSIGHTS_SPACING;
 const CARD_PADDING = 16;
+// 横向 padding：Web 保持 16，mobile 去掉卡片内横向 padding，让图表几乎铺满卡片
+const CARD_PADDING_X_WEB = 16;
+const CARD_PADDING_X_MOBILE = 0;
 /** 视口为内容区：减去左侧栏（与 WebSidebar 一致）和顶标题行 */
 const SIDEBAR_WIDTH = 240;
 const INSIGHTS_HEADER_HEIGHT = 60;
@@ -105,12 +108,6 @@ export default function CrmDashboardView() {
   const [authorNames, setAuthorNames] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    if (Platform.OS !== 'web') {
-      // For mobile we still show this component, but analytics are web-first; keep lightweight.
-      setLoading(false);
-      return;
-    }
-
     let cancelled = false;
     (async () => {
       try {
@@ -251,13 +248,22 @@ export default function CrmDashboardView() {
     });
   }, [followUps, authorNames]);
 
-  // 视口 = 去除左侧栏与顶标题行的内容区
-  const viewportWidth = Platform.OS === 'web' ? screenWidth - SIDEBAR_WIDTH : screenWidth;
+  // 视口：
+  // - Web：去除左侧栏与顶标题行，四卡片 2x2 网格
+  // - Mobile：全宽内容区，四卡片单列堆叠
+  const isWeb = Platform.OS === 'web';
+  const viewportWidth = isWeb ? screenWidth - SIDEBAR_WIDTH : screenWidth;
   const viewportHeight = screenHeight - INSIGHTS_HEADER_HEIGHT;
-  // 卡片尺寸：宽度=(视口宽-3*留空)/2，高度=(视口高-3*留空)/2
-  const cardWidth = Math.floor((viewportWidth - 3 * INSIGHTS_SPACING) / 2);
-  const cardHeight = Math.floor((viewportHeight - 3 * INSIGHTS_SPACING) / 2);
-  const cardInnerWidth = Math.max(0, cardWidth - 2 * CARD_PADDING);
+
+  // Web：2x2 网格卡片宽度；Mobile：cardWidthMobile 仅用于估算内部图表宽度
+  const cardWidthWeb = Math.floor((viewportWidth - 3 * INSIGHTS_SPACING) / 2);
+  // 移动端：与 ScrollView paddingHorizontal=4 对齐，仅预留极小安全边距，最大化图表宽度
+  const cardWidthMobile = Math.max(0, viewportWidth - 2 * 4 - 4);
+  const cardHeight = isWeb
+    ? Math.floor((viewportHeight - 3 * INSIGHTS_SPACING) / 2)
+    : 260;
+  const horizontalPadding = isWeb ? CARD_PADDING_X_WEB : CARD_PADDING_X_MOBILE;
+  const cardInnerWidth = Math.max(0, (isWeb ? cardWidthWeb : cardWidthMobile) - 2 * horizontalPadding);
   const chartWidth = Math.max(180, cardInnerWidth);
   const pieSize = Math.min(chartWidth, cardHeight - 60);
   const barChartH = Math.max(120, cardHeight - 60);
@@ -273,19 +279,47 @@ export default function CrmDashboardView() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Ionicons name="grid-outline" size={28} color="#6C5CE7" />
-        <Text style={styles.title}>Insights</Text>
-      </View>
+      {Platform.OS === 'web' && (
+        <View style={styles.header}>
+          <Ionicons name="grid-outline" size={28} color="#6C5CE7" />
+          <Text style={styles.title}>Insights</Text>
+        </View>
+      )}
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { padding: INSIGHTS_PADDING }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isWeb
+            ? { padding: INSIGHTS_PADDING }
+            : { paddingHorizontal: 4, paddingTop: 0, paddingBottom: 16 },
+        ]}
         showsVerticalScrollIndicator={false}
       >
-        <View style={[styles.grid, { gap: INSIGHTS_GAP }]}>
+        <View
+          style={[
+            styles.grid,
+            isWeb
+              ? { gap: INSIGHTS_GAP }
+              : {
+                  gap: 4,
+                  flexDirection: 'column',
+                  alignItems: 'stretch',
+                  justifyContent: 'flex-start',
+                },
+          ]}
+        >
           {/* Clients by status (pie) */}
-          <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
-            <Text style={styles.cardTitle}>Clients by status</Text>
+          <View
+            style={[
+              styles.card,
+              isWeb
+                ? { width: cardWidthWeb, height: cardHeight }
+                : { width: '100%', alignSelf: 'center', marginBottom: 12 },
+            ]}
+          >
+            <Text style={[styles.cardTitle, !isWeb && { paddingLeft: 8 }]}>
+              Clients by status
+            </Text>
             <View style={styles.chartContainer}>
               <ClientStatusPie
                 width={chartWidth}
@@ -296,9 +330,23 @@ export default function CrmDashboardView() {
           </View>
 
           {/* Clients by assignee (horizontal bar) */}
-          <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
-            <Text style={styles.cardTitle}>Clients by assignee</Text>
-            <View style={styles.chartContainer}>
+          <View
+            style={[
+              styles.card,
+              isWeb
+                ? { width: cardWidthWeb, height: cardHeight }
+                : { width: '100%', alignSelf: 'center', marginBottom: 12 },
+            ]}
+          >
+            <Text style={[styles.cardTitle, !isWeb && { paddingLeft: 8 }]}>
+              Clients by assignee
+            </Text>
+            <View
+              style={[
+                styles.chartContainer,
+                !isWeb && { alignItems: 'stretch' },
+              ]}
+            >
               <ClientAssigneeBars
                 width={chartWidth}
                 height={barChartH}
@@ -308,8 +356,17 @@ export default function CrmDashboardView() {
           </View>
 
           {/* Engagements by status (bar) */}
-          <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
-            <Text style={styles.cardTitle}>Engagements by status</Text>
+          <View
+            style={[
+              styles.card,
+              isWeb
+                ? { width: cardWidthWeb, height: cardHeight }
+                : { width: '100%', alignSelf: 'center', marginBottom: 12 },
+            ]}
+          >
+            <Text style={[styles.cardTitle, !isWeb && { paddingLeft: 8 }]}>
+              Engagements by status
+            </Text>
             <View style={styles.chartContainer}>
               <OrderStatusBars
                 width={chartWidth}
@@ -320,9 +377,23 @@ export default function CrmDashboardView() {
           </View>
 
           {/* Follow-ups over time by assignee (line) */}
-          <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
-            <Text style={styles.cardTitle}>Follow-ups over time</Text>
-            <View style={styles.chartContainer}>
+          <View
+            style={[
+              styles.card,
+              isWeb
+                ? { width: cardWidthWeb, height: cardHeight }
+                : { width: '100%', alignSelf: 'center', marginBottom: 12 },
+            ]}
+          >
+            <Text style={[styles.cardTitle, !isWeb && { paddingLeft: 8 }]}>
+              Follow-ups over time
+            </Text>
+            <View
+              style={[
+                styles.chartContainer,
+                !isWeb && { alignItems: 'stretch' },
+              ]}
+            >
               <FollowUpLines
                 width={chartWidth}
                 height={lineChartH}
@@ -348,6 +419,7 @@ function ClientStatusPie({ width, height, entries }: PieProps) {
   const cy = height / 2;
   const rOuter = Math.min(width, height) / 2 - 20;
   const rInner = rOuter * 0.55;
+  const isMobile = Platform.OS !== 'web';
 
   if (entries.length === 0) {
     return (
@@ -385,31 +457,66 @@ function ClientStatusPie({ width, height, entries }: PieProps) {
         })}
         {/* inner cutout to create donut effect */}
         <Circle cx={cx} cy={cy} r={rInner} fill="#FFF" />
-        <SvgText x={cx} y={cy - 4} textAnchor="middle" fill="#2D3436" fontSize={13} fontWeight="600" fontFamily={INSIGHTS_CHART_FONT}>
-          {total} clients
+        {/* 中心文字：移动端拆成两行，避免自动换行/重叠 */}
+        <SvgText
+          x={cx}
+          y={cy - (isMobile ? 2 : 4)}
+          textAnchor="middle"
+          fill="#2D3436"
+          fontSize={isMobile ? 14 : 13}
+          fontWeight="600"
+          fontFamily={INSIGHTS_CHART_FONT}
+        >
+          {total}
         </SvgText>
-        {entries.slice(0, 5).map(([name, val], i) => (
-          <G key={name}>
-            <Rect
-              x={width - 120}
-              y={20 + i * 18 - 8}
-              width={8}
-              height={8}
-              rx={2}
-              fill={CLIENT_STATUS_CHART_COLORS[name] ?? FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length]}
-            />
-            <SvgText
-              x={width - 120 + 14}
-              y={20 + i * 18}
-              textAnchor="start"
-              fill="#4B5563"
-              fontSize={11}
-              fontFamily={INSIGHTS_CHART_FONT}
-            >
-              {name.length > 14 ? `${name.slice(0, 13)}…` : name} {total ? `${((val / total) * 100).toFixed(0)}%` : ''}
-            </SvgText>
-          </G>
-        ))}
+        {!isMobile && (
+          <SvgText
+            x={cx}
+            y={cy + 12}
+            textAnchor="middle"
+            fill="#636E72"
+            fontSize={11}
+            fontFamily={INSIGHTS_CHART_FONT}
+          >
+            clients
+          </SvgText>
+        )}
+        {/* 图例：统一放在卡片左上角，避免与饼图和卡片边缘重叠 */}
+        {entries.slice(0, 5).map(([name, val], i) => {
+          const legendX = 8;
+          const legendY = 18 + i * 16;
+          const maxLabelLen = isMobile ? 14 : 18;
+          const label =
+            name.length > maxLabelLen
+              ? `${name.slice(0, maxLabelLen - 1)}…`
+              : name;
+          return (
+            <G key={name}>
+              <Rect
+                x={legendX}
+                y={legendY - 7}
+                width={8}
+                height={8}
+                rx={2}
+                fill={
+                  CLIENT_STATUS_CHART_COLORS[name] ??
+                  FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length]
+                }
+              />
+              <SvgText
+                x={legendX + 14}
+                y={legendY}
+                textAnchor="start"
+                fill="#4B5563"
+                fontSize={isMobile ? 11 : 10}
+                fontFamily={INSIGHTS_CHART_FONT}
+              >
+                {label}
+                {total ? ` ${((val / total) * 100).toFixed(0)}%` : ''}
+              </SvgText>
+            </G>
+          );
+        })}
       </G>
     </Svg>
   );
@@ -439,7 +546,14 @@ function ClientAssigneeBars({ width, height, stackedEntries }: StackedBarProps) 
       </Svg>
     );
   }
-  const padding = { top: 20, right: 24, bottom: 20, left: 80 };
+  // Web 保持较大的左侧留白用于长姓名；移动端收紧左右 padding 放大可视条形区域
+  const isWeb = Platform.OS === 'web';
+  const padding = {
+    top: 20,
+    right: isWeb ? 24 : 16,
+    bottom: 20,
+    left: isWeb ? 80 : 52,
+  };
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
   const maxTotal = Math.max(...stackedEntries.map((row) => row.total), 1);
@@ -517,22 +631,22 @@ function ClientAssigneeBars({ width, height, stackedEntries }: StackedBarProps) 
         statusesInChart.slice(0, 5).map((statusLabel, idx) => (
           <G key={statusLabel}>
             <Rect
-              x={padding.left + idx * 72}
-              y={height - 14}
-              width={8}
-              height={8}
-              rx={2}
+              x={padding.left + idx * 82}
+              y={height - 16}
+              width={10}
+              height={10}
+              rx={3}
               fill={CLIENT_STATUS_CHART_COLORS[statusLabel] ?? '#95A5A6'}
             />
             <SvgText
-              x={padding.left + idx * 72 + 12}
-              y={height - 5}
+              x={padding.left + idx * 82 + 14}
+              y={height - 6}
               textAnchor="start"
               fill="#636E72"
-              fontSize={9}
+              fontSize={10.5}
               fontFamily={INSIGHTS_CHART_FONT}
             >
-              {statusLabel.length > 10 ? `${statusLabel.slice(0, 9)}…` : statusLabel}
+              {statusLabel}
             </SvgText>
           </G>
         ))}
@@ -578,8 +692,10 @@ function OrderStatusBars({ width, height, entries }: BarProps) {
         const barHeight = maxVal ? (val / maxVal) * chartH : 0;
         const barY = padding.top + chartH - barHeight;
         const safeName = name ?? '';
-        const label = safeName.length > 10 ? `${safeName.slice(0, 9)}…` : safeName;
-        const color = ORDER_STATUS_CHART_COLORS[safeName] ?? FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length];
+        const label = safeName; // 订单状态标签不再缩略，保持完整可读
+        const color =
+          ORDER_STATUS_CHART_COLORS[safeName] ??
+          FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length];
         return (
           <G key={safeName || `bar-${i}`}>
             <Rect x={barX} y={barY} width={barW} height={barHeight} rx={6} fill={color} />
@@ -627,7 +743,14 @@ function FollowUpLines({ width, height, series }: LineProps) {
     );
   }
 
-  const padding = { top: 16, right: 60, bottom: 28, left: 32 };
+  // Web 折线图右侧可适当留白用于曲线终点；移动端收紧左右 padding 放大曲线区域
+  const isWeb = Platform.OS === 'web';
+  const padding = {
+    top: 16,
+    right: isWeb ? 48 : 24,
+    bottom: 28,
+    left: isWeb ? 32 : 20,
+  };
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
   const maxY = Math.max(
@@ -686,11 +809,11 @@ function FollowUpLines({ width, height, series }: LineProps) {
           </G>
         );
       })}
-      {/* Legend (top-right) */}
+      {/* Legend: 放在左上角，避免在 Web 上溢出卡片；字号适中便于阅读 */}
       {series.slice(0, 4).map((s, i) => (
         <G key={s.assignee}>
           <Rect
-            x={width - padding.right + 8}
+            x={padding.left + 4}
             y={padding.top + i * 16 - 8}
             width={8}
             height={8}
@@ -698,14 +821,14 @@ function FollowUpLines({ width, height, series }: LineProps) {
             fill={s.color}
           />
           <SvgText
-            x={width - padding.right + 20}
+            x={padding.left + 18}
             y={padding.top + i * 16}
             textAnchor="start"
             fill="#636E72"
-            fontSize={10}
+            fontSize={Platform.OS === 'web' ? 11 : 10}
             fontFamily={INSIGHTS_CHART_FONT}
           >
-            {s.assignee.length > 12 ? `${s.assignee.slice(0, 11)}…` : s.assignee}
+            {s.assignee.length > 14 ? `${s.assignee.slice(0, 13)}…` : s.assignee}
           </SvgText>
         </G>
       ))}
@@ -736,22 +859,25 @@ const styles = StyleSheet.create({
     flex: 1,
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'flex-start',
+    // 让卡片在可用空间内居中排列（无论是 2x2 网格还是单列）
+    justifyContent: 'center',
     alignContent: 'flex-start',
   },
   card: {
     backgroundColor: '#FFF',
     borderRadius: 16,
-    padding: CARD_PADDING,
+    paddingVertical: CARD_PADDING,
+    // Web 保持左右 16，移动端取消卡片内横向 padding，让图表离卡片边更近
+    paddingHorizontal: Platform.OS === 'web' ? CARD_PADDING_X_WEB : CARD_PADDING_X_MOBILE,
     borderWidth: 1,
     borderColor: '#E5E7EB',
+    // 统一较轻的卡片阴影（移动端和 Web 都不过重）
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
     justifyContent: 'space-between',
-    overflow: 'hidden',
   },
   cardTitle: {
     fontSize: 15,

@@ -874,12 +874,26 @@ export default function FirmClientsScreen() {
           sections={clientSections}
           keyExtractor={(c) => c.id}
           renderItem={({ item: c }) => {
-            const orderCount = c.isPendingClaim ? (orderCountByInvitee[c.id] ?? 0) : (orderCountByClient[c.clientSpaceId] ?? 0);
+            const orderCount = c.isPendingClaim
+              ? (orderCountByInvitee[c.id] ?? 0)
+              : (orderCountByClient[c.clientSpaceId] ?? 0);
             const firstTag = c.labels?.[0];
-            const statusLabel = firstTag ?? (CLIENT_DISPLAY_STATUS_LABELS[c.displayStatus ?? ''] ?? c.displayStatus ?? '—');
-            const statusColor = firstTag ? '#6C5CE7' : (DISPLAY_STATUS_COLOR[c.displayStatus ?? ''] ?? '#636E72');
+            const statusLabel =
+              firstTag ??
+              (CLIENT_DISPLAY_STATUS_LABELS[c.displayStatus ?? ''] ??
+                c.displayStatus ??
+                '—');
+            const statusColor = firstTag
+              ? '#6C5CE7'
+              : (DISPLAY_STATUS_COLOR[c.displayStatus ?? ''] ?? '#636E72');
             const isPending = c.isPendingClaim === true || !c.clientSpaceId;
             const detailPath = isPending ? `invitee-${c.id}` : c.clientSpaceId;
+            const assignee = c.assigneeName || 'Unassigned';
+            const contact =
+              c.contactName && c.contactName !== c.name
+                ? c.contactName
+                : c.contactName || '';
+
             return (
               <TouchableOpacity
                 style={[styles.receiptItem, isPending && styles.receiptItemPending]}
@@ -887,18 +901,51 @@ export default function FirmClientsScreen() {
                 activeOpacity={0.7}
               >
                 <View style={styles.receiptContent}>
+                  {/* 第一行：客户名称 + 状态标签（保持不动） */}
                   <View style={styles.firstRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: c.isPendingClaim ? CLIENT_TYPE_DOT.pendingInvitee : CLIENT_TYPE_DOT.client, marginRight: 6 }} />
-                      <Text style={styles.storeName} numberOfLines={1}>{c.name || '—'}</Text>
+                    <View
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        flex: 1,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
+                          backgroundColor: c.isPendingClaim
+                            ? CLIENT_TYPE_DOT.pendingInvitee
+                            : CLIENT_TYPE_DOT.client,
+                          marginRight: 6,
+                        }}
+                      />
+                      <Text style={styles.storeName} numberOfLines={1}>
+                        {c.name || '—'}
+                      </Text>
                     </View>
-                    <View style={[styles.statusBadge, { backgroundColor: statusColor }]}>
+                    <View
+                      style={[styles.statusBadge, { backgroundColor: statusColor }]}
+                    >
                       <Text style={styles.statusText}>{statusLabel}</Text>
                     </View>
                   </View>
+
+                  {/* 第二行：contact name + order count + assignee + last follow-up */}
                   <View style={styles.secondRow}>
-                    <Text style={styles.amount}>{orderCount} orders</Text>
-                    <Text style={styles.createdDate}>{formatLastFollowUp(c.lastFollowUpAt ?? null)}</Text>
+                    <Text style={styles.contactText} numberOfLines={1}>
+                      {contact || 'No contact'}
+                    </Text>
+                    <Text style={styles.orderCountText}>{orderCount} orders</Text>
+                    {/* 中间留出弹性空白，将 assignee 与 date 一起推到右侧 */}
+                    <View style={{ flex: 1 }} />
+                    <Text style={styles.assigneeText} numberOfLines={1}>
+                      {assignee}
+                    </Text>
+                    <Text style={styles.followUpDate}>
+                      {formatLastFollowUp(c.lastFollowUpAt ?? null)}
+                    </Text>
                   </View>
                 </View>
               </TouchableOpacity>
@@ -1977,10 +2024,36 @@ const styles = StyleSheet.create({
   statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
   statusText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   confirmedByText: { fontSize: 12, color: '#636E72', fontWeight: '500' },
-  secondRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  amount: { fontSize: 16, fontWeight: '600', color: '#6C5CE7' },
+  secondRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  contactText: {
+    fontSize: 13,
+    color: '#34495E',
+    // 约限制为 12 个字符宽度，避免挤占后续字段
+    minWidth: 108,
+    marginLeft: 16,
+  },
+  assigneeText: {
+    fontSize: 12,
+    color: '#636E72',
+    maxWidth: 108,
+    textAlign: 'right',
+  },
+  orderCountText: {
+    fontSize: 12,
+    color: '#6C5CE7',
+    fontWeight: '500',
+  },
   date: { fontSize: 14, color: '#636E72' },
-  createdDate: { fontSize: 14, color: '#636E72', marginLeft: 'auto' },
+  followUpDate: {
+    fontSize: 11,
+    color: '#636E72',
+    // 与 assignee name 之间留较小但清晰的间距
+    marginLeft: 4,
+  },
   listContent: { paddingHorizontal: 4, paddingTop: 0, paddingBottom: 100 },
   emptyList: { flexGrow: 1 },
   sectionHeader: {

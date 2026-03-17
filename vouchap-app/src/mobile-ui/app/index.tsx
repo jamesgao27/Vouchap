@@ -753,7 +753,16 @@ export default function HomeScreen() {
       <StatusBar style="dark" />
       <ScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          currentSpace?.kind === 'firm' && {
+            // firm 首页由 CrmDashboardView 自己控制左右内边距；
+            // 顶部与系统状态栏/安全区保持与 client 端一致的 60 顶部留白
+            paddingHorizontal: 0,
+            paddingTop: 60,
+            paddingBottom: 24,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
@@ -807,122 +816,19 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      <View style={styles.content}>
+      <View
+        style={[
+          styles.content,
+          currentSpace?.kind === 'firm' && {
+            // firm Insights 不需要额外顶部 padding，由 CrmDashboardView 内部控制
+            paddingTop: 0,
+          },
+        ]}
+      >
         {isFirmPending ? (
           <FirmPendingOverlay />
         ) : currentSpace?.kind === 'firm' ? (
-          /* Firm 空间（已审核通过）：两个统计图表 */
-          (() => {
-            const chartWidth = Math.min(screenWidth - 40, 360);
-            const pieSize = Math.min(chartWidth, 200);
-            const pieR = pieSize / 2 - 16;
-            const barChartH = 160;
-            const barPadding = { top: 20, right: 16, bottom: 28, left: 16 };
-            const clientEntries = (Object.keys(firmClientCountByStatus) as ClientDisplayStatus[])
-              .filter((k) => firmClientCountByStatus[k] > 0)
-              .map((k) => [CLIENT_DISPLAY_STATUS_LABELS[k], firmClientCountByStatus[k]] as [string, number]);
-            const orderEntries = ['pending', 'submitted', 'confirmed', 'cancelled']
-              .filter((k) => (firmOrderCountByStatus[k] ?? 0) > 0)
-              .map((k) => [FIRM_ORDER_STATUS_LABELS[k] || k, firmOrderCountByStatus[k] ?? 0] as [string, number]);
-            const totalClients = clientEntries.reduce((s, [, v]) => s + v, 0);
-            const maxOrderVal = orderEntries.length ? Math.max(...orderEntries.map(([, v]) => v)) : 0;
-            const cx = chartWidth / 2;
-            const cy = pieSize / 2 - 8;
-            const r = Math.min(pieR, pieSize / 2 - 24, chartWidth / 2 - 24);
-            return (
-              <>
-                {firmChartLoading ? (
-                  <View style={{ paddingVertical: 32, alignItems: 'center' }}>
-                    <ActivityIndicator size="small" color="#6C5CE7" />
-                  </View>
-                ) : (
-                  <>
-                    <View style={styles.firmChartCard}>
-                      <Text style={styles.firmChartCardTitle}>Client Status</Text>
-                      <View style={styles.firmChartWrap}>
-                        <Svg width={chartWidth} height={pieSize} viewBox={`0 0 ${chartWidth} ${pieSize}`} style={{ overflow: 'visible' }}>
-                          {clientEntries.length === 0 ? (
-                            <SvgText x={chartWidth / 2} y={pieSize / 2} textAnchor="middle" fill="#95A5A6" fontSize={14}>No data</SvgText>
-                          ) : (
-                            <G>
-                              {clientEntries.reduce<{ acc: number; els: JSX.Element[] }>(
-                                (prev, [name, val], i) => {
-                                  const ratio = totalClients ? val / totalClients : 0;
-                                  const color = FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length];
-                                  if (ratio >= 1 - 1e-9) {
-                                    // Full circle: SVG arc with same start/end does not draw; use Circle
-                                    prev.els.push(
-                                      <Circle key={name} cx={cx} cy={cy} r={r} fill={color} stroke="#fff" strokeWidth={2} />
-                                    );
-                                  } else {
-                                    const start = prev.acc * 2 * Math.PI - Math.PI / 2;
-                                    const end = (prev.acc + ratio) * 2 * Math.PI - Math.PI / 2;
-                                    const x1 = cx + r * Math.cos(start);
-                                    const y1 = cy + r * Math.sin(start);
-                                    const x2 = cx + r * Math.cos(end);
-                                    const y2 = cy + r * Math.sin(end);
-                                    const large = ratio > 0.5 ? 1 : 0;
-                                    const d = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
-                                    prev.els.push(
-                                      <Path key={name} d={d} fill={color} stroke="#fff" strokeWidth={2} />
-                                    );
-                                  }
-                                  prev.acc += ratio;
-                                  return prev;
-                                },
-                                { acc: 0, els: [] }
-                              ).els}
-                              <SvgText x={cx} y={cy + 6} textAnchor="middle" fill="#2D3436" fontSize={13}>{totalClients} clients</SvgText>
-                              {clientEntries.slice(0, 5).map(([name, val], i) => (
-                                <SvgText key={name} x={chartWidth - 12} y={20 + i * 16} textAnchor="end" fill={FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length]} fontSize={11}>
-                                  {name} {totalClients ? ((val / totalClients) * 100).toFixed(0) + '%' : ''}
-                                </SvgText>
-                              ))}
-                            </G>
-                          )}
-                        </Svg>
-                      </View>
-                    </View>
-                    <View style={styles.firmChartCard}>
-                      <Text style={styles.firmChartCardTitle}>Engagement Status</Text>
-                      <View style={styles.firmChartWrap}>
-                        <Svg width={chartWidth} height={barChartH} style={{ overflow: 'visible' }}>
-                          {orderEntries.length === 0 ? (
-                            <SvgText x={chartWidth / 2} y={barChartH / 2} textAnchor="middle" fill="#95A5A6" fontSize={14}>No data</SvgText>
-                          ) : (
-                            (() => {
-                              const chartAreaW = chartWidth - barPadding.left - barPadding.right;
-                              const chartAreaH = barChartH - barPadding.top - barPadding.bottom;
-                              const n = orderEntries.length;
-                              const colW = chartAreaW / n;
-                              const barW = Math.max(16, Math.min(colW * 0.65, 44));
-                              return (
-                                <>
-                                  {orderEntries.map(([name, val], i) => {
-                                    const colCenterX = barPadding.left + (i + 0.5) * colW;
-                                    const barX = colCenterX - barW / 2;
-                                    const barHeight = maxOrderVal ? (val / maxOrderVal) * chartAreaH : 0;
-                                    const barY = barPadding.top + chartAreaH - barHeight;
-                                    const label = name.length > 10 ? name.slice(0, 10) + '…' : name;
-                                    return (
-                                      <G key={name}>
-                                        <Rect x={barX} y={barY} width={barW} height={barHeight} rx={4} fill={FIRM_CHART_COLORS[i % FIRM_CHART_COLORS.length]} />
-                                        <SvgText x={colCenterX} y={barChartH - 8} textAnchor="middle" fill="#636E72" fontSize={10}>{label}</SvgText>
-                                      </G>
-                                    );
-                                  })}
-                                </>
-                              );
-                            })()
-                          )}
-                        </Svg>
-                      </View>
-                    </View>
-                  </>
-                )}
-              </>
-            );
-          })()
+          <CrmDashboardView />
         ) : (
           <>
             <Text style={[styles.title, { fontSize: sloganFontSize, lineHeight: sloganLineHeight, marginBottom: sloganMarginBottom }]}>📸</Text>
@@ -962,33 +868,59 @@ export default function HomeScreen() {
         )}
       </View>
 
+      </ScrollView>
+
+      {/* Bottom navigation buttons: always fixed at bottom on mobile */}
       {currentSpace?.kind === 'firm' && !isFirmPending ? (
-        <View style={styles.buttonsRow}>
-          <TouchableOpacity style={[styles.secondaryButton, styles.thirdWidthButton, styles.firmBottomIconButton]} onPress={() => router.push('/firm/clients')} accessibilityLabel="Clients">
-            <Ionicons name="people" size={26} color="#6C5CE7" />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.secondaryButton, styles.thirdWidthButton, styles.firmBottomIconButton]} onPress={() => router.push('/firm/engagements')} accessibilityLabel="Engagements">
-            <Ionicons name="clipboard" size={26} color="#6C5CE7" />
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.secondaryButton, styles.thirdWidthButton, styles.firmBottomIconButton]} onPress={() => router.push('/firm/service-catalog')} accessibilityLabel="Service Catalog">
-            <Ionicons name="library" size={26} color="#6C5CE7" />
-          </TouchableOpacity>
+        <View style={styles.bottomNav}>
+          <View style={styles.buttonsRow}>
+            <TouchableOpacity
+              style={[styles.secondaryButton, styles.thirdWidthButton, styles.firmBottomIconButton]}
+              onPress={() => router.push('/firm/clients')}
+              accessibilityLabel="Clients"
+            >
+              <Ionicons name="people-outline" size={26} color="#6C5CE7" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.secondaryButton, styles.thirdWidthButton, styles.firmBottomIconButton]}
+              onPress={() => router.push('/firm/engagements')}
+              accessibilityLabel="Engagements"
+            >
+              <Ionicons name="briefcase-outline" size={26} color="#6C5CE7" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.secondaryButton, styles.thirdWidthButton, styles.firmBottomIconButton]}
+              onPress={() => router.push('/firm/service-catalog')}
+              accessibilityLabel="Service Catalog"
+            >
+              <Ionicons name="grid-outline" size={26} color="#6C5CE7" />
+            </TouchableOpacity>
+          </View>
         </View>
       ) : currentSpace?.kind !== 'firm' ? (
-        <>
+        <View style={styles.bottomNav}>
           <View style={styles.buttonsRow}>
-            <TouchableOpacity style={[styles.secondaryButton, styles.halfWidthButton]} onPress={() => router.push('/invoices')}>
+            <TouchableOpacity
+              style={[styles.secondaryButton, styles.halfWidthButton]}
+              onPress={() => router.push('/invoices')}
+            >
               <Ionicons name="document-text-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
               <Text style={styles.secondaryButtonText}>Income</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.secondaryButton, styles.halfWidthButton]} onPress={() => router.push('/receipts')}>
+            <TouchableOpacity
+              style={[styles.secondaryButton, styles.halfWidthButton]}
+              onPress={() => router.push('/receipts')}
+            >
               <Ionicons name="list-outline" size={20} color="#6C5CE7" style={styles.buttonIcon} />
               <Text style={styles.secondaryButtonText}>Expenses</Text>
             </TouchableOpacity>
           </View>
           {SHOW_AI_INVENTORY_ENTRY && (
             <View style={[styles.buttonsRow, { marginTop: 12 }]}>
-              <TouchableOpacity style={[styles.secondaryButtonAlt, styles.halfWidthButton]} onPress={() => router.push('/ai-inventory')}>
+              <TouchableOpacity
+                style={[styles.secondaryButtonAlt, styles.halfWidthButton]}
+                onPress={() => router.push('/ai-inventory')}
+              >
                 <Ionicons name="cube-outline" size={20} color="#FF9500" style={styles.buttonIcon} />
                 <Text style={styles.secondaryButtonAltText}>AI Inventory</Text>
               </TouchableOpacity>
@@ -996,15 +928,17 @@ export default function HomeScreen() {
           )}
           {showTaxFiling && (
             <View style={[styles.buttonsRow, { marginTop: 12 }]}>
-              <TouchableOpacity style={[styles.secondaryButtonAlt, styles.halfWidthButton]} onPress={() => router.push('/tax-filing')}>
+              <TouchableOpacity
+                style={[styles.secondaryButtonAlt, styles.halfWidthButton]}
+                onPress={() => router.push('/tax-filing')}
+              >
                 <Ionicons name="document-text-outline" size={20} color="#0984e3" style={styles.buttonIcon} />
                 <Text style={styles.secondaryButtonAltText}>Tax Filing</Text>
               </TouchableOpacity>
             </View>
           )}
-        </>
+        </View>
       ) : null}
-      </ScrollView>
 
       {/* Space Switch Modal */}
       <Modal
@@ -1336,8 +1270,13 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     justifyContent: 'flex-start',
-    alignItems: 'center',
+    alignItems: 'stretch',
     paddingTop: 20,
+  },
+  /** Firm 首页统计卡片列：一列排布，左右各留 16 的外边距，卡片之间 16 间距由 card marginBottom 控制 */
+  firmCardsColumn: {
+    width: '100%',
+    paddingHorizontal: 16,
   },
   title: {
     fontWeight: 'bold',
@@ -1352,6 +1291,7 @@ const styles = StyleSheet.create({
   },
   iconContainer: {
     marginTop: 12,
+    alignItems: 'center',
   },
   circle: {
     width: 200,
@@ -1366,6 +1306,7 @@ const styles = StyleSheet.create({
   },
   chatIconContainer: {
     marginTop: 24,
+    alignItems: 'center',
   },
   chatCircle: {
     width: 150,
@@ -1424,6 +1365,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     width: '100%',
+  },
+  bottomNav: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#F8F9FA',
   },
   secondaryButton: {
     backgroundColor: 'transparent',
