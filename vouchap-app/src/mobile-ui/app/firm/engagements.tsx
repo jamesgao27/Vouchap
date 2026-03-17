@@ -27,7 +27,7 @@ import {
   type FirmOrderWithDetails,
 } from '@/lib/firm';
 import DataTable, { type DataTableColumn, WEB_POPOVER } from '@/components/DataTable';
-import { getTaxSeasonColor } from '@/lib/tax-season-colors';
+import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors';
 
 const STATUS_LABEL: Record<string, string> = {
   onboarding: 'Onboarding',
@@ -234,10 +234,12 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
               return <Text style={[cellText, { color: '#95A5A6' }]}>—</Text>;
             }
             return tags.map((t) => {
-              // 4 位纯数字的 tag 视为「税季年份」，使用统一的税季配色；其余标签走通用 TAG_PALETTE
+              // 4 位纯数字的 tag 视为「税季年份」：同色系浅底色 + 深字色；其余标签走通用 TAG_PALETTE
               const isYearTag = /^\d{4}$/.test(t);
-              const bg = isYearTag ? getTaxSeasonColor(Number(t)) : getTagColor(t)[0];
-              const fg = isYearTag ? '#FFFFFF' : getTagColor(t)[1];
+              const [tagBg, tagFg] = getTagColor(t);
+              const year = isYearTag ? Number(t) : null;
+              const bg = isYearTag ? getTaxSeasonBgColor(year) : tagBg;
+              const fg = isYearTag ? getTaxSeasonColor(year) : tagFg;
               return (
                 <View
                   key={t}
@@ -670,21 +672,28 @@ export default function FirmEngagementsScreen() {
                 activeOpacity={0.7}
               >
                 <View style={styles.receiptContent}>
-                  {/* 第一行：项目/服务名称（左）+ 税季标签（右） */}
+                  {/* 第一行：税季标签 + 项目/服务名称（左对齐） */}
                   <View style={styles.firstRow}>
-                    <Text style={styles.storeName} numberOfLines={1}>
-                      {serviceItemLabel(o)}
-                    </Text>
                     {taxYear != null && (
                       <View
                         style={[
                           styles.taxSeasonPill,
-                          { backgroundColor: getTaxSeasonColor(taxYear) },
+                          { backgroundColor: getTaxSeasonBgColor(taxYear) },
                         ]}
                       >
-                        <Text style={styles.taxSeasonText}>{taxYear}</Text>
+                        <Text
+                          style={[
+                            styles.taxSeasonText,
+                            { color: getTaxSeasonColor(taxYear) },
+                          ]}
+                        >
+                          {taxYear}
+                        </Text>
                       </View>
                     )}
+                    <Text style={styles.storeName} numberOfLines={1}>
+                      {serviceItemLabel(o)}
+                    </Text>
                   </View>
                   {/* 第二行：客户状态圆点 + 客户名（左），状态标签（右） */}
                   <View style={styles.secondRow}>
@@ -706,15 +715,10 @@ export default function FirmEngagementsScreen() {
                     <View
                       style={[
                         styles.statusBadge,
-                        { backgroundColor: STATUS_BG_SOFT[o.status] ?? '#F0F2F5' },
+                        { backgroundColor: STATUS_COLOR[o.status] ?? '#636E72' },
                       ]}
                     >
-                      <Text
-                        style={[
-                          styles.statusText,
-                          { color: STATUS_FG_SOFT[o.status] ?? '#636E72' },
-                        ]}
-                      >
+                      <Text style={[styles.statusText, { color: '#FFFFFF' }]}>
                         {statusLabel}
                       </Text>
                     </View>
@@ -1196,7 +1200,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingLeft: 24,
     borderBottomWidth: 1,
-    borderBottomColor: '#E9ECEF',
+    borderBottomColor: '#D0D6DC',
     flexDirection: 'row',
     alignItems: 'center',
   },
@@ -1205,7 +1209,7 @@ const styles = StyleSheet.create({
   firstRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     marginBottom: 4,
     gap: 8,
   },
@@ -1214,17 +1218,18 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: '#2D3436',
-    marginRight: 12,
+    marginRight: 0,
   },
   taxSeasonPill: {
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 999,
+    backgroundColor: '#F3F4FF',
   },
   taxSeasonText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#2D3436',
   },
   statusBadge: {
     paddingHorizontal: 12,
@@ -1246,10 +1251,11 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   clientDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 6,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 4,
+    marginLeft: 8,
   },
   clientName: {
     flex: 1,

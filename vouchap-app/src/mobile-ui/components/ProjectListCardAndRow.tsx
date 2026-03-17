@@ -182,8 +182,15 @@ export function ProjectListCard({
           </View>
           <View style={s.cardRowTagRow}>
             {item.tagPill ? (
-              <View style={[s.taxSeasonPill, { backgroundColor: item.tagPill.color }]}>
-                <Text style={s.taxSeasonPillText}>{item.tagPill.label}</Text>
+              <View style={s.taxSeasonPill}>
+                <Text
+                  style={[
+                    s.taxSeasonPillText,
+                    { color: item.tagPill.color },
+                  ]}
+                >
+                  {item.tagPill.label}
+                </Text>
               </View>
             ) : (
               <View />
@@ -624,8 +631,14 @@ const s = StyleSheet.create({
   cardRowTitle: { marginBottom: 6, minHeight: 40, overflow: 'hidden' },
   cardRowTagRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
   cardTitle: { fontSize: 15, fontWeight: '600', color: '#2D3436', lineHeight: 20 },
-  taxSeasonPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
-  taxSeasonPillText: { fontSize: 12, color: '#FFF', fontWeight: '600' },
+  // 税季标签：浅底色 + 深字色（color 由调用方传入）
+  taxSeasonPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: '#F3F4FF',
+  },
+  taxSeasonPillText: { fontSize: 12, color: '#2D3436', fontWeight: '600' },
   cardRowProgress: {
     flexDirection: 'row',
     alignItems: 'center',

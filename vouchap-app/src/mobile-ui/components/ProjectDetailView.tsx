@@ -20,7 +20,7 @@ import { ProjectInfoTab, type ProjectInfoTabHandle } from '../app/tax-filing/pro
 import type { ProjectTodoNode } from '@/lib/firm';
 import type { FirmSkuItem } from '@/types';
 import type { ProjectSkuInfo, TodoRow } from '@/components/ProjectSkuDetail';
-import { getTaxSeasonColor } from '@/lib/tax-season-colors';
+import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors';
 
 /** 将 sku_items 转为 TaxFilingTodosView 所需的 ProjectTodoNode 树（与 firm/sku/[skuId] 一致） */
 function skuItemsToProjectTodoTree(items: FirmSkuItem[]): ProjectTodoNode[] {
@@ -59,12 +59,12 @@ export interface ProjectDetailHeader {
   status?: { label: string; color: string; bg: string };
 }
 
-/** 订单状态配置（client/firm 顶栏状态标签共用） */
+/** 订单状态配置（client/firm 顶栏状态标签共用）：深底色 + 白字色 */
 export const ORDER_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
-  onboarding:  { label: 'Onboarding',  color: '#E67E22', bg: '#FFF3E0' },
-  processing:  { label: 'Processing',  color: '#0288D1', bg: '#E1F5FE' },
-  completed:   { label: 'Completed',   color: '#00875A', bg: '#E3FCEF' },
-  cancelled:   { label: 'Cancelled',   color: '#636E72', bg: '#F0F2F5' },
+  onboarding:  { label: 'Onboarding',  color: '#FFFFFF', bg: '#E67E22' },
+  processing:  { label: 'Processing',  color: '#FFFFFF', bg: '#29B6F7' },
+  completed:   { label: 'Completed',   color: '#FFFFFF', bg: '#00B894' },
+  cancelled:   { label: 'Cancelled',   color: '#FFFFFF', bg: '#636E72' },
 };
 
 /** 统一顶栏标题：税季 pill | 标题+副标题 | 状态 pill（样式与税季一致，放大占两行，与税季对齐） */
@@ -77,8 +77,20 @@ export function ProjectDetailHeaderTitle({
   return (
     <View style={headerStyles.wrap}>
       {taxSeasonYear != null ? (
-        <View style={[headerStyles.pill, { backgroundColor: getTaxSeasonColor(taxSeasonYear) }]}>
-          <Text style={[headerStyles.pillText, { color: '#FFF' }]}>{taxSeasonYear}</Text>
+        <View
+          style={[
+            headerStyles.pill,
+            { backgroundColor: getTaxSeasonBgColor(taxSeasonYear) },
+          ]}
+        >
+          <Text
+            style={[
+              headerStyles.pillText,
+              { color: getTaxSeasonColor(taxSeasonYear) },
+            ]}
+          >
+            {taxSeasonYear}
+          </Text>
         </View>
       ) : null}
       <View style={headerStyles.textCol}>
@@ -89,7 +101,9 @@ export function ProjectDetailHeaderTitle({
       </View>
       {status ? (
         <View style={[headerStyles.pill, { backgroundColor: status.bg }]}>
-          <Text style={[headerStyles.pillText, { color: status.color }]}>{status.label}</Text>
+          <Text style={[headerStyles.pillText, { color: status.color }]}>
+            {status.label}
+          </Text>
         </View>
       ) : null}
     </View>

@@ -35,12 +35,12 @@ import {
 } from '@/lib/firm';
 import { supabase, uploadProjectCover } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
-import { getTaxSeasonColor } from '@/lib/tax-season-colors';
+import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors';
 
 // ── Stage display configs（4 态，与 firm.orders.status 一致） ──
 const STAGE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
   onboarding: { label: 'Onboarding', color: '#E67E22', bg: '#FFF3E0' },
-  processing: { label: 'Processing', color: '#0288D1', bg: '#E1F5FE' },
+  processing: { label: 'Processing', color: '#29B6F7', bg: '#E1F5FE' },
   completed:  { label: 'Completed',  color: '#00875A', bg: '#E3FCEF' },
   cancelled:  { label: 'Cancelled',  color: '#636E72', bg: '#F0F2F5' },
 };
@@ -551,10 +551,17 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
               <View
                 style={[
                   s.taxSeasonPill,
-                  { backgroundColor: getTaxSeasonColor(taxSeasonYear) },
+                  { backgroundColor: getTaxSeasonBgColor(taxSeasonYear) },
                 ]}
               >
-                <Text style={s.taxSeasonPillText}>{taxSeasonYear}</Text>
+                <Text
+                  style={[
+                    s.taxSeasonPillText,
+                    { color: getTaxSeasonColor(taxSeasonYear) },
+                  ]}
+                >
+                  {taxSeasonYear}
+                </Text>
               </View>
             ) : (
               <Text style={s.cfEmptyTag}>—</Text>
@@ -962,9 +969,14 @@ const s = StyleSheet.create({
   },
   divider: { height: StyleSheet.hairlineWidth, backgroundColor: '#E9ECEF' },
 
-  // 税季彩色 pill（与 index.tsx 同款）
-  taxSeasonPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
-  taxSeasonPillText: { fontSize: 12, color: '#FFF', fontWeight: '700' },
+  // 税季彩色 pill（与 index.tsx 同款）：浅底色 + 深字色
+  taxSeasonPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+    backgroundColor: '#F3F4FF',
+  },
+  taxSeasonPillText: { fontSize: 12, color: '#2D3436', fontWeight: '700' },
 
   // 其他字段只读 tag（灰底深字）
   valueTagPill: {

@@ -67,21 +67,7 @@ const STAGE_LABEL: Record<string, string> = {
   cancelled: 'Cancelled',
 };
 
-// 状态标签配色（移动端）：与详情页浅底 + 深字一致
-const STAGE_BG: Record<string, string> = {
-  onboarding: '#FFF3E0',
-  processing: '#E1F5FE',
-  completed: '#E3FCEF',
-  cancelled: '#F0F2F5',
-};
-const STAGE_FG: Record<string, string> = {
-  onboarding: '#E67E22',
-  processing: '#0288D1',
-  completed: '#00875A',
-  cancelled: '#636E72',
-};
-
-// Web 列表沿用原来的实底色配色（白字），避免影响已有设计
+// Engagement 状态标签：深底色 + 白字色
 const STAGE_SOLID: Record<string, string> = {
   onboarding: '#E67E22',
   processing: '#29B6F6',
@@ -89,7 +75,7 @@ const STAGE_SOLID: Record<string, string> = {
   cancelled: '#B2BEC3',
 };
 
-import { getTaxSeasonColor } from '@/lib/tax-season-colors';
+import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors';
 
 /** 税季标签颜色（与报税项目 Info、订单详情、WEB 列表一致） */
 
@@ -284,8 +270,20 @@ function TaxFilingMobileScreen() {
             <View style={styles.firstRow}>
               <View style={styles.firstRowLeft}>
                 {taxSeasonYear != null && (
-                  <View style={[styles.taxSeasonPill, { backgroundColor: getTaxSeasonColor(taxSeasonYear) }]}>
-                    <Text style={styles.taxSeasonText}>{taxSeasonYear}</Text>
+                  <View
+                    style={[
+                      styles.taxSeasonPill,
+                      { backgroundColor: getTaxSeasonBgColor(taxSeasonYear) },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.taxSeasonText,
+                        { color: getTaxSeasonColor(taxSeasonYear) },
+                      ]}
+                    >
+                      {taxSeasonYear}
+                    </Text>
                   </View>
                 )}
                 <Text style={[styles.storeName, isCancelled && styles.mutedText]} numberOfLines={1}>
@@ -313,19 +311,10 @@ function TaxFilingMobileScreen() {
               <View
                 style={[
                   styles.statusBadge,
-                  Platform.OS === 'web'
-                    ? { backgroundColor: STAGE_SOLID[order.status] ?? '#95A5A6' }
-                    : { backgroundColor: STAGE_BG[order.status] ?? '#F0F2F5' },
+                  { backgroundColor: STAGE_SOLID[order.status] ?? '#636E72' },
                 ]}
               >
-                <Text
-                  style={[
-                    styles.statusText,
-                    Platform.OS === 'web'
-                      ? { color: '#FFFFFF' }
-                      : { color: STAGE_FG[order.status] ?? '#636E72' },
-                  ]}
-                >
+                <Text style={[styles.statusText, { color: '#FFFFFF' }]}>
                   {STAGE_LABEL[order.status] ?? order.status}
                 </Text>
               </View>
@@ -538,11 +527,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 999,
+    backgroundColor: '#F3F4FF',
   },
   taxSeasonText: {
     fontSize: 12,
     fontWeight: '600',
-    color: '#FFFFFF',
+    color: '#2D3436',
   },
   settingsIcon: {
     padding: 4,
@@ -757,12 +747,12 @@ const STAGE_LABEL_WEB: Record<string, string> = {
   cancelled: 'Cancelled',
 };
 
-// Web 列表状态标签：浅底色，深字色在 ProjectListCardAndRow 中统一为深色
+// Web 列表状态标签：深底色 + 白字色（在 ProjectListCardAndRow 中使用）
 const STAGE_COLOR_WEB: Record<string, string> = {
-  onboarding: '#FFF3E0',
-  processing: '#E1F5FE',
-  completed: '#E3FCEF',
-  cancelled: '#F0F2F5',
+  onboarding: '#E67E22',
+  processing: '#29B6F6',
+  completed: '#00B894',
+  cancelled: '#B2BEC3',
 };
 
 const TAX_SEASON_COLORS_WEB = [
@@ -1075,15 +1065,8 @@ function orderToItemWeb(
     imageUrl: isOnboarding ? order.skuImageUrl ?? null : order.projectImageUrl ?? null,
     tagPill: taxSeasonYear != null ? { label: String(taxSeasonYear), color: getTaxSeasonColorWeb(taxSeasonYear) } : null,
     statusLabel: STAGE_LABEL_WEB[order.status] ?? order.status,
-    statusColor: STAGE_COLOR_WEB[order.status] ?? '#F0F2F5',
-    statusFgColor:
-      order.status === 'onboarding'
-        ? '#E67E22'
-        : order.status === 'processing'
-          ? '#0288D1'
-          : order.status === 'completed'
-            ? '#00875A'
-            : '#636E72',
+    statusColor: STAGE_COLOR_WEB[order.status] ?? '#636E72',
+    statusFgColor: '#FFFFFF',
     isMuted: order.status === 'cancelled',
     footerText: order.firmName ? `By ${order.firmName}` : null,
     progress:
