@@ -27,6 +27,7 @@ import {
   type FirmOrderWithDetails,
 } from '@/lib/firm';
 import DataTable, { type DataTableColumn, WEB_POPOVER } from '@/components/DataTable';
+import { getTaxSeasonColor } from '@/lib/tax-season-colors';
 
 const STATUS_LABEL: Record<string, string> = {
   onboarding: 'Onboarding',
@@ -40,6 +41,20 @@ const STATUS_COLOR: Record<string, string> = {
   processing: '#29B6F6',
   completed: '#00B894',
   cancelled: '#B2BEC3',
+};
+
+// Mobile 列表状态标签配色：与 client 侧 / 详情页保持“浅底色 + 深字色”规范
+const STATUS_BG_SOFT: Record<string, string> = {
+  onboarding: '#FFF3E0',
+  processing: '#E1F5FE',
+  completed: '#E3FCEF',
+  cancelled: '#F0F2F5',
+};
+const STATUS_FG_SOFT: Record<string, string> = {
+  onboarding: '#E67E22',
+  processing: '#0288D1',
+  completed: '#00875A',
+  cancelled: '#636E72',
 };
 
 /** Client type dot: green = claimed (order has clientSpaceId), amber = invitee only (pending claim). Align with clients list. */
@@ -133,9 +148,23 @@ function formatCategory(row: FirmOrderWithDetails): string {
   return parts.length > 0 ? parts.join(' · ') : '—';
 }
 
-/** 服务项：年度 + SKU 名称 */
+/** 服务项名称 */
 function serviceItemLabel(row: FirmOrderWithDetails): string {
   return row.skuName || '—';
+}
+
+/** 税季年份：优先显式 taxSeasonYear，其次 dueAt/createdAt 推断 */
+// 税季年份：优先使用 project 上下发的 taxSeasonYear；
+// onboarding（尚无 project）时则根据订单的 dueAt / createdAt 推算年份。
+function getTaxSeasonYear(row: FirmOrderWithDetails): number | null {
+  if (row.taxSeasonYear != null) return row.taxSeasonYear;
+  const d = row.dueAt || row.createdAt || null;
+  if (!d) return null;
+  try {
+    return new Date(d).getFullYear();
+  } catch {
+    return null;
+  }
 }
 
 function matchQuery(q: string, row: FirmOrderWithDetails): boolean {
@@ -205,7 +234,10 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
               return <Text style={[cellText, { color: '#95A5A6' }]}>—</Text>;
             }
             return tags.map((t) => {
-              const [bg, fg] = getTagColor(t);
+              // 4 位纯数字的 tag 视为「税季年份」，使用统一的税季配色；其余标签走通用 TAG_PALETTE
+              const isYearTag = /^\d{4}$/.test(t);
+              const bg = isYearTag ? getTaxSeasonColor(Number(t)) : getTagColor(t)[0];
+              const fg = isYearTag ? '#FFFFFF' : getTagColor(t)[1];
               return (
                 <View
                   key={t}
@@ -627,37 +659,70 @@ export default function FirmEngagementsScreen() {
         <SectionList
           sections={engagementSections}
           keyExtractor={(o) => o.id}
-          renderItem={({ item: o }) => (
-            <TouchableOpacity
-              style={[styles.receiptItem, o.status === 'cancelled' && styles.receiptItemMuted]}
-              onPress={() => router.push(`/firm/engagement/${o.id}`)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.receiptContent}>
-                <View style={styles.firstRow}>
-                  <Text style={styles.storeName} numberOfLines={1}>{serviceItemLabel(o)}</Text>
-                  <View style={[styles.statusBadge, { backgroundColor: STATUS_COLOR[o.status] ?? '#636E72' }]}>
-                    <Text style={styles.statusText}>{STATUS_LABEL[o.status] ?? o.status}</Text>
+          renderItem={({ item: o }) => {
+            const taxYear = getTaxSeasonYear(o);
+            const statusBg = STATUS_COLOR[o.status] ?? '#636E72';
+            const statusLabel = STATUS_LABEL[o.status] ?? o.status;
+            return (
+              <TouchableOpacity
+                style={[styles.receiptItem, o.status === 'cancelled' && styles.receiptItemMuted]}
+                onPress={() => router.push(`/firm/engagement/${o.id}`)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.receiptContent}>
+                  {/* 第一行：项目/服务名称（左）+ 税季标签（右） */}
+                  <View style={styles.firstRow}>
+                    <Text style={styles.storeName} numberOfLines={1}>
+                      {serviceItemLabel(o)}
+                    </Text>
+                    {taxYear != null && (
+                      <View
+                        style={[
+                          styles.taxSeasonPill,
+                          { backgroundColor: getTaxSeasonColor(taxYear) },
+                        ]}
+                      >
+                        <Text style={styles.taxSeasonText}>{taxYear}</Text>
+                      </View>
+                    )}
                   </View>
-                </View>
-                <View style={styles.secondRow}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 8 }}>
+                  {/* 第二行：客户状态圆点 + 客户名（左），状态标签（右） */}
+                  <View style={styles.secondRow}>
+                    <View style={styles.clientWrap}>
+                      <View
+                        style={[
+                          styles.clientDot,
+                          {
+                            backgroundColor: isOrderInviteeOnly(o)
+                              ? CLIENT_TYPE_DOT.pendingInvitee
+                              : CLIENT_TYPE_DOT.client,
+                          },
+                        ]}
+                      />
+                      <Text style={styles.clientName} numberOfLines={1}>
+                        {o.clientName ?? '—'}
+                      </Text>
+                    </View>
                     <View
-                      style={{
-                        width: 8,
-                        height: 8,
-                        borderRadius: 4,
-                        backgroundColor: isOrderInviteeOnly(o) ? CLIENT_TYPE_DOT.pendingInvitee : CLIENT_TYPE_DOT.client,
-                        marginRight: 6,
-                      }}
-                    />
-                    <Text style={styles.amount} numberOfLines={1}>{o.clientName ?? '—'}</Text>
+                      style={[
+                        styles.statusBadge,
+                        { backgroundColor: STATUS_BG_SOFT[o.status] ?? '#F0F2F5' },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.statusText,
+                          { color: STATUS_FG_SOFT[o.status] ?? '#636E72' },
+                        ]}
+                      >
+                        {statusLabel}
+                      </Text>
+                    </View>
                   </View>
-                  <Text style={styles.createdDate}>{formatTimeAgo(o.updatedAt)}</Text>
                 </View>
-              </View>
-            </TouchableOpacity>
-          )}
+              </TouchableOpacity>
+            );
+          }}
           renderSectionHeader={({ section }) => {
             if (section.data.length === 0 || section.title === 'All') return null;
             return (
@@ -1137,14 +1202,60 @@ const styles = StyleSheet.create({
   },
   receiptItemMuted: { opacity: 0.6 },
   receiptContent: { flex: 1 },
-  firstRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 },
-  storeName: { flex: 1, fontSize: 16, fontWeight: '600', color: '#2D3436', marginRight: 12 },
-  statusBadge: { paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
+  firstRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+    gap: 8,
+  },
+  storeName: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2D3436',
+    marginRight: 12,
+  },
+  taxSeasonPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  taxSeasonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
   statusText: { color: '#fff', fontSize: 12, fontWeight: '600' },
   confirmedByText: { fontSize: 12, color: '#636E72', fontWeight: '500' },
-  secondRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  amount: { flex: 1, fontSize: 16, fontWeight: '600', color: '#6C5CE7' },
-  createdDate: { fontSize: 14, color: '#636E72', marginLeft: 'auto' },
+  secondRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+    gap: 8,
+  },
+  clientWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    marginRight: 8,
+  },
+  clientDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+  clientName: {
+    flex: 1,
+    fontSize: 14,
+    color: '#95A5A6',
+  },
   listContent: { paddingHorizontal: 4, paddingTop: 0, paddingBottom: 100 },
   emptyList: { flexGrow: 1 },
   sectionHeader: {

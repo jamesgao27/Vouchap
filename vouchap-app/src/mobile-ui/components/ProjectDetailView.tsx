@@ -20,6 +20,7 @@ import { ProjectInfoTab, type ProjectInfoTabHandle } from '../app/tax-filing/pro
 import type { ProjectTodoNode } from '@/lib/firm';
 import type { FirmSkuItem } from '@/types';
 import type { ProjectSkuInfo, TodoRow } from '@/components/ProjectSkuDetail';
+import { getTaxSeasonColor } from '@/lib/tax-season-colors';
 
 /** 将 sku_items 转为 TaxFilingTodosView 所需的 ProjectTodoNode 树（与 firm/sku/[skuId] 一致） */
 function skuItemsToProjectTodoTree(items: FirmSkuItem[]): ProjectTodoNode[] {
@@ -49,14 +50,6 @@ function skuItemsToProjectTodoTree(items: FirmSkuItem[]): ProjectTodoNode[] {
     }));
   }
   return build(null, 0);
-}
-
-const TAX_SEASON_COLORS = [
-  '#6C5CE7', '#E17055', '#00B894', '#0984E3', '#FDCB6E',
-  '#E84393', '#00CEC9', '#74B9FF', '#A29BFE', '#FD79A8',
-];
-function getTaxSeasonColor(year: number): string {
-  return TAX_SEASON_COLORS[Math.abs(year) % 10] ?? TAX_SEASON_COLORS[0];
 }
 
 export interface ProjectDetailHeader {
@@ -455,6 +448,101 @@ export function ProjectDetailView({
             ref={infoTabRef}
             projectId={projectId}
             mode={viewerRole === 'firm' ? 'firm' : undefined}
+            footer={
+              isMobile ? (
+                showOnboardingActions && onAcceptAndStart ? (
+                  <View style={sharedStyles.bottomActionBar}>
+                    <View style={sharedStyles.bottomActionRow}>
+                      {onReject ? (
+                        <TouchableOpacity
+                          onPress={onReject}
+                          disabled={rejectLoading || acceptAndStartLoading}
+                          style={sharedStyles.bottomRejectBtn}
+                          activeOpacity={0.85}
+                        >
+                          {rejectLoading ? (
+                            <ActivityIndicator size="small" color="#C0392B" />
+                          ) : (
+                            <Text style={sharedStyles.bottomRejectBtnText}>{headerRejectLabel}</Text>
+                          )}
+                        </TouchableOpacity>
+                      ) : null}
+                      <TouchableOpacity
+                        onPress={onAcceptAndStart}
+                        disabled={acceptAndStartLoading || rejectLoading}
+                        style={sharedStyles.bottomAcceptBtn}
+                        activeOpacity={0.85}
+                      >
+                        {acceptAndStartLoading ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <>
+                            <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                            <Text style={sharedStyles.bottomAcceptBtnText}>{headerAcceptLabel}</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : orderStatus === 'processing' && (onAbort || onComplete) ? (
+                  <View style={sharedStyles.bottomActionBar}>
+                    <View style={sharedStyles.bottomActionRow}>
+                      {onAbort ? (
+                        <TouchableOpacity
+                          onPress={onAbort}
+                          disabled={abortLoading || completeLoading}
+                          style={sharedStyles.bottomAbortBtn}
+                          activeOpacity={0.85}
+                        >
+                          {abortLoading ? (
+                            <ActivityIndicator size="small" color="#C0392B" />
+                          ) : (
+                            <Text style={sharedStyles.bottomAbortBtnText}>Terminate</Text>
+                          )}
+                        </TouchableOpacity>
+                      ) : null}
+                      {onComplete ? (
+                        <TouchableOpacity
+                          onPress={onComplete}
+                          disabled={completeLoading || abortLoading}
+                          style={sharedStyles.bottomCompleteBtn}
+                          activeOpacity={0.85}
+                        >
+                          {completeLoading ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <>
+                              <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                              <Text style={sharedStyles.bottomCompleteBtnText}>Complete</Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+                ) : orderStatus === 'cancelled' && onRestart ? (
+                  <View style={sharedStyles.bottomActionBar}>
+                    <View style={sharedStyles.bottomActionRow}>
+                      <TouchableOpacity
+                        onPress={onRestart}
+                        disabled={restartLoading}
+                        style={sharedStyles.bottomRestartBtn}
+                        activeOpacity={0.85}
+                      >
+                        {restartLoading ? (
+                          <ActivityIndicator size="small" color="#fff" />
+                        ) : (
+                          <>
+                            <Ionicons name="play-circle" size={18} color="#fff" />
+                            <Text style={sharedStyles.bottomRestartBtnText}>Restart</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : null
+              ) : null
+            }
           />
         ) : (
           <View style={sharedStyles.centered}>
@@ -471,103 +559,6 @@ export function ProjectDetailView({
           createProjectTodo={createProjectTodo}
           catalogPreviewReadOnly={isDetailReadOnly}
         />
-      )}
-
-      {/* 移动端：状态操作按钮采用浮层按钮放在页面底部 */}
-      {isMobile && (
-        <>
-          {showOnboardingActions && onAcceptAndStart ? (
-            <View style={sharedStyles.bottomActionBar}>
-              <View style={sharedStyles.bottomActionRow}>
-                {onReject ? (
-                  <TouchableOpacity
-                    onPress={onReject}
-                    disabled={rejectLoading || acceptAndStartLoading}
-                    style={sharedStyles.bottomRejectBtn}
-                    activeOpacity={0.85}
-                  >
-                    {rejectLoading ? (
-                      <ActivityIndicator size="small" color="#C0392B" />
-                    ) : (
-                      <Text style={sharedStyles.bottomRejectBtnText}>{headerRejectLabel}</Text>
-                    )}
-                  </TouchableOpacity>
-                ) : null}
-                <TouchableOpacity
-                  onPress={onAcceptAndStart}
-                  disabled={acceptAndStartLoading || rejectLoading}
-                  style={sharedStyles.bottomAcceptBtn}
-                  activeOpacity={0.85}
-                >
-                  {acceptAndStartLoading ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                      <Text style={sharedStyles.bottomAcceptBtnText}>{headerAcceptLabel}</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : orderStatus === 'processing' && (onAbort || onComplete) ? (
-            <View style={sharedStyles.bottomActionBar}>
-              <View style={sharedStyles.bottomActionRow}>
-                {onAbort ? (
-                  <TouchableOpacity
-                    onPress={onAbort}
-                    disabled={abortLoading || completeLoading}
-                    style={sharedStyles.bottomAbortBtn}
-                    activeOpacity={0.85}
-                  >
-                    {abortLoading ? (
-                      <ActivityIndicator size="small" color="#C0392B" />
-                    ) : (
-                      <Text style={sharedStyles.bottomAbortBtnText}>Terminate</Text>
-                    )}
-                  </TouchableOpacity>
-                ) : null}
-                {onComplete ? (
-                  <TouchableOpacity
-                    onPress={onComplete}
-                    disabled={completeLoading || abortLoading}
-                    style={sharedStyles.bottomCompleteBtn}
-                    activeOpacity={0.85}
-                  >
-                    {completeLoading ? (
-                      <ActivityIndicator size="small" color="#fff" />
-                    ) : (
-                      <>
-                        <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                        <Text style={sharedStyles.bottomCompleteBtnText}>Complete</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            </View>
-          ) : orderStatus === 'cancelled' && onRestart ? (
-            <View style={sharedStyles.bottomActionBar}>
-              <View style={sharedStyles.bottomActionRow}>
-                <TouchableOpacity
-                  onPress={onRestart}
-                  disabled={restartLoading}
-                  style={sharedStyles.bottomRestartBtn}
-                  activeOpacity={0.85}
-                >
-                  {restartLoading ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <>
-                      <Ionicons name="play-circle" size={18} color="#fff" />
-                      <Text style={sharedStyles.bottomRestartBtnText}>Restart</Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-              </View>
-            </View>
-          ) : null}
-        </>
       )}
     </View>
   );
@@ -809,22 +800,16 @@ const sharedStyles = StyleSheet.create({
     borderColor: '#E9ECEF',
   },
   confirmNoteText: { flex: 1, fontSize: 13, color: '#636E72', lineHeight: 18 },
-  /** 移动端 Firm 收集态底部浮层按钮区域 */
+  /** 移动端 Info 页底部按钮区域（固定在内容之后，而非悬浮覆盖） */
   bottomActionBar: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    paddingHorizontal: 16,
-    paddingBottom: 20,
-    paddingTop: 8,
-    backgroundColor: 'transparent',
+    paddingHorizontal: 0,
+    paddingVertical: 12,
   },
   bottomActionRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    justifyContent: 'flex-start',
+    justifyContent: 'center',
+    gap: 12,
   },
   /** 移动端底部 Reject（client & firm onboarding）：浅红底，阴影与凭证 Cancel 一致 */
   bottomRejectBtn: {

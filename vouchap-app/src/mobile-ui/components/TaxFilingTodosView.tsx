@@ -752,9 +752,19 @@ function TodoTree({
             }
           : undefined;
 
-        // collapse 行为只挂在 chevron 与 WBS / 标题点击，不再顺带点亮操作按钮
+        // collapse 行为只挂在 chevron 与 WBS / 标题点击，不再顺带点亮操作按钮；
+        // 若当前有其他行在显示状态按钮，则先收起该行按钮，本次点击只用于关闭，不触发折叠/展开。
         const collapseHandlers = onCollapsePress
-          ? { onPress: onCollapsePress, activeOpacity: 0.85 as const }
+          ? {
+              onPress: () => {
+                if (rowIdShowingStatusVerb && rowIdShowingStatusVerb !== node.id) {
+                  setRowIdShowingStatusVerb?.(null);
+                  return;
+                }
+                onCollapsePress();
+              },
+              activeOpacity: 0.85 as const,
+            }
           : undefined;
 
         // 责任方标签放在任务名称前（与标题同一行）；catalog 模式下可点击切换 client/firm；移动端不显示
@@ -803,12 +813,13 @@ function TodoTree({
           </View>
         );
 
+        const wbsExtraSpacingForTask = !isWeb && isTask ? { marginRight: 6 } : null;
         const WbsCell = collapseHandlers ? (
-          <TouchableOpacity style={ts.wbsHotzone} {...collapseHandlers}>
+          <TouchableOpacity style={[ts.wbsHotzone, wbsExtraSpacingForTask]} {...collapseHandlers}>
             <Text style={ts.wbsColText} numberOfLines={1}>{wbsCode}</Text>
           </TouchableOpacity>
         ) : (
-          <View style={ts.wbsHotzone}>
+          <View style={[ts.wbsHotzone, wbsExtraSpacingForTask]}>
             <Text style={ts.wbsColText} numberOfLines={1}>{wbsCode}</Text>
           </View>
         );
@@ -822,6 +833,10 @@ function TodoTree({
           <TouchableOpacity
             style={ts.titleHotzone}
             onPress={() => {
+              if (rowIdShowingStatusVerb && rowIdShowingStatusVerb !== node.id) {
+                clearStatusVerb();
+                return;
+              }
               clearStatusVerb();
               (collapseHandlers as any)?.onPress?.();
             }}
@@ -833,6 +848,10 @@ function TodoTree({
           <TouchableOpacity
             style={ts.titleHotzone}
             onPress={() => {
+              if (rowIdShowingStatusVerb && rowIdShowingStatusVerb !== node.id) {
+                clearStatusVerb();
+                return;
+              }
               clearStatusVerb();
               onToggleTaskFiles(node.id);
             }}
@@ -987,7 +1006,9 @@ function TodoTree({
                 })
           : undefined;
 
-        const progressColWrapStyle = isWeb ? ts.progressFilesCol : [ts.progressFilesCol, ts.progressFilesColMobile];
+        // Web：使用宽度固定的 progressFilesCol；
+        // 移动端：仅使用更窄的 progressFilesColMobile，避免多占名称空间
+        const progressColWrapStyle = isWeb ? ts.progressFilesCol : ts.progressFilesColMobile;
         const ProgressCell = collapseHandlers ? (
           <TouchableOpacity style={progressColWrapStyle} {...collapseHandlers}>
             {progressColContent}
@@ -1153,8 +1174,22 @@ function TodoTree({
           </>
         );
 
+        const RowOuter = Platform.OS === 'web' ? View : Pressable;
+
         return (
-          <View key={node.id} style={ts.treeRowWrap}>
+          <RowOuter
+            key={node.id}
+            style={ts.treeRowWrap}
+            {...(Platform.OS === 'web'
+              ? {}
+              : {
+                  onPress: () => {
+                    if (rowIdShowingStatusVerb) {
+                      setRowIdShowingStatusVerb?.(null);
+                    }
+                  },
+                })}
+          >
             <View style={rowContainerStyle} {...hideDepsOnRowHandlers}>
               {rowContent}
             </View>
@@ -1323,7 +1358,7 @@ function TodoTree({
                 )}
               </View>
             )}
-          </View>
+          </RowOuter>
         );
       })}
     </>
@@ -2528,7 +2563,8 @@ const ts = StyleSheet.create({
     // 移动端右侧留白减小，让状态标更贴近屏幕右缘
     paddingRight: Platform.OS === 'web' ? 12 : 4,
     paddingLeft: Platform.OS === 'web' ? 4 : 0,
-    minHeight: 40,
+    // 提高手指点击区域高度：移动端行高略大于 Web
+    minHeight: Platform.OS === 'web' ? 40 : 48,
     flexWrap: 'nowrap',
     borderLeftWidth: 3,
     borderLeftColor: 'transparent',
@@ -2668,8 +2704,8 @@ const ts = StyleSheet.create({
   uploadTaskBtnText: { fontSize: 10, color: '#FFF', fontWeight: '600' },
   nmText: { fontSize: 12, color: '#636E72' },
   statusCol: {
-    // Web：固定宽度 pill；移动端：圆点列宽较窄
-    ...(Platform.OS === 'web' ? { width: 120, minWidth: 120 } : { minWidth: 28, width: 28 }),
+    // Web：固定宽度 pill；移动端：圆点列宽稍大，方便点按
+    ...(Platform.OS === 'web' ? { width: 120, minWidth: 120 } : { minWidth: 32, width: 32 }),
     flexShrink: 0,
     alignItems: Platform.OS === 'web' ? 'flex-start' : 'flex-end',
     justifyContent: 'center',

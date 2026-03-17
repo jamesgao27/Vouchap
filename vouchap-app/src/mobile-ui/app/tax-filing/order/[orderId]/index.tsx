@@ -43,16 +43,8 @@ import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDeta
 import { TODO_STATUS_LABEL, TODO_STATUS_COLOR } from '@/lib/constants/project-todo-status';
 import { uploadTaxFilingFile } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
+import { getTaxSeasonColor } from '@/lib/tax-season-colors';
 import * as ImagePicker from 'expo-image-picker';
-
-/** 税季标签颜色（与列表页一致） */
-const TAX_SEASON_COLORS = [
-  '#6C5CE7', '#E17055', '#00B894', '#0984E3', '#FDCB6E',
-  '#E84393', '#00CEC9', '#74B9FF', '#A29BFE', '#FD79A8',
-];
-function getTaxSeasonColor(year: number): string {
-  return TAX_SEASON_COLORS[Math.abs(year) % 10] ?? TAX_SEASON_COLORS[0];
-}
 
 /** 将 sku_items 转成 TaxFilingTodosView 需要的 ProjectTodoNode 树结构（与 firm 侧预览一致） */
 function skuItemsToProjectTodoTree(items: FirmSkuItem[]): ProjectTodoNode[] {
@@ -224,6 +216,7 @@ export default function OrderTodosScreen() {
   const [activeTab, setActiveTab] = useState<'todos' | 'info'>('todos');
   const [infoEditing, setInfoEditing] = useState(false);
   const infoTabRef = useRef<any>(null);
+  const [showTinaFab, setShowTinaFab] = useState(false);
 
   const load = useCallback(async () => {
     if (!orderId) return;
@@ -692,6 +685,23 @@ export default function OrderTodosScreen() {
     );
   }
 
+  useEffect(() => {
+    // 仅移动端 + 已有 todos 时显示 Tina 浮层（onboarding 态本身不会有 todos）
+    if (Platform.OS === 'web') {
+      setShowTinaFab(false);
+      return;
+    }
+    setShowTinaFab(Boolean(orderId && tree.length > 0));
+  }, [orderId, tree.length]);
+
+  const handleTinaChat = () => {
+    if (!orderId) return;
+    router.push({
+      pathname: '/chat-to-log',
+      params: { type: 'tax-filing', projectId: orderId },
+    } as any);
+  };
+
   return (
     <View style={styles.container}>
       {attachmentDetailForModal ? (
@@ -760,8 +770,21 @@ export default function OrderTodosScreen() {
                 ))}
               </View>
             )}
-        </ScrollView>
+          </ScrollView>
         </>
+      )}
+      {showTinaFab && (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={handleTinaChat}
+          style={styles.tinaFab}
+        >
+          <Image
+            source={require('../../../../assets/assistants/Tina-Tax_Assistant.png')}
+            style={styles.tinaFabImage}
+            resizeMode="cover"
+          />
+        </TouchableOpacity>
       )}
     </View>
   );
@@ -1331,6 +1354,24 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 16, color: '#636E72', marginBottom: 16 },
   backBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 16 },
   backBtnText: { fontSize: 16, color: '#6C5CE7', fontWeight: '500' },
+  tinaFab: {
+    position: 'absolute',
+    right: 24,
+    bottom: 32,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  tinaFabImage: {
+    width: '100%',
+    height: '100%',
+  },
   /** 与 Expenses (receipts) 页 toolbarSlot 一致：高度 52 */
   operationBar: {
     flexDirection: 'row',

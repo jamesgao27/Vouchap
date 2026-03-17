@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   Alert,
   Platform,
+  Image,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -186,35 +187,24 @@ export default function ProjectTodosScreen() {
     }
   }, [orderId, router]);
 
-  const handleRestart = useCallback(async () => {
-    if (!orderId) return;
-    setRestartLoading(true);
-    const { error } = await updateOrderStatus(orderId, 'processing');
-    setRestartLoading(false);
-    if (error) {
-      showToast(error.message ?? 'Failed to restart', 'error');
+  const [showTinaFab, setShowTinaFab] = useState(false);
+
+  useEffect(() => {
+    // 仅移动端 + 已有 todos 时显示 Tina 浮层（onboarding 态本身不会有 todos）
+    if (Platform.OS === 'web') {
+      setShowTinaFab(false);
       return;
     }
-    showToast('Engagement restarted', 'success');
-    load();
-  }, [orderId, load]);
+    setShowTinaFab(Boolean(projectId && tree.length > 0));
+  }, [projectId, tree.length]);
 
-  // 根据路由参数初始化：从列表卡片的 Edit 进入时，直接落在 Info 页签并进入编辑态
-  useEffect(() => {
-    if (tab === 'info') {
-      setActiveTab('info');
-      if (edit === '1' || edit === 'true') {
-        setInfoEditing(true);
-      }
-    }
-  }, [tab, edit]);
-
-  // 当需要编辑且 Info Tab 已激活时，通知子组件进入编辑态
-  useEffect(() => {
-    if (activeTab === 'info' && infoEditing && infoTabRef.current) {
-      infoTabRef.current.startEditing();
-    }
-  }, [activeTab, infoEditing]);
+  const handleTinaChat = () => {
+    if (!projectId) return;
+    router.push({
+      pathname: '/chat-to-log',
+      params: { type: 'tax-filing', projectId },
+    } as any);
+  };
 
   const dateForYear = header?.dueAt || header?.createdAt || null;
   const explicitTaxSeasonYear = header?.taxSeasonYear ?? null;
@@ -252,38 +242,53 @@ export default function ProjectTodosScreen() {
     : undefined;
 
   return (
-    <ProjectDetailView
-      viewerRole="client"
-      header={detailHeader}
-      isOnboarding={header?.status === 'onboarding'}
-      activeTab={activeTab}
-      setActiveTab={setActiveTab}
-      infoEditing={infoEditing}
-      setInfoEditing={setInfoEditing}
-      infoTabRef={infoTabRef}
-      onReject={header?.status === 'onboarding' ? handleReject : undefined}
-      rejectLoading={rejectLoading}
-      onAcceptAndStart={header?.status === 'onboarding' ? handleAcceptAndStart : undefined}
-      acceptAndStartLoading={acceptLoading}
-      orderStatus={orderStatus}
-      onAbort={header?.status === 'processing' ? handleAbort : undefined}
-      abortLoading={abortLoading}
-      onRestart={header?.status === 'cancelled' ? handleRestart : undefined}
-      restartLoading={restartLoading}
-      tree={tree}
-      orderId={orderId ?? ''}
-      projectId={projectId}
-      clientSpaceId={clientSpaceId}
-      onRefresh={async () => {
-        if (!orderId) return;
-        const todosTree = await getProjectTodosTree(orderId);
-        setTree(todosTree);
-      }}
-      createProjectTodo={createProjectTodo}
-      skuItems={skuItems}
-      skuInfo={skuInfo}
-      skuDetailForInfo={skuDetailForInfo}
-    />
+    <View style={{ flex: 1 }}>
+      <ProjectDetailView
+        viewerRole="client"
+        header={detailHeader}
+        isOnboarding={header?.status === 'onboarding'}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        infoEditing={infoEditing}
+        setInfoEditing={setInfoEditing}
+        infoTabRef={infoTabRef}
+        onReject={header?.status === 'onboarding' ? handleReject : undefined}
+        rejectLoading={rejectLoading}
+        onAcceptAndStart={header?.status === 'onboarding' ? handleAcceptAndStart : undefined}
+        acceptAndStartLoading={acceptLoading}
+        orderStatus={orderStatus}
+        onAbort={header?.status === 'processing' ? handleAbort : undefined}
+        abortLoading={abortLoading}
+        onRestart={header?.status === 'cancelled' ? handleRestart : undefined}
+        restartLoading={restartLoading}
+        tree={tree}
+        orderId={orderId ?? ''}
+        projectId={projectId}
+        clientSpaceId={clientSpaceId}
+        onRefresh={async () => {
+          if (!orderId) return;
+          const todosTree = await getProjectTodosTree(orderId);
+          setTree(todosTree);
+        }}
+        createProjectTodo={createProjectTodo}
+        skuItems={skuItems}
+        skuInfo={skuInfo}
+        skuDetailForInfo={skuDetailForInfo}
+      />
+      {showTinaFab && (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={handleTinaChat}
+          style={styles.tinaFab}
+        >
+          <Image
+            source={require('../../../../assets/assistants/Tina-Tax_Assistant.png')}
+            style={styles.tinaFabImage}
+            resizeMode="cover"
+          />
+        </TouchableOpacity>
+      )}
+    </View>
   );
 }
 
@@ -292,5 +297,24 @@ const styles = StyleSheet.create({
   errorText: { fontSize: 16, color: '#636E72', marginBottom: 16 },
   backBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 16 },
   backBtnText: { fontSize: 16, color: '#6C5CE7', fontWeight: '500' },
+  tinaFab: {
+    position: 'absolute',
+    right: 16,
+    bottom: 16,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 6,
+    backgroundColor: '#FFFFFF',
+  },
+  tinaFabImage: {
+    width: '100%',
+    height: '100%',
+  },
 });
 

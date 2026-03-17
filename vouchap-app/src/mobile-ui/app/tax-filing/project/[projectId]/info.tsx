@@ -35,6 +35,7 @@ import {
 } from '@/lib/firm';
 import { supabase, uploadProjectCover } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
+import { getTaxSeasonColor } from '@/lib/tax-season-colors';
 
 // ── Stage display configs（4 态，与 firm.orders.status 一致） ──
 const STAGE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -43,15 +44,6 @@ const STAGE_CONFIG: Record<string, { label: string; color: string; bg: string }>
   completed:  { label: 'Completed',  color: '#00875A', bg: '#E3FCEF' },
   cancelled:  { label: 'Cancelled',  color: '#636E72', bg: '#F0F2F5' },
 };
-
-// ── Tax season 颜色（与 index.tsx headerStyles 保持一致） ──
-const TAX_SEASON_COLORS = [
-  '#6C5CE7', '#E17055', '#00B894', '#0984E3', '#FDCB6E',
-  '#E84393', '#00CEC9', '#74B9FF', '#A29BFE', '#FD79A8',
-];
-function getTaxSeasonColor(year: number): string {
-  return TAX_SEASON_COLORS[Math.abs(year) % 10] ?? TAX_SEASON_COLORS[0];
-}
 
 const TAX_COUNTRY_OPTIONS = [
   { value: '', label: '—' },
@@ -102,8 +94,8 @@ export interface ProjectInfoTabHandle {
   saveEditing: () => Promise<boolean>;
 }
 
-export const ProjectInfoTab = forwardRef<ProjectInfoTabHandle, { projectId: string; mode?: 'client' | 'firm' }>(
-function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
+export const ProjectInfoTab = forwardRef<ProjectInfoTabHandle, { projectId: string; mode?: 'client' | 'firm'; footer?: React.ReactNode }>(
+function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
   const [error, setError]               = useState<string | null>(null);
@@ -374,7 +366,6 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
 
   return (
     <ScrollView style={s.scroll} contentContainerStyle={s.scrollContent} showsVerticalScrollIndicator={false}>
-
       {/* ══════════════════════════════════════════════
           Card 1 — Hero：封面 + 名称 + 描述
       ══════════════════════════════════════════════ */}
@@ -777,6 +768,8 @@ function ProjectInfoTabInner({ projectId, mode = 'client' }, ref) {
         </View>
       </View>
 
+      {footer ? <View style={{ marginTop: 12 }}>{footer}</View> : null}
+
     </ScrollView>
   );
 });
@@ -798,20 +791,21 @@ export default function ProjectInfoScreen() {
 // ─────────────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 40, gap: 12 },
+  scrollContent: { padding: 12, paddingBottom: 8, gap: 6 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
   errorText: { fontSize: 15, color: '#636E72', textAlign: 'center' },
 
   // ── 通用卡片 ──
   card: {
     backgroundColor: '#F8F9FA',
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#DEE2E6',
     overflow: 'hidden',
-    paddingHorizontal: 16,
-    paddingTop: 14,
-    paddingBottom: 6,
+    paddingHorizontal: 10,
+    paddingTop: 6,
+    paddingBottom: 4,
+    marginBottom: 4,
     position: 'relative',
   },
   cardEditIcon: {
@@ -868,16 +862,16 @@ const s = StyleSheet.create({
     fontWeight: '600',
   },
   cardTitle: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '700',
     color: '#95A5A6',
     textTransform: 'uppercase',
     letterSpacing: 0.7,
-    marginBottom: 10,
+    marginBottom: 7,
   },
   cardTitleSecond: {
-    marginTop: 14,
-    paddingTop: 14,
+    marginTop: 10,
+    paddingTop: 10,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#E9ECEF',
   },
@@ -885,9 +879,9 @@ const s = StyleSheet.create({
   // ── Card 1: Hero ──
   heroRow: {
     flexDirection: 'row',
-    gap: 14,
+    gap: 10,
     alignItems: 'flex-start',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   coverWrap: {
     width: COVER_SIZE,
@@ -943,9 +937,9 @@ const s = StyleSheet.create({
   cfRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 44,          // 统一行高基准，编辑/阅读态保持一致
-    paddingHorizontal: 4,
-    gap: 16,
+    minHeight: 32,          // 进一步压缩行高，仍保留可读性
+    paddingHorizontal: 0,
+    gap: 8,
   },
   // 左侧提示列：固定宽度，文字右对齐
   cfTagCol: {

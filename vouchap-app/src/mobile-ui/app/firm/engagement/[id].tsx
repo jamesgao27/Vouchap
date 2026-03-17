@@ -14,6 +14,8 @@ import {
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
+  Image,
+  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -73,6 +75,7 @@ export default function FirmEngagementDetailScreen() {
   // Onboarding: Terminal / Start
   const [rejectLoading, setRejectLoading] = useState(false);
   const [acceptLoading, setAcceptLoading] = useState(false);
+  const [showTinaFab, setShowTinaFab]   = useState(false);
 
   const loadData = useCallback(async () => {
     if (!orderId) return;
@@ -202,6 +205,25 @@ export default function FirmEngagementDetailScreen() {
     };
   }, [orderId, projectId, clientSpaceId, openPanel, setType, setAttachmentContext, closePanel]);
 
+  // 移动端 Todos tab 且已有 todos 时显示 Tina 浮层（避免引用尚未初始化的 isOnboarding）
+  useEffect(() => {
+    if (Platform.OS === 'web') {
+      setShowTinaFab(false);
+      return;
+    }
+    const hasTodos = tree.length > 0 && !tree.every((n) => n.children.length === 0 && !n.title);
+    const notOnboarding = order?.status !== 'onboarding';
+    setShowTinaFab(activeTab === 'todos' && notOnboarding && hasTodos);
+  }, [activeTab, order?.status, tree.length, tree]);
+
+  const handleTinaChat = useCallback(() => {
+    if (!orderId) return;
+    router.push({
+      pathname: '/chat-to-log',
+      params: { type: 'tax-filing', projectId: orderId, clientSpaceId },
+    } as any);
+  }, [orderId, clientSpaceId, router]);
+
   // 同步 infoEditing → child forwardRef
   useEffect(() => {
     if (activeTab === 'info' && infoEditing) {
@@ -239,54 +261,89 @@ export default function FirmEngagementDetailScreen() {
     : (dateForYear ? new Date(dateForYear).getFullYear() : null);
   const detailHeader: ProjectDetailHeader = {
     title: order.skuName ?? 'Engagement',
-    subtitle: clientName ? `Service for ${clientName}` : '',
+    subtitle: clientName ? `for ${clientName}` : '',
     taxSeasonYear: taxYear,
     status: statusCfg,
   };
 
   return (
-    <ProjectDetailView
-      viewerRole="firm"
-      header={detailHeader}
-      isOnboarding={isOnboarding}
-      activeTab={activeTab}
-      setActiveTab={setActiveTab}
-      infoEditing={infoEditing}
-      setInfoEditing={setInfoEditing}
-      infoTabRef={infoTabRef}
-      onReject={isOnboarding ? handleTerminal : undefined}
-      rejectLoading={rejectLoading}
-      onAcceptAndStart={isOnboarding ? handleStart : undefined}
-      acceptAndStartLoading={acceptLoading}
-      headerRejectLabel="Terminate"
-      headerAcceptLabel="Start service"
-      orderStatus={order.status}
-      onAbort={ACTIVE_ORDER_STATUSES.includes(order.status) ? handleAbort : undefined}
-      abortLoading={abortLoading}
-      onComplete={ACTIVE_ORDER_STATUSES.includes(order.status) ? handleComplete : undefined}
-      completeLoading={completeLoading}
-      onRestart={order.status === 'cancelled' ? handleRestart : undefined}
-      restartLoading={restartLoading}
-      tree={tree}
-      orderId={orderId!}
-      projectId={projectId}
-      clientSpaceId={clientSpaceId}
-      onRefresh={async () => {
-        const todosTree = await getProjectTodosTree(orderId!);
-        setTree(todosTree);
-      }}
-      createProjectTodo={createProjectTodo}
-      skuInfo={skuInfo}
-      skuTodos={skuTodos}
-      skuItems={skuItems}
-      skuDetailForInfo={skuDetailForInfo}
-    />
+    <View style={s.root}>
+      <ProjectDetailView
+        viewerRole="firm"
+        header={detailHeader}
+        isOnboarding={isOnboarding}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        infoEditing={infoEditing}
+        setInfoEditing={setInfoEditing}
+        infoTabRef={infoTabRef}
+        onReject={isOnboarding ? handleTerminal : undefined}
+        rejectLoading={rejectLoading}
+        onAcceptAndStart={isOnboarding ? handleStart : undefined}
+        acceptAndStartLoading={acceptLoading}
+        headerRejectLabel="Terminate"
+        headerAcceptLabel="Start service"
+        orderStatus={order.status}
+        onAbort={ACTIVE_ORDER_STATUSES.includes(order.status) ? handleAbort : undefined}
+        abortLoading={abortLoading}
+        onComplete={ACTIVE_ORDER_STATUSES.includes(order.status) ? handleComplete : undefined}
+        completeLoading={completeLoading}
+        onRestart={order.status === 'cancelled' ? handleRestart : undefined}
+        restartLoading={restartLoading}
+        tree={tree}
+        orderId={orderId!}
+        projectId={projectId}
+        clientSpaceId={clientSpaceId}
+        onRefresh={async () => {
+          const todosTree = await getProjectTodosTree(orderId!);
+          setTree(todosTree);
+        }}
+        createProjectTodo={createProjectTodo}
+        skuInfo={skuInfo}
+        skuTodos={skuTodos}
+        skuItems={skuItems}
+        skuDetailForInfo={skuDetailForInfo}
+      />
+      {showTinaFab && (
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={handleTinaChat}
+          style={s.tinaFab}
+        >
+          <Image
+            // 相对路径：app/firm/engagement/[id].tsx → 回到 src/mobile-ui → assets/assistants
+            source={require('../../../assets/assistants/Tina-Tax_Assistant.png')}
+            style={s.tinaFabImage}
+            resizeMode="cover"
+          />
+        </TouchableOpacity>
+      )}
+    </View>
   );
 }
 
 const s = StyleSheet.create({
+  root:      { flex: 1 },
   centered:   { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   errorText: { fontSize: 15, color: '#636E72', marginBottom: 16 },
   backBtn:   { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 16 },
   backBtnText: { fontSize: 16, color: '#6C5CE7', fontWeight: '500' },
+  tinaFab: {
+    position: 'absolute',
+    right: 24,
+    bottom: 32,
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  tinaFabImage: {
+    width: '100%',
+    height: '100%',
+  },
 });

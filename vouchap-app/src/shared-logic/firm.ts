@@ -122,57 +122,9 @@ function computeInviteeDisplayStatus(
 
 /** 客户端空间：获取推送给本空间的待办（订单阶段为 onboarding / processing 即有 project 的） */
 export async function getClientTodosForClientSpace(clientSpaceId: string): Promise<FirmClientTodo[]> {
-  const { data: ordersData, error: ordersErr } = await supabase
-    .schema('firm')
-    .from('orders')
-    .select('id, firm_space_id, client_space_id, due_at, created_at')
-    .eq('client_space_id', clientSpaceId)
-    .in('status', ['onboarding', 'processing'])
-    .order('due_at', { ascending: true, nullsFirst: false });
-
-  if (ordersErr || !ordersData?.length) {
-    if (ordersErr) console.error('getClientTodosForClientSpace orders:', ordersErr);
-    return [];
-  }
-
-  const orderIds = ordersData.map((o: any) => o.id);
-  const { data: projectsData } = await supabase.from('projects').select('id, order_id').in('order_id', orderIds);
-  const projectIds = (projectsData || []).map((p: any) => p.id);
-  const orderIdByProjectId: Record<string, string> = {};
-  (projectsData || []).forEach((p: any) => { orderIdByProjectId[p.id] = p.order_id; });
-  if (projectIds.length === 0) return [];
-  const { data: itemsData, error: itemsErr } = await supabase
-    .from('project_todos')
-    .select('*')
-    .in('project_id', projectIds)
-    .eq('responsible_side', 'client')
-    .order('sort_order', { ascending: true });
-
-  if (itemsErr) {
-    console.error('getClientTodosForClientSpace projects:', itemsErr);
-    return [];
-  }
-
-  const orderMap: Record<string, any> = {};
-  ordersData.forEach((o: any) => { orderMap[o.id] = o; });
-
-  return (itemsData || []).map((row: any) => {
-    const orderId = orderIdByProjectId[row.project_id];
-    const order = orderMap[orderId];
-    return {
-      id: row.id,
-      orderId: orderId ?? row.project_id,
-      firmSpaceId: order?.firm_space_id ?? '',
-      clientSpaceId: order?.client_space_id ?? '',
-      title: row.title,
-      description: row.description ?? null,
-      dueAt: order?.due_at ?? null,
-      status: row.status,
-      sortOrder: row.sort_order ?? 0,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    };
-  });
+  // 暂时关闭该接口调用，避免无用的 404 请求；未来如需恢复，再改回真实实现
+  void clientSpaceId;
+  return [];
 }
 
 /** 客户端订单列表项：确认前用 SKU 展示，确认后用 project 展示 */
@@ -248,8 +200,8 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
   }
 
   // 附带拉取关联 project 的 tax_season_year 作为显式税季年份
+  // 注意：使用与 client 侧一致的 public schema 下的 projects 表，确保 Info 页修改后两侧显示一致。
   const { data: projectRow } = await supabase
-    .schema('firm')
     .from('projects')
     .select('tax_season_year')
     .eq('order_id', row.id)
@@ -832,7 +784,7 @@ export async function getFirmOrdersWithDetails(
     supabase.schema('firm').from('skus').select('id, name').in('id', skuIds),
     supabase
       .from('projects')
-      .select('order_id, tax_country, tax_scenario, tags')
+      .select('order_id, tax_country, tax_scenario, tags, tax_season_year')
       .in('order_id', orderIds),
     inviteeClientIds.length > 0
       ? supabase.schema('firm').from('invitee_clients').select('id, invitee_client_name, invitee_contact_name, invitee_email').in('id', inviteeClientIds)

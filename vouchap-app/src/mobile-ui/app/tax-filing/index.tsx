@@ -89,14 +89,9 @@ const STAGE_SOLID: Record<string, string> = {
   cancelled: '#B2BEC3',
 };
 
+import { getTaxSeasonColor } from '@/lib/tax-season-colors';
+
 /** 税季标签颜色（与报税项目 Info、订单详情、WEB 列表一致） */
-const TAX_SEASON_COLORS = [
-  '#6C5CE7', '#E17055', '#00B894', '#0984E3', '#FDCB6E',
-  '#E84393', '#00CEC9', '#74B9FF', '#A29BFE', '#FD79A8',
-];
-function getTaxSeasonColor(year: number): string {
-  return TAX_SEASON_COLORS[Math.abs(year) % 10] ?? TAX_SEASON_COLORS[0];
-}
 
 type SectionData = { title: string; monthKey: string; data: FirmOrderForClient[] };
 
