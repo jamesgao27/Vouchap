@@ -223,7 +223,7 @@ export default function ProjectTodosScreen() {
     : (dateForYear ? new Date(dateForYear).getFullYear() : null);
   const detailHeader: ProjectDetailHeader = {
     title: header?.projectName ?? '',
-    subtitle: header?.firmName ? `Services from ${header.firmName}` : '',
+    subtitle: header?.firmName ? `by ${header.firmName}` : '',
     taxSeasonYear: taxSeasonYear ?? null,
     status: ORDER_STATUS_CONFIG[header?.status ?? ''] ?? ORDER_STATUS_CONFIG.onboarding,
   };

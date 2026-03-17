@@ -1,6 +1,6 @@
 /**
  * 订单/项目 - Todos 树形列表页（默认进入的详情页）
- * 顶行用页面 Stack 顶栏（税季+项目名+Services from firm、设置）；展示区顶栏隐藏。状态/(n/m)/资料数跟随名称左对齐。
+ * 顶行用页面 Stack 顶栏（税季+项目名+by firm、设置）；展示区顶栏隐藏。状态/(n/m)/资料数跟随名称左对齐。
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -906,14 +906,26 @@ function TodoTree({
   onRestoreTask?: (todoId: string) => void;
   onUploadFile?: (todoId: string) => void;
 }) {
-  const indent = depth * 14;
+  const isWeb = Platform.OS === 'web';
+  // Web 端保持原缩进；移动端取消缩进，所有行左对齐
+  const indentUnit = isWeb ? 14 : 0;
+  const baseIndent = isWeb ? 12 : 0;
+  const indent = isWeb ? depth * indentUnit : 0;
   const { taskTotal, taskSuccess, effectiveStatus } = nodeStats;
 
   return (
     <>
       {nodes.map((node, idx) => {
-        const firstInGroupBg = parentRowBg === undefined ? TREE_ROW_BG_EVEN : (parentRowBg === TREE_ROW_BG_EVEN ? TREE_ROW_BG_ODD : TREE_ROW_BG_EVEN);
-        const rowBg = idx % 2 === 0 ? firstInGroupBg : (firstInGroupBg === TREE_ROW_BG_EVEN ? TREE_ROW_BG_ODD : TREE_ROW_BG_EVEN);
+        const firstInGroupBg = parentRowBg === undefined
+          ? TREE_ROW_BG_EVEN
+          : parentRowBg === TREE_ROW_BG_EVEN
+            ? TREE_ROW_BG_ODD
+            : TREE_ROW_BG_EVEN;
+        const rowBg = idx % 2 === 0
+          ? firstInGroupBg
+          : firstInGroupBg === TREE_ROW_BG_EVEN
+            ? TREE_ROW_BG_ODD
+            : TREE_ROW_BG_EVEN;
         const hasChildren = node.children.length > 0;
         const isCollapsed = collapsed.has(node.id);
         const isTask = node.itemKind === 'task';
@@ -1122,12 +1134,13 @@ function TodoTree({
           </View>
         );
 
-        /** 缩进+箭头：section/task 行触摸热区，显示+或终止/恢复/上传 */
+        /** 缩进+箭头：Web 端按层级缩进；移动端全部行无缩进、左端对齐 */
         const IndentChevronShowAddArea = showRowIconsOnTouch ? (
           <View style={styles.showAddTouchArea} {...showAddHandlers}>
-            <View style={{ width: 12 + indent }} />
+            <View style={{ width: isWeb ? baseIndent + indent : 0 }} />
             <View style={styles.chevronWrap}>
-              {hasChildren ? (
+              {/* 移动端取消收起/展开的 icon，仅保留缩进；Web 端保留 chevron */}
+              {hasChildren && isWeb ? (
                 <Ionicons
                   name={isCollapsed ? 'chevron-forward' : 'chevron-down'}
                   size={14}
@@ -1138,9 +1151,9 @@ function TodoTree({
           </View>
         ) : (
           <>
-            <View style={{ width: 12 + indent }} />
+            <View style={{ width: isWeb ? baseIndent + indent : 0 }} />
             <View style={styles.chevronWrap}>
-              {hasChildren ? (
+              {hasChildren && isWeb ? (
                 <Ionicons
                   name={isCollapsed ? 'chevron-forward' : 'chevron-down'}
                   size={14}
@@ -1258,7 +1271,7 @@ function TodoTree({
               />
             )}
             {isTask && filesExpanded && (
-              <View style={[styles.filesBlock, { marginLeft: 12 + indent + 24 }]}>
+              <View style={[styles.filesBlock, { marginLeft: isWeb ? 12 + indent + 24 : 16 }]}>
                 {files.length === 0 ? (
                   <Text style={styles.filesEmpty}>No files linked yet</Text>
                 ) : (
@@ -1341,7 +1354,8 @@ const styles = StyleSheet.create({
   },
   operationBtnText: { fontSize: 14, color: '#6C5CE7', fontWeight: '500' },
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 40 },
+  // 底部有浮层操作按钮（移动端）时，需要更大下边距，避免内容被遮挡
+  scrollContent: { padding: 16, paddingBottom: 120 },
   treeCard: {
     backgroundColor: '#FFF',
     borderRadius: 12,
@@ -1383,7 +1397,12 @@ const styles = StyleSheet.create({
   },
   treeRowLeftBlockCollapseOnly: { minWidth: 0 },
   showAddTouchArea: { flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch', cursor: 'pointer' },
-  chevronWrap: { width: 28, alignItems: 'center', justifyContent: 'center' },
+  chevronWrap: {
+    // Web 端预留 28 宽度给 chevron；移动端不显示 chevron，不占宽度，方便 phase 顶格
+    width: Platform.OS === 'web' ? 28 : 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   wbsHotzone: { width: 36, marginRight: 8, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
   titleColumnWrap: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center' },
   titleColumnTrailing: { flex: 1, minWidth: 0, cursor: 'pointer' },

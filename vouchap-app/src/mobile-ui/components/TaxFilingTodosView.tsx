@@ -20,6 +20,7 @@ import {
   Platform,
   Image,
   Dimensions,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
@@ -99,6 +100,50 @@ function getDepStatusColor(status: string): { text: string; bg: string } {
     case 'canceled':
     default:             return R(127, 140, 141);
   }
+}
+
+type HandoffButton = { verb: string; toSide: 'client' | 'firm'; newStatus?: ProjectTodoNode['status']; primary?: boolean };
+function findNodeById(nodes: ProjectTodoNode[], id: string): ProjectTodoNode | null {
+  for (const n of nodes) {
+    if (n.id === id) return n;
+    const found = findNodeById(n.children, id);
+    if (found) return found;
+  }
+  return null;
+}
+function getHandoffButtonsForNode(node: ProjectTodoNode | null, viewerRole: 'client' | 'firm', nodeIsBlocked: boolean): HandoffButton[] {
+  if (!node || node.itemKind !== 'task' || nodeIsBlocked) return [];
+  const status = node.status;
+  const buttons: HandoffButton[] = [];
+  if (viewerRole === 'client') {
+    switch (status) {
+      case 'to_submit':
+      case 'missing_info':
+        buttons.push({ verb: 'Submit to firm', toSide: 'firm', newStatus: 'reviewing', primary: true });
+        break;
+      case 'reviewing':
+      case 'in_progress':
+        buttons.push({ verb: 'Recall', toSide: 'client', newStatus: 'to_submit', primary: true });
+        break;
+      default:
+        break;
+    }
+  } else {
+    switch (status) {
+      case 'to_submit':
+      case 'missing_info':
+        buttons.push({ verb: 'Take over', toSide: 'firm', newStatus: 'in_progress', primary: true });
+        break;
+      case 'reviewing':
+      case 'in_progress':
+        buttons.push({ verb: 'Confirm', toSide: 'firm', newStatus: 'completed', primary: true });
+        buttons.push({ verb: 'Return to client', toSide: 'client', newStatus: 'missing_info', primary: false });
+        break;
+      default:
+        break;
+    }
+  }
+  return buttons;
 }
 
 export function collectTaskIds(nodes: ProjectTodoNode[]): string[] {
@@ -403,7 +448,10 @@ function TodoTree({
   /** 只读预览：不展示 depends on 编辑入口（仅展示已有依赖） */
   hideDepsEditor?: boolean;
 }) {
-  const baseIndent = depth * 14;
+  const isWeb = Platform.OS === 'web';
+  // Web 端保留层级缩进；移动端取消缩进，所有行左对齐
+  const indentUnit = isWeb ? 14 : 0;
+  const baseIndent = isWeb ? depth * indentUnit : 0;
   const { taskTotal, taskSuccess, effectiveStatus } = nodeStats;
   const [activeDepChipId, setActiveDepChipId] = useState<string | null>(null);
   const [depsControlsNodeId, setDepsControlsNodeId] = useState<string | null>(null);
@@ -411,8 +459,16 @@ function TodoTree({
   return (
     <>
       {nodes.map((node, idx) => {
-        const firstInGroupBg = parentRowBg === undefined ? TREE_ROW_BG_EVEN : (parentRowBg === TREE_ROW_BG_EVEN ? TREE_ROW_BG_ODD : TREE_ROW_BG_EVEN);
-        const rowBg = idx % 2 === 0 ? firstInGroupBg : (firstInGroupBg === TREE_ROW_BG_EVEN ? TREE_ROW_BG_ODD : TREE_ROW_BG_EVEN);
+        const firstInGroupBg = parentRowBg === undefined
+          ? TREE_ROW_BG_EVEN
+          : parentRowBg === TREE_ROW_BG_EVEN
+            ? TREE_ROW_BG_ODD
+            : TREE_ROW_BG_EVEN;
+        const rowBg = idx % 2 === 0
+          ? firstInGroupBg
+          : firstInGroupBg === TREE_ROW_BG_EVEN
+            ? TREE_ROW_BG_ODD
+            : TREE_ROW_BG_EVEN;
         const hasChildren = node.children.length > 0;
         const isCollapsed = collapsed.has(node.id);
         const isTask = node.itemKind === 'task';
@@ -450,8 +506,11 @@ function TodoTree({
 
         // phase/section 判定（section 用 depth===1 兜底）
         const isPhaseOrSectionRow = node.itemKind === 'phase' || node.itemKind === 'section' || (depth === 1 && !isTask);
-        // row-level hover：用于显示 +（section/phase）或 -/restart / Upload / 提交按钮；任务行在可终止/可重启时也显示；catalog 模式 task 显示删除。只读时全部不显示。
-        const showRowIconsOnTouch = !hideDepsEditor &&
+        // row-level hover：用于显示 +（section/phase）或 -/restart / Upload / 提交按钮；
+        // 任务行在可终止/可重启时也显示；catalog 模式 task 显示删除。只读时全部不显示。
+        // 移动端不需要这类悬停/触摸小按钮，仅在 Web 端启用。
+        const enableRowIcons = Platform.OS === 'web';
+        const showRowIconsOnTouch = enableRowIcons && !hideDepsEditor &&
           ((onStartAddChild && canAddChild) ||
           (isTask && (catalogMode ? !!onCatalogDeleteItem : (canUpload || canCancelRestore || canTerminateForRow || isCanceled || node.status === 'completed'))) ||
           (onRequestDeletePhase != null && isPhaseOrSectionRow));
@@ -512,21 +571,44 @@ function TodoTree({
 
         const showTaskIcons = rowIdShowingAdd === node.id;
 
-        // zone2：文件计数列 + 右侧空白，单独控制 Upload 按钮显示；只读时不显示 Upload 且不响应 hover
-        const showUpload = !hideDepsEditor && rowFileColHoverId === node.id;
+        // zone2：文件计数列 + 右侧空白，单独控制 Upload 按钮显示；只读时不显示 Upload 且不响应 hover。
+        // 移动端不需要 Upload 按钮，仅在 Web 端启用。
+        const showUpload = Platform.OS === 'web' && !hideDepsEditor && rowFileColHoverId === node.id;
 
         // zone2：文件计数列 + 右侧空白，hover 时点亮 Upload（高度充满整行）；只读时不绑定
         const fileColHoverHandlers = !hideDepsEditor && setRowFileColHoverId
-          ? {
-              onMouseEnter: () => setRowFileColHoverId(node.id),
-              onMouseLeave: () => setRowFileColHoverId(null),
-              onTouchStart: () => setRowFileColHoverId(node.id),
-              onTouchEnd: () => setRowFileColHoverId(null),
-            }
+          ? (Platform.OS === 'web'
+              ? {
+                  onMouseEnter: () => setRowFileColHoverId(node.id),
+                  onMouseLeave: () => setRowFileColHoverId(null),
+                }
+              : {
+                  onTouchStart: () => setRowFileColHoverId(node.id),
+                  onTouchEnd: () => setRowFileColHoverId(null),
+                })
           : undefined;
 
         const progressColContent = catalogMode ? (
           <View style={ts.progressFilesCol} />
+        ) : !isWeb ? (
+          // 移动端：icon + 文件计数，与名称、状态标间距紧凑
+          <View style={ts.progressFilesColMobile} {...(fileColHoverHandlers as any)}>
+            {showNm ? (
+              <Text style={ts.nmTextMobile} numberOfLines={1}>{success}/{total}</Text>
+            ) : isTask ? (
+              <TouchableOpacity
+                style={ts.filesToggleMobile}
+                onPress={() => {
+                  if (files.length === 0) return;
+                  onToggleTaskFiles(node.id);
+                }}
+                activeOpacity={0.7}
+              >
+                <Ionicons name={filesExpanded ? 'document' : 'document-outline'} size={14} color="#6C5CE7" />
+                <Text style={ts.filesToggleText} numberOfLines={1}>{files.length}</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
         ) : (
           <View style={ts.progressFilesCol} {...(fileColHoverHandlers as any)}>
             {showNm ? (
@@ -536,7 +618,6 @@ function TodoTree({
                 <TouchableOpacity
                   style={ts.filesToggle}
                   onPress={() => {
-                    // 没有关联文件时不展开附件区
                     if (files.length === 0) return;
                     onToggleTaskFiles(node.id);
                   }}
@@ -597,25 +678,11 @@ function TodoTree({
         const showStatusVerb = !hideDepsEditor && rowIdShowingStatusVerb === node.id && handoffButtons.length > 0;
 
         // catalog 模式不显示状态列
-        const statusColContent = catalogMode ? null : (isTask && isCanceled)
-          ? (
-              <View style={[ts.statusPill, { backgroundColor: getStatusColor('canceled', node.type, viewerRole) }]}>
-                <Text style={ts.statusPillText} numberOfLines={1}>
-                  {getStatusLabel('canceled', node.type, viewerRole)}
-                </Text>
-              </View>
-            )
-          : nodeIsBlocked
-            ? (
-            // 锁定阶段：只显示 Pending 灰色 pill，不暴露内部状态
-            isTask ? (
-              <View style={[ts.statusPill, ts.statusPillPending]}>
-                <Text style={ts.statusPillPendingText}>Pending</Text>
-              </View>
-            ) : null
-              )
-            : showStatusVerb
-            ? (
+        let statusColContent: React.ReactNode = null;
+        if (!catalogMode) {
+          // 行内稳定显示提交/召回等按钮（Web 与移动端一致）
+          if (showStatusVerb) {
+            statusColContent = (
               <View style={ts.statusActionsRow}>
                 {handoffButtons.map((btn) => (
                   <TouchableOpacity
@@ -627,22 +694,45 @@ function TodoTree({
                     }}
                     activeOpacity={0.8}
                   >
-                    <Text style={ts.statusPillText} numberOfLines={1}>
-                      {btn.verb}
-                    </Text>
+                    <Text style={ts.statusPillText}>{btn.verb}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
-            )
-            : showStatus
-              ? (
+            );
+          }
+          // 移动端：phase / section / task 行统一用小圆点；Web 保持原有 pill 逻辑
+          else if (!isWeb && showStatus) {
+            const baseStatus = isTask && isCanceled ? 'canceled' : status;
+            const dotColor = nodeIsBlocked
+              ? '#B2BEC3'
+              : getStatusColor(baseStatus, node.type, viewerRole);
+            statusColContent = <View style={[ts.statusDot, { backgroundColor: dotColor }]} />;
+          } else if (isTask && isCanceled) {
+            statusColContent = (
+              <View style={[ts.statusPill, { backgroundColor: getStatusColor('canceled', node.type, viewerRole) }]}>
+                <Text style={ts.statusPillText} numberOfLines={1}>
+                  {getStatusLabel('canceled', node.type, viewerRole)}
+                </Text>
+              </View>
+            );
+          }
+          // Web 上：被依赖阻塞的 task 行显示 Pending pill；phase/section 无状态 pill
+          else if (nodeIsBlocked) {
+            statusColContent = isTask ? (
+              <View style={[ts.statusPill, ts.statusPillPending]}>
+                <Text style={ts.statusPillPendingText}>Pending</Text>
+              </View>
+            ) : null;
+          } else if (showStatus) {
+            statusColContent = (
               <View style={[ts.statusPill, { backgroundColor: getStatusColor(status, node.type, viewerRole) }]}>
                 <Text style={ts.statusPillText} numberOfLines={1}>
                   {getStatusLabel(status, node.type, viewerRole)}
                 </Text>
               </View>
-              )
-              : null;
+            );
+          }
+        }
 
         const onCollapsePress = hasChildren ? () => onToggleCollapse(node.id) : undefined;
         // 行级“显示操作”标记：仅由各自热区控制（Zone1 / Zone2 / Zone3），不再从标题点击透传
@@ -667,8 +757,8 @@ function TodoTree({
           ? { onPress: onCollapsePress, activeOpacity: 0.85 as const }
           : undefined;
 
-        // 责任方标签放在任务名称前（与标题同一行）；catalog 模式下可点击切换 client/firm
-        const roleBadgeInline = isTask && !isCanceled ? (
+        // 责任方标签放在任务名称前（与标题同一行）；catalog 模式下可点击切换 client/firm；移动端不显示
+        const roleBadgeInline = isWeb && isTask && !isCanceled ? (
           catalogMode && onCatalogUpdateType ? (
             <Pressable
               style={[
@@ -727,10 +817,14 @@ function TodoTree({
           showRowIconsOnTouch && isPhaseOrSectionRow
             ? { onTouchStart: showRowIconsOnTouchStart, onTouchEnd: showRowIconsOnTouchEnd }
             : undefined;
+        const clearStatusVerb = () => setRowIdShowingStatusVerb?.(null);
         const TitleCell = onCollapsePress ? (
           <TouchableOpacity
             style={ts.titleHotzone}
-            {...(collapseHandlers as any)}
+            onPress={() => {
+              clearStatusVerb();
+              (collapseHandlers as any)?.onPress?.();
+            }}
             {...titleCellShowAddHandlers}
           >
             {titleContentOnly}
@@ -738,19 +832,50 @@ function TodoTree({
         ) : isTask && files.length > 0 ? (
           <TouchableOpacity
             style={ts.titleHotzone}
-            onPress={() => onToggleTaskFiles(node.id)}
+            onPress={() => {
+              clearStatusVerb();
+              onToggleTaskFiles(node.id);
+            }}
             activeOpacity={0.85}
           >
             {titleContentOnly}
           </TouchableOpacity>
         ) : titleCellShowAddHandlers ? (
-          <TouchableOpacity style={ts.titleHotzone} {...titleCellShowAddHandlers} activeOpacity={1}>
+          <TouchableOpacity
+            style={ts.titleHotzone}
+            onPress={clearStatusVerb}
+            {...titleCellShowAddHandlers}
+            activeOpacity={1}
+          >
             {titleContentOnly}
           </TouchableOpacity>
         ) : (
           <View style={ts.titleHotzone}>{titleContentOnly}</View>
         );
 
+        // 任务前置依赖（仅 task 行）：多选列表，每项用该条目的状态色
+        const isDepsOpen = depsPanelNodeId === node.id;
+        const depIds = isTask ? ((node as any).dependsOnIds ?? (node.dependsOnId ? [node.dependsOnId] : [])) : [];
+        const depChipInfos = depIds.map((depId: string) => {
+          const item = phaseAndSectionWithWbs.find((p) => p.id === depId);
+          const st = effectiveStatus[depId] ?? 'completed';
+          return { depId, wbs: item?.wbs ?? '?', title: item?.title ?? '', status: st };
+        });
+
+        const showAddHandlers = showRowIconsOnTouch
+          ? (Platform.OS === 'web'
+              ? {
+                  onMouseEnter: showRowIconsOnTouchStart,
+                  onMouseLeave: showRowIconsOnTouchEnd,
+                }
+              : {
+                  onTouchStart: showRowIconsOnTouchStart,
+                  onTouchEnd: showRowIconsOnTouchEnd,
+                })
+          : undefined;
+
+        // Web 端：标题右侧保留 + / - / restart 等操作图标；
+        // 移动端：仅保留名称本身，不在名称右侧占位操作位容器。
         const ADD_ICON_SLOT_WIDTH = 24;
         const AddIconSlot = onStartAddChild && !isTask ? (
           <View style={[ts.addIconSlot, { width: ADD_ICON_SLOT_WIDTH }]} pointerEvents="box-none">
@@ -762,18 +887,7 @@ function TodoTree({
             {deletePhaseIconInline}
           </View>
         ) : null;
-
-        // 任务前置依赖（仅 task 行）：多选列表，每项用该条目的状态色
-        const isDepsOpen = depsPanelNodeId === node.id;
-        const depIds = isTask ? ((node as any).dependsOnIds ?? (node.dependsOnId ? [node.dependsOnId] : [])) : [];
-        const depChipInfos = depIds.map((depId: string) => {
-          const item = phaseAndSectionWithWbs.find((p) => p.id === depId);
-          const st = effectiveStatus[depId] ?? 'completed';
-          return { depId, wbs: item?.wbs ?? '?', title: item?.title ?? '', status: st };
-        });
-
-        // 终止：client 仅能终止当前责任方为 client 的非 completed 任务；firm 可终止所有非 completed 任务；catalog 模式下 task 的 - 为删除；只读不显示
-        const CancelTaskSlot = !catalogMode && !hideDepsEditor &&
+        const CancelTaskSlot = enableRowIcons && !catalogMode && !hideDepsEditor &&
           isTask && !isCanceled && onCancelTask && showTaskIcons && !nodeIsBlocked && canTerminateForRow ? (
             <Pressable style={ts.terminateTaskBtnHotzone} onPress={() => onCancelTask(node.id)}>
               <View style={ts.terminateTaskBtnIcon}>
@@ -782,16 +896,14 @@ function TodoTree({
             </Pressable>
           ) : null;
         const CatalogDeleteTaskSlot =
-          catalogMode && isTask && onCatalogDeleteItem && showTaskIcons ? (
+          enableRowIcons && catalogMode && isTask && onCatalogDeleteItem && showTaskIcons ? (
             <Pressable style={ts.terminateTaskBtnHotzone} onPress={() => onCatalogDeleteItem(node.id)}>
               <View style={ts.deletePhaseIconBtn}>
                 <Ionicons name="remove" size={8} color="#FFF" />
               </View>
             </Pressable>
           ) : null;
-
-        // 重启（已终止）：双方都可重启 canceled 任务；catalog 模式不显示；只读不显示
-        const RestoreTaskSlot = !catalogMode && !hideDepsEditor &&
+        const RestoreTaskSlot = enableRowIcons && !catalogMode && !hideDepsEditor &&
           isTask && isCanceled && onRestoreTask && showTaskIcons ? (
             <Pressable style={ts.restoreTaskBtnHotzone} onPress={() => onRestoreTask(node.id, node.initialResponsibleSide)}>
               <View style={ts.restoreTaskBtnIcon}>
@@ -799,9 +911,7 @@ function TodoTree({
               </View>
             </Pressable>
           ) : null;
-
-        // 重启（已完成）：双方都可重启 completed 任务；catalog 模式不显示；只读不显示
-        const RestartTaskSlot = !catalogMode && !hideDepsEditor &&
+        const RestartTaskSlot = enableRowIcons && !catalogMode && !hideDepsEditor &&
           isTask && node.status === 'completed' && onRestoreTask && showTaskIcons ? (
             <Pressable style={ts.restoreTaskBtnHotzone} onPress={() => onRestoreTask(node.id, node.initialResponsibleSide)}>
               <View style={ts.restoreTaskBtnIcon}>
@@ -810,18 +920,8 @@ function TodoTree({
             </Pressable>
           ) : null;
 
-        const showAddHandlers = showRowIconsOnTouch
-          ? {
-              onTouchStart: showRowIconsOnTouchStart,
-              onTouchEnd: showRowIconsOnTouchEnd,
-              onMouseEnter: showRowIconsOnTouchStart,
-              onMouseLeave: showRowIconsOnTouchEnd,
-            }
-          : undefined;
-
-        // zone1：标题列（名称 + 名称右侧空白），整列高度可 hover，触发 + / - / restart
-        const TitleColumnWrap = showAddHandlers ? (
-          <View style={ts.titleColumnWrap} {...showAddHandlers}>
+        const TitleColumnInner = Platform.OS === 'web' ? (
+          <>
             {TitleCell}
             {RemovePhaseIconSlot}
             {AddIconSlot}
@@ -829,21 +929,23 @@ function TodoTree({
             {CatalogDeleteTaskSlot}
             {RestoreTaskSlot}
             {RestartTaskSlot}
+          </>
+        ) : (
+          <>{TitleCell}</>
+        );
+
+        const TitleColumnWrap = showAddHandlers ? (
+          <View style={ts.titleColumnWrap} {...showAddHandlers}>
+            {TitleColumnInner}
           </View>
         ) : (
           <View style={ts.titleColumnWrap}>
-            {TitleCell}
-            {RemovePhaseIconSlot}
-            {AddIconSlot}
-            {CancelTaskSlot}
-            {CatalogDeleteTaskSlot}
-            {RestoreTaskSlot}
-            {RestartTaskSlot}
+            {TitleColumnInner}
           </View>
         );
 
-        // chevron 始终可点击以收起/展开（zone 0），不再依赖整行 hover
-        const chevronBtn = hasChildren ? (
+        // Web 端：chevron 可点击以收起/展开；移动端：仅保留缩进，不显示 chevron
+        const chevronBtn = hasChildren && isWeb ? (
           onCollapsePress ? (
             <Pressable style={ts.chevronWrap} onPress={onCollapsePress} hitSlop={6}>
               <Ionicons name={isCollapsed ? 'chevron-forward' : 'chevron-down'} size={14} color="#636E72" />
@@ -859,7 +961,8 @@ function TodoTree({
 
         const IndentChevronShowAddArea = (
           <>
-            <View style={{ width: 12 + indent }} />
+            {/* Web：保留层级缩进；移动端：全部行无缩进，左端对齐 */}
+            <View style={{ width: isWeb ? 12 + baseIndent : 0 }} />
             {chevronBtn}
           </>
         );
@@ -872,33 +975,37 @@ function TodoTree({
           </>
         );
 
-        // 状态列（Zone3）：整列为 hover 热区，高度覆盖整行；只读时不响应触摸
+        // 状态列：Web 为 hover 显示按钮；移动端为点击切换，行内稳定显示不随抬起消失
         const statusHoverHandlers = !hideDepsEditor && handoffButtons.length > 0 && setRowIdShowingStatusVerb
-          ? {
-              onMouseEnter: () => setRowIdShowingStatusVerb(node.id),
-              onMouseLeave: () => setRowIdShowingStatusVerb(null),
-              onTouchStart: () => setRowIdShowingStatusVerb(node.id),
-              onTouchEnd: () => setRowIdShowingStatusVerb(null),
-            }
+          ? (Platform.OS === 'web'
+              ? {
+                  onMouseEnter: () => setRowIdShowingStatusVerb(node.id),
+                  onMouseLeave: () => setRowIdShowingStatusVerb(null),
+                }
+              : {
+                  onPress: () => setRowIdShowingStatusVerb(rowIdShowingStatusVerb === node.id ? null : node.id),
+                })
           : undefined;
 
-        const leftBlockFull = (
-          <View style={[ts.treeRowLeftBlock, { width: maxLeftBlockWidth }]}>
-            {leftBlockContent}
-          </View>
-        );
-
+        const progressColWrapStyle = isWeb ? ts.progressFilesCol : [ts.progressFilesCol, ts.progressFilesColMobile];
         const ProgressCell = collapseHandlers ? (
-          <TouchableOpacity style={ts.progressFilesCol} {...collapseHandlers}>
+          <TouchableOpacity style={progressColWrapStyle} {...collapseHandlers}>
             {progressColContent}
           </TouchableOpacity>
         ) : (
-          <View style={ts.progressFilesCol}>{progressColContent}</View>
+          <View style={progressColWrapStyle}>{progressColContent}</View>
         );
 
+        const statusColStyle = showStatusVerb && !isWeb ? [ts.statusCol, ts.statusColExpanded] : ts.statusCol;
         const StatusCell = (
           <View style={ts.statusColWithGap}>
-            <View style={ts.statusCol} {...(statusHoverHandlers as any)}>{statusColContent}</View>
+            {statusHoverHandlers && !isWeb ? (
+              <TouchableOpacity style={statusColStyle} onPress={statusHoverHandlers.onPress} activeOpacity={0.8}>
+                {statusColContent}
+              </TouchableOpacity>
+            ) : (
+              <View style={statusColStyle} {...(statusHoverHandlers as any)}>{statusColContent}</View>
+            )}
           </View>
         );
 
@@ -917,39 +1024,46 @@ function TodoTree({
 
         // 与 Add 列一致：整行 touchEnd / mouseLeave 时延时收起 Depends on，避免“最后一个不消失”（触摸到其他行再抬起时由该行触发收起）
         const hideDepsOnRowHandlers = !catalogMode && setRowIdShowingDeps && hideDepsTimeoutRef
-          ? {
-              onTouchEnd: () => {
-                if (hideDepsTimeoutRef.current) clearTimeout(hideDepsTimeoutRef.current);
-                hideDepsTimeoutRef.current = setTimeout(() => setRowIdShowingDeps(null), 280);
-              },
-              onMouseLeave: () => {
-                if (hideDepsTimeoutRef.current) clearTimeout(hideDepsTimeoutRef.current);
-                hideDepsTimeoutRef.current = setTimeout(() => setRowIdShowingDeps(null), 280);
-              },
-            }
+          ? (Platform.OS === 'web'
+              ? {
+                  onMouseLeave: () => {
+                    if (hideDepsTimeoutRef.current) clearTimeout(hideDepsTimeoutRef.current);
+                    hideDepsTimeoutRef.current = setTimeout(() => setRowIdShowingDeps(null), 280);
+                  },
+                }
+              : {
+                  onTouchEnd: () => {
+                    if (hideDepsTimeoutRef.current) clearTimeout(hideDepsTimeoutRef.current);
+                    hideDepsTimeoutRef.current = setTimeout(() => setRowIdShowingDeps(null), 280);
+                  },
+                })
           : {};
 
         // 项目详情：无关联行仅 Depends on 列热区触摸/悬停时显；有关联行常显。SKU 详情（catalogMode）：Depends on 常显。只读时仅显示有值的，空的不显示且不响应触摸
         const hasDeps = depChipInfos.length > 0;
         const showDepsContent = (hasDeps || catalogMode) || (rowIdShowingDeps === node.id && !hideDepsEditor);
         const depsColHotzoneHandlers = !catalogMode && !hideDepsEditor && setRowIdShowingDeps && hideDepsTimeoutRef
-          ? {
-              onTouchStart: () => setRowIdShowingDeps(node.id),
-              onTouchEnd: () => setRowIdShowingDeps(null),
-              onMouseEnter: () => {
-                if (hideDepsTimeoutRef.current) {
-                  clearTimeout(hideDepsTimeoutRef.current);
-                  hideDepsTimeoutRef.current = null;
+          ? (Platform.OS === 'web'
+              ? {
+                  onMouseEnter: () => {
+                    if (hideDepsTimeoutRef.current) {
+                      clearTimeout(hideDepsTimeoutRef.current);
+                      hideDepsTimeoutRef.current = null;
+                    }
+                    setRowIdShowingDeps(node.id);
+                  },
+                  onMouseLeave: () => {
+                    if (hideDepsTimeoutRef.current) clearTimeout(hideDepsTimeoutRef.current);
+                    hideDepsTimeoutRef.current = setTimeout(() => setRowIdShowingDeps(null), 280);
+                  },
                 }
-                setRowIdShowingDeps(node.id);
-              },
-              onMouseLeave: () => {
-                if (hideDepsTimeoutRef.current) clearTimeout(hideDepsTimeoutRef.current);
-                hideDepsTimeoutRef.current = setTimeout(() => setRowIdShowingDeps(null), 280);
-              },
-            }
+              : {
+                  onTouchStart: () => setRowIdShowingDeps(node.id),
+                  onTouchEnd: () => setRowIdShowingDeps(null),
+                })
           : {};
-        const TaskDepsCol = isTask ? (
+        // 移动端移除「Depends on」列，仅保留：责任竖条、WBS、名称、文件计数、状态圆点、提交等（点圆点浮层）
+        const TaskDepsCol = isTask && isWeb ? (
           hideDepsEditor && !hasDeps ? <View style={ts.taskDepsCol} /> : showDepsContent ? (
             hideDepsEditor ? (
               <View style={ts.taskDepsCol}>
@@ -1007,14 +1121,35 @@ function TodoTree({
           )
         ) : null;
 
-        const rowContent = (
-          <>
-            {leftBlockFull}
+        // 移动端：左侧块弹性占满，右侧文件计数+状态圆点紧凑靠右，名称获得更多空间
+        const leftBlockStyle = isWeb
+          ? [ts.treeRowLeftBlock, { width: maxLeftBlockWidth }]
+          : [ts.treeRowLeftBlock, ts.treeRowLeftBlockMobile];
+        const leftBlockFull = (
+          <View style={leftBlockStyle}>
+            {leftBlockContent}
+          </View>
+        );
+
+        const rowRightCols =
+          // 移动端：显示提交/召回等按钮时，用按钮覆盖文件计数+状态标区域
+          showStatusVerb && !isWeb ? (
+            <View style={ts.treeRowRightColsWrap}>
+              {StatusCell}
+            </View>
+          ) : (
+            // Web 端：无论是否显示提交/召回按钮，都保留 Progress 列 + 状态列 + Depends 列
             <View style={ts.treeRowRightColsWrap}>
               {ProgressCell}
               {StatusCell}
               {TaskDepsCol}
             </View>
+          );
+
+        const rowContent = (
+          <>
+            {leftBlockFull}
+            {rowRightCols}
           </>
         );
 
@@ -1106,9 +1241,7 @@ function TodoTree({
                 ]}
               >
                 {files.length === 0 ? null : (
-                  // 让文件卡片整体缩进，与任务名称左边缘对齐：
-                  // 12（任务内部缩进起点） + indent（phase/section/task 层级缩进） + 24（chevron + WBS 区宽度）
-                  <View style={{ paddingLeft: 12 + indent + 24, paddingRight: 0 }}>
+                  <View style={isWeb ? { paddingLeft: 12 + indent + 24, paddingRight: 0 } : ts.filesBlockMobile}>
                     <View style={ts.fileTable}>
                       {(files as ProjectTodoReceiptSummary[]).map((f, fileIdx) => {
                         const fileRowBg = fileIdx % 2 === 0 ? TREE_ROW_BG_EVEN : TREE_ROW_BG_ODD;
@@ -1129,17 +1262,22 @@ function TodoTree({
                         return (
                           <TouchableOpacity
                             key={f.id}
-                            style={[ts.fileRow, { backgroundColor: fileRowBg }, fileIdx === (files as ProjectTodoReceiptSummary[]).length - 1 && ts.fileRowLast]}
+                            style={[
+                              ts.fileRow,
+                              !isWeb && ts.fileRowMobile,
+                              { backgroundColor: fileRowBg },
+                              fileIdx === (files as ProjectTodoReceiptSummary[]).length - 1 && ts.fileRowLast,
+                            ]}
                             onPress={() => onFileRowPress?.(f.id, node.id)}
                             activeOpacity={0.8}
                           >
                             <View style={ts.fileColIcon}>
-                              <Ionicons name={getFileFormatIcon(f.imageUrl ?? null, f.docType)} size={18} color="#6C5CE7" />
+                              <Ionicons name={getFileFormatIcon(f.imageUrl ?? null, f.docType)} size={isWeb ? 18 : 16} color="#6C5CE7" />
                             </View>
                             <View style={ts.fileColNameDesc}>
                               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                                 <Text style={ts.fileRowName} numberOfLines={1}>{displayName}</Text>
-                                {!hideDepsEditor && canShowRetryIcon && (
+                                {isWeb && !hideDepsEditor && canShowRetryIcon && (
                                   <Pressable
                                     style={ts.restoreTaskBtnHotzone}
                                     onPress={() => onRetryRecognizeFile?.(f.id)}
@@ -1152,8 +1290,12 @@ function TodoTree({
                                 )}
                               </View>
                             </View>
-                            <Text style={ts.fileColTime} numberOfLines={1}>{formatFileDate(f.createdAt)}</Text>
-                            <Text style={ts.fileColUploader} numberOfLines={1}>{f.uploaderName ?? '—'}</Text>
+                            {isWeb && (
+                              <>
+                                <Text style={ts.fileColTime} numberOfLines={1}>{formatFileDate(f.createdAt)}</Text>
+                                <Text style={ts.fileColUploader} numberOfLines={1}>{f.uploaderName ?? '—'}</Text>
+                              </>
+                            )}
                             {!hideDepsEditor && (
                               <View style={ts.fileRowActions}>
                                 <TouchableOpacity
@@ -1168,7 +1310,8 @@ function TodoTree({
                                   onPress={() => onRequestMoveFile?.(f.id, node.id)}
                                   hitSlop={8}
                                 >
-                                  <Ionicons name="arrow-redo-outline" size={18} color="#6C5CE7" />
+                                  {/* 使用更直观的“移动/重新关联”图标 */}
+                                  <Ionicons name="swap-horizontal-outline" size={18} color="#6C5CE7" />
                                 </TouchableOpacity>
                               </View>
                             )}
@@ -1480,6 +1623,7 @@ export function TaxFilingTodosView({
   }, [blockedNodes, tree]);
 
   const maxLeftBlockWidth = useMemo(() => {
+    const winW = Dimensions.get('window').width;
     let maxW = 0;
     function walk(nodes: ProjectTodoNode[], d: number) {
       nodes.forEach((n) => {
@@ -1493,7 +1637,9 @@ export function TaxFilingTodosView({
     }
     walk(tree, 0);
     const minW = 190;
-    const cap = Math.floor(Dimensions.get('window').width * 0.82 - 32) - 52;
+    // 右侧需要预留的宽度：进度列(icon+数字) + 与状态圆点之间的间距 + 状态列本身 + 一点安全空白
+    const rightReserve = Platform.OS === 'web' ? 80 + 16 + 120 + 24 : 48 + 6 + 28 + 12;
+    const cap = Math.floor(winW - 32 - rightReserve);
     return Math.min(Math.max(maxW, minW), cap);
   }, [tree]);
 
@@ -1913,28 +2059,6 @@ export function TaxFilingTodosView({
           <View style={ts.emptyWrap}>
             <Text style={ts.emptyText}>No tasks yet</Text>
           </View>
-          <View style={ts.phaseBlocksWrap}>
-            <View style={ts.phaseBlock}>
-              {pendingAddPhase ? (
-                <AddPhaseInputRow
-                  onConfirm={handleConfirmAddPhase}
-                  onCancel={() => setPendingAddPhase(false)}
-                  contentMaxWidth={maxLeftBlockWidth + 4 - 62}
-                />
-              ) : (
-                <Pressable
-                  style={ts.addPhaseRow}
-                  onPress={() => (onAddPhase ? onAddPhase() : setPendingAddPhase(true))}
-                  accessibilityLabel="Add a phase"
-                >
-                  <View style={ts.addPhaseIconWrap}>
-                    <Ionicons name="add-circle" size={20} color="#6C5CE7" />
-                  </View>
-                  <Text style={ts.addPhaseText}>Add a phase</Text>
-                </Pressable>
-              )}
-            </View>
-          </View>
         </ScrollView>
       </View>
     );
@@ -1998,27 +2122,27 @@ export function TaxFilingTodosView({
               />
             </View>
           ))}
-          {!catalogPreviewReadOnly && (
-          <View style={ts.phaseBlock}>
-            {pendingAddPhase ? (
-              <AddPhaseInputRow
-                onConfirm={handleConfirmAddPhase}
-                onCancel={() => setPendingAddPhase(false)}
-                contentMaxWidth={maxLeftBlockWidth + 4 - 62}
-              />
-            ) : (
-              <Pressable
-                style={ts.addPhaseRow}
-                onPress={() => (onAddPhase ? onAddPhase() : setPendingAddPhase(true))}
-                accessibilityLabel="Add a phase"
-              >
-                <View style={ts.addPhaseIconWrap}>
-                  <Ionicons name="add-circle" size={20} color="#6C5CE7" />
-                </View>
-                <Text style={ts.addPhaseText}>Add a phase</Text>
-              </Pressable>
-            )}
-          </View>
+          {!catalogPreviewReadOnly && Platform.OS === 'web' && (
+            <View style={ts.phaseBlock}>
+              {pendingAddPhase ? (
+                <AddPhaseInputRow
+                  onConfirm={handleConfirmAddPhase}
+                  onCancel={() => setPendingAddPhase(false)}
+                  contentMaxWidth={maxLeftBlockWidth + 4 - 62}
+                />
+              ) : (
+                <Pressable
+                  style={ts.addPhaseRow}
+                  onPress={() => (onAddPhase ? onAddPhase() : setPendingAddPhase(true))}
+                  accessibilityLabel="Add a phase"
+                >
+                  <View style={ts.addPhaseIconWrap}>
+                    <Ionicons name="add-circle" size={20} color="#6C5CE7" />
+                  </View>
+                  <Text style={ts.addPhaseText}>Add a phase</Text>
+                </Pressable>
+              )}
+            </View>
           )}
         </View>
       </ScrollView>
@@ -2355,7 +2479,8 @@ export function TaxFilingTodosView({
 const ts = StyleSheet.create({
   root: { flex: 1, position: 'relative' },
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 40 },
+  // 与 engagement 详情底部浮层按钮高度匹配，保证最后一行可完全滚动到按钮上方
+  scrollContent: { padding: 16, paddingBottom: 120 },
   phaseBlocksWrap: { gap: 12, backgroundColor: '#F8F9FA' },
   phaseBlock: {
     backgroundColor: '#F8F9FA',
@@ -2400,8 +2525,9 @@ const ts = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'stretch',
     paddingVertical: 4,
-    paddingRight: 12,
-    paddingLeft: 4,
+    // 移动端右侧留白减小，让状态标更贴近屏幕右缘
+    paddingRight: Platform.OS === 'web' ? 12 : 4,
+    paddingLeft: Platform.OS === 'web' ? 4 : 0,
     minHeight: 40,
     flexWrap: 'nowrap',
     borderLeftWidth: 3,
@@ -2414,25 +2540,55 @@ const ts = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'nowrap',
     minWidth: 0,
-    marginRight: 24,
+    // Web：预留右侧间距给文件计数 / 状态列；移动端不额外预留，让名称贴近文件计数列
+    marginRight: Platform.OS === 'web' ? 24 : 0,
+  },
+  /** 移动端：左侧块弹性占满，与文件计数间距紧凑 */
+  treeRowLeftBlockMobile: {
+    flex: 1,
+    minWidth: 0,
+    // 移动端：尽量贴近文件计数列，为名称腾出更多空间
+    marginRight: 2,
   },
   treeRowRightColsWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 32,
-    flexShrink: 0,
+    gap: Platform.OS === 'web' ? 32 : 2,
+    // Web：右侧列可占一定宽度；移动端：右侧列只按内容宽度排布，并整体靠右
+    ...(Platform.OS === 'web'
+      ? { flexShrink: 0 }
+      : { flexShrink: 0, flexGrow: 0, justifyContent: 'flex-end' }),
   },
   statusColWithGap: {
-    marginLeft: 12,
-    marginRight: 20,
+    marginLeft: Platform.OS === 'web' ? 12 : 2,
+    marginRight: Platform.OS === 'web' ? 20 : 4,
     alignItems: 'flex-start',
     justifyContent: 'center',
     alignSelf: 'stretch',
   },
   showAddTouchArea: { flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch', cursor: 'pointer' } as any,
-  chevronWrap: { width: 28, alignItems: 'center', justifyContent: 'center' },
-  wbsHotzone: { width: 36, marginRight: 8, alignItems: 'center', justifyContent: 'center', alignSelf: 'stretch' },
-  titleColumnWrap: { flex: 1, minWidth: 0, flexDirection: 'row', alignItems: 'center' },
+  chevronWrap: {
+    // Web 端预留 28 宽度给 chevron；移动端不显示 chevron，不占宽度，方便 phase 顶格
+    width: Platform.OS === 'web' ? 28 : 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wbsHotzone: {
+    // WBS 列整体靠左对齐，编号与标题共享同一左起点（垂直方向仍居中）
+    width: Platform.OS === 'web' ? 36 : 24,
+    marginRight: Platform.OS === 'web' ? 8 : 2,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    alignSelf: 'stretch',
+  },
+  titleColumnWrap: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    // 移动端：允许整列收紧，不额外保留右侧“安全空档”
+    ...(Platform.OS === 'web' ? {} : { justifyContent: 'flex-start' }),
+  },
   titleColumnTrailing: { flex: 1, minWidth: 0, cursor: 'pointer' } as any,
   titleHotzone: { alignSelf: 'stretch', justifyContent: 'center', flexShrink: 0 },
   treeTitleWrapAdaptive: { flexDirection: 'row', alignItems: 'center' },
@@ -2490,21 +2646,49 @@ const ts = StyleSheet.create({
     justifyContent: 'center',
     alignSelf: 'stretch',
   },
+  /** 移动端：文件计数列紧凑（icon + 数字） */
+  progressFilesColMobile: {
+    minWidth: 0,
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+  },
+  nmTextMobile: { fontSize: 11, color: '#636E72' },
+  // icon 与数字间距进一步减小
+  filesToggleMobile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 1,
+    paddingVertical: 2,
+    paddingHorizontal: 0,
+    justifyContent: 'center',
+  },
   progressFilesColInner: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-start', gap: 4 },
   uploadTaskBtnHotzone: { alignSelf: 'stretch', justifyContent: 'center', cursor: 'pointer' } as any,
   uploadTaskBtn: { flexDirection: 'row', alignItems: 'center', gap: 3, height: 20, maxHeight: 20, paddingVertical: 0, paddingHorizontal: 5, backgroundColor: '#6C5CE7', borderRadius: 4, justifyContent: 'center' },
   uploadTaskBtnText: { fontSize: 10, color: '#FFF', fontWeight: '600' },
   nmText: { fontSize: 12, color: '#636E72' },
   statusCol: {
-    width: 120,
-    minWidth: 120,
+    // Web：固定宽度 pill；移动端：圆点列宽较窄
+    ...(Platform.OS === 'web' ? { width: 120, minWidth: 120 } : { minWidth: 28, width: 28 }),
     flexShrink: 0,
-    alignItems: 'flex-start',
+    alignItems: Platform.OS === 'web' ? 'flex-start' : 'flex-end',
     justifyContent: 'center',
     alignSelf: 'stretch',
   },
+  // 显示状态动词按钮时：让按钮占据右侧更大空间，文案可以完整展示
+  statusColExpanded: {
+    width: '100%',
+    minWidth: 0,
+    alignItems: 'flex-end',
+  },
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 14 },
   statusPillText: { fontSize: 11, color: '#FFF', fontWeight: '600' },
+  // 移动端简化状态圆点（略放大以便可见）
+  statusDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
   statusPillPending: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 14, backgroundColor: 'rgba(99,110,114,0.58)' },
   statusPillPendingText: { fontSize: 11, color: '#FFF', fontWeight: '700' },
   statusActionsRow: {
@@ -2541,6 +2725,54 @@ const ts = StyleSheet.create({
     shadowRadius: 4,
     elevation: 4,
   },
+  /** 移动端：点击状态圆点从右端切出的浮层 */
+  statusPanelBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'flex-end',
+    paddingRight: 0,
+  },
+  statusPanelSheet: {
+    width: 280,
+    maxWidth: '85%',
+    backgroundColor: '#FFF',
+    borderTopLeftRadius: 16,
+    borderBottomLeftRadius: 16,
+    paddingTop: 12,
+    paddingBottom: 24,
+    paddingHorizontal: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: -2, height: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  statusPanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingRight: 8,
+  },
+  statusPanelTitle: { fontSize: 15, fontWeight: '600', color: '#2D3436', flex: 1 },
+  statusPanelCloseBtn: { padding: 4 },
+  statusPanelBtn: {
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: '#6C5CE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  statusPanelBtnSecondary: {
+    height: 44,
+    borderRadius: 8,
+    backgroundColor: 'rgba(108, 92, 231, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
   filesToggle: { flexDirection: 'row', alignItems: 'center' },
   filesToggleText: { fontSize: 12, color: '#6C5CE7', marginLeft: 2 },
   filesBlock: {
@@ -2550,6 +2782,8 @@ const ts = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#F1F5F9',
   },
+  /** 移动端：文件块左端缩进减小，多留空间给名称 */
+  filesBlockMobile: { paddingLeft: 8, paddingRight: 0 },
   filesEmpty: { fontSize: 13, color: '#95A5A6', fontStyle: 'italic' },
   fileTable: { borderWidth: 1, borderColor: '#E9ECEF', borderRadius: 8, overflow: 'hidden' },
   fileRow: {
@@ -2561,6 +2795,13 @@ const ts = StyleSheet.create({
     borderBottomColor: '#F1F5F9',
     gap: 8,
     minHeight: 36,
+  },
+  /** 移动端：文件行紧凑，仅 icon+名称+删除+move */
+  fileRowMobile: {
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    gap: 6,
+    minHeight: 40,
   },
   fileColIcon: { width: 24, alignItems: 'center', justifyContent: 'center', marginRight: 2 },
   fileColNameDesc: { flex: 1, minWidth: 0, marginRight: 8 },
