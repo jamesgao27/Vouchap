@@ -1,9 +1,18 @@
 /**
  * Tax Filing (client): Service orders / projects list. English copy.
- * 卡片/列表复用 ProjectListCardAndRow，样式与 firm Service Catalog 一致。
+ * Reuses mobile receipts list style: SectionList + row layout (no card/grid view).
  */
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity, Platform, useWindowDimensions } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  SectionList,
+  TouchableOpacity,
+  ActivityIndicator,
+  RefreshControl,
+  Platform,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,21 +29,27 @@ import {
 } from '@/lib/firm';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '../../../shared-logic/alertWeb';
-import {
-  ProjectListCard,
-  ProjectListRow,
-  GRID_GAP,
-  projectListStyles,
-  type ProjectListCardItem,
-} from '@/components/ProjectListCardAndRow';
 
-const CARD_MAX_WIDTH = 320;
 const PINNED_ORDER_IDS_KEY = 'tax_filing_pinned_order_ids';
 
 /** In-memory fallback when AsyncStorage native module is null (e.g. Expo Go / unlinked build). */
 const memoryFallback = new Map<string, string>();
-/** On native, only try AsyncStorage when not in Expo Go (Expo Go has no linked native module; avoids red-screen). */
 const useNativeAsyncStorage = Platform.OS !== 'web' && Constants.appOwnership !== 'expo';
+
+/** Resolve once: try loading AsyncStorage; if native module is null we get null and use memory only. */
+let asyncStoragePromise: Promise<typeof import('@react-native-async-storage/async-storage').default | null> | null = null;
+function getAsyncStorage(): Promise<typeof import('@react-native-async-storage/async-storage').default | null> {
+  if (asyncStoragePromise != null) return asyncStoragePromise;
+  asyncStoragePromise = (async () => {
+    try {
+      const m = await import('@react-native-async-storage/async-storage');
+      return m.default;
+    } catch {
+      return null;
+    }
+  })();
+  return asyncStoragePromise;
+}
 
 async function safeGetItem(key: string): Promise<string | null> {
   if (Platform.OS === 'web' && typeof localStorage !== 'undefined') {
@@ -47,8 +62,9 @@ async function safeGetItem(key: string): Promise<string | null> {
   if (!useNativeAsyncStorage) {
     return memoryFallback.get(key) ?? null;
   }
+  const AsyncStorage = await getAsyncStorage();
+  if (AsyncStorage == null) return memoryFallback.get(key) ?? null;
   try {
-    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
     return await AsyncStorage.getItem(key);
   } catch {
     return memoryFallback.get(key) ?? null;
@@ -67,15 +83,18 @@ async function safeSetItem(key: string, value: string): Promise<void> {
     memoryFallback.set(key, value);
     return;
   }
+  const AsyncStorage = await getAsyncStorage();
+  if (AsyncStorage == null) {
+    memoryFallback.set(key, value);
+    return;
+  }
   try {
-    const AsyncStorage = (await import('@react-native-async-storage/async-storage')).default;
     await AsyncStorage.setItem(key, value);
   } catch {
     memoryFallback.set(key, value);
   }
 }
 
-/** 订单阶段（4 态），与 firm.orders.status 一致 */
 const STAGE_LABEL: Record<string, string> = {
   onboarding: 'Onboarding',
   processing: 'Processing',
@@ -87,27 +106,39 @@ const STAGE_COLOR: Record<string, string> = {
   onboarding: '#E67E22',
   processing: '#29B6F6',
   completed: '#00B894',
-  cancelled: '#636E72',
+  cancelled: '#B2BEC3',
 };
 
-/** 税季标签颜色：10 年周期循环 */
+/** 税季标签颜色（与报税项目 Info、订单详情、WEB 列表一致） */
 const TAX_SEASON_COLORS = [
   '#6C5CE7', '#E17055', '#00B894', '#0984E3', '#FDCB6E',
   '#E84393', '#00CEC9', '#74B9FF', '#A29BFE', '#FD79A8',
 ];
-
 function getTaxSeasonColor(year: number): string {
   return TAX_SEASON_COLORS[Math.abs(year) % 10] ?? TAX_SEASON_COLORS[0];
 }
 
-type ViewMode = 'grid' | 'list';
+type SectionData = { title: string; monthKey: string; data: FirmOrderForClient[] };
+
+function getTaxSeasonYear(order: FirmOrderForClient): number | null {
+  const d = order.dueAt || order.createdAt || null;
+  if (!d) return null;
+  try {
+    return new Date(d).getFullYear();
+  } catch {
+    return null;
+  }
+}
+
+function getOrderDisplayName(order: FirmOrderForClient, isOnboarding: boolean): string {
+  return isOnboarding ? (order.skuName ?? 'Service order') : (order.projectName ?? order.skuName ?? 'Project');
+}
 
 export default function TaxFilingScreen() {
   const router = useRouter();
-  const { width: windowWidth } = useWindowDimensions();
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [orders, setOrders] = useState<FirmOrderForClient[]>([]);
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [pinnedOrderIds, setPinnedOrderIds] = useState<string[]>([]);
@@ -160,6 +191,20 @@ export default function TaxFilingScreen() {
       .filter((o) => o.hiddenFromClientAt)
       .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
   }, [orders]);
+
+  const sections = useMemo((): SectionData[] => {
+    const out: SectionData[] = [{ title: 'Active', monthKey: 'active', data: sortedOrders }];
+    if (hiddenOrders.length > 0) {
+      out.push({ title: `Hidden (${hiddenOrders.length})`, monthKey: 'hidden', data: hiddenOrders });
+    }
+    return out;
+  }, [sortedOrders, hiddenOrders]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    setOrders(await loadOrders());
+    setRefreshing(false);
+  }, [loadOrders]);
 
   const handleTogglePin = useCallback(async (orderId: string) => {
     setPinnedOrderIds((prev) => {
@@ -220,7 +265,6 @@ export default function TaxFilingScreen() {
     setOrders(await loadOrders());
   }, [loadOrders]);
 
-  /** 点击卡片/行：已接受订单进 project 路由（client 主权），未接受进 order 路由 */
   const goToTodos = (order: FirmOrderForClient) => {
     if (order.projectId) {
       router.push(`/tax-filing/project/${order.projectId}`);
@@ -228,221 +272,419 @@ export default function TaxFilingScreen() {
       router.push(`/tax-filing/order/${order.id}`);
     }
   };
-  /** 点击 edit：进入项目信息页
-   *  - 已接受：跳转到 project 页并激活 Info 页签 + 编辑态
-   *  - 未接受：仍使用 order info 路由
-   */
-  const goToInfo = (order: FirmOrderForClient) => {
-    if (order.projectId) {
-      router.push(`/tax-filing/project/${order.projectId}?tab=info&edit=1`);
-    } else {
-      router.push(`/tax-filing/order/${order.id}/info`);
-    }
-  };
 
-  const numColumns = Platform.select({
-    web: Math.max(2, Math.floor((windowWidth - 48) / (200 + GRID_GAP))),
-    default: 2,
-  });
-  const cardWidth =
-    Platform.OS === 'web'
-      ? Math.min(CARD_MAX_WIDTH, (windowWidth - 48 - GRID_GAP * (numColumns - 1)) / numColumns)
-      : (windowWidth - 40 - GRID_GAP) / 2;
+  const renderItem = useCallback(
+    ({ item: order, section }: { item: FirmOrderForClient; section: SectionData }) => {
+      const isHiddenSection = section.monthKey === 'hidden';
+      const isOnboarding = order.status === 'onboarding';
+      const isCancelled = order.status === 'cancelled';
+      const displayName = getOrderDisplayName(order, isOnboarding);
+      const taxSeasonYear = getTaxSeasonYear(order);
+      const progress =
+        !isOnboarding && !isCancelled && (order.taskTotal ?? 0) > 0
+          ? { completed: order.taskCompleted ?? 0, total: order.taskTotal ?? 0 }
+          : null;
+      const progressPercent =
+        progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
+
+      return (
+        <TouchableOpacity
+          style={styles.receiptItem}
+          onPress={() => (isHiddenSection ? goToTodos(order) : goToTodos(order))}
+          onLongPress={() => (order.status !== 'onboarding' ? undefined : handleTogglePin(order.id))}
+          activeOpacity={0.7}
+        >
+          <View style={styles.receiptContent}>
+            <View style={styles.firstRow}>
+              <View style={styles.firstRowLeft}>
+                {taxSeasonYear != null && (
+                  <View style={[styles.taxSeasonPill, { backgroundColor: getTaxSeasonColor(taxSeasonYear) }]}>
+                    <Text style={styles.taxSeasonText}>{taxSeasonYear}</Text>
+                  </View>
+                )}
+                <Text style={[styles.storeName, isCancelled && styles.mutedText]} numberOfLines={1}>
+                  {displayName}
+                </Text>
+              </View>
+              {isHiddenSection ? (
+                <TouchableOpacity
+                  style={styles.unhideBtn}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    unhideOrderForClient(order.id);
+                  }}
+                  disabled={unhidingId === order.id}
+                >
+                  {unhidingId === order.id ? (
+                    <ActivityIndicator size="small" color="#6C5CE7" />
+                  ) : (
+                    <Text style={styles.unhideBtnText}>Unhide</Text>
+                  )}
+                </TouchableOpacity>
+              ) : null}
+            </View>
+            <View style={styles.secondRow}>
+              <View style={[styles.statusBadge, { backgroundColor: STAGE_COLOR[order.status] ?? '#95A5A6' }]}>
+                <Text style={styles.statusText}>{STAGE_LABEL[order.status] ?? order.status}</Text>
+              </View>
+              {order.firmName ? (
+                <Text style={styles.footerText}>By {order.firmName}</Text>
+              ) : null}
+            </View>
+            {isOnboarding && !isCancelled && !isHiddenSection ? (
+              <View style={styles.actionRow}>
+                <TouchableOpacity
+                  style={styles.rejectBtn}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleRejectOrder(order);
+                  }}
+                  disabled={rejectingId === order.id}
+                >
+                  {rejectingId === order.id ? (
+                    <ActivityIndicator size="small" color="#636E72" />
+                  ) : (
+                    <Text style={styles.rejectBtnText}>Reject</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.acceptBtn, confirmingId === order.id && styles.acceptBtnDisabled]}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    handleConfirmOrder(order);
+                  }}
+                  disabled={confirmingId === order.id}
+                >
+                  {confirmingId === order.id ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.acceptBtnText}>Accept and Start</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : progress ? (
+              <View style={styles.progressRow}>
+                <View style={styles.progressBarTrack}>
+                  <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+                </View>
+                <Text style={styles.progressDetailText}>
+                  {progress.completed}/{progress.total} • {progressPercent}%
+                </Text>
+              </View>
+            ) : !isHiddenSection && isCancelled ? (
+              <View style={styles.progressRow}>
+                <TouchableOpacity
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    hideOrderForClient(order.id);
+                  }}
+                  disabled={hidingId === order.id}
+                  style={styles.settingsIcon}
+                >
+                  {hidingId === order.id ? (
+                    <ActivityIndicator size="small" color="#C0392B" />
+                  ) : (
+                    <Ionicons name="trash-outline" size={20} color="#C0392B" />
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : null}
+          </View>
+        </TouchableOpacity>
+      );
+    },
+    [
+      confirmingId,
+      rejectingId,
+      hidingId,
+      unhidingId,
+      handleConfirmOrder,
+      handleRejectOrder,
+      handleTogglePin,
+      hideOrderForClient,
+      unhideOrderForClient,
+    ],
+  );
+
+  const renderSectionHeader = useCallback(({ section }: { section: SectionData }) => {
+    if (!section.title) return null;
+    return (
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionTitle}>{section.title}</Text>
+        <Text style={styles.sectionCount}>{section.data.length} orders</Text>
+      </View>
+    );
+  }, []);
 
   if (!showTaxFiling) return null;
 
   return (
-    <ScrollView style={styles.container} contentContainerStyle={styles.content}>
-        {loading ? (
-          <ActivityIndicator size="large" color="#6C5CE7" style={styles.loader} />
-        ) : (
-          <>
-            <View style={styles.header}>
-              <Text style={styles.sectionTitle}>Service engagements</Text>
-              <View style={styles.viewToggle}>
-                <TouchableOpacity
-                  style={[styles.viewToggleBtn, viewMode === 'grid' && styles.viewToggleBtnActive]}
-                  onPress={() => setViewMode('grid')}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="grid-outline" size={20} color={viewMode === 'grid' ? '#6C5CE7' : '#636E72'} />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.viewToggleBtn, viewMode === 'list' && styles.viewToggleBtnActive]}
-                  onPress={() => setViewMode('list')}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="list" size={22} color={viewMode === 'list' ? '#6C5CE7' : '#636E72'} />
-                </TouchableOpacity>
-              </View>
+    <View style={styles.container}>
+      <SectionList<FirmOrderForClient, SectionData>
+        sections={sections}
+        keyExtractor={(item) => item.id}
+        renderItem={renderItem}
+        renderSectionHeader={renderSectionHeader}
+        stickySectionHeadersEnabled={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        contentContainerStyle={
+          sections.every((s) => s.data.length === 0) ? styles.emptyList : styles.listContent
+        }
+        ListEmptyComponent={
+          loading && orders.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <ActivityIndicator size="large" color="#6C5CE7" />
+              <Text style={styles.emptyText}>Loading...</Text>
             </View>
-            {sortedOrders.length === 0 && hiddenOrders.length === 0 ? (
-              <View style={styles.emptySection}>
-                <Text style={styles.emptySectionText}>No orders yet</Text>
-              </View>
-            ) : viewMode === 'list' ? (
-              <View style={styles.listWrapper}>
-                <View style={projectListStyles.list}>
-                  {sortedOrders.map((o) => {
-                    const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
-                    return (
-                      <ProjectListRow
-                        key={o.id}
-                        item={item}
-                        isPinned={pinnedOrderIds.includes(o.id)}
-                        onTogglePin={() => handleTogglePin(o.id)}
-                        onPress={() => goToTodos(o)}
-                        onSettings={
-                          o.status === 'cancelled'
-                            ? () => hideOrderForClient(o.id)
-                            : o.status !== 'onboarding'
-                              ? () => goToInfo(o)
-                              : undefined
-                        }
-                      />
-                    );
-                  })}
-                </View>
-              </View>
-            ) : (
-              <View style={styles.grid}>
-                {sortedOrders.map((o) => {
-                  const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
-                  return (
-                    <ProjectListCard
-                      key={o.id}
-                      item={item}
-                      cardWidth={cardWidth}
-                      isPinned={pinnedOrderIds.includes(o.id)}
-                      onTogglePin={() => handleTogglePin(o.id)}
-                      onPress={() => goToTodos(o)}
-                      onSettings={
-                        o.status === 'cancelled'
-                          ? () => hideOrderForClient(o.id)
-                          : o.status !== 'onboarding'
-                            ? () => goToInfo(o)
-                            : undefined
-                      }
-                    />
-                  );
-                })}
-              </View>
-            )}
-            {hiddenOrders.length > 0 ? (
-              <View style={styles.hiddenSection}>
-                <Text style={styles.hiddenSectionTitle}>Hidden ({hiddenOrders.length})</Text>
-                {viewMode === 'list' ? (
-                  <View style={styles.listWrapper}>
-                    <View style={projectListStyles.list}>
-                      {hiddenOrders.map((o) => {
-                        const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
-                        return (
-                          <ProjectListRow
-                            key={o.id}
-                            item={item}
-                            isPinned={pinnedOrderIds.includes(o.id)}
-                            onTogglePin={() => handleTogglePin(o.id)}
-                            onPress={() => goToTodos(o)}
-                            onSettings={() => unhideOrderForClient(o.id)}
-                          />
-                        );
-                      })}
-                    </View>
-                  </View>
-                ) : (
-                  <View style={styles.grid}>
-                    {hiddenOrders.map((o) => {
-                      const item = orderToItem(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
-                      return (
-                        <ProjectListCard
-                          key={o.id}
-                          item={item}
-                          cardWidth={cardWidth}
-                          isPinned={pinnedOrderIds.includes(o.id)}
-                          onTogglePin={() => handleTogglePin(o.id)}
-                          onPress={() => goToTodos(o)}
-                          onSettings={() => unhideOrderForClient(o.id)}
-                        />
-                      );
-                    })}
-                  </View>
-                )}
-              </View>
-            ) : null}
-          </>
-        )}
-    </ScrollView>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Ionicons name="document-text-outline" size={64} color="#BDC3C7" />
+              <Text style={styles.emptyText}>No orders yet</Text>
+            </View>
+          )
+        }
+      />
+    </View>
   );
 }
 
-function getTaxSeasonYear(order: FirmOrderForClient): number | null {
-  const d = order.dueAt || order.createdAt || null;
-  if (!d) return null;
-  try {
-    return new Date(d).getFullYear();
-  } catch {
-    return null;
-  }
-}
-
-function getOrderDisplayName(order: FirmOrderForClient, isOnboarding: boolean): string {
-  return isOnboarding ? (order.skuName ?? 'Service order') : (order.projectName ?? order.skuName ?? 'Project');
-}
-
-function orderToItem(
-  order: FirmOrderForClient,
-  confirmingId: string | null,
-  rejectingId: string | null,
-  onConfirm: (order: FirmOrderForClient) => void,
-  onReject: (order: FirmOrderForClient) => void
-): ProjectListCardItem {
-  const isOnboarding = order.status === 'onboarding';
-  const taxSeasonYear = getTaxSeasonYear(order);
-  const isCancelled = order.status === 'cancelled';
-  return {
-    id: order.id,
-    displayName: getOrderDisplayName(order, isOnboarding),
-    imageUrl: isOnboarding ? order.skuImageUrl ?? null : order.projectImageUrl ?? null,
-    tagPill: taxSeasonYear != null ? { label: String(taxSeasonYear), color: getTaxSeasonColor(taxSeasonYear) } : null,
-    statusLabel: STAGE_LABEL[order.status] ?? order.status,
-    statusColor: STAGE_COLOR[order.status] ?? '#95A5A6',
-    isMuted: order.status === 'cancelled',
-    footerText: order.firmName ? `By ${order.firmName}` : null,
-    progress:
-      !isOnboarding && !isCancelled && (order.taskTotal ?? 0) > 0
-        ? { completed: order.taskCompleted ?? 0, total: order.taskTotal ?? 0 }
-        : null,
-    action: isOnboarding && !isCancelled
-      ? {
-          label: 'Accept and Start',
-          onPress: () => onConfirm(order),
-          confirming: confirmingId === order.id,
-          onReject: () => onReject(order),
-          rejecting: rejectingId === order.id,
-        }
-      : null,
-  };
-}
-
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F8F9FA' },
-  content: { padding: 20, paddingBottom: 40 },
-  loader: { marginTop: 40 },
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  sectionTitle: { fontSize: 18, fontWeight: '600', color: '#2D3436' },
-  viewToggle: { flexDirection: 'row', gap: 4 },
-  viewToggleBtn: { padding: 8, borderRadius: 8 },
-  viewToggleBtnActive: { backgroundColor: '#EDE9FE' },
-  emptySection: { paddingVertical: 24, alignItems: 'center' },
-  emptySectionText: { fontSize: 14, color: '#95A5A6' },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },
-  hiddenSection: { marginTop: 24 },
-  hiddenSectionTitle: { fontSize: 14, fontWeight: '600', color: '#636E72', marginBottom: 12 },
-  listWrapper: {
+  container: {
+    flex: 1,
+    backgroundColor: '#ECEFF1',
+  },
+  toolbarSlot: {
+    height: 52,
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9ECEF',
+    justifyContent: 'center',
+  },
+  header: {
+    height: 52,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    backgroundColor: 'transparent',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2D3436',
+  },
+  receiptItem: {
+    backgroundColor: '#fff',
+    paddingTop: 14,
+    paddingBottom: 10,
+    paddingHorizontal: 12,
+    paddingLeft: 24,
+    borderBottomWidth: 0,
+    borderBottomColor: 'transparent',
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
     borderRadius: 12,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
+    // 轻微底部阴影，让卡片与背景分层
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  receiptContent: {
+    flex: 1,
+  },
+  firstRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  firstRowLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 8,
+  },
+  firstRowRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  storeName: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2D3436',
+    marginRight: 12,
+  },
+  mutedText: {
+    color: '#95A5A6',
+  },
+  statusBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  taxSeasonPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+  },
+  taxSeasonText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
+  settingsIcon: {
+    padding: 4,
+  },
+  secondRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  footerText: {
+    fontSize: 14,
+    color: '#636E72',
+    marginLeft: 'auto',
+  },
+  progressText: {
+    fontSize: 14,
+    color: '#6C5CE7',
+    fontWeight: '500',
+  },
+  dateText: {
+    fontSize: 14,
+    color: '#636E72',
+    marginLeft: 'auto',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+    minHeight: 30,
+    marginTop: 4,
+  },
+  progressRow: {
+    marginTop: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+    minHeight: 30,
+  },
+  progressBarTrack: {
+    flex: 1,
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: '#E5E7EB',
     overflow: 'hidden',
-    ...(Platform.OS === 'web' ? { borderWidth: 1 } : {}),
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#6C5CE7',
+  },
+  progressDetailText: {
+    fontSize: 12,
+    color: '#636E72',
+    fontWeight: '500',
+  },
+  acceptBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    minHeight: 30,
+    borderRadius: 10,
+    backgroundColor: '#6C5CE7',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  acceptBtnDisabled: {
+    opacity: 0.7,
+  },
+  acceptBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#fff',
+  },
+  rejectBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    minHeight: 30,
+    borderRadius: 10,
+    backgroundColor: '#FFE5E5',
+    justifyContent: 'center',
+    alignItems: 'center',
+    // 更轻的阴影，避免过重的红色块感
+    ...(Platform.OS === 'web' || Platform.OS === 'ios'
+      ? { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.08, shadowRadius: 2 }
+      : {}),
+    ...(Platform.OS === 'android' ? { elevation: 1 } : {}),
+  },
+  rejectBtnText: {
+    fontSize: 14,
+    color: '#C0392B',
+    fontWeight: '600',
+  },
+  unhideBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#E8E0F7',
+  },
+  unhideBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#6C5CE7',
+  },
+  sectionHeader: {
+    backgroundColor: '#E9ECEF',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderBottomWidth: 0,
+    borderBottomColor: 'transparent',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#2D3436',
+  },
+  sectionCount: {
+    fontSize: 14,
+    color: '#636E72',
+  },
+  listContent: {
+    paddingHorizontal: 4,
+    paddingTop: 0,
+    paddingBottom: 100,
+  },
+  emptyList: {
+    flexGrow: 1,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 100,
+  },
+  emptyText: {
+    fontSize: 18,
+    color: '#636E72',
+    marginTop: 16,
+    fontWeight: '600',
   },
 });

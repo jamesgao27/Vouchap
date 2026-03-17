@@ -73,7 +73,7 @@ export function getReceiptColumns(opts: ReceiptColumnOptions): DataTableColumn<R
     { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
     { id: 'status', label: 'Status', minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
     { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '—'}</Text>, getSortValue: r => (r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '').toLowerCase() },
-    { id: 'inputType', label: 'Camera', minWidth: 72, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
+    { id: 'inputType', label: 'Method', minWidth: 90, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
     { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }}>{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
   ];
 }
@@ -95,7 +95,7 @@ export function getInvoiceColumns(opts: InvoiceColumnOptions): DataTableColumn<I
     { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
     { id: 'status', label: 'Status', minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
     { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '—'}</Text>, getSortValue: r => (r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '').toLowerCase() },
-    { id: 'inputType', label: 'Camera', minWidth: 72, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
+    { id: 'inputType', label: 'Method', minWidth: 90, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
     { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }}>{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
   ];
 }
