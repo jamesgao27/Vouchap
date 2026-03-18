@@ -915,6 +915,20 @@ export default function HomeScreen() {
               <Text style={styles.secondaryButtonText}>Expenses</Text>
             </TouchableOpacity>
           </View>
+          <View style={[styles.buttonsRow, { marginTop: 12 }]}>
+            <TouchableOpacity
+              style={[styles.secondaryButton, styles.halfWidthButton]}
+              onPress={() => router.push('/tax-filing')}
+            >
+              <Ionicons
+                name="document-text-outline"
+                size={20}
+                color="#6C5CE7"
+                style={styles.buttonIcon}
+              />
+              <Text style={styles.secondaryButtonText}>Tax Filing</Text>
+            </TouchableOpacity>
+          </View>
           {SHOW_AI_INVENTORY_ENTRY && (
             <View style={[styles.buttonsRow, { marginTop: 12 }]}>
               <TouchableOpacity
@@ -923,17 +937,6 @@ export default function HomeScreen() {
               >
                 <Ionicons name="cube-outline" size={20} color="#FF9500" style={styles.buttonIcon} />
                 <Text style={styles.secondaryButtonAltText}>AI Inventory</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-          {showTaxFiling && (
-            <View style={[styles.buttonsRow, { marginTop: 12 }]}>
-              <TouchableOpacity
-                style={[styles.secondaryButtonAlt, styles.halfWidthButton]}
-                onPress={() => router.push('/tax-filing')}
-              >
-                <Ionicons name="document-text-outline" size={20} color="#0984e3" style={styles.buttonIcon} />
-                <Text style={styles.secondaryButtonAltText}>Tax Filing</Text>
               </TouchableOpacity>
             </View>
           )}
