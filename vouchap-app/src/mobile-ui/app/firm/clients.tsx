@@ -16,6 +16,7 @@ import {
   Platform,
   RefreshControl,
 } from 'react-native';
+import Constants from 'expo-constants';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { format } from 'date-fns';
@@ -815,30 +816,6 @@ export default function FirmClientsScreen() {
                 </TouchableOpacity>
               ) : null}
             </View>
-            {/* Mobile: Add client + 邀请与历史入口 */}
-            <View style={styles.mobileInviteActions}>
-              <TouchableOpacity
-                style={styles.mobileIconButton}
-                onPress={handleOpenAddClientModal}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="person-add-outline" size={18} color="#6C5CE7" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.mobileIconButton}
-                onPress={handleToggleInvitePanel}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="share-outline" size={18} color="#6C5CE7" />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.mobileIconButton}
-                onPress={handleOpenInviteHistory}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="time-outline" size={18} color="#636E72" />
-              </TouchableOpacity>
-            </View>
           </View>
         </View>
         {showGroupMenu && (
@@ -870,6 +847,7 @@ export default function FirmClientsScreen() {
           <Text style={styles.emptyText}>Loading...</Text>
         </View>
       ) : (
+        <>
         <SectionList
           sections={clientSections}
           keyExtractor={(c) => c.id}
@@ -971,19 +949,38 @@ export default function FirmClientsScreen() {
             </View>
           }
         />
+        {/* Mobile: 底部双按钮，样式对齐 receipt 详情的 Cancel / Confirm */}
+        <View style={styles.mobileBottomBar}>
+          {/* 次按钮：Open invite → 跳转独立页面 */}
+          <TouchableOpacity
+            style={styles.mobileBottomSecondaryButton}
+            onPress={() => router.push('/firm/clients/open-invite')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="qr-code-outline" size={20} color="#636E72" />
+            <Text style={styles.mobileBottomSecondaryText}>Open invite</Text>
+          </TouchableOpacity>
+          {/* 主按钮：Add client → 跳转独立页面 */}
+          <TouchableOpacity
+            style={styles.mobileBottomPrimaryButton}
+            onPress={() => router.push('/firm/clients/add')}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="person-add-outline" size={20} color="#6C5CE7" />
+            <Text style={styles.mobileBottomPrimaryText}>Add client</Text>
+          </TouchableOpacity>
+        </View>
+        </>
       )}
     </View>
   );
 
+  // 移动端：仅渲染列表页本身（表单改用独立页面承载）
   if (Platform.OS !== 'web') {
-    return (
-      <View style={{ flex: 1 }}>
-        {renderMobileList()}
-      </View>
-    );
+    return <View style={{ flex: 1 }}>{renderMobileList()}</View>;
   }
 
-  // Web: DataTable with search, group, sort; 有选中时用批量操作行替换分组/搜索行，同高防抖
+  // Web：DataTable + Invite / Add client 浮窗（保持原行为）
   const hasSelection = selectedClientIds.length > 0;
   return (
     <View style={styles.webContainer}>
@@ -1120,14 +1117,15 @@ export default function FirmClientsScreen() {
             </View>
           </View>
         )}
-      </View>
+        </View>
+      )}
 
       {(loading && clients.length === 0) ? (
         <View style={styles.emptyContainer}>
           <ActivityIndicator size="large" color="#6C5CE7" />
           <Text style={styles.emptyText}>Loading...</Text>
         </View>
-      ) : (
+      ) : Platform.OS === 'web' ? (
         <ScrollView
           style={styles.tableScroll}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -1153,7 +1151,8 @@ export default function FirmClientsScreen() {
             onSelectedIdsChange={setSelectedClientIds}
           />
         </ScrollView>
-      )}
+      ) : null}
+
       <CenterModal
         visible={showInvitePanel}
         title="Invite new clients"
@@ -1201,6 +1200,22 @@ export default function FirmClientsScreen() {
                           {sku.name}
                         </Text>
                       </View>
+                      {/* Mobile: 预览按钮跳转到独立 SKU 预览页；Web 仍用右侧 Panel 预览 */}
+                      {Platform.OS !== 'web' && (
+                        <TouchableOpacity
+                          style={styles.inviteSkuPreviewPill}
+                          onPress={() =>
+                            router.push({
+                              pathname: '/auth/setup-sku-preview',
+                              params: { skuId: sku.id },
+                            } as any)
+                          }
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="eye-outline" size={14} color="#6C5CE7" />
+                          <Text style={styles.inviteSkuPreviewText}>Preview</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   </TouchableOpacity>
                 ))}
@@ -1911,7 +1926,13 @@ export default function FirmClientsScreen() {
 const styles = StyleSheet.create({
   // Match Expenses (receipts) page: container + header + headerRow + sortButton + searchContainer
   webContainer: { flex: 1, backgroundColor: '#ECEFF1' },
-  container: { flex: 1, backgroundColor: '#F8F9FA' },
+  container: {
+    flex: 1,
+    backgroundColor: '#F8F9FA',
+    ...(Platform.OS !== 'web' && {
+      paddingTop: (Constants.statusBarHeight ?? 20) + 8,
+    }),
+  },
   content: { padding: 20, paddingBottom: 40 },
   toolbarSlot: {
     height: 52,
@@ -1988,18 +2009,7 @@ const styles = StyleSheet.create({
   searchInput: { flex: 1, fontSize: 14, color: '#2D3436', padding: 0 },
   searchClear: { marginLeft: 4 },
   mobileInviteActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginLeft: 8,
-  },
-  mobileIconButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#ECECFF',
+    // deprecated: firm mobile actions moved to bottom bar
   },
   filterButton: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingVertical: 8 },
   filterText: { fontSize: 14, color: '#636E72', marginRight: 4, fontWeight: '500' },
@@ -2053,6 +2063,65 @@ const styles = StyleSheet.create({
     color: '#636E72',
     // 与 assignee name 之间留较小但清晰的间距
     marginLeft: 4,
+  },
+  mobileBottomBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    paddingTop: 8,
+    backgroundColor: 'transparent',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  // 主按钮：Add client（尺寸与阴影完全对齐 receipt 详情 Confirm 按钮）
+  mobileBottomPrimaryButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    // 浅紫底色，视觉上与 Web 端 header 的 Add client 接近
+    backgroundColor: '#EAEAFF',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    ...(Platform.OS === 'android'
+      ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)' }
+      : { elevation: 4 }),
+  },
+  mobileBottomPrimaryText: {
+    marginLeft: 8,
+    fontSize: 16,
+    color: '#6C5CE7',
+    fontWeight: '600',
+  },
+  // 次按钮：Open invite（尺寸与阴影完全对齐 receipt 详情 Cancel 按钮）
+  mobileBottomSecondaryButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.11,
+    shadowRadius: 10,
+    ...(Platform.OS === 'android'
+      ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.14)' }
+      : { elevation: 3 }),
+  },
+  mobileBottomSecondaryText: {
+    marginLeft: 8,
+    fontSize: 16,
+    color: '#636E72',
+    fontWeight: '600',
   },
   listContent: { paddingHorizontal: 4, paddingTop: 0, paddingBottom: 100 },
   emptyList: { flexGrow: 1 },
@@ -2147,6 +2216,21 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: '500',
     color: '#636E72',
+  },
+  inviteSkuPreviewPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999,
+    backgroundColor: '#F3F4FF',
+  },
+  inviteSkuPreviewText: {
+    marginLeft: 4,
+    fontSize: 11,
+    fontWeight: '500',
+    color: '#6C5CE7',
   },
   inviteHeader: {
     marginBottom: 16,

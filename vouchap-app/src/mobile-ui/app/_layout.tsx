@@ -194,7 +194,7 @@ function LayoutContent() {
         />
         <Stack.Screen 
           name="firm/clients" 
-          options={{ title: 'Clients', headerBackTitle: 'Back' }} 
+          options={{ headerShown: false }} 
         />
         <Stack.Screen 
           name="firm/client/[clientSpaceId]" 
