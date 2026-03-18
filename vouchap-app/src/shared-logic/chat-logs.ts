@@ -9,10 +9,21 @@ export interface ChatLog {
   spaceId: string;
   userId: string;
   receiptId?: string;
+  invoiceId?: string | null;
+  inboundId?: string | null;
+  outboundId?: string | null;
   projectId?: string | null;
   /** 记录类别，空表示 receipt（兼容历史） */
   voucherType?: VoucherLogType | null;
-  type: 'image' | 'text' | 'audio';
+  /**
+   * type 语义：
+   * - image: 图片（包括拍照和通过文件/相册上传的图片）
+   * - text: 纯文本
+   * - audio: 语音（无论是否识别成功都保持 audio）
+   * - document: PDF/Word/Excel 等文档
+   * - attachment: 无法识别类型的原始附件
+   */
+  type: 'image' | 'text' | 'audio' | 'document' | 'attachment';
   modelName?: string;
   prompt?: string;
   response?: string;
@@ -30,10 +41,13 @@ export interface ChatLog {
 
 export interface CreateChatLogParams {
   receiptId?: string;
+  invoiceId?: string;
+  inboundId?: string;
+  outboundId?: string;
   projectId?: string;
   /** 记录类别，空表示 receipt（兼容历史） */
   voucherType?: VoucherLogType | null;
-  type: 'image' | 'text' | 'audio';
+  type: 'image' | 'text' | 'audio' | 'document' | 'attachment';
   modelName?: string;
   prompt?: string;
   response?: string;
@@ -67,6 +81,9 @@ export async function saveChatLog(params: CreateChatLogParams): Promise<void> {
       space_id: spaceId,
       user_id: user.id,
       receipt_id: params.receiptId || null,
+      invoice_id: params.invoiceId || null,
+      inbound_id: params.inboundId || null,
+      outbound_id: params.outboundId || null,
       project_id: params.projectId || null,
       type: params.type,
       model_name: params.modelName || null,
@@ -135,6 +152,9 @@ export async function getChatLogs(limit: number = 100): Promise<ChatLog[]> {
       spaceId: row.space_id,
       userId: row.user_id,
       receiptId: row.receipt_id,
+      invoiceId: row.invoice_id ?? null,
+      inboundId: row.inbound_id ?? null,
+      outboundId: row.outbound_id ?? null,
       projectId: row.project_id ?? null,
       voucherType: row.voucher_type ?? undefined,
       type: row.type,
@@ -284,6 +304,9 @@ export async function getChatLogsPaginated(
       spaceId: row.space_id,
       userId: row.user_id,
       receiptId: row.receipt_id,
+      invoiceId: row.invoice_id ?? null,
+      inboundId: row.inbound_id ?? null,
+      outboundId: row.outbound_id ?? null,
       projectId: row.project_id ?? null,
       voucherType: row.voucher_type ?? undefined,
       type: row.type,
@@ -338,6 +361,9 @@ export async function getChatLogsByReceiptId(receiptId: string): Promise<ChatLog
       spaceId: row.space_id,
       userId: row.user_id,
       receiptId: row.receipt_id,
+      invoiceId: row.invoice_id ?? null,
+      inboundId: row.inbound_id ?? null,
+      outboundId: row.outbound_id ?? null,
       projectId: row.project_id ?? null,
       voucherType: row.voucher_type ?? undefined,
       type: row.type,

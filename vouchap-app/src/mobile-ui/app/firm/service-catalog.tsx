@@ -111,7 +111,9 @@ export default function FirmServiceCatalogScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [skus, setSkus] = useState<FirmSku[]>([]);
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [viewMode, setViewMode] = useState<ViewMode>(
+    Platform.OS === 'web' ? 'grid' : 'list',
+  );
   const { width: windowWidth } = useWindowDimensions();
 
   const loadData = useCallback(async (forceRefresh = false) => {

@@ -327,6 +327,7 @@ export function ProjectListRow({
   const progress = item.progress && item.progress.total > 0
     ? Math.round((item.progress.completed / item.progress.total) * 100)
     : 0;
+  const hasRightContent = !!item.action || (!!item.progress && item.progress.total > 0);
 
   return (
     <View
@@ -437,39 +438,49 @@ export function ProjectListRow({
             ) : null}
           </View>
         </View>
-        <View style={s.listRightSlot}>
-          {item.action ? (
-            (item.action.confirming || item.action.rejecting) && !item.action.onReject ? (
-              <View style={s.listAcceptProgress}>
-                <IndeterminateProgressBar />
-              </View>
-            ) : item.action.confirming || item.action.rejecting ? (
-              <View style={s.listActionRow}>
-                <TouchableOpacity
-                  style={s.listRejectBtn}
-                  onPress={(e) => { e.stopPropagation(); item.action!.onReject!(); }}
-                  disabled
-                  activeOpacity={0.8}
-                >
-                  {item.action.rejecting ? (
-                    <Ionicons name="hourglass-outline" size={18} color="#C0392B" />
-                  ) : (
-                    <Text style={s.listRejectBtnText}>Reject</Text>
-                  )}
-                </TouchableOpacity>
+        {hasRightContent ? (
+          <View style={s.listRightSlot}>
+            {item.action ? (
+              (item.action.confirming || item.action.rejecting) && !item.action.onReject ? (
                 <View style={s.listAcceptProgress}>
                   <IndeterminateProgressBar />
                 </View>
-              </View>
-            ) : item.action.onReject ? (
-              <View style={s.listActionRow}>
-                <TouchableOpacity
-                  style={s.listRejectBtn}
-                  onPress={(e) => { e.stopPropagation(); item.action!.onReject!(); }}
-                  activeOpacity={0.8}
-                >
-                  <Text style={s.listRejectBtnText}>Reject</Text>
-                </TouchableOpacity>
+              ) : item.action.confirming || item.action.rejecting ? (
+                <View style={s.listActionRow}>
+                  <TouchableOpacity
+                    style={s.listRejectBtn}
+                    onPress={(e) => { e.stopPropagation(); item.action!.onReject!(); }}
+                    disabled
+                    activeOpacity={0.8}
+                  >
+                    {item.action.rejecting ? (
+                      <Ionicons name="hourglass-outline" size={18} color="#C0392B" />
+                    ) : (
+                      <Text style={s.listRejectBtnText}>Reject</Text>
+                    )}
+                  </TouchableOpacity>
+                  <View style={s.listAcceptProgress}>
+                    <IndeterminateProgressBar />
+                  </View>
+                </View>
+              ) : item.action.onReject ? (
+                <View style={s.listActionRow}>
+                  <TouchableOpacity
+                    style={s.listRejectBtn}
+                    onPress={(e) => { e.stopPropagation(); item.action!.onReject!(); }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={s.listRejectBtnText}>Reject</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={s.listAcceptBtn}
+                    onPress={(e) => { e.stopPropagation(); item.action!.onPress(); }}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={s.acceptBtnText}>{item.action.label}</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
                 <TouchableOpacity
                   style={s.listAcceptBtn}
                   onPress={(e) => { e.stopPropagation(); item.action!.onPress(); }}
@@ -477,27 +488,19 @@ export function ProjectListRow({
                 >
                   <Text style={s.acceptBtnText}>{item.action.label}</Text>
                 </TouchableOpacity>
+              )
+            ) : item.progress && item.progress.total > 0 ? (
+              <View style={s.listProgressBlock}>
+                <View style={s.listProgressTrack}>
+                  <View style={[s.progressBarFill, { width: `${progress}%` }]} />
+                </View>
+                <Text style={s.listProgressText}>
+                  {item.progress.completed}/{item.progress.total} · {progress}%
+                </Text>
               </View>
-            ) : (
-              <TouchableOpacity
-                style={s.listAcceptBtn}
-                onPress={(e) => { e.stopPropagation(); item.action!.onPress(); }}
-                activeOpacity={0.8}
-              >
-                <Text style={s.acceptBtnText}>{item.action.label}</Text>
-              </TouchableOpacity>
-            )
-          ) : item.progress && item.progress.total > 0 ? (
-            <View style={s.listProgressBlock}>
-              <View style={s.listProgressTrack}>
-                <View style={[s.progressBarFill, { width: `${progress}%` }]} />
-              </View>
-              <Text style={s.listProgressText}>
-                {item.progress.completed}/{item.progress.total} · {progress}%
-              </Text>
-            </View>
-          ) : null}
-        </View>
+            ) : null}
+          </View>
+        ) : null}
       </TouchableOpacity>
     </View>
   );

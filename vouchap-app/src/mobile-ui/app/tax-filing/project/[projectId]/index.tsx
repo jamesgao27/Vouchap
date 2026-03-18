@@ -187,16 +187,34 @@ export default function ProjectTodosScreen() {
     }
   }, [orderId, router]);
 
+  const handleRestart = useCallback(async () => {
+    if (!orderId) return;
+    setRestartLoading(true);
+    try {
+      const nextStatus = projectId ? 'processing' : 'onboarding';
+      const { error } = await updateOrderStatus(orderId, nextStatus);
+      if (error) {
+        showToast(error.message ?? 'Failed to restart', 'error');
+        return;
+      }
+      await load();
+    } finally {
+      setRestartLoading(false);
+    }
+  }, [orderId, projectId, load]);
+
   const [showTinaFab, setShowTinaFab] = useState(false);
 
   useEffect(() => {
-    // 仅移动端 + 已有 todos 时显示 Tina 浮层（onboarding 态本身不会有 todos）
+    // 仅移动端 + 已有 todos 且状态为进行中/已完成时显示 Tina 浮层（onboarding/cancelled 均不显示）
     if (Platform.OS === 'web') {
       setShowTinaFab(false);
       return;
     }
-    setShowTinaFab(Boolean(projectId && tree.length > 0));
-  }, [projectId, tree.length]);
+    const hasTodos = tree.length > 0 && !tree.every((n) => n.children.length === 0 && !n.title);
+    const isActiveForTina = header?.status === 'processing' || header?.status === 'completed';
+    setShowTinaFab(hasTodos && isActiveForTina);
+  }, [header?.status, tree.length, tree]);
 
   const handleTinaChat = () => {
     if (!projectId) return;

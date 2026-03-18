@@ -205,24 +205,24 @@ export default function FirmEngagementDetailScreen() {
     };
   }, [orderId, projectId, clientSpaceId, openPanel, setType, setAttachmentContext, closePanel]);
 
-  // 移动端 Todos tab 且已有 todos 时显示 Tina 浮层（避免引用尚未初始化的 isOnboarding）
+  // 移动端 Todos tab 且已有 todos 且状态为进行中/已完成时显示 Tina 浮层（onboarding/cancelled 均不显示）
   useEffect(() => {
     if (Platform.OS === 'web') {
       setShowTinaFab(false);
       return;
     }
     const hasTodos = tree.length > 0 && !tree.every((n) => n.children.length === 0 && !n.title);
-    const notOnboarding = order?.status !== 'onboarding';
-    setShowTinaFab(activeTab === 'todos' && notOnboarding && hasTodos);
+    const isActiveForTina = order?.status === 'processing' || order?.status === 'completed';
+    setShowTinaFab(activeTab === 'todos' && isActiveForTina && hasTodos);
   }, [activeTab, order?.status, tree.length, tree]);
 
   const handleTinaChat = useCallback(() => {
-    if (!orderId) return;
+    if (!projectId) return;
     router.push({
       pathname: '/chat-to-log',
-      params: { type: 'tax-filing', projectId: orderId, clientSpaceId },
+      params: { type: 'tax-filing', projectId, clientSpaceId },
     } as any);
-  }, [orderId, clientSpaceId, router]);
+  }, [projectId, clientSpaceId, router]);
 
   // 同步 infoEditing → child forwardRef
   useEffect(() => {

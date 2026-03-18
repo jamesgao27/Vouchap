@@ -209,6 +209,7 @@ function restorePromptFromLog(log: ChatLog): Message | null {
     text: displayText,
     isUser: true,
     timestamp: new Date(log.createdAt),
+    logType: log.type,
     audioUrl: isAudioType ? log.audioUrl ?? undefined : undefined,
     audioDurationSeconds: voiceDuration,
     imageUrl: requestImageUrl,
@@ -243,6 +244,8 @@ interface Message {
   text: string;
   isUser: boolean;
   timestamp: Date;
+  /** ai_chat_logs.type，用于区分 image/picture/document/attachment/audio/text */
+  logType?: ChatLog['type'];
   receiptPreview?: Receipt;
   invoicePreview?: Invoice;
   inboundPreview?: Inbound;
@@ -717,6 +720,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               timestamp: new Date(log.createdAt),
               attachmentPreview: preview,
               voucherType: 'tax-filing',
+              logType: log.type,
             });
           } else if (log.responseData?.clientPreview && logType === 'client') {
             const preview = log.responseData.clientPreview as { firmSpaceId: string; summary: ClientRecognitionResult['summary']; items: ExtractedClient[]; confirmed?: boolean; canceled?: boolean };
@@ -903,6 +907,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             timestamp: new Date(log.createdAt),
             attachmentPreview: preview,
             voucherType: 'tax-filing',
+            logType: log.type,
           });
         } else if (log.responseData?.clientPreview && logType === 'client') {
           const preview = log.responseData.clientPreview as { firmSpaceId: string; summary: ClientRecognitionResult['summary']; items: ExtractedClient[]; confirmed?: boolean };
@@ -1367,13 +1372,21 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   docType,
                   extracted_data,
                 };
-                const previewMsg: Message = { id: `attach-preview-${attachmentId}`, text: '', isUser: false, timestamp: new Date(), attachmentPreview: previewPayload, voucherType: 'tax-filing' };
+                const previewMsg: Message = {
+                  id: `attach-preview-${attachmentId}`,
+                  text: '',
+                  isUser: false,
+                  timestamp: new Date(),
+                  attachmentPreview: previewPayload,
+                  voucherType: 'tax-filing',
+                  logType: isImage ? 'image' : 'document',
+                };
                 setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMsg : m)));
                 await saveChatLog({
                   receiptId: undefined,
                   projectId,
                   voucherType: 'tax-filing',
-                  type: 'image',
+                  type: isImage ? 'image' : 'document',
                   modelName: 'tax-filing',
                   prompt: userInstructions ? `Uploaded: ${name}. Note: ${userInstructions}` : `Uploaded: ${name}`,
                   response: '',
@@ -1413,6 +1426,19 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               if (!first.success) {
                 const errText = first.isContentQuality ? '❌ Content unclear or not recognized. Please resubmit.' : `❌ ${getUserFacingMessage(first)}`;
                 setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: errText, isUser: false, timestamp: new Date() } : m)));
+                // 识别失败也保留 chat log 记录（type=document/attachment），便于历史追溯
+                await saveChatLog({
+                  receiptId: voucherType === 'receipt' ? receiptId : undefined,
+                  voucherType,
+                  type: isImage ? 'image' : (file.mimeType ? 'document' : 'attachment'),
+                  modelName: 'gemini',
+                  prompt: name,
+                  response: errText,
+                  requestData: { imageUrl: fileUrl, mimeType: file.mimeType, rawText: text || undefined },
+                  responseData: { error: first },
+                  success: false,
+                  attachmentUrl: fileUrl,
+                });
                 continue;
               }
               if (isRecognitionResultUnrecognizable(first.result)) {
@@ -1551,9 +1577,6 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         setUploadingStagedIds(new Set());
         // 发送阶段结束后立即释放按钮，识别逻辑在后台继续
         setIsProcessing(false);
-        if (successfulCount > 0) {
-          showToast('All files have been uploaded. We will keep recognizing them in the background, so you can safely leave this page.', 'success');
-        }
       }
       return;
     }
@@ -2754,7 +2777,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               <Pressable style={styles.receiptPreviewCard} onPress={() => handlePreviewDetails(message)}>
                 <View style={styles.receiptPreviewHeader}>
                   <Ionicons name="attach" size={20} color="#6C5CE7" />
-                  <Text style={styles.receiptPreviewTitle}>Attachment</Text>
+                  <Text style={styles.receiptPreviewTitle}>
+                    {(message.logType ?? 'attachment').toUpperCase()}
+                  </Text>
                 </View>
                 <View style={styles.receiptPreviewContent}>
                   <View style={styles.attachmentPreviewRow}>
@@ -2783,11 +2808,22 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                       );
                     })()}
                     <View style={styles.attachmentPreviewMeta}>
-                      <Text style={styles.attachmentPreviewDocType} numberOfLines={1}>
+                      {/* 第一行：doc_type（来自 project_todo_attachments.doc_type） */}
+                      <Text style={styles.attachmentPreviewSummaryTitle} numberOfLines={1}>
                         {message.attachmentPreview.docType ?? 'Attachment'}
                       </Text>
+                      {/* 第二行：关联 task 名称 + 图标 */}
+                      <View style={styles.attachmentPreviewTodoRow}>
+                        <Ionicons name="checkmark-circle-outline" size={14} color="#6C5CE7" style={styles.attachmentPreviewTodoIcon} />
+                        <Text style={styles.attachmentPreviewTodoName} numberOfLines={1}>
+                          {attachmentTaskOptions.find((t) => t.id === message.attachmentPreview.todoId)?.title ?? 'Unknown task'}
+                        </Text>
+                      </View>
+                      {/* 第三行起：识别描述（若 summary 过长） */}
                       {message.attachmentPreview.summary ? (
-                        <Text style={styles.attachmentPreviewSummary} numberOfLines={2}>{message.attachmentPreview.summary}</Text>
+                        <Text style={styles.attachmentPreviewSummary} numberOfLines={2}>
+                          {message.attachmentPreview.summary}
+                        </Text>
                       ) : null}
                       {message.attachmentPreview.extracted_data
                         ? (() => {
@@ -3622,6 +3658,25 @@ const styles = StyleSheet.create({
     color: '#2D3436',
     lineHeight: 18,
     marginBottom: 8,
+  },
+  attachmentPreviewSummaryTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#6C5CE7',
+    marginBottom: 4,
+  },
+  attachmentPreviewTodoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  attachmentPreviewTodoIcon: {
+    marginRight: 4,
+  },
+  attachmentPreviewTodoName: {
+    fontSize: 12,
+    color: '#636E72',
+    flexShrink: 1,
   },
   attachmentPreviewExtracted: {
     gap: 6,

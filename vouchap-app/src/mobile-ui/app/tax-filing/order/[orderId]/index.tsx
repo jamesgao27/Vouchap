@@ -686,19 +686,20 @@ export default function OrderTodosScreen() {
   }
 
   useEffect(() => {
-    // 仅移动端 + 已有 todos 时显示 Tina 浮层（onboarding 态本身不会有 todos）
+    // 仅移动端 + 已有 todos 且已生成 project 时显示 Tina 浮层；否则不允许进入 tax-filing 附件模式
     if (Platform.OS === 'web') {
       setShowTinaFab(false);
       return;
     }
-    setShowTinaFab(Boolean(orderId && tree.length > 0));
-  }, [orderId, tree.length]);
+    const hasTodos = tree.length > 0 && !tree.every((n) => n.children.length === 0 && !n.title);
+    setShowTinaFab(Boolean(projectId && hasTodos));
+  }, [projectId, tree.length, tree]);
 
   const handleTinaChat = () => {
-    if (!orderId) return;
+    if (!projectId) return;
     router.push({
       pathname: '/chat-to-log',
-      params: { type: 'tax-filing', projectId: orderId },
+      params: { type: 'tax-filing', projectId },
     } as any);
   };
 

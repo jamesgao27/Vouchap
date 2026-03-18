@@ -56,7 +56,8 @@ function formatServiceStart(iso: string | null): string {
   if (!iso) return '—';
   try {
     const d = new Date(iso);
-    return d.toLocaleDateString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit' });
+    // Match canonical format: Mar 15, 2026
+    return format(d, 'MMM dd, yyyy');
   } catch {
     return '—';
   }
