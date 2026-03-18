@@ -50,6 +50,7 @@ import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import CenterModal from '@/components/CenterModal';
 import SkuPreview from '@/components/SkuPreview';
 import ScrollViewWithScrollHint from '@/components/ScrollViewWithScrollHint';
+import FirmOpenInviteHistoryTable from './clients/FirmOpenInviteHistoryTable';
 
 function formatServiceStart(iso: string | null): string {
   if (!iso) return '—';
@@ -581,6 +582,9 @@ export default function FirmClientsScreen() {
       const url = buildFirmClientInviteUrl(row.token, firmSpaceName);
       setInviteLink(url);
       setInviteSkuId(row.skuId);
+      setInviteExpiresInDays(
+        row.expiresAt ? 7 : null
+      );
       setShowInviteHistory(false);
       setInviteFromHistory(true);
       setShowInvitePanel(true);
@@ -790,29 +794,82 @@ export default function FirmClientsScreen() {
 
   const renderMobileList = () => (
     <View style={styles.container}>
-      <View style={[styles.toolbarSlot, (showGroupMenu || showFilterMenu) && styles.toolbarSlotDropdownOpen]}>
+      <View
+        style={[
+          styles.toolbarSlot,
+          (showGroupMenu || showFilterMenu) && styles.toolbarSlotDropdownOpen,
+        ]}
+      >
         <View style={styles.header}>
           <View style={styles.headerRow}>
-            <TouchableOpacity style={styles.sortButton} onPress={() => setShowGroupMenu(!showGroupMenu)}>
-              {groupBy === 'none' && <Ionicons name="list-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-              {groupBy === 'byName' && <Ionicons name="albums-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
-              {groupBy === 'byStatus' && <Ionicons name="flag-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+            <TouchableOpacity
+              style={styles.sortButton}
+              onPress={() => setShowGroupMenu(!showGroupMenu)}
+            >
+              {groupBy === 'none' && (
+                <Ionicons
+                  name="list-outline"
+                  size={18}
+                  color="#6C5CE7"
+                  style={{ marginRight: 4 }}
+                />
+              )}
+              {groupBy === 'byName' && (
+                <Ionicons
+                  name="albums-outline"
+                  size={18}
+                  color="#6C5CE7"
+                  style={{ marginRight: 4 }}
+                />
+              )}
+              {groupBy === 'byStatus' && (
+                <Ionicons
+                  name="flag-outline"
+                  size={18}
+                  color="#6C5CE7"
+                  style={{ marginRight: 4 }}
+                />
+              )}
               <Text style={styles.sortText}>Group</Text>
               <Ionicons name="chevron-down" size={16} color="#636E72" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.filterButton} onPress={() => setShowFilterMenu(!showFilterMenu)}>
+            <TouchableOpacity
+              style={styles.filterButton}
+              onPress={() => setShowFilterMenu(!showFilterMenu)}
+            >
               <Text style={styles.filterText}>
                 Filter
-                {filterStatus !== 'all' && <Text style={styles.filterBadge}> (1)</Text>}
+                {filterStatus !== 'all' && (
+                  <Text style={styles.filterBadge}> (1)</Text>
+                )}
               </Text>
               <Ionicons name="chevron-down" size={16} color="#636E72" />
             </TouchableOpacity>
             <View style={styles.searchContainer}>
-              <Ionicons name="search" size={18} color="#636E72" style={styles.searchIcon} />
-              <TextInput style={styles.searchInput} placeholder="Search" placeholderTextColor="#95A5A6" value={searchQuery} onChangeText={setSearchQuery} />
+              <Ionicons
+                name="search"
+                size={18}
+                color="#636E72"
+                style={styles.searchIcon}
+              />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search"
+                placeholderTextColor="#95A5A6"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
               {searchQuery.trim() ? (
-                <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.searchClear}>
-                  <Ionicons name="close-circle" size={20} color="#95A5A6" />
+                <TouchableOpacity
+                  onPress={() => setSearchQuery('')}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  style={styles.searchClear}
+                >
+                  <Ionicons
+                    name="close-circle"
+                    size={20}
+                    color="#95A5A6"
+                  />
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -994,16 +1051,28 @@ export default function FirmClientsScreen() {
               disabled={bulkDeleting}
               activeOpacity={0.7}
             >
-              {bulkDeleting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="trash-outline" size={18} color="#fff" />}
+              {bulkDeleting ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Ionicons name="trash-outline" size={18} color="#fff" />
+              )}
               <Text style={styles.bulkBtnText}>Delete</Text>
             </TouchableOpacity>
             {isFirmAdmin && (
-              <TouchableOpacity style={styles.bulkBtn} onPress={handleOpenAssignPicker} activeOpacity={0.7}>
+              <TouchableOpacity
+                style={styles.bulkBtn}
+                onPress={handleOpenAssignPicker}
+                activeOpacity={0.7}
+              >
                 <Ionicons name="person-outline" size={18} color="#fff" />
                 <Text style={styles.bulkBtnText}>Assign</Text>
               </TouchableOpacity>
             )}
-            <TouchableOpacity style={styles.bulkBtnClear} onPress={() => setSelectedClientIds([])} activeOpacity={0.7}>
+            <TouchableOpacity
+              style={styles.bulkBtnClear}
+              onPress={() => setSelectedClientIds([])}
+              activeOpacity={0.7}
+            >
               <Text style={styles.bulkBtnClearText}>Clear</Text>
             </TouchableOpacity>
           </View>
@@ -1015,7 +1084,12 @@ export default function FirmClientsScreen() {
                 onPress={handleOpenAddClientModal}
                 activeOpacity={0.7}
               >
-                <Ionicons name="person-add-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
+                <Ionicons
+                  name="person-add-outline"
+                  size={18}
+                  color="#6C5CE7"
+                  style={{ marginRight: 4 }}
+                />
                 <Text style={styles.inviteButtonText}>Add client</Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -1023,12 +1097,19 @@ export default function FirmClientsScreen() {
                 onPress={handleOpenInviteHistory}
                 activeOpacity={0.7}
               >
-                <Ionicons name="qr-code-outline" size={18} color="#636E72" style={{ marginRight: 4 }} />
+                <Ionicons
+                  name="qr-code-outline"
+                  size={18}
+                  color="#636E72"
+                  style={{ marginRight: 4 }}
+                />
                 <Text style={styles.inviteHistoryButtonText}>Open invite</Text>
               </TouchableOpacity>
               <View
                 style={styles.groupWrap}
-                {...(Platform.OS === 'web' ? { nativeID: 'firm-clients-group-button' } : {})}
+                {...(Platform.OS === 'web'
+                  ? { nativeID: 'firm-clients-group-button' }
+                  : {})}
               >
                 <TouchableOpacity
                   style={styles.sortButton}
@@ -1098,7 +1179,12 @@ export default function FirmClientsScreen() {
                 )}
               </View>
               <View style={styles.searchContainer}>
-                <Ionicons name="search" size={18} color="#636E72" style={styles.searchIcon} />
+                <Ionicons
+                  name="search"
+                  size={18}
+                  color="#636E72"
+                  style={styles.searchIcon}
+                />
                 <TextInput
                   style={styles.searchInput}
                   placeholder="Search"
@@ -1109,16 +1195,23 @@ export default function FirmClientsScreen() {
                   autoCorrect={false}
                 />
                 {searchQuery.trim() ? (
-                  <TouchableOpacity onPress={() => setSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.searchClear}>
-                    <Ionicons name="close-circle" size={20} color="#95A5A6" />
+                  <TouchableOpacity
+                    onPress={() => setSearchQuery('')}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    style={styles.searchClear}
+                  >
+                    <Ionicons
+                      name="close-circle"
+                      size={20}
+                      color="#95A5A6"
+                    />
                   </TouchableOpacity>
                 ) : null}
               </View>
             </View>
           </View>
         )}
-        </View>
-      )}
+      </View>
 
       {(loading && clients.length === 0) ? (
         <View style={styles.emptyContainer}>
@@ -1162,7 +1255,7 @@ export default function FirmClientsScreen() {
       >
         <View style={styles.inviteHeader}>
           <Text style={styles.inviteSubtitle}>
-            Step 1: choose a Service Template for this engagement.{'\n'}Step 2: configure invite expiry and share the link / QR code.
+            Step 1: choose a Service Template for this engagement.{'\n'}Step 2: configure invite expiry and share the link / QR.
           </Text>
         </View>
         <View style={styles.inviteBodyRow}>
@@ -1185,8 +1278,8 @@ export default function FirmClientsScreen() {
                       inviteSkuId === sku.id && styles.inviteSkuRowSelected,
                       index === inviteSkus.length - 1 && { borderBottomWidth: 0 },
                     ]}
-                    onPress={() => setInviteSkuId(sku.id)}
-                    activeOpacity={0.7}
+                    onPress={inviteFromHistory ? undefined : () => setInviteSkuId(sku.id)}
+                    activeOpacity={inviteFromHistory ? 1 : 0.7}
                   >
                     <View style={styles.inviteSkuRowMain}>
                       <View style={{ flex: 1.6, paddingRight: 8 }}>
@@ -1243,7 +1336,12 @@ export default function FirmClientsScreen() {
                               styles.invitePill,
                               inviteExpiresInDays === opt.value && styles.invitePillSelected,
                             ]}
-                            onPress={() => setInviteExpiresInDays(opt.value)}
+                            onPress={
+                              inviteFromHistory
+                                ? undefined
+                                : () => setInviteExpiresInDays(opt.value)
+                            }
+                            activeOpacity={inviteFromHistory ? 1 : 0.7}
                           >
                             <Text
                               style={[
@@ -1256,27 +1354,36 @@ export default function FirmClientsScreen() {
                           </TouchableOpacity>
                         ))}
                       </View>
-                      <TouchableOpacity
-                        style={[
-                          styles.invitePrimaryBtn,
-                          (!inviteSkuId || inviteLoading) && styles.invitePrimaryBtnDisabled,
-                        ]}
-                        onPress={handleCreateInvite}
-                        disabled={!inviteSkuId || inviteLoading}
-                        activeOpacity={0.8}
-                      >
-                        {inviteLoading ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : (
-                          <Ionicons name="link-outline" size={18} color="#fff" style={{ marginRight: 8 }} />
-                        )}
-                        <Text style={styles.invitePrimaryBtnText}>
-                          {inviteLoading ? 'Generating...' : 'Generate invite link'}
-                        </Text>
-                      </TouchableOpacity>
+                      {!inviteFromHistory && (
+                        <TouchableOpacity
+                          style={[
+                            styles.invitePrimaryBtn,
+                            (!inviteSkuId || inviteLoading) && styles.invitePrimaryBtnDisabled,
+                          ]}
+                          onPress={handleCreateInvite}
+                          disabled={!inviteSkuId || inviteLoading}
+                          activeOpacity={0.8}
+                        >
+                          {inviteLoading ? (
+                            <ActivityIndicator size="small" color="#fff" />
+                          ) : (
+                            <Ionicons
+                              name="link-outline"
+                              size={18}
+                              color="#fff"
+                              style={{ marginRight: 8 }}
+                            />
+                          )}
+                          <Text style={styles.invitePrimaryBtnText}>
+                            {inviteLoading ? 'Generating...' : 'Generate invite link'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   </View>
-                  {inviteError && <Text style={styles.inviteErrorText}>{inviteError}</Text>}
+                  {!inviteFromHistory && inviteError && (
+                    <Text style={styles.inviteErrorText}>{inviteError}</Text>
+                  )}
                   {inviteLink && (
                     <View style={[styles.inviteResultRow, { marginTop: 36, flexDirection: 'column', alignItems: 'stretch' }]}>
                       <View style={styles.inviteQrLinkRow}>
@@ -1417,159 +1524,18 @@ export default function FirmClientsScreen() {
         maxWidth={900}
         contentFillsHeight
       >
-        <View style={styles.inviteHistoryContainer}>
-          <View style={styles.inviteHeader}>
-            <Text style={styles.inviteSubtitle}>
-              Review all open invites sent by this firm, including initiator, Service Template, expiry and how many client spaces joined.
-            </Text>
-          </View>
-          {inviteHistoryLoading ? (
-            <View style={{ paddingVertical: 24, alignItems: 'center' }}>
-              <ActivityIndicator size="small" color="#6C5CE7" />
-            </View>
-          ) : (
-            <View style={styles.inviteHistoryBodyWrap}>
-              <View style={[styles.inviteHistoryTable, styles.inviteHistoryTableOuter]}>
-                <View style={[styles.inviteSkuHeaderRow, styles.inviteHistoryHeaderRow]}>
-                  <View style={styles.inviteHistoryColService}>
-                    <Text style={styles.inviteSkuHeaderText}>Service Template</Text>
-                  </View>
-                  <View style={styles.inviteHistoryColExpiry}>
-                    <Text style={styles.inviteSkuHeaderText}>Expiry</Text>
-                  </View>
-                  <View style={styles.inviteHistoryColActive}>
-                    <Text style={[styles.inviteSkuHeaderText, { textAlign: 'center' }]}>Active</Text>
-                  </View>
-                  <View style={styles.inviteHistoryColJoined}>
-                    <Text style={[styles.inviteSkuHeaderText, { textAlign: 'right' }]}>Joined</Text>
-                  </View>
-                  <View style={styles.inviteHistoryColInitiator}>
-                    <Text style={[styles.inviteSkuHeaderText, { textAlign: 'right' }]}>Initiator</Text>
-                  </View>
-                  <View style={styles.inviteHistoryColCreated}>
-                    <Text style={[styles.inviteSkuHeaderText, { textAlign: 'right' }]}>Created at</Text>
-                  </View>
-                  <View style={styles.inviteHistoryColAction}>
-                    <Text style={[styles.inviteSkuHeaderText, { textAlign: 'center' }]} />
-                  </View>
-                </View>
-                <ScrollView
-                  style={styles.inviteHistoryTableBodyScroll}
-                  contentContainerStyle={styles.inviteHistoryTableBodyContent}
-                  showsVerticalScrollIndicator
-                >
-                  {inviteHistory.map((row, index) => {
-                    const createdAt = row.createdAt ? new Date(row.createdAt) : null;
-                    const expiresAt = row.expiresAt ? new Date(row.expiresAt) : null;
-                    const now = new Date();
-                    const expired = !!expiresAt && expiresAt <= now;
-                    const reachedMax =
-                      row.maxClients !== null && row.maxClients !== undefined && row.currentClients >= row.maxClients;
-                    const isValid = row.isActive && !expired && !reachedMax;
-                    const inviterDisplay =
-                      row.inviterName?.trim() ||
-                      row.inviterEmail ||
-                      (row.inviterUserId ? `${row.inviterUserId.slice(0, 6)}…` : '—');
-                    const sku = inviteSkus.find((s) => s.id === row.skuId);
-                    const skuName = sku?.name ?? '—';
-                    return (
-                      <TouchableOpacity
-                        key={row.id}
-                        style={[styles.inviteSkuRow, styles.inviteHistoryRow]}
-                        activeOpacity={0.7}
-                        onPress={() => handleOpenInviteFromHistory(row)}
-                      >
-                        <View style={styles.inviteHistoryColService}>
-                          <Text style={styles.inviteHistoryCellText} numberOfLines={1}>
-                            {skuName}
-                          </Text>
-                        </View>
-                        <View style={styles.inviteHistoryColExpiry}>
-                          <Text style={styles.inviteHistoryCellText} numberOfLines={1}>
-                            {expiresAt ? format(expiresAt, 'MMM dd, yyyy') : 'No expiry'}
-                          </Text>
-                        </View>
-                        <View style={styles.inviteHistoryColActive}>
-                          <TouchableOpacity
-                            style={[
-                              styles.inviteHistoryActivePill,
-                              !isValid && styles.inviteHistoryActivePillInactive,
-                            ]}
-                            activeOpacity={0.7}
-                            onPress={(e) => { e?.stopPropagation?.(); handleToggleInviteActive(row); }}
-                          >
-                            <Text style={styles.inviteHistoryActiveText}>
-                              {isValid ? 'Active' : 'Inactive'}
-                            </Text>
-                            {updatingInviteId === row.id && (
-                              <View style={styles.inviteHistoryActiveSpinner}>
-                                <ActivityIndicator size="small" color="#fff" />
-                              </View>
-                            )}
-                          </TouchableOpacity>
-                        </View>
-                        <View style={styles.inviteHistoryColJoined}>
-                          <Text
-                            style={[styles.inviteHistoryCellText, { textAlign: 'right' }]}
-                            numberOfLines={1}
-                          >
-                            {row.currentClients}
-                            {row.maxClients ? ` / ${row.maxClients}` : ''}
-                          </Text>
-                        </View>
-                        <View style={styles.inviteHistoryColInitiator}>
-                          <Text style={[styles.inviteHistoryCellText, styles.inviteHistoryCellTextRight]} numberOfLines={1}>
-                            {inviterDisplay}
-                          </Text>
-                        </View>
-                        <View style={styles.inviteHistoryColCreated}>
-                          <Text
-                            style={[styles.inviteHistoryCellText, { textAlign: 'right' }]}
-                            numberOfLines={1}
-                          >
-                            {createdAt ? format(createdAt, 'MMM dd, yyyy') : '—'}
-                          </Text>
-                        </View>
-                        <View style={styles.inviteHistoryColAction}>
-                          <TouchableOpacity
-                            style={styles.inviteHistoryDeleteBtn}
-                            onPress={(e) => { e?.stopPropagation?.(); handleDeleteInvite(row); }}
-                            disabled={deletingInviteId === row.id}
-                            activeOpacity={0.7}
-                          >
-                            {deletingInviteId === row.id ? (
-                              <ActivityIndicator size="small" color="#E17055" />
-                            ) : (
-                              <Ionicons name="trash-outline" size={18} color="#E17055" />
-                            )}
-                          </TouchableOpacity>
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-                {!inviteHistoryLoading && inviteHistory.length === 0 && !inviteHistoryError && (
-                  <View style={styles.inviteHistoryEmptyWrap}>
-                    <Text style={styles.inviteHintText}>No invite history yet.</Text>
-                  </View>
-                )}
-              </View>
-              {inviteHistoryError ? (
-                <Text style={[styles.inviteErrorText, { marginTop: 8 }]}>{inviteHistoryError}</Text>
-              ) : null}
-              <View style={styles.inviteHistoryFooter}>
-                <TouchableOpacity
-                  style={styles.inviteButton}
-                  onPress={handleCreateNewFromHistory}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="add-circle-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
-                  <Text style={styles.inviteButtonText}>Generate a new invite</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-        </View>
+        <FirmOpenInviteHistoryTable
+          invites={inviteHistory}
+          inviteSkus={inviteSkus}
+          loading={inviteHistoryLoading}
+          error={inviteHistoryError}
+          updatingInviteId={updatingInviteId}
+          deletingInviteId={deletingInviteId}
+          onRowPress={handleOpenInviteFromHistory}
+          onToggleActive={handleToggleInviteActive}
+          onDelete={handleDeleteInvite}
+          onCreateNewFromHistory={handleCreateNewFromHistory}
+        />
       </CenterModal>
       <CenterModal
         visible={showAddClientModal}
@@ -1929,9 +1895,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#F8F9FA',
-    ...(Platform.OS !== 'web' && {
-      paddingTop: (Constants.statusBarHeight ?? 20) + 8,
-    }),
   },
   content: { padding: 20, paddingBottom: 40 },
   toolbarSlot: {

@@ -194,11 +194,23 @@ function LayoutContent() {
         />
         <Stack.Screen 
           name="firm/clients" 
-          options={{ headerShown: false }} 
+          options={{ title: 'Clients', headerBackTitle: 'Back' }} 
         />
         <Stack.Screen 
           name="firm/client/[clientSpaceId]" 
           options={{ title: '', headerBackTitle: 'Back', headerBackButtonVisible: true }} 
+        />
+        <Stack.Screen 
+          name="firm/clients/add" 
+          options={{ headerShown: false }} 
+        />
+        <Stack.Screen 
+          name="firm/clients/open-invite" 
+          options={{ headerShown: false }} 
+        />
+        <Stack.Screen 
+          name="firm/clients/invite-new" 
+          options={{ headerShown: false }} 
         />
         <Stack.Screen 
           name="firm/assignments" 

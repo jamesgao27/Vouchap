@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
+  Platform,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -20,6 +21,9 @@ import {
   createFirmClientInviteToken,
   type FirmClientInviteToken,
 } from '@/lib/firm-clients';
+import { getFirmSkus, type FirmSku } from '@/lib/firm';
+import Constants from 'expo-constants';
+import FirmOpenInviteHistoryTable from './FirmOpenInviteHistoryTable';
 
 export default function FirmOpenInviteScreen() {
   const router = useRouter();
@@ -27,21 +31,33 @@ export default function FirmOpenInviteScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [firmSpaceId, setFirmSpaceId] = useState<string | null>(null);
   const [invites, setInvites] = useState<FirmClientInviteToken[]>([]);
-  const [creating, setCreating] = useState(false);
+  const [inviteSkus, setInviteSkus] = useState<FirmSku[]>([]);
+  const [inviteHistoryError, setInviteHistoryError] = useState<string | null>(null);
+  const [updatingInviteId, setUpdatingInviteId] = useState<string | null>(null);
+  const [deletingInviteId, setDeletingInviteId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     if (!firmSpaceId) return;
     try {
-      const { invites, error } = await getFirmClientInviteHistory(firmSpaceId);
-      if (error) {
-        throw error;
+      setInviteHistoryError(null);
+      const [historyRes, allSkus] = await Promise.all([
+        getFirmClientInviteHistory(firmSpaceId),
+        inviteSkus.length === 0 ? getFirmSkus(firmSpaceId) : Promise.resolve(null),
+      ]);
+      if (historyRes.error) {
+        setInviteHistoryError(historyRes.error.message);
+        setInvites([]);
+      } else {
+        setInvites(historyRes.invites ?? []);
       }
-      setInvites(invites ?? []);
+      if (allSkus && Array.isArray(allSkus)) {
+        setInviteSkus(allSkus);
+      }
     } catch (e: any) {
       console.error('FirmOpenInviteScreen load error:', e);
       Alert.alert('Failed to load invites', e?.message ?? 'Please try again.');
     }
-  }, [firmSpaceId]);
+  }, [firmSpaceId, inviteSkus.length]);
 
   useEffect(() => {
     (async () => {
@@ -87,9 +103,17 @@ export default function FirmOpenInviteScreen() {
     }
   };
 
+  const handleOpenExistingInvite = (invite: FirmClientInviteToken) => {
+    router.push({
+      pathname: '/firm/clients/invite-new',
+      params: { inviteId: invite.id },
+    } as any);
+  };
+
   const handleToggleActive = async (invite: FirmClientInviteToken) => {
     if (!firmSpaceId) return;
     try {
+      setUpdatingInviteId(invite.id);
       const next = !invite.isActive;
       const { error } = await setFirmClientInviteActive(firmSpaceId, invite.id, next);
       if (error) throw error;
@@ -98,6 +122,8 @@ export default function FirmOpenInviteScreen() {
       );
     } catch (e: any) {
       Alert.alert('Failed to update invite', e?.message ?? 'Please try again.');
+    } finally {
+      setUpdatingInviteId(null);
     }
   };
 
@@ -113,11 +139,14 @@ export default function FirmOpenInviteScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
+              setDeletingInviteId(invite.id);
               const { error } = await deleteFirmClientInviteToken(firmSpaceId, invite.id);
               if (error) throw error;
               setInvites((prev) => prev.filter((it) => it.id !== invite.id));
             } catch (e: any) {
               Alert.alert('Failed to delete invite', e?.message ?? 'Please try again.');
+            } finally {
+              setDeletingInviteId(null);
             }
           },
         },
@@ -125,27 +154,8 @@ export default function FirmOpenInviteScreen() {
     );
   };
 
-  const handleCreateInvite = async () => {
-    if (!firmSpaceId) return;
-    try {
-      setCreating(true);
-      // Quick-create invite: no specific SKU, no expiry
-      const { token, url, error } = await createFirmClientInviteToken(
-        firmSpaceId,
-        '',
-        null,
-      );
-      setCreating(false);
-      if (error || !token) {
-        Alert.alert('Failed to create invite', error?.message ?? 'Please try again.');
-        return;
-      }
-      await load();
-      Alert.alert('Invite created', url ?? 'New invite link is ready to share.');
-    } catch (e: any) {
-      setCreating(false);
-      Alert.alert('Failed to create invite', e?.message ?? 'Please try again.');
-    }
+  const handleCreateInviteFromHistory = () => {
+    router.push('/firm/clients/invite-new');
   };
 
   if (loading) {
@@ -181,7 +191,7 @@ export default function FirmOpenInviteScreen() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-        {invites.length === 0 ? (
+        {invites.length === 0 && !inviteHistoryError ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyTitle}>No invites yet</Text>
             <Text style={styles.emptySubtitle}>
@@ -189,97 +199,33 @@ export default function FirmOpenInviteScreen() {
             </Text>
           </View>
         ) : (
-          invites.map((invite) => (
-            <View key={invite.id} style={styles.inviteCard}>
-              <View style={styles.inviteHeaderRow}>
-                <Text style={styles.inviteLabel} numberOfLines={1}>
-                  {invite.label || 'Client invite'}
-                </Text>
-                <View
-                  style={[
-                    styles.statusBadge,
-                    invite.isActive ? styles.statusBadgeActive : styles.statusBadgeInactive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.statusBadgeText,
-                      invite.isActive ? styles.statusBadgeTextActive : styles.statusBadgeTextInactive,
-                    ]}
-                  >
-                    {invite.isActive ? 'Active' : 'Inactive'}
-                  </Text>
-                </View>
-              </View>
-              <Text style={styles.inviteMeta} numberOfLines={2}>
-                {invite.expiresAt
-                  ? `Expires ${new Date(invite.expiresAt).toLocaleString()}`
-                  : 'No expiry'}
-              </Text>
-              <View style={styles.inviteActionsRow}>
-                <TouchableOpacity
-                  style={styles.inviteActionLeft}
-                  onPress={() => handleCopyLink(invite)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="link-outline" size={18} color="#6C5CE7" />
-                  <Text style={styles.inviteActionText}>Copy link</Text>
-                </TouchableOpacity>
-                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                  <TouchableOpacity
-                    style={styles.toggleButton}
-                    onPress={() => handleToggleActive(invite)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons
-                      name={invite.isActive ? 'pause-outline' : 'play-outline'}
-                      size={16}
-                      color="#636E72"
-                    />
-                    <Text style={styles.toggleButtonText}>
-                      {invite.isActive ? 'Pause' : 'Activate'}
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.deleteButton}
-                    onPress={() => handleDelete(invite)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="trash-outline" size={16} color="#E74C3C" />
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </View>
-          ))
+          <FirmOpenInviteHistoryTable
+            invites={invites}
+            inviteSkus={inviteSkus}
+            loading={refreshing}
+            error={inviteHistoryError}
+            updatingInviteId={updatingInviteId}
+            deletingInviteId={deletingInviteId}
+            onRowPress={handleOpenExistingInvite}
+            onToggleActive={handleToggleActive}
+            onDelete={handleDelete}
+            onCreateNewFromHistory={handleCreateInviteFromHistory}
+          />
         )}
       </ScrollView>
 
-      <View style={styles.bottomBar}>
-        <TouchableOpacity
-          style={[styles.secondaryButton, creating && { opacity: 0.8 }]}
-          onPress={handleCreateInvite}
-          disabled={creating}
-          activeOpacity={0.7}
-        >
-          {creating ? (
-            <ActivityIndicator size="small" color="#6C5CE7" />
-          ) : (
-            <>
-              <Ionicons name="add-circle-outline" size={20} color="#6C5CE7" />
-              <Text style={styles.secondaryButtonText}>New invite</Text>
-            </>
-          )}
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.closeButton} onPress={handleBack} activeOpacity={0.7}>
-          <Text style={styles.closeButtonText}>Done</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F1F3F5' },
+  container: {
+    flex: 1,
+    backgroundColor: '#F1F3F5',
+    ...(Platform.OS !== 'web' && {
+      paddingTop: (Constants.statusBarHeight ?? 20) + 8,
+    }),
+  },
   header: {
     paddingTop: 16,
     paddingHorizontal: 16,
@@ -324,110 +270,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#636E72',
     textAlign: 'center',
-  },
-  inviteCard: {
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 2,
-  },
-  inviteHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  inviteLabel: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: '500',
-    color: '#2D3436',
-    marginRight: 8,
-  },
-  statusBadge: {
-    borderRadius: 999,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  statusBadgeActive: {
-    backgroundColor: '#EAEAFF',
-  },
-  statusBadgeInactive: {
-    backgroundColor: '#ECF0F1',
-  },
-  statusBadgeText: {
-    fontSize: 11,
-    fontWeight: '500',
-  },
-  statusBadgeTextActive: {
-    color: '#6C5CE7',
-  },
-  statusBadgeTextInactive: {
-    color: '#7F8C8D',
-  },
-  inviteMeta: {
-    fontSize: 12,
-    color: '#7F8C8D',
-    marginBottom: 8,
-  },
-  inviteActionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  inviteActionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  inviteActionText: {
-    marginLeft: 4,
-    fontSize: 13,
-    fontWeight: '500',
-    color: '#6C5CE7',
-  },
-  toggleButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: '#F4F6F7',
-    marginRight: 8,
-  },
-  toggleButtonText: {
-    marginLeft: 4,
-    fontSize: 12,
-    color: '#636E72',
-  },
-  deleteButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FDEDEC',
-  },
-  bottomBar: {
-    padding: 16,
-    paddingBottom: 16 + 8,
-    backgroundColor: '#F1F3F5',
-  },
-  closeButton: {
-    height: 52,
-    borderRadius: 12,
-    backgroundColor: '#2D3436',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  closeButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#fff',
   },
 });
 

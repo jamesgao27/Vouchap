@@ -13,6 +13,7 @@ import {
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import Constants from 'expo-constants';
 import { getCurrentSpace } from '@/lib/auth';
 import { getFirmSkus, createPendingOrderForInvitee, createInviteeOnly } from '@/lib/firm';
 import type { FirmSku } from '@/lib/firm';
@@ -268,7 +269,13 @@ export default function FirmAddClientScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F1F3F5' },
+  container: {
+    flex: 1,
+    backgroundColor: '#F1F3F5',
+    ...(Platform.OS !== 'web' && {
+      paddingTop: (Constants.statusBarHeight ?? 20) + 8,
+    }),
+  },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
