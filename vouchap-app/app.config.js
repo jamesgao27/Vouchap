@@ -86,7 +86,7 @@ export default {
       : {}),
     // EAS projectId（原 app.json 已合并到本文件）
     // showAiInventory: production 默认隐藏；仅 develop 或显式 EXPO_PUBLIC_SHOW_AI_INVENTORY=true 时显示
-    // showTaxFiling: 报税入口，仅 develop 或 EXPO_PUBLIC_SHOW_TAX_FILING=true 时显示
+    // showTaxFiling: 报税模块与 expenses/income 同级，全环境默认开启（feature-flags 中 extra.showTaxFiling !== false 即开）
     // geminiApiKey: 构建时从 EAS Secrets 的 EXPO_PUBLIC_GEMINI_API_KEY 写入，确保 production 也能拿到 key
     extra: {
       eas: {
@@ -96,10 +96,7 @@ export default {
         process.env.NODE_ENV !== "production"
           ? true
           : process.env.EXPO_PUBLIC_SHOW_AI_INVENTORY === "true",
-      showTaxFiling:
-        process.env.NODE_ENV !== "production"
-          ? true
-          : process.env.EXPO_PUBLIC_SHOW_TAX_FILING === "true",
+      showTaxFiling: true,
       geminiApiKey: process.env.EXPO_PUBLIC_GEMINI_API_KEY || ""
     }
   }
