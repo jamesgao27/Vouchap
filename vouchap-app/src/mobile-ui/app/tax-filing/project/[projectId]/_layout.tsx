@@ -8,7 +8,15 @@ import { Stack } from 'expo-router';
 
 export default function ProjectDetailLayout() {
   return (
-    <Stack screenOptions={{ headerShown: true, headerBackButtonVisible: true }}>
+    <Stack
+      screenOptions={{
+        headerShown: true,
+        headerBackButtonVisible: true,
+        // 避免 iOS 生产环境下 RNSScreen 冻结/快照阶段触发原生 SIGABRT
+        animation: 'none' as any,
+        freezeOnBlur: false as any,
+      }}
+    >
       <Stack.Screen
         name="index"
         options={{ title: '', headerTitle: '' }}

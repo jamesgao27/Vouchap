@@ -429,6 +429,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     props.voucherType !== undefined ? [getWelcomeMessage(props.voucherType)] : [],
   );
   const effectiveProjectId = params.projectId ?? chatPanel?.attachmentContext?.projectId;
+  /** 用于防止切换项目/类型时旧请求覆盖新请求（导致聊天记录混杂） */
+  const historyLoadSeqRef = useRef(0);
   /** tax-filing 模式：项目下的 task 列表，用于识别文件类别后自动匹配关联 */
   const [attachmentTaskOptions, setAttachmentTaskOptions] = useState<{ id: string; title: string }[]>([]);
   const [stagedAttachmentFiles, setStagedAttachmentFiles] = useState<{ id: string; uri: string; name?: string; mimeType?: string }[]>([]);
@@ -641,9 +643,18 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     setHasMoreHistory(false);
     setOldestLoadedAt(undefined);
 
+    const seq = ++historyLoadSeqRef.current;
+
     const loadInitialHistory = async () => {
       try {
         setIsLoadingHistory(true);
+        // tax-filing 必须有 projectId，否则 projectFilter 为 undefined 会导致跨项目混杂
+        if (voucherType === 'tax-filing' && !effectiveProjectId) {
+          setMessages([getWelcomeMessage(voucherType)]);
+          setHasMoreHistory(false);
+          setOldestLoadedAt(undefined);
+          return;
+        }
         const projectFilter = voucherType === 'tax-filing' ? effectiveProjectId : undefined;
         const rawLogs = await getChatLogsPaginated(
           5,
@@ -652,6 +663,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
           projectFilter,
         );
         const logs = rawLogs;
+
+        // 如果切换过项目/类型，则丢弃旧请求结果
+        if (historyLoadSeqRef.current !== seq) return;
 
         if (!logs || logs.length === 0) {
           setMessages([getWelcomeMessage(voucherType)]);
@@ -786,6 +800,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             }),
           );
 
+          // enrich 期间如果发生切换，则丢弃旧结果
+          if (historyLoadSeqRef.current !== seq) return;
+
           // 存为 [最新…最早]，配合 inverted FlatList：最新在底部，往上滑加载更早；欢迎条固定放最后一项，滚动到最顶部可见
           setMessages([...enriched.reverse(), getWelcomeMessage(voucherType)]);
           const oldest = sorted[sorted.length - 1];
@@ -795,7 +812,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       } catch (error) {
         console.error('Error loading initial chat history:', error);
       } finally {
-        setIsLoadingHistory(false);
+        // 只让最新请求更新 loading 状态
+        if (historyLoadSeqRef.current === seq) setIsLoadingHistory(false);
       }
     };
 
@@ -834,6 +852,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   // 往上滑（看更早消息）时提前加载历史，由 FlatList onEndReached 触发
   const loadMoreHistory = useCallback(async () => {
     if (!hasMoreHistory || isLoadingHistory || !oldestLoadedAt) return;
+    const seq = historyLoadSeqRef.current;
     try {
       setIsLoadingHistory(true);
       const projectFilter = voucherType === 'tax-filing' ? effectiveProjectId : undefined;
@@ -844,6 +863,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         projectFilter,
       );
       const moreLogs = rawMoreLogs;
+
+      // 如果切换过项目/类型，则丢弃旧请求结果
+      if (historyLoadSeqRef.current !== seq) return;
 
       if (!moreLogs || moreLogs.length === 0) {
         setHasMoreHistory(false);
@@ -970,6 +992,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
           }
         }),
       );
+
+      // moreMessages 期间如果发生切换，则丢弃旧结果
+      if (historyLoadSeqRef.current !== seq) return;
 
       // 按 id 去重，避免分页重叠导致重复 key；欢迎条固定为最后一项（inverted 下为最顶部），加载更早消息时插在欢迎条前
       setMessages((prev) => {

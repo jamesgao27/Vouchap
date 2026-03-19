@@ -190,7 +190,12 @@ function LayoutContent() {
         />
         <Stack.Screen 
           name="tax-filing/project/[projectId]" 
-          options={{ headerShown: false }} 
+          options={{
+            headerShown: false,
+            // 避免 iOS 生产环境下 RNSScreen 在冻结/快照阶段触发原生断言（SIGABRT）
+            animation: 'none' as any,
+            freezeOnBlur: false as any,
+          }}
         />
         <Stack.Screen 
           name="firm/clients" 

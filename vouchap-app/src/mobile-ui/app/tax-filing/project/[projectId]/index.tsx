@@ -35,7 +35,12 @@ import type { ProjectSkuInfo } from '@/components/ProjectSkuDetail';
 import { ProjectDetailView, type ProjectDetailHeader, ORDER_STATUS_CONFIG } from '@/components/ProjectDetailView';
 
 export default function ProjectTodosScreen() {
-  const { projectId, tab, edit } = useLocalSearchParams<{ projectId: string; tab?: string; edit?: string }>();
+  const { projectId, tab, edit } = useLocalSearchParams<{
+    projectId?: string | string[];
+    tab?: string | string[];
+    edit?: string | string[];
+  }>();
+  const normalizedProjectId = typeof projectId === 'string' ? projectId : Array.isArray(projectId) ? projectId[0] : undefined;
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,11 +56,11 @@ export default function ProjectTodosScreen() {
   const [skuDetailForInfo, setSkuDetailForInfo] = useState<{ taxCountry?: string | null; taxScenario?: string | null } | null>(null);
 
   const load = useCallback(async () => {
-    if (!projectId) return;
+    if (!normalizedProjectId) return;
     setLoading(true);
     setError(null);
     try {
-      const project = await getProjectById(projectId);
+      const project = await getProjectById(normalizedProjectId);
       if (!project) {
         setError('Project not found');
         setLoading(false);
@@ -99,7 +104,7 @@ export default function ProjectTodosScreen() {
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [normalizedProjectId]);
 
   useEffect(() => {
     load();
@@ -111,12 +116,12 @@ export default function ProjectTodosScreen() {
   // 避免因 context value 对象每次渲染都重建而导致 effect 无限重触发（render 死循环）。
   const setAttachmentContext = chatPanel?.setAttachmentContext;
   useEffect(() => {
-    if (!projectId || !setAttachmentContext) return;
-    setAttachmentContext({ projectId, todoId: undefined });
+    if (!normalizedProjectId || !setAttachmentContext) return;
+    setAttachmentContext({ projectId: normalizedProjectId, todoId: undefined });
     return () => {
       setAttachmentContext({});
     };
-  }, [projectId, setAttachmentContext]);
+  }, [normalizedProjectId, setAttachmentContext]);
 
   const [activeTab, setActiveTab] = useState<'todos' | 'info'>('todos');
   const [infoEditing, setInfoEditing] = useState(false);
@@ -217,10 +222,10 @@ export default function ProjectTodosScreen() {
   }, [header?.status, tree.length, tree]);
 
   const handleTinaChat = () => {
-    if (!projectId) return;
+    if (!normalizedProjectId) return;
     router.push({
       pathname: '/chat-to-log',
-      params: { type: 'tax-filing', projectId },
+      params: { type: 'tax-filing', projectId: normalizedProjectId },
     } as any);
   };
 
@@ -281,7 +286,7 @@ export default function ProjectTodosScreen() {
         restartLoading={restartLoading}
         tree={tree}
         orderId={orderId ?? ''}
-        projectId={projectId}
+        projectId={normalizedProjectId ?? null}
         clientSpaceId={clientSpaceId}
         onRefresh={async () => {
           if (!orderId) return;
