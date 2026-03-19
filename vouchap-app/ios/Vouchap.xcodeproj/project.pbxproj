@@ -25,7 +25,7 @@
 		AA286B85B6C04FC6940260E9 /* SplashScreen.storyboard */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = file.storyboard; name = SplashScreen.storyboard; path = Vouchap/SplashScreen.storyboard; sourceTree = "<group>"; };
 		BB2F792C24A3F905000567C9 /* Expo.plist */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.plist.xml; path = Expo.plist; sourceTree = "<group>"; };
 		C86A74AAAE00C3E3B13202F0 /* Pods-Vouchap.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-Vouchap.debug.xcconfig"; path = "Target Support Files/Pods-Vouchap/Pods-Vouchap.debug.xcconfig"; sourceTree = "<group>"; };
-		D038E50A75546D8D26EF3B71 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = Vouchap/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		D038E50A75546D8D26EF3B71 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; name = PrivacyInfo.xcprivacy; path = Vouchap/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		ED297162215061F000B7C4FE /* JavaScriptCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = JavaScriptCore.framework; path = System/Library/Frameworks/JavaScriptCore.framework; sourceTree = SDKROOT; };
 		F11748412D0307B40044C1D9 /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AppDelegate.swift; path = Vouchap/AppDelegate.swift; sourceTree = "<group>"; };
 		F11748442D0722820044C1D9 /* Vouchap-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = "Vouchap-Bridging-Header.h"; path = "Vouchap/Vouchap-Bridging-Header.h"; sourceTree = "<group>"; };
@@ -50,7 +50,6 @@
 				C86A74AAAE00C3E3B13202F0 /* Pods-Vouchap.debug.xcconfig */,
 				0A92EC8E297D4D0032156A7E /* Pods-Vouchap.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -347,6 +346,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Vouchap/Vouchap.entitlements;
 				CURRENT_PROJECT_VERSION = 10;
+				DEVELOPMENT_TEAM = KVR6ADBVYZ;
 				ENABLE_BITCODE = NO;
 				GCC_PREPROCESSOR_DEFINITIONS = (
 					"$(inherited)",
@@ -383,6 +383,7 @@
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Vouchap/Vouchap.entitlements;
 				CURRENT_PROJECT_VERSION = 10;
+				DEVELOPMENT_TEAM = KVR6ADBVYZ;
 				INFOPLIST_FILE = Vouchap/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 15.1;
 				LD_RUNPATH_SEARCH_PATHS = (

@@ -39,6 +39,7 @@ import {
   type ProjectTodoNode,
   type ProjectTodoReceiptSummary,
 } from '@/lib/firm';
+import { getLatestTaxFilingAttachmentPreviewByAttachmentId } from '../../shared-logic/chat-logs';
 import {
   TODO_STATUS_COLOR,
   getStatusLabel,
@@ -1457,6 +1458,7 @@ export function TaxFilingTodosView({
   /** Move-file 浮窗内当前选中的目标 task id（仅 task 可选） */
   const [moveFileTargetTodoId, setMoveFileTargetTodoId] = useState<string | null>(null);
   const [selectedFileForModal, setSelectedFileForModal] = useState<{ attachmentId: string; todoId: string } | null>(null);
+  const [attachmentPreviewFromLogs, setAttachmentPreviewFromLogs] = useState<Record<string, AttachmentPreviewField[] | null>>({});
 
   // 当前树引用：供 Realtime 回调中使用，避免闭包拿到旧值
   const treeRef = useRef<ProjectTodoNode[]>(tree);
@@ -2071,7 +2073,18 @@ export function TaxFilingTodosView({
 
   const onFileRowPress = useCallback((attachmentId: string, todoId: string) => {
     setSelectedFileForModal({ attachmentId, todoId });
-  }, []);
+    // 懒加载：首次点击附件时，从 ai_chat_logs 拉取最新识别结果兜底展示
+    if (!attachmentPreviewFromLogs[attachmentId]) {
+      getLatestTaxFilingAttachmentPreviewByAttachmentId(attachmentId).then((preview) => {
+        if (!preview) return;
+        const fields = buildExtractedPreview((preview as any).extracted_data);
+        setAttachmentPreviewFromLogs((prev) => ({
+          ...prev,
+          [attachmentId]: fields,
+        }));
+      }).catch(() => {});
+    }
+  }, [attachmentPreviewFromLogs]);
 
   const onConfirmMoveFile = useCallback(async (targetTodoId: string) => {
     if (!moveFileContext) return;
@@ -2187,9 +2200,12 @@ export function TaxFilingTodosView({
         const list = taskFilesMap[selectedFileForModal.todoId] ?? [];
         const file = list.find((x) => x.id === selectedFileForModal.attachmentId);
         if (!file) return null;
+        const enrichedFile = attachmentPreviewFromLogs[file.id]
+          ? { ...file, extractedPreview: attachmentPreviewFromLogs[file.id] || file.extractedPreview }
+          : file;
         return (
           <FileDetailModal
-            file={file}
+            file={enrichedFile}
             onClose={() => setSelectedFileForModal(null)}
           />
         );

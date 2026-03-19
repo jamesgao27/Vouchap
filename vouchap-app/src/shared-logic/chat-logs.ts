@@ -330,6 +330,39 @@ export async function getChatLogsPaginated(
 }
 
 /**
+ * Tax filing 模块：按附件 id 获取 ai_chat_logs 中最新一条 attachmentPreview
+ * 用于 Todos 里的附件大浮窗兜底展示识别内容。
+ */
+export async function getLatestTaxFilingAttachmentPreviewByAttachmentId(
+  attachmentId: string,
+) {
+  try {
+    const user = await getCurrentUser();
+    if (!user) return null;
+
+    const spaceId = user.currentSpaceId || user.spaceId;
+    if (!spaceId) return null;
+
+    const { data, error } = await supabase
+      .from('ai_chat_logs')
+      .select('response_data, created_at')
+      .eq('space_id', spaceId)
+      .eq('voucher_type', 'tax-filing')
+      .contains('response_data', { attachmentPreview: { id: attachmentId } })
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) return null;
+    const preview = (data as any).response_data?.attachmentPreview;
+    return preview ?? null;
+  } catch (e) {
+    console.error('Error fetching latest tax-filing attachmentPreview:', e);
+    return null;
+  }
+}
+
+/**
  * 获取特定小票的聊天日志
  */
 export async function getChatLogsByReceiptId(receiptId: string): Promise<ChatLog[]> {

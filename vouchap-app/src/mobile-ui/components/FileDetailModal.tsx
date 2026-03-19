@@ -14,16 +14,26 @@ import {
   Platform,
   Dimensions,
   Linking,
+  BackHandler,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { buildExtractedPreview, type AttachmentPreviewField } from '@/lib/firm';
 
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'];
-function getPreviewType(url: string | null | undefined, docType: string | null | undefined): 'image' | 'pdf' | 'other' {
+function getPreviewType(url: string | null | undefined, docType: string | null | undefined): 'image' | 'pdf' {
   const ext = (url ? url.split(/[#?]/)[0].split('.').pop()?.toLowerCase() : '') ?? '';
   if (IMAGE_EXTENSIONS.includes(ext)) return 'image';
-  if (ext === 'pdf') return 'pdf';
-  return 'other';
+  // 其余一律尝试按文档(PDF)预览，无法内嵌时再回退到 "Open in new tab"
+  return 'pdf';
+}
+
+/** 统一包装原生调用，避免 TurboModule 抛异常直接导致崩溃，便于后续排查 */
+async function callNativeSafe(label: string, fn: () => Promise<void> | void) {
+  try {
+    await fn();
+  } catch (e) {
+    console.error('[NativeCallError]', label, e);
+  }
 }
 
 // 原生端若未链接 react-native-webview（如 Expo Go），require 会抛 RNCWebViewModule；避免顶层 require 导致整应用崩溃
@@ -66,6 +76,16 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
     file.extractedPreview ?? (file.extracted_data ? buildExtractedPreview(file.extracted_data) : []);
   const showRightPanel = !file.hideRightPanel;
 
+  // Android：拦截硬件返回键，优先关闭预览浮窗而不是直接退出页面
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [onClose]);
+
   // Web：内嵌预览区左右滚动时禁止触发浏览器前进/后退（横向 wheel + overscroll）
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
@@ -101,7 +121,7 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
               </View>
             ) : getPreviewType(file.imageUrl, file.docType) === 'image' ? (
               <Image source={{ uri: file.imageUrl }} style={styles.thumb} resizeMode="contain" />
-            ) : WebView ? (
+            ) : Platform.OS === 'web' && WebView ? (
               <WebView
                 source={{ uri: file.imageUrl }}
                 style={styles.thumb}
@@ -112,7 +132,7 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
               <View style={styles.thumb}>
                 {React.createElement('iframe', {
                   src: file.imageUrl,
-                  style: { width: '100%', height: '100%', border: 'none', borderRadius: 10 },
+                  style: { width: '100%', height: '100%', border: 'none', borderRadius: 10 } as any,
                   title: 'Preview',
                 })}
               </View>
@@ -120,9 +140,16 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
               <View style={[styles.thumb, styles.thumbPlaceholder]}>
                 <Ionicons name="document-text-outline" size={40} color="#BDC3C7" />
                 <Text style={styles.openInNewHint}>Preview not supported</Text>
-                <TouchableOpacity style={styles.openInNewBtn} onPress={() => { if (file.imageUrl) Linking.openURL(file.imageUrl); }}>
-                  <Text style={styles.openInNewBtnText}>Open in new tab</Text>
-                </TouchableOpacity>
+                {file.imageUrl ? (
+                  <TouchableOpacity
+                    style={styles.openInNewBtn}
+                    onPress={() =>
+                      callNativeSafe('FileDetailModal.openURL', () => Linking.openURL(file.imageUrl!))
+                    }
+                  >
+                    <Text style={styles.openInNewBtnText}>Open in new tab</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
             )}
           </View>
@@ -173,14 +200,21 @@ const styles = StyleSheet.create({
     overscrollBehavior: 'contain',
   } as const,
   closeBtn: { position: 'absolute', top: 10, right: 10, zIndex: 2, padding: 6 },
-  body: { flexDirection: 'row', flex: 1, minHeight: 0 },
+  // Web 保持左右并排；原生端改为上下布局，避免窄屏右侧溢出
+  body: {
+    flexDirection: Platform.OS === 'web' ? 'row' : 'column',
+    flex: 1,
+    minHeight: 0,
+  },
   left: {
     backgroundColor: '#F8F9FA',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
-    aspectRatio: 440 / 600,
+    // Web 端：左右布局，用固定长宽比；原生端：占用上半部分高度
+    aspectRatio: Platform.OS === 'web' ? 440 / 600 : undefined,
     alignSelf: 'stretch',
+    width: Platform.OS === 'web' ? '45%' : '100%',
   },
   leftSolo: {
     flex: 1,
@@ -194,7 +228,12 @@ const styles = StyleSheet.create({
   openInNewHint: { fontSize: 12, color: '#95A5A6', marginTop: 8, textAlign: 'center' },
   openInNewBtn: { marginTop: 12, paddingVertical: 8, paddingHorizontal: 16, backgroundColor: '#6C5CE7', borderRadius: 8 },
   openInNewBtnText: { fontSize: 13, color: '#FFF', fontWeight: '600' },
-  right: { flex: 1, minWidth: 0 },
+  // Web：右侧列；原生端：下半部分滚动区域
+  right: {
+    flex: 1,
+    minWidth: 0,
+    width: Platform.OS === 'web' ? '55%' : '100%',
+  },
   rightContent: { padding: 24, paddingTop: 44, paddingBottom: 24 },
   docType: { fontSize: 16, fontWeight: '700', color: '#6C5CE7', marginBottom: 10 },
   pending: { fontSize: 13, color: '#95A5A6', fontStyle: 'italic', marginBottom: 12 },

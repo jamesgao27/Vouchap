@@ -4,6 +4,8 @@ export default {
   expo: {
     name: "Vouchap",
     slug: "vouchap",
+    // 为提高稳定性，暂时在 iOS/Android 上统一使用 JSC 引擎，规避 Hermes 隐式崩溃
+    jsEngine: "jsc",
     version: pkg.version,
     owner: "aimlink",
     // 使用 default 以支持大屏/平板旋转，符合 Google Play「移除屏幕方向限制」建议
