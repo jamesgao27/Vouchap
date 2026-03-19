@@ -47,6 +47,19 @@ function chatTypeFromPathname(pathname: string | null): ChatPanelType | null {
 const IONICONS_FONT_URL =
   'https://cdn.jsdelivr.net/npm/@expo/vector-icons@15.0.3/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf';
 
+/**
+ * iOS Release/TestFlight: react-native-screens 在过渡/冻结或快照阶段可能触发原生断言，
+ * 表现为 TurboModule performVoidMethodInvocation → SIGABRT。仅对 iOS 收窄影响面。
+ * @see tax-filing/project/[projectId] 历史注释
+ */
+const iosRnScreensProductionSafe =
+  Platform.OS === 'ios'
+    ? {
+        animation: 'none' as any,
+        freezeOnBlur: false as any,
+      }
+    : {};
+
 /** 不同页面的默认 chat 开关策略 */
 function defaultChatOpen(pathname: string | null): boolean {
   if (!pathname) return false;
@@ -186,15 +199,14 @@ function LayoutContent() {
         />
         <Stack.Screen 
           name="tax-filing/order/[orderId]" 
-          options={{ headerShown: false }} 
+          options={{ headerShown: false, ...iosRnScreensProductionSafe }} 
         />
         <Stack.Screen 
           name="tax-filing/project/[projectId]" 
           options={{
             headerShown: false,
             // 避免 iOS 生产环境下 RNSScreen 在冻结/快照阶段触发原生断言（SIGABRT）
-            animation: 'none' as any,
-            freezeOnBlur: false as any,
+            ...iosRnScreensProductionSafe,
           }}
         />
         <Stack.Screen 
@@ -227,7 +239,12 @@ function LayoutContent() {
         />
         <Stack.Screen 
           name="firm/engagement/[id]" 
-          options={{ title: '', headerBackTitle: 'Back', headerBackButtonVisible: true }} 
+          options={{
+            title: '',
+            headerBackTitle: 'Back',
+            headerBackButtonVisible: true,
+            ...iosRnScreensProductionSafe,
+          }} 
         />
         <Stack.Screen 
           name="firm/sku/[skuId]" 
