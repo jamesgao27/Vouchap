@@ -646,46 +646,89 @@ export default function ClientSetupScreen() {
             ]}
           >
             <View style={styles.spaceList}>
-              <ScrollViewWithScrollHint
-                style={styles.spaceListInner}
-                contentContainerStyle={[
-                  styles.spaceListInnerContent,
-                  isMobileVariant && styles.spaceListInnerContentMobile,
-                ]}
-                nestedScrollEnabled
-                showsVerticalScrollIndicator={spaces.length > 4}
-                onContentSizeChange={(_w, h) => setSpaceListContentHeight(h)}
-              >
-                {spaces.map((us, i) => {
-                  const isSelected = selectedSpaceId === us.spaceId;
-                  const name = us.space?.name ?? 'Unnamed space';
-                  const isLast = i === spaces.length - 1;
-                  return (
-                    <TouchableOpacity
-                      key={us.spaceId}
-                      style={[
-                        styles.spaceRow,
-                        isSelected && styles.spaceRowSelected,
-                        isLast && styles.spaceRowLast,
-                      ]}
-                      onPress={() => setSelectedSpaceId(us.spaceId)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name={isSelected ? 'radio-button-on' : 'radio-button-off'}
-                        size={22}
-                        color={isSelected ? '#6C5CE7' : '#BDC3C7'}
-                      />
-                      <Text
-                        style={[styles.spaceName, isSelected && styles.spaceNameSelected]}
-                        numberOfLines={1}
+              {isWeb ? (
+                <ScrollView
+                  style={styles.spaceListInner}
+                  contentContainerStyle={[
+                    styles.spaceListInnerContent,
+                    isMobileVariant && styles.spaceListInnerContentMobile,
+                  ]}
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={spaces.length > 4}
+                  onContentSizeChange={(_w, h) => setSpaceListContentHeight(h)}
+                >
+                  {spaces.map((us, i) => {
+                    const isSelected = selectedSpaceId === us.spaceId;
+                    const name = us.space?.name ?? 'Unnamed space';
+                    const isLast = i === spaces.length - 1;
+                    return (
+                      <TouchableOpacity
+                        key={us.spaceId}
+                        style={[
+                          styles.spaceRow,
+                          isSelected && styles.spaceRowSelected,
+                          isLast && styles.spaceRowLast,
+                        ]}
+                        onPress={() => setSelectedSpaceId(us.spaceId)}
+                        activeOpacity={0.7}
                       >
-                        {name}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollViewWithScrollHint>
+                        <Ionicons
+                          name={isSelected ? 'radio-button-on' : 'radio-button-off'}
+                          size={22}
+                          color={isSelected ? '#6C5CE7' : '#BDC3C7'}
+                        />
+                        <Text
+                          style={[styles.spaceName, isSelected && styles.spaceNameSelected]}
+                          numberOfLines={1}
+                        >
+                          {name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              ) : (
+                <ScrollViewWithScrollHint
+                  style={styles.spaceListInner}
+                  contentContainerStyle={[
+                    styles.spaceListInnerContent,
+                    isMobileVariant && styles.spaceListInnerContentMobile,
+                  ]}
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator={spaces.length > 4}
+                  onContentSizeChange={(_w, h) => setSpaceListContentHeight(h)}
+                >
+                  {spaces.map((us, i) => {
+                    const isSelected = selectedSpaceId === us.spaceId;
+                    const name = us.space?.name ?? 'Unnamed space';
+                    const isLast = i === spaces.length - 1;
+                    return (
+                      <TouchableOpacity
+                        key={us.spaceId}
+                        style={[
+                          styles.spaceRow,
+                          isSelected && styles.spaceRowSelected,
+                          isLast && styles.spaceRowLast,
+                        ]}
+                        onPress={() => setSelectedSpaceId(us.spaceId)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name={isSelected ? 'radio-button-on' : 'radio-button-off'}
+                          size={22}
+                          color={isSelected ? '#6C5CE7' : '#BDC3C7'}
+                        />
+                        <Text
+                          style={[styles.spaceName, isSelected && styles.spaceNameSelected]}
+                          numberOfLines={1}
+                        >
+                          {name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollViewWithScrollHint>
+              )}
             </View>
           </View>
           {isMobileVariant && (
