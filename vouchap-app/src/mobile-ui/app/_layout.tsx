@@ -73,6 +73,7 @@ function defaultChatOpen(pathname: string | null): boolean {
   if (isChatDisabledPath(pathname)) return false;
   // 报税项目详情页：每次进入都默认打开右栏
   if (pathname.startsWith('/tax-filing/project/')) return true;
+  if (pathname.startsWith('/firm/engagement/')) return true;
   // 费用、收入、库存列表页：默认打开右栏
   if (pathname === '/receipts' || pathname.startsWith('/receipts/')) return true;
   if (pathname === '/invoices' || pathname.startsWith('/invoices/')) return true;

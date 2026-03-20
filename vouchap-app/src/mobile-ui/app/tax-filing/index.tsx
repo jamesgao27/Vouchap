@@ -22,7 +22,6 @@ import { getCurrentSpace } from '@/lib/auth';
 import {
   getClientOrdersForClientSpace,
   confirmOrderAndCreateProjectTodos,
-  getProjectByOrderId,
   updateOrderStatus,
   hideOrderForClientSpace,
   unhideOrderForClientSpace,
@@ -192,8 +191,7 @@ function TaxFilingMobileScreen() {
     setConfirmingId(null);
     if (error) return;
     setOrders(await loadOrders());
-    const project = await getProjectByOrderId(order.id);
-    if (project?.id) router.push(`/tax-filing/project/${project.id}`);
+    router.push(`/firm/engagement/${order.id}`);
   };
 
   const handleRejectOrder = useCallback((order: FirmOrderForClient) => {
@@ -238,11 +236,7 @@ function TaxFilingMobileScreen() {
   }, [loadOrders]);
 
   const goToTodos = (order: FirmOrderForClient) => {
-    if (order.projectId) {
-      router.push(`/tax-filing/project/${order.projectId}`);
-    } else {
-      router.push(`/tax-filing/order/${order.id}`);
-    }
+    router.push(`/firm/engagement/${order.id}`);
   };
 
   const renderItem = useCallback(
@@ -839,8 +833,7 @@ function TaxFilingWebScreen() {
     setConfirmingId(null);
     if (error) return;
     setOrders(await loadOrders());
-    const project = await getProjectByOrderId(order.id);
-    if (project?.id) router.push(`/tax-filing/project/${project.id}`);
+    router.push(`/firm/engagement/${order.id}`);
   };
 
   const handleRejectOrder = useCallback((order: FirmOrderForClient) => {
@@ -885,19 +878,11 @@ function TaxFilingWebScreen() {
   }, [loadOrders]);
 
   const goToTodos = (order: FirmOrderForClient) => {
-    if (order.projectId) {
-      router.push(`/tax-filing/project/${order.projectId}`);
-    } else {
-      router.push(`/tax-filing/order/${order.id}`);
-    }
+    router.push(`/firm/engagement/${order.id}`);
   };
 
   const goToInfo = (order: FirmOrderForClient) => {
-    if (order.projectId) {
-      router.push(`/tax-filing/project/${order.projectId}?tab=info&edit=1`);
-    } else {
-      router.push(`/tax-filing/order/${order.id}/info`);
-    }
+    router.push(`/firm/engagement/${order.id}?tab=info&edit=1`);
   };
 
   const numColumns = Math.max(2, Math.floor((windowWidth - 48) / (200 + GRID_GAP_WEB)));

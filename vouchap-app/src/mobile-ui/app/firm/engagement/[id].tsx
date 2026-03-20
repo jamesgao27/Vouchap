@@ -7,7 +7,7 @@
  *   - onboarding 态：展示 SKU WBS 预览 + 确认按钮
  *   - 已确认态：Todos tab（树形任务）+ Info tab（ProjectInfoTab）
  */
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -16,9 +16,11 @@ import {
   TouchableOpacity,
   Image,
   Platform,
+  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { getCurrentSpace } from '@/lib/auth';
 import {
   getOrderById,
   getProjectDetail,
@@ -28,6 +30,7 @@ import {
   getSkuById,
   getSkuItems,
   getClientDisplayName,
+  getOrderHeaderForClient,
   updateOrderStatus,
   confirmOrderAndCreateProjectTodos,
   type ProjectTodoNode,
@@ -52,9 +55,18 @@ const ORDER_STATUS_CONFIG: Record<string, { label: string; color: string; bg: st
 const ACTIVE_ORDER_STATUSES = ['processing'] as const;
 
 export default function FirmEngagementDetailScreen() {
-  const { id: orderId } = useLocalSearchParams<{ id: string }>();
+  const { id: orderId, tab, edit } = useLocalSearchParams<{
+    id: string;
+    tab?: string | string[];
+    edit?: string | string[];
+  }>();
   const router = useRouter();
   const chatPanel = useChatPanel();
+
+  /** 与 tax-filing 列表进入方式一致：client 空间为 client，firm 空间为 firm */
+  const [viewerRole, setViewerRole] = useState<'client' | 'firm'>('firm');
+  const [clientHeaderForDetail, setClientHeaderForDetail] =
+    useState<Awaited<ReturnType<typeof getOrderHeaderForClient>>>(null);
 
   const [loading, setLoading]           = useState(true);
   const [error, setError]               = useState<string | null>(null);
@@ -75,6 +87,9 @@ export default function FirmEngagementDetailScreen() {
   // Onboarding: Terminal / Start
   const [rejectLoading, setRejectLoading] = useState(false);
   const [acceptLoading, setAcceptLoading] = useState(false);
+  const [abortLoading, setAbortLoading] = useState(false);
+  const [completeLoading, setCompleteLoading] = useState(false);
+  const [restartLoading, setRestartLoading] = useState(false);
   const [showTinaFab, setShowTinaFab]   = useState(false);
 
   const loadData = useCallback(async () => {
@@ -82,16 +97,27 @@ export default function FirmEngagementDetailScreen() {
     setLoading(true);
     setError(null);
     try {
+      const space = await getCurrentSpace(true);
+      const role: 'client' | 'firm' = space?.kind === 'firm' ? 'firm' : 'client';
+      setViewerRole(role);
+
       const ord = await getOrderById(orderId);
       if (!ord) { setError('Engagement not found'); setLoading(false); return; }
       setOrder(ord);
       setClientSpaceId(ord.clientSpaceId ?? '');
 
+      if (role === 'client') {
+        const clientHdr = await getOrderHeaderForClient(orderId);
+        setClientHeaderForDetail(clientHdr);
+      } else {
+        setClientHeaderForDetail(null);
+      }
+
       if (ord.status === 'onboarding') {
         const [sku, items, clientDisplayName] = await Promise.all([
           getSkuById(ord.skuId),
           getSkuItems(ord.skuId),
-          ord.clientSpaceId && ord.firmSpaceId
+          role === 'firm' && ord.clientSpaceId && ord.firmSpaceId
             ? getClientDisplayName(ord.clientSpaceId, ord.firmSpaceId)
             : Promise.resolve(null),
         ]);
@@ -103,7 +129,11 @@ export default function FirmEngagementDetailScreen() {
       } else {
         const detail = await getProjectDetail(orderId);
         if (detail) {
-          setClientName(detail.clientName ?? '');
+          if (role === 'firm') {
+            setClientName(detail.clientName ?? '');
+          } else {
+            setClientName('');
+          }
           if (detail.project) {
             setProjectId(detail.project.id);
             const todosTree = await getProjectTodosTree(orderId);
@@ -119,6 +149,14 @@ export default function FirmEngagementDetailScreen() {
   }, [orderId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  /** Web：从 tax-filing 列表「Info」入口带入 tab=info&edit=1 */
+  useEffect(() => {
+    const tabStr = typeof tab === 'string' ? tab : Array.isArray(tab) ? tab[0] : undefined;
+    const editStr = typeof edit === 'string' ? edit : Array.isArray(edit) ? edit[0] : undefined;
+    if (tabStr === 'info') setActiveTab('info');
+    if (editStr === '1' || editStr === 'true') setInfoEditing(true);
+  }, [tab, edit]);
 
   const handleTerminal = useCallback(async () => {
     if (!orderId) return;
@@ -138,15 +176,67 @@ export default function FirmEngagementDetailScreen() {
     try {
       const { error } = await confirmOrderAndCreateProjectTodos(orderId);
       if (error) return;
+      if (viewerRole === 'client') showToast('Order accepted', 'success');
       await loadData();
     } finally {
       setAcceptLoading(false);
     }
-  }, [orderId, loadData]);
+  }, [orderId, viewerRole, loadData]);
 
-  const [abortLoading, setAbortLoading] = useState(false);
-  const [completeLoading, setCompleteLoading] = useState(false);
-  const [restartLoading, setRestartLoading] = useState(false);
+  const handleClientReject = useCallback(() => {
+    if (!orderId) return;
+    const run = async () => {
+      setRejectLoading(true);
+      try {
+        const { error } = await updateOrderStatus(orderId, 'cancelled');
+        if (error) {
+          showToast(error.message ?? 'Failed to reject', 'error');
+          return;
+        }
+        showToast('Order rejected', 'success');
+        router.back();
+      } finally {
+        setRejectLoading(false);
+      }
+    };
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && !window.confirm('Reject this order? You can\'t undo this.')) return;
+      void run();
+      return;
+    }
+    Alert.alert('Reject order', 'Reject this order? You can\'t undo this.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Reject', style: 'destructive', onPress: () => void run() },
+    ]);
+  }, [orderId, router]);
+
+  const handleClientAbort = useCallback(() => {
+    if (!orderId) return;
+    const run = async () => {
+      setAbortLoading(true);
+      try {
+        const { error } = await updateOrderStatus(orderId, 'cancelled');
+        if (error) {
+          showToast(error.message ?? 'Failed to terminate', 'error');
+          return;
+        }
+        showToast('Engagement terminated', 'success');
+        router.back();
+      } finally {
+        setAbortLoading(false);
+      }
+    };
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && !window.confirm('Terminate this engagement? You can\'t undo this.')) return;
+      void run();
+      return;
+    }
+    Alert.alert('Terminate engagement', 'Terminate this engagement? You can\'t undo this.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Terminate', style: 'destructive', onPress: () => void run() },
+    ]);
+  }, [orderId, router]);
+
   const handleAbort = useCallback(async () => {
     if (!orderId) return;
     setAbortLoading(true);
@@ -261,17 +351,34 @@ export default function FirmEngagementDetailScreen() {
   const taxYear = explicitTaxSeasonYear != null
     ? explicitTaxSeasonYear
     : (dateForYear ? new Date(dateForYear).getFullYear() : null);
-  const detailHeader: ProjectDetailHeader = {
-    title: order.skuName ?? 'Engagement',
-    subtitle: clientName ? `for ${clientName}` : '',
-    taxSeasonYear: taxYear,
-    status: statusCfg,
-  };
+
+  const detailHeader: ProjectDetailHeader =
+    viewerRole === 'client' && clientHeaderForDetail
+      ? (() => {
+          const h = clientHeaderForDetail;
+          const d = h.dueAt || h.createdAt;
+          const ty =
+            h.taxSeasonYear ??
+            explicitTaxSeasonYear ??
+            (d ? new Date(d).getFullYear() : null);
+          return {
+            title: h.projectName ?? '',
+            subtitle: h.firmName ? `by ${h.firmName}` : '',
+            taxSeasonYear: ty,
+            status: ORDER_STATUS_CONFIG[h.status] ?? ORDER_STATUS_CONFIG.onboarding,
+          };
+        })()
+      : {
+          title: order.skuName ?? 'Engagement',
+          subtitle: clientName ? `for ${clientName}` : '',
+          taxSeasonYear: taxYear,
+          status: statusCfg,
+        };
 
   return (
     <View style={s.root}>
       <ProjectDetailView
-        viewerRole="firm"
+        viewerRole={viewerRole}
         header={detailHeader}
         isOnboarding={isOnboarding}
         activeTab={activeTab}
@@ -279,18 +386,20 @@ export default function FirmEngagementDetailScreen() {
         infoEditing={infoEditing}
         setInfoEditing={setInfoEditing}
         infoTabRef={infoTabRef}
-        onReject={isOnboarding ? handleTerminal : undefined}
+        onReject={isOnboarding ? (viewerRole === 'firm' ? handleTerminal : handleClientReject) : undefined}
         rejectLoading={rejectLoading}
         onAcceptAndStart={isOnboarding ? handleStart : undefined}
         acceptAndStartLoading={acceptLoading}
-        headerRejectLabel="Terminate"
-        headerAcceptLabel="Start service"
+        headerRejectLabel={viewerRole === 'firm' ? 'Terminate' : 'Reject'}
+        headerAcceptLabel={viewerRole === 'firm' ? 'Start service' : 'Accept and Start'}
         orderStatus={order.status}
-        onAbort={ACTIVE_ORDER_STATUSES.includes(order.status) ? handleAbort : undefined}
+        onAbort={ACTIVE_ORDER_STATUSES.includes(order.status) ? (viewerRole === 'firm' ? handleAbort : handleClientAbort) : undefined}
         abortLoading={abortLoading}
-        onComplete={ACTIVE_ORDER_STATUSES.includes(order.status) ? handleComplete : undefined}
+        onComplete={
+          viewerRole === 'firm' && ACTIVE_ORDER_STATUSES.includes(order.status) ? handleComplete : undefined
+        }
         completeLoading={completeLoading}
-        onRestart={order.status === 'cancelled' ? handleRestart : undefined}
+        onRestart={viewerRole === 'firm' && order.status === 'cancelled' ? handleRestart : undefined}
         restartLoading={restartLoading}
         tree={tree}
         orderId={orderId!}

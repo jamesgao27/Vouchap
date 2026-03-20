@@ -583,6 +583,9 @@ export default function OrderTodosScreen() {
   const isProcessing = order?.status === 'processing';
   const isCancelled = order?.status === 'cancelled';
   useLayoutEffect(() => {
+    // iOS：本页面与 ProjectDetailView 都会调用 navigation.setOptions（双重 setOptions 更易触发 RNSScreen/SIGABRT）。
+    // 让 header 配置只由 ProjectDetailView 负责，从而与 firm 路由的行为保持一致。
+    if (Platform.OS === 'ios') return;
     navigation.setOptions({
       headerBackButtonVisible: true,
       headerTitle: () => (
