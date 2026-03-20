@@ -60,6 +60,12 @@ const iosRnScreensProductionSafe =
       }
     : {};
 
+/** 全栈默认：iOS 上统一关闭过渡动画与 off-screen 冻结，避免遗漏路由仍触发 RNSScreen SIGABRT */
+const stackScreenOptions = {
+  contentStyle: { flex: 1 },
+  ...(Platform.OS === 'ios' ? iosRnScreensProductionSafe : {}),
+};
+
 /** 不同页面的默认 chat 开关策略 */
 function defaultChatOpen(pathname: string | null): boolean {
   if (!pathname) return false;
@@ -169,7 +175,7 @@ function LayoutContent() {
       {showFirmPendingOverlay ? (
         <FirmPendingOverlay />
       ) : (
-      <Stack screenOptions={{ contentStyle: { flex: 1 } }}>
+      <Stack screenOptions={stackScreenOptions}>
         <Stack.Screen 
           name="index" 
           options={{ 
@@ -199,14 +205,12 @@ function LayoutContent() {
         />
         <Stack.Screen 
           name="tax-filing/order/[orderId]" 
-          options={{ headerShown: false, ...iosRnScreensProductionSafe }} 
+          options={{ headerShown: false }} 
         />
         <Stack.Screen 
           name="tax-filing/project/[projectId]" 
           options={{
             headerShown: false,
-            // 避免 iOS 生产环境下 RNSScreen 在冻结/快照阶段触发原生断言（SIGABRT）
-            ...iosRnScreensProductionSafe,
           }}
         />
         <Stack.Screen 
@@ -243,7 +247,6 @@ function LayoutContent() {
             title: '',
             headerBackTitle: 'Back',
             headerBackButtonVisible: true,
-            ...iosRnScreensProductionSafe,
           }} 
         />
         <Stack.Screen 

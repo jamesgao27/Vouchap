@@ -192,6 +192,8 @@ export default function FirmEngagementDetailScreen() {
   const closePanel = chatPanel?.closePanel;
 
   useEffect(() => {
+    // 仅 Web 有 WebChatPanel；原生端不应调用 openPanel/setType，避免多余状态与边缘问题
+    if (Platform.OS !== 'web') return;
     if (!orderId || !openPanel || !setType || !setAttachmentContext) return;
     setType('tax-filing');
     setAttachmentContext({

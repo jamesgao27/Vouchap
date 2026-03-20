@@ -509,6 +509,10 @@ export default function ClientSetupScreen() {
 
   const renderSpaceForm = (variant?: 'web' | 'mobile') => {
     const isMobileVariant = variant === 'mobile';
+    const narrowWebListViewport =
+      isWeb && !isMobileVariant && isNarrowWeb
+        ? Math.max(280, Math.min(360, windowHeight - 380))
+        : null;
     const bottomBlock = (
       <>
         <TouchableOpacity
@@ -612,7 +616,7 @@ export default function ClientSetupScreen() {
                 overflow: 'hidden' as const,
                 marginBottom: 0,
               },
-              spaces.length > 0 && isMobileVariant && {
+              spaces.length > 0 && isMobileVariant && !isWeb && {
                 flex: undefined,
                 maxHeight: mobileSpaceListMaxHeight,
                 height:
@@ -632,31 +636,32 @@ export default function ClientSetupScreen() {
                 !isNarrowWeb &&
                 typeof webSpaceListMaxHeight === 'number' &&
                 styles.spaceListWrapWebAdaptive,
-              spaces.length > 0 &&
-                isWeb &&
-                !isMobileVariant &&
-                !isNarrowWeb &&
-                typeof webSpaceListMaxHeight === 'number' && {
-                  maxHeight: webSpaceListMaxHeight,
-                  height:
-                    spaceListContentHeight > 0
-                      ? Math.min(spaceListContentHeight, webSpaceListMaxHeight)
-                      : webSpaceListMaxHeight,
-                },
             ]}
           >
-            <View style={styles.spaceList}>
+            <View
+              style={[
+                styles.spaceList,
+                !isWeb && styles.spaceListNativeFlex,
+                isWeb && styles.spaceListWeb,
+                spaces.length > 0 &&
+                  isWeb &&
+                  !isMobileVariant &&
+                  !isNarrowWeb &&
+                  typeof webSpaceListMaxHeight === 'number' && {
+                    maxHeight: webSpaceListMaxHeight,
+                  },
+                spaces.length > 0 &&
+                  isWeb &&
+                  !isMobileVariant &&
+                  isNarrowWeb &&
+                  narrowWebListViewport != null && {
+                    maxHeight: narrowWebListViewport,
+                  },
+              ]}
+            >
               {isWeb ? (
-                <ScrollView
-                  style={styles.spaceListInner}
-                  contentContainerStyle={[
-                    styles.spaceListInnerContent,
-                    isMobileVariant && styles.spaceListInnerContentMobile,
-                  ]}
-                  nestedScrollEnabled
-                  showsVerticalScrollIndicator={spaces.length > 4}
-                  onContentSizeChange={(_w, h) => setSpaceListContentHeight(h)}
-                >
+                // Web（含 Safari）：避免与外层页面 ScrollView 嵌套滚动；内层勿用 flex:1，否则撑满 maxHeight 造成空白
+                <View style={styles.spaceListInnerWeb}>
                   {spaces.map((us, i) => {
                     const isSelected = selectedSpaceId === us.spaceId;
                     const name = us.space?.name ?? 'Unnamed space';
@@ -686,7 +691,7 @@ export default function ClientSetupScreen() {
                       </TouchableOpacity>
                     );
                   })}
-                </ScrollView>
+                </View>
               ) : (
                 <ScrollViewWithScrollHint
                   style={styles.spaceListInner}
@@ -1298,27 +1303,50 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   spaceListWrapWeb: {
-    flex: 1,
-    minHeight: 0,
+    alignSelf: 'stretch',
+    width: '100%',
     marginBottom: 0,
   },
-  /** Web 宽屏自适应：选项表高度由 webSpaceListMaxHeight 控制，不参与 flex 填充 */
+  /** Web 宽屏：列表外包不参与 flex 拉伸；具体 maxHeight 在 spaceList 上 */
   spaceListWrapWebAdaptive: {
     flex: 0,
     flexShrink: 0,
-    minHeight: 0,
     marginBottom: 0,
   },
   spaceList: {
-    flex: 1,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E9ECEF',
     backgroundColor: '#FFF',
     overflow: 'hidden',
   },
+  /** 原生：选项表容器在定高父级内填满 */
+  spaceListNativeFlex: {
+    flex: 1,
+  },
+  /**
+   * Web：列表容器设 maxHeight（宽/窄屏由外层传入），overflow:auto。
+   * 内容低于 max 时随表行收缩；超过 max 时出现内设滚动条。勿 flex:1 撑满父级造成空白占位。
+   * 内层 spaceListInnerWeb 由子项撑开高度。
+   */
+  spaceListWeb: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto' as const,
+    alignSelf: 'stretch',
+    overflow: 'auto' as const,
+    // @ts-expect-error WebKit 惯性滚动（RN Web 会透传到 DOM）
+    WebkitOverflowScrolling: 'touch',
+  },
   spaceListInner: {
     flex: 1,
+  },
+  /** Web 选项行容器：由子项撑开高度，供 Safari 正确布局 */
+  spaceListInnerWeb: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto' as const,
+    width: '100%',
   },
   spaceListInnerContent: {
     paddingBottom: 0,
