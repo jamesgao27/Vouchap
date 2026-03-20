@@ -33,6 +33,20 @@ export async function getCurrentUser(forceRefresh: boolean = false): Promise<Use
       if (!rpcError && rpcData && Array.isArray(rpcData) && rpcData.length > 0) {
         // RPC 函数返回数组，取第一个元素
         data = rpcData[0];
+
+        // 有些 RPC 可能没有返回 logo_url 字段（从而导致前端永远拿不到头像）
+        // 只有当字段缺失（undefined）时回退到直接查询；如果 RPC 明确返回 null，则保持 null。
+        if ((data as any)?.logo_url === undefined) {
+          const { data: queryData, error: queryError } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', authUser.id)
+            .maybeSingle();
+
+          if (!queryError && queryData) {
+            data = queryData;
+          }
+        }
       } else if (rpcError) {
         // RPC 函数出错，回退到直接查询
         console.log('RPC function failed, falling back to direct query:', rpcError);
@@ -121,6 +135,7 @@ export async function getCurrentUser(forceRefresh: boolean = false): Promise<Use
           id: retryData.id,
           email: retryData.email,
           name: retryData.name,
+          logoUrl: (retryData as any).logo_url ?? null,
           spaceId: retryData.current_space_id || null,
           currentSpaceId: retryData.current_space_id,
           createdAt: retryData.created_at,
@@ -146,6 +161,7 @@ export async function getCurrentUser(forceRefresh: boolean = false): Promise<Use
         id: newData.id,
         email: newData.email,
         name: newData.name,
+        logoUrl: (newData as any).logo_url ?? null,
         spaceId: newData.current_space_id || null,
         currentSpaceId: newData.current_space_id,
         createdAt: newData.created_at,
@@ -159,6 +175,7 @@ export async function getCurrentUser(forceRefresh: boolean = false): Promise<Use
       id: data.id,
       email: data.email,
       name: data.name,
+      logoUrl: (data as any).logo_url ?? null,
       spaceId: data.current_space_id || null, // 返回当前活动的空间ID
       currentSpaceId: data.current_space_id,
       createdAt: data.created_at,
@@ -245,6 +262,7 @@ export async function getCurrentSpace(forceRefresh: boolean = false): Promise<Sp
       id: data.id,
       name: data.name,
       address: data.address,
+      logoUrl: (data as any).logo_url ?? null,
       kind: (data.kind as 'client' | 'firm') || 'client',
       firmStatus,
       createdAt: data.created_at,
@@ -318,6 +336,7 @@ export async function getUserSpaces(): Promise<UserSpace[]> {
         id: row.spaces.id,
         name: row.spaces.name,
         address: row.spaces.address,
+        logoUrl: (row.spaces as any).logo_url ?? null,
         kind: (row.spaces.kind as 'client' | 'firm') || 'client',
         firmStatus: row.spaces.kind === 'firm' ? (firmStatusBySpaceId[row.spaces.id] ?? undefined) : undefined,
         createdAt: row.spaces.created_at,

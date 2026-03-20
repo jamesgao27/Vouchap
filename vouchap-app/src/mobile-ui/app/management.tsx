@@ -3,6 +3,7 @@ import { useFocusEffect } from 'expo-router';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   ScrollView,
   TouchableOpacity,
@@ -18,12 +19,15 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { getCurrentSpace, getCurrentUser, getUserSpaces, setCurrentSpace, createSpace, signOut } from '@/lib/auth';
 import { initializeAuthCache, updateCachedUser, updateCachedSpace } from '@/lib/auth-cache';
-import { supabase } from '@/lib/supabase';
+import { supabase, uploadSpaceImage, uploadUserLogo } from '@/lib/supabase';
 import { Space, UserSpace, User } from '@/types';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '@/lib/alertWeb';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export default function ManagementScreen() {
+  const MAX_LOGO_FILE_SIZE = 500 * 1024;
   const router = useRouter();
   const [space, setSpace] = useState<Space | null>(null);
   const [user, setUser] = useState<User | null>(null);
@@ -31,9 +35,13 @@ export default function ManagementScreen() {
   const [editing, setEditing] = useState(false);
   const [spaceName, setSpaceName] = useState('');
   const [spaceAddress, setSpaceAddress] = useState('');
+  const [spaceImageUri, setSpaceImageUri] = useState<string | null>(null);
+  const [spaceImageClear, setSpaceImageClear] = useState(false);
   const [saving, setSaving] = useState(false);
   const [editingPersonal, setEditingPersonal] = useState(false);
   const [personalName, setPersonalName] = useState('');
+  const [userLogoUri, setUserLogoUri] = useState<string | null>(null);
+  const [userLogoClear, setUserLogoClear] = useState(false);
   const [savingPersonal, setSavingPersonal] = useState(false);
   const [showSpaceSwitch, setShowSpaceSwitch] = useState(false);
   const [spaces, setSpaces] = useState<UserSpace[]>([]);
@@ -43,6 +51,41 @@ export default function ManagementScreen() {
   const [newSpaceName, setNewSpaceName] = useState('');
   const [newSpaceAddress, setNewSpaceAddress] = useState('');
   const [creating, setCreating] = useState(false);
+
+  const effectiveSpaceImageUri = spaceImageClear ? null : (spaceImageUri ?? space?.logoUrl ?? null);
+  const effectiveUserLogoUri = userLogoClear ? null : (userLogoUri ?? user?.logoUrl ?? null);
+
+  const getPickedAssetSize = async (asset: ImagePicker.ImagePickerAsset): Promise<number | null> => {
+    if (typeof asset.fileSize === 'number' && Number.isFinite(asset.fileSize)) {
+      return asset.fileSize;
+    }
+    try {
+      if (Platform.OS !== 'web' && asset.uri.startsWith('file://')) {
+        const info = await FileSystem.getInfoAsync(asset.uri, { size: true } as any);
+        if (info.exists && typeof (info as any).size === 'number') {
+          return (info as any).size;
+        }
+      }
+    } catch (_) {}
+
+    try {
+      const res = await fetch(asset.uri);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      return blob.size;
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const validateLogoFileSize = async (asset: ImagePicker.ImagePickerAsset): Promise<boolean> => {
+    const size = await getPickedAssetSize(asset);
+    if (size !== null && size > MAX_LOGO_FILE_SIZE) {
+      showToast('Image must be 500KB or smaller', 'error');
+      return false;
+    }
+    return true;
+  };
 
   useEffect(() => {
     loadData();
@@ -122,31 +165,63 @@ export default function ManagementScreen() {
       const user = await getCurrentUser();
       if (!user) throw new Error('Not logged in');
 
-      // 优先使用 currentSpaceId，如果没有则使用 spaceId（向后兼容）
-      const spaceId = user.currentSpaceId || user.spaceId;
+      // 以页面当前正在编辑的 space.id 为准，避免缓存/当前空间不一致导致写到错误记录
+      const spaceId = space.id;
       if (!spaceId) throw new Error('No space selected');
+
+      let logoUrlUpdate: string | null | undefined;
+      if (spaceImageClear) {
+        logoUrlUpdate = null;
+      } else if (spaceImageUri) {
+        logoUrlUpdate = await uploadSpaceImage(spaceImageUri, spaceId);
+      }
 
       const { error } = await supabase
         .from('spaces')
-        .update({ 
+        .update({
           name: spaceName.trim(),
           address: spaceAddress.trim() || null,
+          ...(logoUrlUpdate !== undefined ? { logo_url: logoUrlUpdate } : {}),
         })
         .eq('id', spaceId);
 
       if (error) throw error;
 
-      // 乐观更新：直接更新状态，不需要重新加载所有数据
+      // 读回 DB：避免 RLS/触发器导致 logo_url 没有真正落库
+      let dbLogoUrl: string | null | undefined = undefined;
+      if (logoUrlUpdate !== undefined) {
+        const { data: refreshedRow, error: refreshedError } = await supabase
+          .from('spaces')
+          .select('logo_url')
+          .eq('id', spaceId)
+          .maybeSingle();
+
+        if (refreshedError) throw refreshedError;
+        dbLogoUrl = refreshedRow?.logo_url ?? null;
+
+        const expected = logoUrlUpdate ?? null;
+        if (dbLogoUrl !== expected) {
+          showToast('Space logo did not persist. Please check DB update permissions.', 'error');
+        }
+      }
+
+      // 更新状态（以 DB 为准）
       const updatedSpace = space ? {
         ...space,
         name: spaceName.trim(),
         address: spaceAddress.trim() || undefined,
+        logoUrl: logoUrlUpdate !== undefined ? dbLogoUrl ?? null : space.logoUrl,
       } : null;
       setSpace(updatedSpace);
       // 更新缓存
       if (updatedSpace) {
         updateCachedSpace(updatedSpace);
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('vouchap_space_updated'));
+        }
       }
+      setSpaceImageUri(null);
+      setSpaceImageClear(false);
       setEditing(false);
     } catch (error) {
       console.error('Error updating space:', error);
@@ -161,7 +236,69 @@ export default function ManagementScreen() {
       setSpaceName(space.name);
       setSpaceAddress(space.address || '');
     }
+    setSpaceImageUri(null);
+    setSpaceImageClear(false);
     setEditing(false);
+  };
+
+  const pickSpaceImage = async () => {
+    try {
+      if (Platform.OS !== 'web') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          showToast('Image permission required', 'error');
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        const asset = result.assets[0];
+        const valid = await validateLogoFileSize(asset);
+        if (!valid) return;
+        setSpaceImageClear(false);
+        setSpaceImageUri(asset.uri);
+      }
+    } catch (e) {
+      console.error('pickSpaceImage error:', e);
+      showToast('Failed to select image', 'error');
+    }
+  };
+
+  const pickUserLogo = async () => {
+    try {
+      if (Platform.OS !== 'web') {
+        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (status !== 'granted') {
+          showToast('Image permission required', 'error');
+          return;
+        }
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets?.[0]?.uri) {
+        const asset = result.assets[0];
+        const valid = await validateLogoFileSize(asset);
+        if (!valid) return;
+        setUserLogoClear(false);
+        setUserLogoUri(asset.uri);
+      }
+    } catch (e) {
+      console.error('pickUserLogo error:', e);
+      showToast('Failed to select image', 'error');
+    }
   };
 
   const handleSavePersonal = async () => {
@@ -169,7 +306,14 @@ export default function ManagementScreen() {
 
     try {
       setSavingPersonal(true);
-      
+
+      let logoUrlUpdate: string | null | undefined = undefined;
+      if (userLogoClear) {
+        logoUrlUpdate = null;
+      } else if (userLogoUri) {
+        logoUrlUpdate = await uploadUserLogo(userLogoUri, user.id);
+      }
+
       // 优先使用 RPC 函数绕过 RLS 限制
       let error: any = null;
       try {
@@ -184,32 +328,68 @@ export default function ManagementScreen() {
           console.log('RPC function failed, falling back to direct update:', rpcError);
           const { error: directError } = await supabase
             .from('users')
-            .update({ name: personalName.trim() || null })
+            .update({
+              name: personalName.trim() || null,
+              ...(logoUrlUpdate !== undefined ? { logo_url: logoUrlUpdate } : {}),
+            })
             .eq('id', user.id);
           error = directError;
+        } else if (logoUrlUpdate !== undefined) {
+          const { error: logoError } = await supabase
+            .from('users')
+            .update({ logo_url: logoUrlUpdate })
+            .eq('id', user.id);
+          error = logoError;
         }
       } catch (rpcErr) {
         // RPC 函数可能不存在，回退到直接更新
         console.log('RPC function not available, using direct update:', rpcErr);
         const { error: directError } = await supabase
           .from('users')
-          .update({ name: personalName.trim() || null })
+          .update({
+            name: personalName.trim() || null,
+            ...(logoUrlUpdate !== undefined ? { logo_url: logoUrlUpdate } : {}),
+          })
           .eq('id', user.id);
         error = directError;
       }
 
       if (error) throw error;
 
-      // 乐观更新：直接更新状态，不需要重新加载所有数据
+      // 读回 DB：避免 logo_url 没有真正落库（RLS/触发器）
+      let dbLogoUrl: string | null | undefined = undefined;
+      if (logoUrlUpdate !== undefined) {
+        const { data: refreshedRow, error: refreshedError } = await supabase
+          .from('users')
+          .select('logo_url')
+          .eq('id', user.id)
+          .maybeSingle();
+
+        if (refreshedError) throw refreshedError;
+        dbLogoUrl = refreshedRow?.logo_url ?? null;
+
+        const expected = logoUrlUpdate ?? null;
+        if (dbLogoUrl !== expected) {
+          showToast('User avatar did not persist. Please check DB update permissions.', 'error');
+        }
+      }
+
+      // 更新状态（以 DB 为准）
       const updatedUser = user ? {
         ...user,
         name: personalName.trim() || undefined,
+        logoUrl: logoUrlUpdate !== undefined ? dbLogoUrl ?? null : user.logoUrl,
       } : null;
       setUser(updatedUser);
       // 更新缓存
       if (updatedUser) {
         updateCachedUser(updatedUser);
+        if (Platform.OS === 'web' && typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('vouchap_user_updated'));
+        }
       }
+      setUserLogoUri(null);
+      setUserLogoClear(false);
       setEditingPersonal(false);
     } catch (error) {
       console.error('Error updating user:', error);
@@ -224,6 +404,8 @@ export default function ManagementScreen() {
     if (user) {
       setPersonalName(user.name || '');
     }
+    setUserLogoUri(null);
+    setUserLogoClear(false);
   };
 
   const handleSwitchSpace = async (spaceId: string) => {
@@ -331,7 +513,7 @@ export default function ManagementScreen() {
   // firm 管理界面隐去分类、用途、账户、Entities，仅保留 Members
   const visibleMenuItems = space?.kind === 'firm'
     ? menuItems.filter((item) => item.id === 'members')
-    : menuItems;
+    : menuItems.filter((item) => item.id !== 'claim');
 
   return (
     <View style={styles.container}>
@@ -342,7 +524,45 @@ export default function ManagementScreen() {
         <Text style={styles.sectionTag}>Personal Information</Text>
         <View style={[styles.spaceInfoCard, styles.personalInfoCard, { marginBottom: 10 }]}>
           <View style={styles.cardHeader}>
-            <Ionicons name="person-outline" size={20} color="#6C5CE7" />
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => {
+                if (editingPersonal) {
+                  pickUserLogo();
+                  return;
+                }
+                setEditingPersonal(true);
+              }}
+            >
+              <View style={styles.logoInteractiveWrap}>
+                {effectiveUserLogoUri ? (
+                  <Image
+                    source={{ uri: effectiveUserLogoUri }}
+                    style={styles.userLogoHeaderImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.logoPlaceholderWrap}>
+                    <View style={styles.logoPlaceholderSquare}>
+                      <Ionicons name="person-outline" size={18} color="#6C5CE7" />
+                    </View>
+                  </View>
+                )}
+                {editingPersonal && (effectiveUserLogoUri || user?.logoUrl || userLogoUri) && (
+                  <TouchableOpacity
+                    style={styles.logoRemoveIconButton}
+                    onPress={(e: any) => {
+                      e?.stopPropagation?.();
+                      setUserLogoUri(null);
+                      setUserLogoClear(true);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="close" size={12} color="#fff" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </TouchableOpacity>
             {editingPersonal ? (
               <View style={styles.editContainer}>
                 <TextInput
@@ -350,6 +570,7 @@ export default function ManagementScreen() {
                   value={personalName}
                   onChangeText={setPersonalName}
                   placeholder="Enter your name"
+                  placeholderTextColor="#95A5A6"
                   autoFocus
                 />
                 <View style={styles.buttonRow}>
@@ -387,7 +608,11 @@ export default function ManagementScreen() {
                         <Text style={styles.spaceName}>{user?.name || user?.email || 'N/A'}</Text>
                         <TouchableOpacity
                           style={styles.editButton}
-                          onPress={() => setEditingPersonal(true)}
+                          onPress={() => {
+                            setUserLogoUri(null);
+                            setUserLogoClear(false);
+                            setEditingPersonal(true);
+                          }}
                         >
                           <Ionicons name="create-outline" size={18} color="#6C5CE7" />
                         </TouchableOpacity>
@@ -419,7 +644,45 @@ export default function ManagementScreen() {
         <Text style={styles.sectionTag}>Space Information</Text>
         <View style={styles.spaceInfoCard}>
           <View style={styles.cardHeader}>
-            <Ionicons name="home-outline" size={20} color="#6C5CE7" />
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={() => {
+                if (editing) {
+                  pickSpaceImage();
+                  return;
+                }
+                setEditing(true);
+              }}
+            >
+              <View style={styles.logoInteractiveWrap}>
+                {effectiveSpaceImageUri ? (
+                  <Image
+                    source={{ uri: effectiveSpaceImageUri }}
+                    style={styles.spaceIconImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.logoPlaceholderWrap}>
+                    <View style={styles.logoPlaceholderSquare}>
+                      <Ionicons name="storefront-outline" size={18} color="#6C5CE7" />
+                    </View>
+                  </View>
+                )}
+                {editing && (effectiveSpaceImageUri || space?.logoUrl || spaceImageUri) && (
+                  <TouchableOpacity
+                    style={styles.logoRemoveIconButton}
+                    onPress={(e: any) => {
+                      e?.stopPropagation?.();
+                      setSpaceImageUri(null);
+                      setSpaceImageClear(true);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons name="close" size={12} color="#fff" />
+                  </TouchableOpacity>
+                )}
+              </View>
+            </TouchableOpacity>
             {editing ? (
               <View style={styles.editContainer}>
                 <TextInput
@@ -427,13 +690,15 @@ export default function ManagementScreen() {
                   value={spaceName}
                   onChangeText={setSpaceName}
                   placeholder="Enter space name"
+                  placeholderTextColor="#95A5A6"
                   autoFocus
                 />
                 <TextInput
                   style={[styles.input, styles.multilineInput]}
                   value={spaceAddress}
                   onChangeText={setSpaceAddress}
-                  placeholder="Enter space address (optional)"
+                  placeholder="Add notes about your team or company for easier identification"
+                  placeholderTextColor="#95A5A6"
                   multiline
                   numberOfLines={3}
                   textAlignVertical="top"
@@ -473,7 +738,11 @@ export default function ManagementScreen() {
                         <Text style={styles.spaceName}>{space?.name || 'N/A'}</Text>
                         <TouchableOpacity
                           style={styles.editButton}
-                          onPress={() => setEditing(true)}
+                          onPress={() => {
+                            setSpaceImageUri(null);
+                            setSpaceImageClear(false);
+                            setEditing(true);
+                          }}
                         >
                           <Ionicons name="create-outline" size={18} color="#6C5CE7" />
                         </TouchableOpacity>
@@ -488,11 +757,16 @@ export default function ManagementScreen() {
                   ) : (
                     space?.address ? (
                       <View style={styles.addressRow}>
-                        <Ionicons name="location-outline" size={14} color="#636E72" style={styles.addressIcon} />
+                        <Ionicons
+                          name="document-text-outline"
+                          size={14}
+                          color="#636E72"
+                          style={styles.addressIcon}
+                        />
                         <Text style={styles.spaceAddress}>{space.address}</Text>
                       </View>
                     ) : (
-                      <Text style={styles.spaceAddressPlaceholder}>No address set</Text>
+                      <Text style={styles.spaceAddressPlaceholder}>Add notes about your team or company for easier identification</Text>
                     )
                   )}
                 </View>
@@ -574,11 +848,25 @@ export default function ManagementScreen() {
                   onPress={() => handleSwitchSpace(userSpace.spaceId)}
                   disabled={switching || space?.id === userSpace.spaceId}
                 >
-                  <Ionicons 
-                    name="home" 
-                    size={20} 
-                    color={space?.id === userSpace.spaceId ? "#6C5CE7" : "#636E72"} 
-                  />
+                  {userSpace.space?.logoUrl ? (
+                    <Image
+                      source={{ uri: userSpace.space.logoUrl }}
+                      style={[
+                        styles.spaceOptionIconImage,
+                        space?.id === userSpace.spaceId ? { backgroundColor: '#E8F4FD' } : null,
+                      ]}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.spaceOptionPlaceholderSquare,
+                        space?.id === userSpace.spaceId ? { borderColor: '#6C5CE7' } : null,
+                      ]}
+                    >
+                      <Ionicons name="storefront-outline" size={14} color={space?.id === userSpace.spaceId ? "#6C5CE7" : "#636E72"} />
+                    </View>
+                  )}
                   <View style={styles.spaceOptionContent}>
                     <Text style={[
                       styles.pickerOptionText,
@@ -801,6 +1089,106 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 12,
+  },
+  spaceIconImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#E9ECEF',
+    marginTop: 2,
+  },
+  userLogoHeaderImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: '#E9ECEF',
+    marginTop: 2,
+  },
+  logoInteractiveWrap: {
+    position: 'relative',
+    marginTop: 2,
+  },
+  logoRemoveIconButton: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#E74C3C',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#fff',
+  },
+  logoPlaceholderWrap: {
+    width: 40,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  logoPlaceholderSquare: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#F8F9FA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoPlaceholderText: {
+    marginTop: 6,
+    fontSize: 10,
+    fontWeight: '600',
+    color: '#6C5CE7',
+    textAlign: 'center',
+  },
+  spaceOptionIconImage: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    backgroundColor: '#E9ECEF',
+  },
+  spaceOptionPlaceholderSquare: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#F8F9FA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  spaceImageEditorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  changeImageButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#F8F9FA',
+  },
+  changeImageButtonDanger: {
+    borderColor: '#E74C3C',
+    backgroundColor: '#FFF1F1',
+  },
+  changeImageText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6C5CE7',
+  },
+  changeImageTextDanger: {
+    color: '#E74C3C',
   },
   viewContainer: {
     flex: 1,

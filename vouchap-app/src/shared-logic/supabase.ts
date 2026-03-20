@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 // 移动端不在此处 require AsyncStorage，否则在 NativeModule 未 link（如未执行 pod install / 未用 dev client 构建）时
 // require 阶段就会抛错且可能无法被 try/catch 捕获，导致白屏。此处直接返回 undefined，应用可正常启动，会话仅内存持久化。
@@ -152,6 +153,94 @@ export async function uploadReceiptImageTempWithSpace(
     return publicUrl;
   } catch (error) {
     console.error('Error uploading image:', error);
+    throw error;
+  }
+}
+
+/** 空间 Logo 上传到 marketplace bucket（强制 JPEG，upsert 覆盖） */
+export async function uploadSpaceImage(fileUri: string, spaceId: string): Promise<string> {
+  try {
+    const isBlobOrData = fileUri.startsWith('blob:') || fileUri.startsWith('data:');
+    // 部分移动端会返回 heic 等格式；强制转换成 JPEG，避免 contentType/扩展名猜错导致渲染失败
+    if (Platform.OS !== 'web' && !isBlobOrData) {
+      const manipulated = await ImageManipulator.manipulateAsync(
+        fileUri,
+        [],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      fileUri = manipulated.uri;
+    }
+
+    let arrayBuffer: ArrayBuffer | Uint8Array;
+
+    if (Platform.OS === 'web' || isBlobOrData) {
+      const res = await fetch(fileUri);
+      if (!res.ok) throw new Error(`Failed to fetch file: ${res.status}`);
+      arrayBuffer = await res.arrayBuffer();
+    } else {
+      const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+      arrayBuffer = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    }
+
+    const folder = spaceId && spaceId.trim() ? spaceId.trim() : 'unknown';
+    const mimeType = 'image/jpeg';
+    const filePath = `${folder}/space_logo/space_logo.jpg`;
+
+    const uploadPayload = arrayBuffer instanceof ArrayBuffer ? arrayBuffer : (arrayBuffer as Uint8Array).buffer;
+    const { error } = await supabase.storage
+      .from(MARKETPLACE_BUCKET)
+      .upload(filePath, uploadPayload, { contentType: mimeType, upsert: true });
+    if (error) throw error;
+
+    const { data: { publicUrl } } = supabase.storage.from(MARKETPLACE_BUCKET).getPublicUrl(filePath);
+    const cacheBustedUrl = publicUrl + (publicUrl.includes('?') ? '&' : '?') + `v=${Date.now()}`;
+    return cacheBustedUrl;
+  } catch (error) {
+    console.error('Error uploading space image:', error);
+    throw error;
+  }
+}
+
+/** 用户 Logo 上传到 marketplace bucket（强制 JPEG，upsert 覆盖） */
+export async function uploadUserLogo(fileUri: string, userId: string): Promise<string> {
+  try {
+    const isBlobOrData = fileUri.startsWith('blob:') || fileUri.startsWith('data:');
+    // 强制转换成 JPEG，避免替换时由于 heic/未知格式导致内容不可渲染
+    if (Platform.OS !== 'web' && !isBlobOrData) {
+      const manipulated = await ImageManipulator.manipulateAsync(
+        fileUri,
+        [],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      fileUri = manipulated.uri;
+    }
+
+    let arrayBuffer: ArrayBuffer | Uint8Array;
+
+    if (Platform.OS === 'web' || isBlobOrData) {
+      const res = await fetch(fileUri);
+      if (!res.ok) throw new Error(`Failed to fetch file: ${res.status}`);
+      arrayBuffer = await res.arrayBuffer();
+    } else {
+      const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+      arrayBuffer = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
+    }
+
+    const folder = userId && userId.trim() ? userId.trim() : 'unknown';
+    const mimeType = 'image/jpeg';
+    const filePath = `${folder}/user_logo/user_logo.jpg`;
+
+    const uploadPayload = arrayBuffer instanceof ArrayBuffer ? arrayBuffer : (arrayBuffer as Uint8Array).buffer;
+    const { error } = await supabase.storage
+      .from(MARKETPLACE_BUCKET)
+      .upload(filePath, uploadPayload, { contentType: mimeType, upsert: true });
+    if (error) throw error;
+
+    const { data: { publicUrl } } = supabase.storage.from(MARKETPLACE_BUCKET).getPublicUrl(filePath);
+    const cacheBustedUrl = publicUrl + (publicUrl.includes('?') ? '&' : '?') + `v=${Date.now()}`;
+    return cacheBustedUrl;
+  } catch (error) {
+    console.error('Error uploading user logo:', error);
     throw error;
   }
 }

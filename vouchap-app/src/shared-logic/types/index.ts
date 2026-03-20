@@ -131,6 +131,8 @@ export interface User {
   name?: string; // 用户自定义名字
   spaceId: string | null; // 保留向后兼容，但优先使用 currentSpaceId（可能为 null）
   currentSpaceId?: string; // 当前活动的空间ID（可能为 undefined）
+  /** 用户自定义 Logo（Supabase Storage 的 public URL） */
+  logoUrl?: string | null;
   createdAt?: string;
 }
 
@@ -156,6 +158,8 @@ export interface Space {
   id: string;
   name: string;
   address?: string;
+  /** 用户自定义空间 Logo（Supabase Storage 的 public URL） */
+  logoUrl?: string | null;
   /** 空间类型，缺省为 client */
   kind?: SpaceKind;
   /** 仅 kind=firm 时有效：pending 待审核，approved 已开通 */

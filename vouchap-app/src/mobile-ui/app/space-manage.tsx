@@ -124,7 +124,11 @@ export default function SpaceManageScreen() {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Ionicons name="home-outline" size={18} color="#6C5CE7" />
+            <Ionicons
+              name="storefront-outline"
+              size={18}
+              color="#6C5CE7"
+            />
             <Text style={styles.cardTitle}>Space Name</Text>
           </View>
           
@@ -154,7 +158,7 @@ export default function SpaceManageScreen() {
 
         <View style={styles.card}>
           <View style={styles.cardHeader}>
-            <Ionicons name="location-outline" size={18} color="#6C5CE7" />
+            <Ionicons name="document-text-outline" size={18} color="#6C5CE7" />
             <Text style={styles.cardTitle}>Address</Text>
           </View>
           

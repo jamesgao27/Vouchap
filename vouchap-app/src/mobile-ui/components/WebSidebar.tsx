@@ -88,6 +88,26 @@ export default function WebSidebar() {
     loadData(true);
   }, [loadData, pathname]);
 
+  // management 保存空间信息后：刷新当前 space 图像/字段
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const handler = () => {
+      loadData(true).catch(() => {});
+    };
+    window.addEventListener('vouchap_space_updated', handler);
+    return () => window.removeEventListener('vouchap_space_updated', handler);
+  }, [loadData]);
+
+  // management 保存用户信息后：刷新当前用户 logo/name/email
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+    const handler = () => {
+      loadData(true).catch(() => {});
+    };
+    window.addEventListener('vouchap_user_updated', handler);
+    return () => window.removeEventListener('vouchap_user_updated', handler);
+  }, [loadData]);
+
   // Web 端：Supabase Realtime 订阅，邀请数据变化时刷新角标
   useEffect(() => {
     if (Platform.OS !== 'web' || !user?.email) return;
@@ -123,7 +143,17 @@ export default function WebSidebar() {
         onPress={() => router.push('/management')}
         activeOpacity={0.7}
       >
-        <Ionicons name="home-outline" size={20} color="#6C5CE7" />
+        {currentSpace?.logoUrl ? (
+          <Image
+            source={{ uri: currentSpace.logoUrl }}
+            style={styles.spaceIconImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <View style={styles.sidebarLogoPlaceholderSquare}>
+            <Ionicons name="home-outline" size={18} color="#6C5CE7" />
+          </View>
+        )}
         <Text style={styles.spaceText} numberOfLines={1}>
           {currentSpace?.name || 'Select space'}
         </Text>
@@ -226,9 +256,13 @@ export default function WebSidebar() {
           activeOpacity={0.7}
         >
           <View style={styles.userAvatar}>
-            <Text style={styles.userInitial}>
-              {user?.name?.charAt(0)?.toUpperCase() || user?.email?.charAt(0)?.toUpperCase() || '?'}
-            </Text>
+            {user?.logoUrl ? (
+              <Image source={{ uri: user.logoUrl }} style={styles.userAvatarImage} resizeMode="cover" />
+            ) : (
+              <View style={styles.sidebarLogoPlaceholderSquare}>
+                <Ionicons name="person-outline" size={18} color="#6C5CE7" />
+              </View>
+            )}
           </View>
           <View style={styles.userInfo}>
             <Text style={styles.userName} numberOfLines={1}>
@@ -310,10 +344,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#F8F9FA',
     borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
+    padding: 10,
     marginBottom: 16,
-    gap: 8,
+    gap: 10,
+    minHeight: 62,
+  },
+  spaceIconImage: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    backgroundColor: '#E9ECEF',
+  },
+  sidebarLogoPlaceholderSquare: {
+    width: 42,
+    height: 42,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    backgroundColor: '#F8F9FA',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   spaceText: {
     flex: 1,
@@ -360,12 +410,17 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   userAvatar: {
-    width: 36,
-    height: 36,
+    width: 42,
+    height: 42,
     borderRadius: 8,
-    backgroundColor: '#6C5CE7',
+    backgroundColor: '#F8F9FA',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  userAvatarImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
   },
   pendingBadgesRow: {
     position: 'absolute',
