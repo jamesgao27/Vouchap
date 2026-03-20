@@ -508,7 +508,7 @@ export default function ManagementScreen() {
     { id: 'categories', title: 'Categories', icon: 'pricetags-outline', route: '/categories-manage', description: 'Expense & income categories' },
     { id: 'purposes', title: 'Purposes & Sources', icon: 'briefcase-outline', route: '/purposes-manage', description: 'For expenses & income tracking' },
     { id: 'accounts', title: 'Accounts', icon: 'wallet-outline', route: '/accounts-manage', description: 'Manage and merge accounts' },
-    { id: 'entities', title: 'Entities', icon: 'business-outline', route: '/entities-manage', description: 'Payee/Payer/Sender/Receiver' },
+    { id: 'entities', title: 'Entities', icon: 'storefront-outline', route: '/entities-manage', description: 'Payee/Payer/Sender/Receiver' },
   ];
   // firm 管理界面隐去分类、用途、账户、Entities，仅保留 Members
   const visibleMenuItems = space?.kind === 'firm'
@@ -544,7 +544,7 @@ export default function ManagementScreen() {
                 ) : (
                   <View style={styles.logoPlaceholderWrap}>
                     <View style={styles.logoPlaceholderSquare}>
-                      <Ionicons name="person-outline" size={18} color="#6C5CE7" />
+                      <Ionicons name="person-outline" size={24} color="#6C5CE7" />
                     </View>
                   </View>
                 )}
@@ -664,7 +664,7 @@ export default function ManagementScreen() {
                 ) : (
                   <View style={styles.logoPlaceholderWrap}>
                     <View style={styles.logoPlaceholderSquare}>
-                      <Ionicons name="storefront-outline" size={18} color="#6C5CE7" />
+                      <Ionicons name="business-outline" size={24} color="#6C5CE7" />
                     </View>
                   </View>
                 )}
@@ -784,7 +784,7 @@ export default function ManagementScreen() {
             activeOpacity={0.7}
           >
             <View style={styles.menuItemIcon}>
-              <Ionicons name={item.icon as any} size={24} color="#6C5CE7" />
+              <Ionicons name={item.icon as any} size={20} color="#6C5CE7" />
             </View>
             <View style={styles.menuItemContent}>
               <Text style={styles.menuItemTitle}>{item.title}</Text>
@@ -864,7 +864,7 @@ export default function ManagementScreen() {
                         space?.id === userSpace.spaceId ? { borderColor: '#6C5CE7' } : null,
                       ]}
                     >
-                      <Ionicons name="storefront-outline" size={14} color={space?.id === userSpace.spaceId ? "#6C5CE7" : "#636E72"} />
+                      <Ionicons name="business-outline" size={14} color={space?.id === userSpace.spaceId ? "#6C5CE7" : "#636E72"} />
                     </View>
                   )}
                   <View style={styles.spaceOptionContent}>
@@ -1066,8 +1066,8 @@ const styles = StyleSheet.create({
   spaceInfoCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
     marginBottom: 0,
     marginLeft: 0,
     borderWidth: 1,
@@ -1087,26 +1087,23 @@ const styles = StyleSheet.create({
   },
   cardHeader: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: 12,
   },
   spaceIconImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
     backgroundColor: '#E9ECEF',
-    marginTop: 2,
   },
   userLogoHeaderImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
     backgroundColor: '#E9ECEF',
-    marginTop: 2,
   },
   logoInteractiveWrap: {
     position: 'relative',
-    marginTop: 2,
   },
   logoRemoveIconButton: {
     position: 'absolute',
@@ -1122,14 +1119,14 @@ const styles = StyleSheet.create({
     borderColor: '#fff',
   },
   logoPlaceholderWrap: {
-    width: 40,
+    width: 48,
     alignItems: 'center',
     justifyContent: 'flex-start',
   },
   logoPlaceholderSquare: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+    width: 48,
+    height: 48,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E9ECEF',
     backgroundColor: '#F8F9FA',
@@ -1299,9 +1296,9 @@ const styles = StyleSheet.create({
     borderColor: '#E9ECEF',
   },
   menuItemIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     backgroundColor: '#F0F4FF',
     justifyContent: 'center',
     alignItems: 'center',

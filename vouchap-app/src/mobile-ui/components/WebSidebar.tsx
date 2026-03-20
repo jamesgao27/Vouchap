@@ -151,7 +151,7 @@ export default function WebSidebar() {
           />
         ) : (
           <View style={styles.sidebarLogoPlaceholderSquare}>
-            <Ionicons name="home-outline" size={18} color="#6C5CE7" />
+            <Ionicons name="business-outline" size={24} color="#6C5CE7" />
           </View>
         )}
         <Text style={styles.spaceText} numberOfLines={1}>
@@ -260,7 +260,7 @@ export default function WebSidebar() {
               <Image source={{ uri: user.logoUrl }} style={styles.userAvatarImage} resizeMode="cover" />
             ) : (
               <View style={styles.sidebarLogoPlaceholderSquare}>
-                <Ionicons name="person-outline" size={18} color="#6C5CE7" />
+                <Ionicons name="person-outline" size={24} color="#6C5CE7" />
               </View>
             )}
           </View>
