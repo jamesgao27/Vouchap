@@ -294,6 +294,7 @@ export default function ProjectTodosScreen() {
           const todosTree = await getProjectTodosTree(orderId);
           setTree(todosTree);
         }}
+        onMergeProjectTodosTree={(roots) => setTree(roots)}
         createProjectTodo={createProjectTodo}
         skuItems={skuItems}
         skuInfo={skuInfo}

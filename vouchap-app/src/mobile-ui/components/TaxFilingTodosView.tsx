@@ -10,6 +10,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -17,6 +18,7 @@ import {
   useContext,
   type DragEvent as WebDragEvent,
   type MutableRefObject,
+  type RefObject,
 } from 'react';
 import {
   View,
@@ -185,6 +187,161 @@ function maxTodoRenameInputWidthAcrossProjectTree(phases: ProjectTodoNode[]): nu
   };
   for (const p of phases) visit(p, 0);
   return maxW;
+}
+
+function nextProjectTodoSiblingSortOrder(siblings: ProjectTodoNode[]): number {
+  if (siblings.length === 0) return 1;
+  return Math.max(...siblings.map((s) => s.sortOrder), 0) + 1;
+}
+
+/** 与 createProjectTodo 写入库中的 status 规则一致，供本地合并树 */
+function buildInsertedProjectTodoNode(params: {
+  id: string;
+  orderId: string;
+  parentId: string | null;
+  title: string;
+  itemKind: 'phase' | 'section' | 'task';
+  type: 'client' | 'firm';
+  sortOrder: number;
+  depth: number;
+}): ProjectTodoNode {
+  const isTask = params.itemKind === 'task';
+  const isFirm = params.type === 'firm';
+  const status: ProjectTodoNode['status'] = isTask
+    ? isFirm
+      ? 'in_progress'
+      : 'to_submit'
+    : 'completed';
+  return {
+    id: params.id,
+    orderId: params.orderId,
+    parentId: params.parentId,
+    type: params.type,
+    initialResponsibleSide: params.type,
+    title: params.title,
+    description: null,
+    status,
+    sortOrder: params.sortOrder,
+    depth: params.depth,
+    itemKind: params.itemKind,
+    dependsOnId: null,
+    dependsOnIds: [],
+    children: [],
+  };
+}
+
+/** 不可变插入：parentId === null 时在根级末尾追加 phase；否则挂到对应父节点 children 末尾 */
+function insertProjectTodoInTreeRoots(
+  roots: ProjectTodoNode[],
+  parentId: string | null,
+  child: ProjectTodoNode,
+): ProjectTodoNode[] {
+  if (parentId == null) {
+    return [...roots, child];
+  }
+  return roots.map((n) => {
+    if (n.id === parentId) {
+      return { ...n, children: [...n.children, child] };
+    }
+    return { ...n, children: insertProjectTodoInTreeRoots(n.children, parentId, child) };
+  });
+}
+
+/**
+ * 父级 onRefresh 后恢复滚动：内层 ScrollView + Web 上祖先链中的 overflow 容器 + document 滚动。
+ * Expo Web 常见为中间层 div 滚动而非 window，仅 scrollTo/仅 window 都会表现为「整页回顶」。
+ */
+type TodosScrollRestorePayload = {
+  innerY: number;
+  /** 自 ScrollView 可滚动节点之父起，向外每层「可纵向滚动」祖先的 scrollTop，顺序与恢复时一致 */
+  ancestorScrollTops: number[];
+  windowY: number;
+};
+
+function readWebWindowScrollY(): number {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return 0;
+  return (
+    window.scrollY ||
+    window.pageYOffset ||
+    document.documentElement?.scrollTop ||
+    document.body?.scrollTop ||
+    0
+  );
+}
+
+function writeWebWindowScrollY(y: number) {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return;
+  window.scrollTo({ top: y, left: 0, behavior: 'auto' });
+}
+
+function readScrollViewYFromRef(ref: RefObject<ScrollView | null>, fallback: number): number {
+  const inst = ref.current as unknown as { getScrollableNode?: () => { scrollTop?: number } | null } | null;
+  if (!inst?.getScrollableNode) return fallback;
+  try {
+    const node = inst.getScrollableNode();
+    if (node != null && typeof (node as HTMLElement).scrollTop === 'number') {
+      return (node as HTMLElement).scrollTop;
+    }
+  } catch {
+    /* ignore */
+  }
+  return fallback;
+}
+
+function isElementVerticallyScrollable(el: HTMLElement): boolean {
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return false;
+  const st = window.getComputedStyle(el);
+  const oy = st.overflowY;
+  if (oy !== 'auto' && oy !== 'scroll' && oy !== 'overlay') return false;
+  return el.scrollHeight > el.clientHeight + 1;
+}
+
+function captureTodosScrollPositions(
+  ref: RefObject<ScrollView | null>,
+  fallbackInner: number,
+): TodosScrollRestorePayload {
+  const innerY = readScrollViewYFromRef(ref, fallbackInner);
+  const ancestorScrollTops: number[] = [];
+  if (Platform.OS !== 'web' || typeof window === 'undefined') {
+    return { innerY, ancestorScrollTops, windowY: 0 };
+  }
+  try {
+    const inst = ref.current as unknown as { getScrollableNode?: () => HTMLElement | null } | null;
+    let el: HTMLElement | null = inst?.getScrollableNode?.()?.parentElement ?? null;
+    for (let d = 0; el && d < 18; d++) {
+      if (isElementVerticallyScrollable(el)) {
+        ancestorScrollTops.push(el.scrollTop);
+      }
+      el = el.parentElement;
+    }
+  } catch {
+    /* ignore */
+  }
+  return { innerY, ancestorScrollTops, windowY: readWebWindowScrollY() };
+}
+
+function applyTodosScrollRestore(ref: RefObject<ScrollView | null>, payload: TodosScrollRestorePayload) {
+  ref.current?.scrollTo({ y: payload.innerY, animated: false });
+
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    try {
+      const inst = ref.current as unknown as { getScrollableNode?: () => HTMLElement | null } | null;
+      let el: HTMLElement | null = inst?.getScrollableNode?.()?.parentElement ?? null;
+      let i = 0;
+      for (let d = 0; el && d < 18; d++) {
+        if (isElementVerticallyScrollable(el)) {
+          if (i < payload.ancestorScrollTops.length) {
+            el.scrollTop = payload.ancestorScrollTops[i]!;
+            i += 1;
+          }
+        }
+        el = el.parentElement;
+      }
+    } catch {
+      /* ignore */
+    }
+    writeWebWindowScrollY(payload.windowY);
+  }
 }
 
 type TodoGhostRow = {
@@ -1499,7 +1656,7 @@ function TodoTree({
                   }
                 }}
               >
-                <Ionicons name="reorder-three-outline" size={16} color="#95A5A6" />
+                <Ionicons name="swap-vertical-outline" size={17} color="#95A5A6" />
               </div>
             ) : (
               <View style={{ width: TODO_DRAG_HANDLE_SLOT_WIDTH, marginRight: 2, flexShrink: 0 }} />
@@ -2063,6 +2220,11 @@ export interface TaxFilingTodosViewProps {
   viewerRole: 'client' | 'firm';
   /** 任何操作后父级刷新树（addChild / cancelTask 等） */
   onRefresh: () => Promise<void>;
+  /**
+   * 创建 phase/section/task 成功后用本地合并后的树根更新 state，不调用 onRefresh。
+   * 可避免 Web 整页重载与滚动丢失，便于连续添加。未传时仍走 onRefresh。
+   */
+  onMergeProjectTodosTree?: (roots: ProjectTodoNode[]) => void;
   createProjectTodo: (params: {
     orderId: string;
     parentId?: string | null;
@@ -2130,6 +2292,7 @@ export function TaxFilingTodosView({
   persistTodoTreeOrder,
   onTodoTreeOrderSaved,
   onPersistTodoTitle,
+  onMergeProjectTodosTree,
 }: TaxFilingTodosViewProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [taskFilesExpanded, setTaskFilesExpanded] = useState<Set<string>>(new Set());
@@ -2175,6 +2338,42 @@ export function TaxFilingTodosView({
   const treeRef = useRef<ProjectTodoNode[]>(tree);
   useEffect(() => {
     treeRef.current = tree;
+  }, [tree]);
+
+  /** 父级整树 onRefresh 后 ScrollView / Web 文档滚动常被重置；记录并在 tree 更新后写回 */
+  const todosScrollRef = useRef<ScrollView | null>(null);
+  const todosScrollYRef = useRef(0);
+  const pendingTodosScrollRestoreRef = useRef<TodosScrollRestorePayload | null>(null);
+
+  const refreshTodosPreservingScroll = useCallback(async () => {
+    pendingTodosScrollRestoreRef.current = captureTodosScrollPositions(todosScrollRef, todosScrollYRef.current);
+    await onRefresh();
+  }, [onRefresh]);
+
+  useLayoutEffect(() => {
+    const p = pendingTodosScrollRestoreRef.current;
+    if (!p) return;
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        applyTodosScrollRestore(todosScrollRef, p);
+      });
+    });
+  }, [tree]);
+
+  useEffect(() => {
+    const p = pendingTodosScrollRestoreRef.current;
+    if (!p) return;
+    const t0 = setTimeout(() => applyTodosScrollRestore(todosScrollRef, p), 0);
+    const t1 = setTimeout(() => applyTodosScrollRestore(todosScrollRef, p), 50);
+    const t2 = setTimeout(() => {
+      applyTodosScrollRestore(todosScrollRef, p);
+      pendingTodosScrollRestoreRef.current = null;
+    }, 120);
+    return () => {
+      clearTimeout(t0);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
   }, [tree]);
 
   const [todoDraggingId, setTodoDraggingId] = useState<string | null>(null);
@@ -2254,10 +2453,10 @@ export function TaxFilingTodosView({
         }
         treeRef.current = ordered;
       } else {
-        await onRefresh();
+        await refreshTodosPreservingScroll();
       }
     },
-    [persistTodoTreeOrder, onRefresh, onTodoTreeOrderSaved],
+    [persistTodoTreeOrder, refreshTodosPreservingScroll, onTodoTreeOrderSaved],
   );
 
   const todoDragContextValue = useMemo<TodoDragContextValue | null>(() => {
@@ -2448,7 +2647,7 @@ export function TaxFilingTodosView({
         const debouncedRefreshTree = () => {
           if (refreshTreeTimeout) clearTimeout(refreshTreeTimeout);
           refreshTreeTimeout = setTimeout(() => {
-            onRefresh().catch(() => {});
+            refreshTodosPreservingScroll().catch(() => {});
           }, 300);
         };
 
@@ -2495,7 +2694,7 @@ export function TaxFilingTodosView({
       if (todosChannel) supabase.removeChannel(todosChannel);
       if (attachmentsChannel) supabase.removeChannel(attachmentsChannel);
     };
-  }, [orderId, onRefresh]);
+  }, [orderId, refreshTodosPreservingScroll]);
 
   const nodeStats = useNodeStats(tree);
 
@@ -2673,9 +2872,9 @@ export function TaxFilingTodosView({
         return;
       }
       setDepsPanelNodeId(null);
-      await onRefresh();
+      await refreshTodosPreservingScroll();
     },
-    [onRefresh, onCatalogSetDependsOn],
+    [refreshTodosPreservingScroll, onCatalogSetDependsOn],
   );
 
   const refreshFiles = useCallback(async (currentTree: ProjectTodoNode[]) => {
@@ -2791,7 +2990,7 @@ export function TaxFilingTodosView({
       } else if (parentNode && tree.some((p) => p.id === parentId)) {
         childItemKind = 'section';
       }
-      const { error: err } = await createProjectTodo({
+      const { id: newId, error: err } = await createProjectTodo({
         orderId,
         parentId,
         type: creatorSide,
@@ -2804,15 +3003,55 @@ export function TaxFilingTodosView({
         else Alert.alert('Save failed', msg);
         return;
       }
+      if (!newId) {
+        if (Platform.OS === 'web') window.alert('Save failed: No item id returned.');
+        else Alert.alert('Save failed', 'No item id returned.');
+        return;
+      }
       setPendingParentId(null);
-      setCollapsed((prev) => { const next = new Set(prev); next.delete(parentId); return next; });
-      await onRefresh();
+      setCollapsed((prev) => {
+        const next = new Set(prev);
+        next.delete(parentId);
+        return next;
+      });
+      // 模板/SKU catalog：父级 createProjectTodo 内已 setItems，勿再 onRefresh(load)，否则整页重载、滚动回顶
+      if (catalogMode) {
+        return;
+      }
+      const resolvedOrderId = parentNode?.orderId ?? tree[0]?.orderId ?? orderId;
+      const depth = parentNode ? parentNode.depth + 1 : 1;
+      const siblings = parentNode?.children ?? [];
+      const sortOrder = nextProjectTodoSiblingSortOrder(siblings);
+      const childNode = buildInsertedProjectTodoNode({
+        id: newId,
+        orderId: resolvedOrderId,
+        parentId,
+        title: trimmed,
+        itemKind: childItemKind,
+        type: creatorSide,
+        sortOrder,
+        depth,
+      });
+      if (onMergeProjectTodosTree) {
+        onMergeProjectTodosTree(insertProjectTodoInTreeRoots(tree, parentId, childNode));
+      } else {
+        await refreshTodosPreservingScroll();
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (Platform.OS === 'web') window.alert('Save failed: ' + msg);
       else Alert.alert('Save failed', msg);
     }
-  }, [orderId, createProjectTodo, onRefresh, viewerRole, allNodesFlat, tree]);
+  }, [
+    orderId,
+    createProjectTodo,
+    refreshTodosPreservingScroll,
+    viewerRole,
+    allNodesFlat,
+    tree,
+    onMergeProjectTodosTree,
+    catalogMode,
+  ]);
 
   const onCancelAddChild = useCallback(() => setPendingParentId(null), []);
 
@@ -2827,7 +3066,7 @@ export function TaxFilingTodosView({
     }
     setPendingAddPhase(false);
     try {
-      const { error: err } = await createProjectTodo({
+      const { id: newId, error: err } = await createProjectTodo({
         orderId,
         parentId: null,
         type: 'firm',
@@ -2840,13 +3079,36 @@ export function TaxFilingTodosView({
         else Alert.alert('Save failed', msg);
         return;
       }
-      await onRefresh();
+      if (!newId) {
+        if (Platform.OS === 'web') window.alert('Save failed: No phase id returned.');
+        else Alert.alert('Save failed', 'No phase id returned.');
+        return;
+      }
+      if (catalogMode) {
+        return;
+      }
+      const sortOrder = nextProjectTodoSiblingSortOrder(tree);
+      const phaseNode = buildInsertedProjectTodoNode({
+        id: newId,
+        orderId,
+        parentId: null,
+        title: trimmed,
+        itemKind: 'phase',
+        type: 'firm',
+        sortOrder,
+        depth: 0,
+      });
+      if (onMergeProjectTodosTree) {
+        onMergeProjectTodosTree(insertProjectTodoInTreeRoots(tree, null, phaseNode));
+      } else {
+        await refreshTodosPreservingScroll();
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (Platform.OS === 'web') window.alert('Save failed: ' + msg);
       else Alert.alert('Save failed', msg);
     }
-  }, [orderId, createProjectTodo, onRefresh]);
+  }, [orderId, createProjectTodo, refreshTodosPreservingScroll, tree, onMergeProjectTodosTree, catalogMode]);
 
   /** 删除 phase 及所有子级并刷新 */
   const handleConfirmDeletePhase = useCallback(async (phaseId: string) => {
@@ -2858,13 +3120,13 @@ export function TaxFilingTodosView({
         else Alert.alert('Delete failed', msg);
         return;
       }
-      await onRefresh();
+      await refreshTodosPreservingScroll();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       if (Platform.OS === 'web') window.alert('Delete failed: ' + msg);
       else Alert.alert('Delete failed', msg);
     }
-  }, [onRefresh]);
+  }, [refreshTodosPreservingScroll]);
 
   /** 请求删除 phase：弹出统一二次确认浮窗（ConfirmModalHost），确认后执行删除 */
   const handleRequestDeletePhase = useCallback(
@@ -2886,8 +3148,8 @@ export function TaxFilingTodosView({
       else Alert.alert('Cancel failed', err.message ?? '');
       return;
     }
-    await onRefresh();
-  }, [onRefresh]);
+    await refreshTodosPreservingScroll();
+  }, [refreshTodosPreservingScroll]);
 
   const onRestoreTask = useCallback(async (todoId: string, initialResponsibleSide: 'client' | 'firm') => {
     const { error: err } = await updateProjectTodo(todoId, { status: 'to_submit', type: initialResponsibleSide });
@@ -2896,8 +3158,8 @@ export function TaxFilingTodosView({
       else Alert.alert('Restore failed', err.message ?? '');
       return;
     }
-    await onRefresh();
-  }, [onRefresh]);
+    await refreshTodosPreservingScroll();
+  }, [refreshTodosPreservingScroll]);
 
   /** 单任务责任人流转：按附图改责任方 + 状态；先弹浮窗收集可选 note */
   const onHandoffTask = useCallback(
@@ -2975,7 +3237,7 @@ export function TaxFilingTodosView({
         const ctx = await getProjectTodoAttachmentWithContext(attachmentId);
         if (!ctx) {
           // 若上下文加载失败，只保留「处理中」状态，不再继续重试
-          await onRefresh();
+          await refreshTodosPreservingScroll();
           setTaskFilesExpanded((prev) => new Set(prev).add(todoId));
           return;
         }
@@ -3035,7 +3297,7 @@ export function TaxFilingTodosView({
         }
 
         // 刷新树与文件列表：确保文件计数 / 状态行内即时更新
-        await onRefresh();
+        await refreshTodosPreservingScroll();
         setTaskFilesExpanded((prev) => new Set(prev).add(todoId));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
@@ -3043,7 +3305,7 @@ export function TaxFilingTodosView({
         else Alert.alert('Upload failed', msg);
       }
     },
-    [clientSpaceId, onRefresh]
+    [clientSpaceId, refreshTodosPreservingScroll]
   );
 
   const onRemoveFile = useCallback(async (todoId: string, attachmentId: string) => {
@@ -3122,8 +3384,8 @@ export function TaxFilingTodosView({
       return;
     }
     setRenameDraft(null);
-    await onRefresh();
-  }, [renameDraft, onPersistTodoTitle, onRefresh]);
+    await refreshTodosPreservingScroll();
+  }, [renameDraft, onPersistTodoTitle, refreshTodosPreservingScroll]);
 
   if (tree.length === 0) {
     return (
@@ -3139,7 +3401,15 @@ export function TaxFilingTodosView({
 
   const todoMainView = (
     <View style={ts.root}>
-      <ScrollView style={ts.scroll} contentContainerStyle={ts.scrollContent}>
+      <ScrollView
+        ref={todosScrollRef}
+        style={ts.scroll}
+        contentContainerStyle={ts.scrollContent}
+        onScroll={(e) => {
+          todosScrollYRef.current = e.nativeEvent.contentOffset.y;
+        }}
+        scrollEventThrottle={16}
+      >
         <View style={ts.phaseBlocksWrap}>
           {todoDragListTree.map((phaseNode, phaseIndex) => (
             <View
@@ -3732,7 +4002,7 @@ export function TaxFilingTodosView({
                     return;
                   }
                   setHandoffDraft(null);
-                  await onRefresh();
+                  await refreshTodosPreservingScroll();
                 }}
               >
                 <Text style={ts.handoffPrimaryText}>Confirm submit</Text>

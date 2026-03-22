@@ -212,6 +212,8 @@ export interface ProjectDetailViewProps {
   onTodoTreeOrderSaved?: (roots: ProjectTodoNode[]) => void;
   /** Web：行标题重命名（与 TaxFilingTodosView 内编辑图标联动） */
   persistTodoTitle?: (todoId: string, title: string) => Promise<{ error: Error | null }>;
+  /** 新建 phase/section/task 后本地合并树，避免整表 onRefresh（连续添加时不丢滚动） */
+  onMergeProjectTodosTree?: (roots: ProjectTodoNode[]) => void;
 }
 
 export function ProjectDetailView({
@@ -249,6 +251,7 @@ export function ProjectDetailView({
   persistTodoTreeOrder,
   onTodoTreeOrderSaved,
   persistTodoTitle,
+  onMergeProjectTodosTree,
 }: ProjectDetailViewProps) {
   const navigation = useNavigation();
 
@@ -584,6 +587,7 @@ export function ProjectDetailView({
           persistTodoTreeOrder={persistTodoTreeOrder}
           onTodoTreeOrderSaved={onTodoTreeOrderSaved}
           onPersistTodoTitle={isWeb && !isDetailReadOnly && persistTodoTitle ? persistTodoTitle : undefined}
+          onMergeProjectTodosTree={onMergeProjectTodosTree}
         />
       )}
     </View>

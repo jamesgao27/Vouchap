@@ -411,6 +411,7 @@ export default function FirmEngagementDetailScreen() {
           const todosTree = await getProjectTodosTree(orderId!);
           setTree(todosTree);
         }}
+        onMergeProjectTodosTree={(roots) => setTree(roots)}
         onTodoTreeOrderSaved={(roots) => setTree(roots)}
         createProjectTodo={createProjectTodo}
         skuInfo={skuInfo}
