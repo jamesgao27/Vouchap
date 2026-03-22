@@ -514,7 +514,7 @@ export default function SpaceMembersScreen() {
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
           <GradientText
-            text="Track by member, analyze as a family."
+            text="Track by member, analyze as a team."
             style={styles.headerTitle}
             containerStyle={styles.gradientTextContainer}
           />

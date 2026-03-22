@@ -140,7 +140,7 @@ export default function FirmOpenInviteScreen() {
           onPress: async () => {
             try {
               setDeletingInviteId(invite.id);
-              const { error } = await deleteFirmClientInviteToken(firmSpaceId, invite.id);
+              const { error } = await deleteFirmClientInviteToken(invite.id);
               if (error) throw error;
               setInvites((prev) => prev.filter((it) => it.id !== invite.id));
             } catch (e: any) {

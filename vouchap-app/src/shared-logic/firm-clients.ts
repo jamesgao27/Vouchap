@@ -28,6 +28,7 @@ export interface FirmClientInviteToken {
   expiresAt: string | null;
   isActive: boolean;
   maxClients: number | null;
+  /** Rows in firm.clients with invite_token_id = this token (see firm_open_invite_joined_counts). */
   currentClients: number;
 }
 
@@ -128,18 +129,31 @@ export async function getFirmClientInviteHistory(
     if (!firmSpaceId) {
       return { invites: [], error: new Error('firmSpaceId is required') };
     }
-    const { data, error } = await supabase
-      .schema('firm')
-      .from('client_invite_tokens')
-      .select('id, token, firm_space_id, inviter_user_id, sku_id, created_at, expires_at, is_active, max_clients, current_clients')
-      .eq('firm_space_id', firmSpaceId)
-      .order('created_at', { ascending: false });
+    const [tokensRes, countsRes] = await Promise.all([
+      supabase
+        .schema('firm')
+        .from('client_invite_tokens')
+        .select('id, token, firm_space_id, inviter_user_id, sku_id, created_at, expires_at, is_active, max_clients')
+        .eq('firm_space_id', firmSpaceId)
+        .order('created_at', { ascending: false }),
+      supabase.rpc('firm_open_invite_joined_counts', { p_firm_space_id: firmSpaceId }),
+    ]);
 
-    if (error) {
-      return { invites: [], error: new Error(error.message || 'Failed to load invite history') };
+    if (tokensRes.error) {
+      return { invites: [], error: new Error(tokensRes.error.message || 'Failed to load invite history') };
+    }
+    if (countsRes.error) {
+      return { invites: [], error: new Error(countsRes.error.message || 'Failed to load joined counts') };
     }
 
-    const rows = (data || []) as any[];
+    const rows = (tokensRes.data || []) as any[];
+    const countByTokenId = new Map<string, number>();
+    for (const r of (countsRes.data || []) as { invite_token_id?: string; joined_count?: number | string }[]) {
+      const tid = r.invite_token_id;
+      if (tid) {
+        countByTokenId.set(tid, Number(r.joined_count ?? 0));
+      }
+    }
 
     // 加载创建人信息，用于在 UI 中显示名称/邮箱
     const inviterIds = Array.from(
@@ -175,7 +189,7 @@ export async function getFirmClientInviteHistory(
         expiresAt: row.expires_at ?? null,
         isActive: row.is_active ?? true,
         maxClients: row.max_clients ?? null,
-        currentClients: row.current_clients ?? 0,
+        currentClients: countByTokenId.get(row.id) ?? 0,
       };
     });
     return { invites, error: null };
