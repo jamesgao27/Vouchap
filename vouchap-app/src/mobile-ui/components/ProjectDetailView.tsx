@@ -206,6 +206,10 @@ export interface ProjectDetailViewProps {
   skuItems?: FirmSkuItem[];
   /** Firm onboarding Info 页只读：Classification 用（与 SKU 详情一致） */
   skuDetailForInfo?: { taxCountry?: string | null; taxScenario?: string | null } | null;
+  /** Web：Todos 树拖放排序后持久化（如 applyProjectTodosTreeOrder / applySkuItemsTreeOrder） */
+  persistTodoTreeOrder?: (roots: ProjectTodoNode[]) => Promise<{ error: Error | null }>;
+  /** Web：拖放排序成功后本地更新树，避免整表 onRefresh */
+  onTodoTreeOrderSaved?: (roots: ProjectTodoNode[]) => void;
 }
 
 export function ProjectDetailView({
@@ -240,6 +244,8 @@ export function ProjectDetailView({
   skuTodos = [],
   skuItems,
   skuDetailForInfo,
+  persistTodoTreeOrder,
+  onTodoTreeOrderSaved,
 }: ProjectDetailViewProps) {
   const navigation = useNavigation();
 
@@ -572,6 +578,8 @@ export function ProjectDetailView({
           onRefresh={onRefresh}
           createProjectTodo={createProjectTodo}
           catalogPreviewReadOnly={isDetailReadOnly}
+          persistTodoTreeOrder={persistTodoTreeOrder}
+          onTodoTreeOrderSaved={onTodoTreeOrderSaved}
         />
       )}
     </View>

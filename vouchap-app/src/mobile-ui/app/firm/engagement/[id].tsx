@@ -33,6 +33,7 @@ import {
   getOrderHeaderForClient,
   updateOrderStatus,
   confirmOrderAndCreateProjectTodos,
+  applyProjectTodosTreeOrder,
   type ProjectTodoNode,
   type FirmOrderById,
 } from '@/lib/firm';
@@ -409,11 +410,20 @@ export default function FirmEngagementDetailScreen() {
           const todosTree = await getProjectTodosTree(orderId!);
           setTree(todosTree);
         }}
+        onTodoTreeOrderSaved={(roots) => setTree(roots)}
         createProjectTodo={createProjectTodo}
         skuInfo={skuInfo}
         skuTodos={skuTodos}
         skuItems={skuItems}
         skuDetailForInfo={skuDetailForInfo}
+        persistTodoTreeOrder={
+          Platform.OS === 'web' &&
+          viewerRole === 'firm' &&
+          order.status === 'processing' &&
+          orderId
+            ? (roots) => applyProjectTodosTreeOrder(orderId, roots)
+            : undefined
+        }
       />
       {showTinaFab && (
         <TouchableOpacity

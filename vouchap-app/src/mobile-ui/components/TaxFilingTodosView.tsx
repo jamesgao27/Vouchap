@@ -7,7 +7,17 @@
  *   - createProjectTodo（创建子节点）
  *   - onRefresh（任何操作后告知父级树已更新）
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  createContext,
+  useContext,
+  type DragEvent as WebDragEvent,
+  type MutableRefObject,
+} from 'react';
 import {
   View,
   Text,
@@ -22,6 +32,7 @@ import {
   Dimensions,
   Modal,
 } from 'react-native';
+import { createPortal, flushSync } from 'react-dom';
 import { Ionicons } from '@expo/vector-icons';
 import {
   getProjectTodosTree,
@@ -38,6 +49,10 @@ import {
   deleteProjectTodoWithChildren,
   type ProjectTodoNode,
   type ProjectTodoReceiptSummary,
+  moveProjectTodoInTree,
+  findTodoNodeById,
+  renumberTodoTreeSortOrders,
+  type TodoDropPosition,
 } from '@/lib/firm';
 import { getLatestTaxFilingAttachmentPreviewByAttachmentId } from '../../shared-logic/chat-logs';
 import {
@@ -59,6 +74,107 @@ import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition
 
 const TREE_ROW_BG_EVEN = '#FFFFFF';
 const TREE_ROW_BG_ODD = '#F8F9FA';
+
+/** Web 拖放幽灵层：单行高度（与占位条一致） */
+const TODO_DRAG_GHOST_ROW_HEIGHT = 44;
+
+/** 拖动手柄列占位宽度（隐藏手柄时保留，避免布局跳动） */
+const TODO_DRAG_HANDLE_SLOT_WIDTH = 22;
+
+/** 与 TodoTree Web 行一致：chevron 列、WBS 列 */
+const TODO_DRAG_GHOST_CHEVRON_COL_W = 28;
+const TODO_DRAG_GHOST_WBS_COL_W = 36;
+const TODO_DRAG_GHOST_WBS_COL_MR = 8;
+const TODO_DRAG_GHOST_SPINE_BASE = 12;
+const TODO_DRAG_GHOST_INDENT_UNIT = 14;
+
+/** Chrome：未解码完的 img 作 drag image 时会回退成从左上角飞入的默认图标（地球/文档）；canvas 可同步使用 */
+let todoDragBlankCanvas: HTMLCanvasElement | null = null;
+function setTodoTreeTransparentDragImage(dt: DataTransfer) {
+  if (typeof document === 'undefined') return;
+  if (!todoDragBlankCanvas) {
+    const c = document.createElement('canvas');
+    c.width = 1;
+    c.height = 1;
+    todoDragBlankCanvas = c;
+  }
+  dt.setDragImage(todoDragBlankCanvas, 0, 0);
+}
+
+type TodoGhostRow = {
+  title: string;
+  itemKind: ProjectTodoNode['itemKind'];
+  wbs: string;
+  /** 与 TodoTree 中 depth 一致：phase=0，section=1…，用于 12+depth*14 左缩进 */
+  renderDepth: number;
+  /** 与行内 nodeIsBlocked 一致（父链锁定或本节点在 blockedNodes） */
+  nodeIsBlocked: boolean;
+  /** 仅 task：责任方，用于 Firm/Client 徽章 */
+  responsibleSide?: ProjectTodoNode['type'];
+  /** 仅 task：取消态隐藏徽章并套用 treeTitleCanceled */
+  status?: ProjectTodoNode['status'];
+};
+
+/** 与 allNodesWbsMap / TodoTree 一致的 WBS 与层级深度 */
+function buildTodoDragWbsMaps(tree: ProjectTodoNode[]): {
+  wbsById: Record<string, string>;
+  renderDepthById: Record<string, number>;
+} {
+  const wbsById: Record<string, string> = {};
+  const renderDepthById: Record<string, number> = {};
+  tree.forEach((phaseRoot, phaseIndex) => {
+    const rootWbs = String(phaseIndex + 1);
+    wbsById[phaseRoot.id] = rootWbs;
+    renderDepthById[phaseRoot.id] = 0;
+    const walk = (nodes: ProjectTodoNode[], prefix: string, parentRenderDepth: number) => {
+      nodes.forEach((node, idx) => {
+        const wbs = `${prefix}.${idx + 1}`;
+        wbsById[node.id] = wbs;
+        renderDepthById[node.id] = parentRenderDepth + 1;
+        walk(node.children, wbs, parentRenderDepth + 1);
+      });
+    };
+    walk(phaseRoot.children, rootWbs, 0);
+  });
+  return { wbsById, renderDepthById };
+}
+
+/** 展开状态下可见子树行，用于幽灵预览与占位高度（尊重 collapsed）；含原 WBS、责任方、锁定态与表格式 renderDepth */
+function collectVisibleTodoGhostRows(
+  root: ProjectTodoNode | null | undefined,
+  collapsed: Set<string>,
+  maps: { wbsById: Record<string, string>; renderDepthById: Record<string, number> },
+  blockedNodes: Set<string>,
+  /** 拖动容器的 TodoTree 传入的 isBlocked（祖先链已锁） */
+  rootAncestorBlocked: boolean,
+): TodoGhostRow[] {
+  if (!root) return [];
+  const out: TodoGhostRow[] = [];
+  const walk = (n: ProjectTodoNode, parentChainBlocked: boolean) => {
+    const nodeIsBlocked = parentChainBlocked || blockedNodes.has(n.id);
+    const isTask = n.itemKind === 'task';
+    out.push({
+      title: n.title,
+      itemKind: n.itemKind,
+      wbs: maps.wbsById[n.id] ?? '?',
+      renderDepth: maps.renderDepthById[n.id] ?? 0,
+      nodeIsBlocked,
+      ...(isTask ? { responsibleSide: n.type, status: n.status } : {}),
+    });
+    if (n.children.length > 0 && !collapsed.has(n.id)) {
+      n.children.forEach((c) => walk(c, nodeIsBlocked));
+    }
+  };
+  walk(root, rootAncestorBlocked);
+  return out;
+}
+
+type TodoDragStartAnchor = {
+  clientX: number;
+  clientY: number;
+  rowElement: HTMLElement;
+  ghostRows: TodoGhostRow[];
+};
 
 /** 根据 URL 或 docType 返回文件类型图标名 */
 function getFileFormatIcon(url: string | null | undefined, docType: string | null | undefined): 'document-text' | 'image' | 'document' {
@@ -157,6 +273,43 @@ export function collectTaskIds(nodes: ProjectTodoNode[]): string[] {
   }
   walk(nodes);
   return ids;
+}
+
+type TodoDragContextValue = {
+  enabled: boolean;
+  draggingId: string | null;
+  /** 与 draggingId 同步，但在 startDrag 内先写入，保证首帧 dragover 即可 preventDefault */
+  draggingIdRef: MutableRefObject<string | null>;
+  dragOver: { targetId: string; position: TodoDropPosition } | null;
+  /** 与 dragOver state 同步，drop 时读取避免闭包滞后于最后一次 dragover */
+  dragOverRef: MutableRefObject<{ targetId: string; position: TodoDropPosition } | null>;
+  /** 预览树有效时：目标位用占位条，与幽灵层不重复 */
+  previewActive: boolean;
+  placeholderRowCount: number;
+  treeRef: MutableRefObject<ProjectTodoNode[]>;
+  startDrag: (id: string, anchor?: TodoDragStartAnchor) => void;
+  endDrag: () => void;
+  setDragOver: (v: { targetId: string; position: TodoDropPosition } | null) => void;
+  commitDrop: (targetId: string, position: TodoDropPosition) => Promise<void>;
+};
+
+const TodoDragContext = createContext<TodoDragContextValue | null>(null);
+
+/** Web 拖放：按纵向位置决定 before / into / after */
+function pickTodoDropBand(
+  clientY: number,
+  rectTop: number,
+  rectHeight: number,
+  draggingKind: 'phase' | 'section' | 'task',
+  targetKind: 'phase' | 'section' | 'task',
+): TodoDropPosition {
+  const y = clientY - rectTop;
+  const frac = rectHeight > 0 ? y / rectHeight : 0.5;
+  const canInto =
+    (targetKind === 'phase' && draggingKind === 'section') ||
+    (targetKind === 'section' && draggingKind === 'task');
+  if (canInto && frac > 0.28 && frac < 0.72) return 'into';
+  return frac < 0.5 ? 'before' : 'after';
 }
 
 function useNodeStats(nodes: ProjectTodoNode[]) {
@@ -365,6 +518,9 @@ function TodoTree({
   addIconHighlightedRowId,
   setAddIconHighlightedRowId,
   hideAddTimeoutRef,
+  rowIdShowingDragHandle,
+  setRowIdShowingDragHandle,
+  hideDragHandleTimeoutRef,
   pendingParentId,
   onStartAddChild,
   onConfirmAddChild,
@@ -422,6 +578,9 @@ function TodoTree({
   addIconHighlightedRowId?: string | null;
   setAddIconHighlightedRowId?: (id: string | null) => void;
   hideAddTimeoutRef?: { current: ReturnType<typeof setTimeout> | null };
+  rowIdShowingDragHandle?: string | null;
+  setRowIdShowingDragHandle?: (id: string | null) => void;
+  hideDragHandleTimeoutRef?: { current: ReturnType<typeof setTimeout> | null };
   /** zone2：文件计数列 hover，显示 Upload */
   rowFileColHoverId?: string | null;
   setRowFileColHoverId?: (id: string | null) => void;
@@ -454,6 +613,7 @@ function TodoTree({
   /** 只读预览：不展示 depends on 编辑入口（仅展示已有依赖） */
   hideDepsEditor?: boolean;
 }) {
+  const dragCtx = useContext(TodoDragContext);
   const isWeb = Platform.OS === 'web';
   // Web 端保留层级缩进；移动端取消缩进，所有行左对齐
   const indentUnit = isWeb ? 14 : 0;
@@ -465,6 +625,25 @@ function TodoTree({
   return (
     <>
       {nodes.map((node, idx) => {
+        if (isWeb && dragCtx?.enabled && dragCtx.previewActive && dragCtx.draggingId === node.id) {
+          const h = Math.max(1, dragCtx.placeholderRowCount) * TODO_DRAG_GHOST_ROW_HEIGHT;
+          return (
+            <View key={node.id} style={ts.treeRowWrap} pointerEvents="none">
+              <View
+                style={{
+                  height: h,
+                  marginHorizontal: 4,
+                  marginVertical: 1,
+                  borderRadius: 8,
+                  backgroundColor: 'rgba(108, 92, 231, 0.06)',
+                  borderWidth: 1,
+                  borderColor: 'rgba(108, 92, 231, 0.28)',
+                  borderStyle: 'dashed',
+                }}
+              />
+            </View>
+          );
+        }
         const firstInGroupBg = parentRowBg === undefined
           ? TREE_ROW_BG_EVEN
           : parentRowBg === TREE_ROW_BG_EVEN
@@ -1002,8 +1181,83 @@ function TodoTree({
           </>
         );
 
+        // RN Web 的 View 不保证转发 HTML5 draggable / drop；手柄必须用原生 div（与 DataTable 列拖放一致）
+        // draggingIdRef 在 dragstart 内同步写入，早于 setState，避免重渲染卸掉 draggable 前手柄被误判隐藏
+        const showDragHandle =
+          isWeb &&
+          dragCtx?.enabled &&
+          (rowIdShowingDragHandle === node.id ||
+            dragCtx.draggingId === node.id ||
+            dragCtx.draggingIdRef.current === node.id);
+        const dragHandleEl =
+          isWeb && dragCtx?.enabled ? (
+            showDragHandle ? (
+              <div
+                style={{
+                  width: TODO_DRAG_HANDLE_SLOT_WIDTH,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  alignSelf: 'stretch',
+                  marginRight: 2,
+                  cursor: 'grab',
+                  flexShrink: 0,
+                  userSelect: 'none',
+                }}
+                draggable
+                onDragStart={(e: WebDragEvent<HTMLDivElement>) => {
+                  e.stopPropagation();
+                  if (e.dataTransfer) {
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', node.id);
+                    setTodoTreeTransparentDragImage(e.dataTransfer);
+                  }
+                  const rowEl = (e.currentTarget as HTMLElement).closest('[data-todo-row]') as HTMLElement | null;
+                  const maps = buildTodoDragWbsMaps(dragCtx.treeRef.current);
+                  const ghostRows = collectVisibleTodoGhostRows(
+                    findNodeById(dragCtx.treeRef.current, node.id),
+                    collapsed,
+                    maps,
+                    blockedNodes,
+                    isBlocked ?? false,
+                  );
+                  const rows: TodoGhostRow[] =
+                    ghostRows.length > 0
+                      ? ghostRows
+                      : [
+                          {
+                            title: node.title,
+                            itemKind: node.itemKind,
+                            wbs: maps.wbsById[node.id] ?? '?',
+                            renderDepth: maps.renderDepthById[node.id] ?? 0,
+                            nodeIsBlocked: (isBlocked ?? false) || blockedNodes.has(node.id),
+                            ...(node.itemKind === 'task'
+                              ? { responsibleSide: node.type, status: node.status }
+                              : {}),
+                          },
+                        ];
+                  if (rowEl) {
+                    dragCtx.startDrag(node.id, {
+                      clientX: e.clientX,
+                      clientY: e.clientY,
+                      rowElement: rowEl,
+                      ghostRows: rows,
+                    });
+                  } else {
+                    dragCtx.startDrag(node.id);
+                  }
+                }}
+              >
+                <Ionicons name="reorder-three-outline" size={16} color="#95A5A6" />
+              </div>
+            ) : (
+              <View style={{ width: TODO_DRAG_HANDLE_SLOT_WIDTH, marginRight: 2, flexShrink: 0 }} />
+            )
+          ) : null;
+
         const leftBlockContent = (
           <>
+            {dragHandleEl}
             {IndentChevronShowAddArea}
             {WbsCell}
             {TitleColumnWrap}
@@ -1050,6 +1304,22 @@ function TodoTree({
         const crossRoleAccent = !nodeIsBlocked && isSelfTodo && isTask && !isCanceled
           ? { borderLeftColor: node.type === 'firm' ? '#A29BFE' : '#74B9FF' }
           : {};
+        const todoDropHighlight =
+          isWeb &&
+          dragCtx?.enabled &&
+          dragCtx.draggingId &&
+          dragCtx.draggingId !== node.id &&
+          dragCtx.dragOver?.targetId === node.id
+            ? dragCtx.previewActive
+              ? dragCtx.dragOver.position === 'into'
+                ? { borderWidth: 2, borderColor: '#6C5CE7' }
+                : {}
+              : dragCtx.dragOver.position === 'before'
+                ? { borderTopWidth: 2, borderTopColor: '#6C5CE7' }
+                : dragCtx.dragOver.position === 'after'
+                  ? { borderBottomWidth: 2, borderBottomColor: '#6C5CE7' }
+                  : { borderWidth: 2, borderColor: '#6C5CE7' }
+            : {};
         const rowContainerStyle = [
           ts.treeRow,
           { backgroundColor: rowBg },
@@ -1057,7 +1327,36 @@ function TodoTree({
           node.itemKind === 'section' && { borderTopWidth: 1, borderTopColor: '#E9ECEF' },
           isTask && { borderTopWidth: 1, borderTopColor: '#F3F4F6' },
           crossRoleAccent,
+          todoDropHighlight,
         ];
+
+        const dragHandleRevealHandlers =
+          isWeb && dragCtx?.enabled && setRowIdShowingDragHandle && hideDragHandleTimeoutRef
+            ? {
+                onMouseEnter: () => {
+                  if (hideDragHandleTimeoutRef.current) {
+                    clearTimeout(hideDragHandleTimeoutRef.current);
+                    hideDragHandleTimeoutRef.current = null;
+                  }
+                  setRowIdShowingDragHandle(node.id);
+                },
+                onMouseLeave: () => {
+                  if (hideDragHandleTimeoutRef.current) clearTimeout(hideDragHandleTimeoutRef.current);
+                  hideDragHandleTimeoutRef.current = setTimeout(() => setRowIdShowingDragHandle(null), 320);
+                },
+                onTouchStart: () => {
+                  if (hideDragHandleTimeoutRef.current) {
+                    clearTimeout(hideDragHandleTimeoutRef.current);
+                    hideDragHandleTimeoutRef.current = null;
+                  }
+                  setRowIdShowingDragHandle(node.id);
+                },
+                onTouchEnd: () => {
+                  if (hideDragHandleTimeoutRef.current) clearTimeout(hideDragHandleTimeoutRef.current);
+                  hideDragHandleTimeoutRef.current = setTimeout(() => setRowIdShowingDragHandle(null), 700);
+                },
+              }
+            : null;
 
         // 与 Add 列一致：整行 touchEnd / mouseLeave 时延时收起 Depends on，避免“最后一个不消失”（触摸到其他行再抬起时由该行触发收起）
         const hideDepsOnRowHandlers = !catalogMode && setRowIdShowingDeps && hideDepsTimeoutRef
@@ -1209,9 +1508,39 @@ function TodoTree({
                   },
                 })}
           >
-            <View style={rowContainerStyle} {...hideDepsOnRowHandlers}>
-              {rowContent}
-            </View>
+            {isWeb && dragCtx?.enabled ? (
+              <div
+                data-todo-row={node.id}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'stretch',
+                  boxSizing: 'border-box',
+                  ...(StyleSheet.flatten(rowContainerStyle) as object),
+                }}
+                {...(hideDepsOnRowHandlers as object)}
+                onMouseEnter={() => {
+                  dragHandleRevealHandlers?.onMouseEnter?.();
+                }}
+                onMouseLeave={() => {
+                  (hideDepsOnRowHandlers as { onMouseLeave?: () => void }).onMouseLeave?.();
+                  dragHandleRevealHandlers?.onMouseLeave?.();
+                }}
+                onTouchStart={() => {
+                  dragHandleRevealHandlers?.onTouchStart?.();
+                }}
+                onTouchEnd={() => {
+                  (hideDepsOnRowHandlers as { onTouchEnd?: () => void }).onTouchEnd?.();
+                  dragHandleRevealHandlers?.onTouchEnd?.();
+                }}
+              >
+                {rowContent}
+              </div>
+            ) : (
+              <View style={rowContainerStyle} {...hideDepsOnRowHandlers}>
+                {rowContent}
+              </View>
+            )}
             {hasChildren && !isCollapsed && (
               <TodoTree
                 nodes={node.children}
@@ -1240,6 +1569,9 @@ function TodoTree({
                 addIconHighlightedRowId={addIconHighlightedRowId}
                 setAddIconHighlightedRowId={setAddIconHighlightedRowId}
                 hideAddTimeoutRef={hideAddTimeoutRef}
+                rowIdShowingDragHandle={rowIdShowingDragHandle}
+                setRowIdShowingDragHandle={setRowIdShowingDragHandle}
+                hideDragHandleTimeoutRef={hideDragHandleTimeoutRef}
                 pendingParentId={pendingParentId}
                 onStartAddChild={onStartAddChild}
                 onConfirmAddChild={onConfirmAddChild}
@@ -1427,6 +1759,17 @@ export interface TaxFilingTodosViewProps {
   onRequestDeletePhase?: (phaseId: string, phaseTitle: string) => void;
   /** Catalog 只读预览（如 engagement 详情）：不展示 + / - / depends on 编辑，仅展示树与依赖 */
   catalogPreviewReadOnly?: boolean;
+  /**
+   * Web：拖放排序后持久化整棵树（parent_id + 同级 sort_order）。
+   * 传入时启用左侧拖动手柄与行上放置（项目 todos 用 applyProjectTodosTreeOrder，SKU catalog 用 applySkuItemsTreeOrder）。
+   */
+  persistTodoTreeOrder?: (roots: ProjectTodoNode[]) => Promise<{ error: Error | null }>;
+  /**
+   * After a successful drag-reorder save: apply the reordered tree locally (renumbered sort_order) without onRefresh.
+   * Use e.g. `(roots) => setTree(roots)` on engagement. SKU may pass a no-op `() => {}` when persistTodoTreeOrder already updates items.
+   * If omitted, falls back to onRefresh() (full reload).
+   */
+  onTodoTreeOrderSaved?: (roots: ProjectTodoNode[]) => void;
 }
 
 export function TaxFilingTodosView({
@@ -1442,6 +1785,8 @@ export function TaxFilingTodosView({
   onCatalogUpdateType,
   onRequestDeletePhase: onRequestDeletePhaseProp,
   catalogPreviewReadOnly = false,
+  persistTodoTreeOrder,
+  onTodoTreeOrderSaved,
 }: TaxFilingTodosViewProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [taskFilesExpanded, setTaskFilesExpanded] = useState<Set<string>>(new Set());
@@ -1453,6 +1798,9 @@ export function TaxFilingTodosView({
   const [addIconHighlightedRowId, setAddIconHighlightedRowId] = useState<string | null>(null);
   const [pendingParentId, setPendingParentId] = useState<string | null>(null);
   const hideAddTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Web 拖放：悬停/触摸行后短暂显示拖动手柄 */
+  const [rowIdShowingDragHandle, setRowIdShowingDragHandle] = useState<string | null>(null);
+  const hideDragHandleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   /** 鼠标移出 Depends on 热区后延时隐藏 */
   const hideDepsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // zone2：文件计数列 hover/触摸时显示 Upload 按钮
@@ -1483,6 +1831,252 @@ export function TaxFilingTodosView({
   useEffect(() => {
     treeRef.current = tree;
   }, [tree]);
+
+  const [todoDraggingId, setTodoDraggingId] = useState<string | null>(null);
+  const todoDraggingIdRef = useRef<string | null>(null);
+  const [todoDragOver, setTodoDragOver] = useState<{ targetId: string; position: TodoDropPosition } | null>(null);
+  const todoDragOverRef = useRef<{ targetId: string; position: TodoDropPosition } | null>(null);
+  todoDragOverRef.current = todoDragOver;
+  const [todoDragGhost, setTodoDragGhost] = useState<{
+    pointerX: number;
+    pointerY: number;
+    offsetX: number;
+    offsetY: number;
+    width: number;
+    rows: TodoGhostRow[];
+  } | null>(null);
+  /** 推迟 dragstart 后的 setState，取消时清掉避免误开幽灵层 */
+  const todoDragDeferredPaintRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** drop 后异步写库期间为 true，避免 dragend 抢先清空 ref 导致提交被跳过 */
+  const todoDragDropCommittingRef = useRef(false);
+
+  const todoTreeDragEnabled =
+    Platform.OS === 'web' && !catalogPreviewReadOnly && typeof persistTodoTreeOrder === 'function';
+
+  const todoDragPreview = useMemo(() => {
+    if (!todoTreeDragEnabled || !todoDraggingId || !todoDragOver) {
+      return { tree, active: false } as { tree: ProjectTodoNode[]; active: boolean };
+    }
+    const next = moveProjectTodoInTree(tree, todoDraggingId, todoDragOver.targetId, todoDragOver.position);
+    if (!next) return { tree, active: false };
+    return { tree: next, active: true };
+  }, [tree, todoTreeDragEnabled, todoDraggingId, todoDragOver]);
+
+  const todoDragListTree = todoDragPreview.tree;
+
+  const todoDragEndAll = useCallback(() => {
+    if (todoDragDeferredPaintRef.current) {
+      clearTimeout(todoDragDeferredPaintRef.current);
+      todoDragDeferredPaintRef.current = null;
+    }
+    todoDraggingIdRef.current = null;
+    todoDragOverRef.current = null;
+    setTodoDraggingId(null);
+    setTodoDragOver(null);
+    setTodoDragGhost(null);
+    setRowIdShowingDragHandle(null);
+    if (hideDragHandleTimeoutRef.current) {
+      clearTimeout(hideDragHandleTimeoutRef.current);
+      hideDragHandleTimeoutRef.current = null;
+    }
+  }, []);
+
+  const commitTodoTreeDrop = useCallback(
+    async (targetId: string, position: TodoDropPosition) => {
+      const tid = todoDraggingIdRef.current;
+      if (!tid || !persistTodoTreeOrder) return;
+      const current = treeRef.current;
+      const next = moveProjectTodoInTree(current, tid, targetId, position);
+      if (!next) {
+        if (Platform.OS === 'web') window.alert('Cannot move this item here.');
+        else Alert.alert('Reorder', 'Cannot move this item here.');
+        return;
+      }
+      const { error } = await persistTodoTreeOrder(next);
+      if (error) {
+        if (Platform.OS === 'web') window.alert(error.message ?? 'Failed to save order');
+        else Alert.alert('Reorder failed', error.message ?? '');
+        return;
+      }
+      const ordered = renumberTodoTreeSortOrders(next) as ProjectTodoNode[];
+      if (onTodoTreeOrderSaved) {
+        if (Platform.OS === 'web') {
+          flushSync(() => {
+            onTodoTreeOrderSaved(ordered);
+          });
+        } else {
+          onTodoTreeOrderSaved(ordered);
+        }
+        treeRef.current = ordered;
+      } else {
+        await onRefresh();
+      }
+    },
+    [persistTodoTreeOrder, onRefresh, onTodoTreeOrderSaved],
+  );
+
+  const todoDragContextValue = useMemo<TodoDragContextValue | null>(() => {
+    if (!todoTreeDragEnabled) return null;
+    return {
+      enabled: true,
+      draggingId: todoDraggingId,
+      draggingIdRef: todoDraggingIdRef,
+      dragOver: todoDragOver,
+      dragOverRef: todoDragOverRef,
+      previewActive: todoDragPreview.active,
+      placeholderRowCount: todoDragGhost?.rows.length ?? 1,
+      treeRef,
+      startDrag: (id, anchor) => {
+        todoDraggingIdRef.current = id;
+        // 勿在 dragstart 同步 setState：会立刻重渲染并可能卸载原生 draggable，浏览器会取消拖放并触发 dragend，幽灵层不会出现
+        if (todoDragDeferredPaintRef.current) {
+          clearTimeout(todoDragDeferredPaintRef.current);
+          todoDragDeferredPaintRef.current = null;
+        }
+        let ghostPayload: {
+          pointerX: number;
+          pointerY: number;
+          offsetX: number;
+          offsetY: number;
+          width: number;
+          rows: TodoGhostRow[];
+        } | null = null;
+        if (anchor) {
+          const r = anchor.rowElement.getBoundingClientRect();
+          ghostPayload = {
+            pointerX: anchor.clientX,
+            pointerY: anchor.clientY,
+            offsetX: anchor.clientX - r.left,
+            offsetY: anchor.clientY - r.top,
+            width: Math.max(280, r.width),
+            rows: anchor.ghostRows,
+          };
+        }
+        if (typeof window !== 'undefined') {
+          todoDragDeferredPaintRef.current = window.setTimeout(() => {
+            todoDragDeferredPaintRef.current = null;
+            if (todoDraggingIdRef.current !== id) return;
+            setTodoDraggingId(id);
+            setTodoDragGhost(ghostPayload);
+          }, 0);
+        } else {
+          setTodoDraggingId(id);
+          setTodoDragGhost(ghostPayload);
+        }
+      },
+      endDrag: todoDragEndAll,
+      setDragOver: setTodoDragOver,
+      commitDrop: commitTodoTreeDrop,
+    };
+  }, [
+    todoTreeDragEnabled,
+    todoDraggingId,
+    todoDragOver,
+    todoDragPreview.active,
+    todoDragGhost?.rows.length,
+    commitTodoTreeDrop,
+    todoDragEndAll,
+  ]);
+
+  /**
+   * 预览树会重排 DOM，行级 onDrop 不可靠：在 window 捕获阶段统一处理 dragover/drop，
+   * 用 elementFromPoint + data-todo-row 解析目标，与视觉顺序一致。
+   */
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !todoTreeDragEnabled) return;
+
+    const onMove = (e: DragEvent) => {
+      if (!todoDraggingIdRef.current) return;
+      e.preventDefault();
+      setTodoDragGhost((g) => (g ? { ...g, pointerX: e.clientX, pointerY: e.clientY } : g));
+
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const row = el?.closest?.('[data-todo-row]') as HTMLElement | null;
+      if (!row) return;
+      const targetId = row.getAttribute('data-todo-row');
+      if (!targetId) return;
+      const tid = todoDraggingIdRef.current;
+      if (targetId === tid) return;
+      const dn = findTodoNodeById(treeRef.current, tid);
+      const tn = findTodoNodeById(treeRef.current, targetId);
+      if (!dn || !tn) return;
+      const rect = row.getBoundingClientRect();
+      const pos = pickTodoDropBand(e.clientY, rect.top, rect.height, dn.itemKind, tn.itemKind);
+      setTodoDragOver({ targetId, position: pos });
+    };
+
+    const onDrop = (e: DragEvent) => {
+      if (!todoDraggingIdRef.current) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const tid = todoDraggingIdRef.current;
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const row = el?.closest?.('[data-todo-row]') as HTMLElement | null;
+      let targetId: string | null = row?.getAttribute('data-todo-row') ?? null;
+
+      const dn = findTodoNodeById(treeRef.current, tid);
+      if (!dn) {
+        todoDragEndAll();
+        return;
+      }
+
+      let pos: TodoDropPosition;
+      if (targetId && targetId !== tid) {
+        const tn = findTodoNodeById(treeRef.current, targetId);
+        if (!tn) {
+          todoDragEndAll();
+          return;
+        }
+        const rect = row!.getBoundingClientRect();
+        const over = todoDragOverRef.current;
+        pos =
+          over && over.targetId === targetId
+            ? over.position
+            : pickTodoDropBand(e.clientY, rect.top, rect.height, dn.itemKind, tn.itemKind);
+      } else {
+        const over = todoDragOverRef.current;
+        if (!over || over.targetId === tid) {
+          todoDragEndAll();
+          return;
+        }
+        targetId = over.targetId;
+        pos = over.position;
+      }
+
+      if (!targetId) {
+        todoDragEndAll();
+        return;
+      }
+
+      todoDragDropCommittingRef.current = true;
+      void (async () => {
+        try {
+          await commitTodoTreeDrop(targetId, pos);
+        } finally {
+          todoDragDropCommittingRef.current = false;
+          todoDragEndAll();
+        }
+      })();
+    };
+
+    window.addEventListener('dragover', onMove, true);
+    window.addEventListener('drop', onDrop, true);
+    return () => {
+      window.removeEventListener('dragover', onMove, true);
+      window.removeEventListener('drop', onDrop, true);
+    };
+  }, [todoTreeDragEnabled, commitTodoTreeDrop, todoDragEndAll]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !todoTreeDragEnabled) return;
+    const clear = () => {
+      if (todoDragDropCommittingRef.current) return;
+      if (!todoDraggingIdRef.current) return;
+      todoDragEndAll();
+    };
+    window.addEventListener('dragend', clear);
+    return () => window.removeEventListener('dragend', clear);
+  }, [todoTreeDragEnabled, todoDragEndAll]);
 
   // 初始化/树变化时加载附件（catalog 模式不加载）
   useEffect(() => {
@@ -1816,8 +2410,13 @@ export function TaxFilingTodosView({
 
   const onStartAddChild = useCallback((parentId: string) => {
     if (hideAddTimeoutRef.current) { clearTimeout(hideAddTimeoutRef.current); hideAddTimeoutRef.current = null; }
+    if (hideDragHandleTimeoutRef.current) {
+      clearTimeout(hideDragHandleTimeoutRef.current);
+      hideDragHandleTimeoutRef.current = null;
+    }
     setRowIdShowingAdd(null);
     setAddIconHighlightedRowId(null);
+    setRowIdShowingDragHandle(null);
     setPendingParentId(parentId);
   }, []);
 
@@ -2146,11 +2745,11 @@ export function TaxFilingTodosView({
     );
   }
 
-  return (
+  const todoMainView = (
     <View style={ts.root}>
       <ScrollView style={ts.scroll} contentContainerStyle={ts.scrollContent}>
         <View style={ts.phaseBlocksWrap}>
-          {tree.map((phaseNode, phaseIndex) => (
+          {todoDragListTree.map((phaseNode, phaseIndex) => (
             <View key={phaseNode.id} style={ts.phaseBlock}>
               <TodoTree
                 nodes={[phaseNode]}
@@ -2179,6 +2778,9 @@ export function TaxFilingTodosView({
                 addIconHighlightedRowId={addIconHighlightedRowId}
                 setAddIconHighlightedRowId={setAddIconHighlightedRowId}
                 hideAddTimeoutRef={hideAddTimeoutRef}
+                rowIdShowingDragHandle={rowIdShowingDragHandle}
+                setRowIdShowingDragHandle={setRowIdShowingDragHandle}
+                hideDragHandleTimeoutRef={hideDragHandleTimeoutRef}
                 pendingParentId={pendingParentId}
                 onStartAddChild={catalogPreviewReadOnly ? undefined : onStartAddChild}
                 onConfirmAddChild={catalogPreviewReadOnly ? undefined : onConfirmAddChild}
@@ -2228,6 +2830,179 @@ export function TaxFilingTodosView({
           )}
         </View>
       </ScrollView>
+
+      {Platform.OS === 'web' &&
+        todoDragGhost &&
+        typeof document !== 'undefined' &&
+        createPortal(
+          <div
+            style={{
+              position: 'fixed',
+              left: 0,
+              top: 0,
+              width: todoDragGhost.width,
+              zIndex: 10050,
+              pointerEvents: 'none',
+              transform: `translate(${todoDragGhost.pointerX - todoDragGhost.offsetX}px, ${todoDragGhost.pointerY - todoDragGhost.offsetY}px)`,
+              boxShadow: '0 14px 32px rgba(0,0,0,0.2)',
+              borderRadius: 10,
+              overflow: 'hidden',
+              background: '#fff',
+              border: '1px solid rgba(0,0,0,0.1)',
+              boxSizing: 'border-box',
+              paddingLeft: 4,
+              paddingRight: 12,
+            }}
+          >
+            {todoDragGhost.rows.map((row, i) => (
+              <div
+                key={`${row.wbs}-${row.title}-${i}`}
+                style={{
+                  height: TODO_DRAG_GHOST_ROW_HEIGHT,
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  boxSizing: 'border-box',
+                  background: i % 2 === 0 ? '#FFFFFF' : '#F8F9FA',
+                  borderTop: i > 0 ? '1px solid #F3F4F6' : undefined,
+                }}
+              >
+                <div
+                  style={{
+                    width: TODO_DRAG_HANDLE_SLOT_WIDTH,
+                    marginRight: 2,
+                    flexShrink: 0,
+                  }}
+                />
+                <div
+                  style={{
+                    width: TODO_DRAG_GHOST_SPINE_BASE + row.renderDepth * TODO_DRAG_GHOST_INDENT_UNIT,
+                    flexShrink: 0,
+                  }}
+                />
+                <div style={{ width: TODO_DRAG_GHOST_CHEVRON_COL_W, flexShrink: 0 }} />
+                <div
+                  style={{
+                    width: TODO_DRAG_GHOST_WBS_COL_W,
+                    marginRight: TODO_DRAG_GHOST_WBS_COL_MR,
+                    flexShrink: 0,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-start',
+                    alignSelf: 'stretch',
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: '#95A5A6',
+                      fontWeight: 500,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      maxWidth: '100%',
+                      fontFamily:
+                        '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+                    }}
+                  >
+                    {row.wbs}
+                  </span>
+                </div>
+                {(() => {
+                  const titleTierStyle =
+                    row.renderDepth === 0
+                      ? ts.treeTitleL0
+                      : row.renderDepth === 1
+                        ? ts.treeTitleL1
+                        : ts.treeTitleL2;
+                  const titleFlat = StyleSheet.flatten([
+                    ts.treeTitleAdaptive,
+                    titleTierStyle,
+                    row.itemKind === 'task' && row.status === 'canceled' && ts.treeTitleCanceled,
+                    row.nodeIsBlocked && { color: '#B2BEC3' },
+                  ]) as Record<string, string | number | undefined>;
+                  const showRoleBadge =
+                    row.itemKind === 'task' && row.status !== 'canceled' && row.responsibleSide != null;
+                  const showLock =
+                    row.nodeIsBlocked && (row.renderDepth === 0 || row.renderDepth === 1);
+                  return (
+                    <div
+                      style={{
+                        flex: 1,
+                        minWidth: 0,
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                      }}
+                    >
+                      {showRoleBadge ? (
+                        <span
+                          style={{
+                            alignSelf: 'center',
+                            minWidth: 52,
+                            height: 20,
+                            paddingLeft: 8,
+                            paddingRight: 8,
+                            boxSizing: 'border-box',
+                            borderRadius: 10,
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            marginRight: 4,
+                            flexShrink: 0,
+                            backgroundColor: row.nodeIsBlocked
+                              ? 'rgba(149, 165, 166, 0.35)'
+                              : row.responsibleSide === 'firm'
+                                ? 'rgba(162, 155, 254, 0.2)'
+                                : 'rgba(116, 185, 255, 0.25)',
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 9,
+                              fontWeight: 700,
+                              color: '#636E72',
+                              letterSpacing: 0.3,
+                              textTransform: 'uppercase',
+                              textAlign: 'center',
+                              fontFamily:
+                                '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+                            }}
+                          >
+                            {row.responsibleSide === 'firm' ? 'Firm' : 'Client'}
+                          </span>
+                        </span>
+                      ) : null}
+                      {showLock ? (
+                        <Ionicons
+                          name="lock-closed-outline"
+                          size={11}
+                          color="#B2BEC3"
+                          style={{ marginRight: 5, marginTop: 1 }}
+                        />
+                      ) : null}
+                      <span
+                        style={{
+                          ...titleFlat,
+                          flex: 1,
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          fontFamily:
+                            '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+                        }}
+                      >
+                        {row.title}
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+            ))}
+          </div>,
+          document.body,
+        )}
 
       {/* 点击文件行：大浮窗展示文件（左侧缩略图，右侧识别内容） */}
       {selectedFileForModal && (() => {
@@ -2555,6 +3330,11 @@ export function TaxFilingTodosView({
       )}
     </View>
   );
+
+  if (todoDragContextValue) {
+    return <TodoDragContext.Provider value={todoDragContextValue}>{todoMainView}</TodoDragContext.Provider>;
+  }
+  return todoMainView;
 }
 
 // ──────────────────────────────────────────────────

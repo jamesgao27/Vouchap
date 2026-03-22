@@ -26,6 +26,7 @@ import {
   deleteSkuItem,
   updateSkuItemDependsOn,
   deleteFirmSku,
+  applySkuItemsTreeOrder,
   type ProjectTodoNode,
 } from '@/lib/firm';
 import type { FirmSku, FirmSkuItem } from '@/types';
@@ -611,6 +612,7 @@ export default function FirmSkuDetailScreen() {
           tree={skuItemsToProjectTodoTree(items)}
           viewerRole="firm"
           onRefresh={async () => { await load(); setTodosDirty(false); }}
+          onTodoTreeOrderSaved={() => {}}
           createProjectTodo={async (params) => {
             const parentId = params.parentId ?? null;
             const { id, error: err } = await createSkuItem({
@@ -681,6 +683,33 @@ export default function FirmSkuDetailScreen() {
               { confirmLabel: 'Delete' }
             );
           }}
+          persistTodoTreeOrder={
+            Platform.OS === 'web' && skuId
+              ? async (roots) => {
+                  const { error } = await applySkuItemsTreeOrder(skuId as string, roots);
+                  if (!error) {
+                    setItems((prev) => {
+                      const byId = new Map(prev.map((it) => [it.id, it]));
+                      const next: FirmSkuItem[] = [];
+                      const walk = (nodes: ProjectTodoNode[], parentId: string | null) => {
+                        nodes.forEach((n, idx) => {
+                          const base = byId.get(n.id);
+                          if (base) {
+                            next.push({ ...base, parentId, sortOrder: idx + 1 });
+                            walk(n.children, n.id);
+                          }
+                        });
+                      };
+                      walk(roots, null);
+                      return next;
+                    });
+                    setTodosDirty(true);
+                    markTouched();
+                  }
+                  return { error };
+                }
+              : undefined
+          }
         />
       ) : infoContent}
 

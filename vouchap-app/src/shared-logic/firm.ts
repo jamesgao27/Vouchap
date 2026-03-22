@@ -19,6 +19,7 @@ import type {
   FirmSkuItem,
   FirmTemplate,
 } from '@/types';
+import { renumberTodoTreeSortOrders, type TodoReorderNode } from './todo-tree-reorder';
 
 /** sort_order 为「同 parent 兄弟排序」时，按树深度优先得到展示顺序（用于列表与复制到 project_todos） */
 function sortSkuItemsDepthFirst<
@@ -994,7 +995,7 @@ export async function confirmOrderAndCreateProjectTodos(
           title: row.title,
           description: row.description ?? null,
           status,
-          sort_order: i + 1,
+          sort_order: row.sortOrder,
           item_kind: itemKind,
         })
         .select('id')
@@ -1582,6 +1583,44 @@ export async function changeProjectTodoResponsibleSide(params: {
   if (params.fromSide !== params.toSide) payload.type = params.toSide;
   if (params.newStatus != null) payload.status = params.newStatus;
   return await updateProjectTodo(params.todoId, payload);
+}
+
+/**
+ * 将整棵 project_todos 树的 parent_id 与 sort_order（同级兄弟 1..n）写回数据库。
+ * 用于 Web 拖放排序；roots 可为 moveProjectTodoInTree 调整后的树，本函数内会统一 renumber。
+ */
+export async function applyProjectTodosTreeOrder(
+  orderId: string,
+  roots: ProjectTodoNode[],
+): Promise<{ error: Error | null }> {
+  const projectId = await getProjectIdByOrderId(orderId);
+  if (!projectId) return { error: new Error('Project not found') };
+  const ordered = renumberTodoTreeSortOrders(roots as TodoReorderNode[]) as ProjectTodoNode[];
+
+  const rows: { id: string; parent_id: string | null; sort_order: number }[] = [];
+  function collect(nodes: ProjectTodoNode[], parentId: string | null) {
+    nodes.forEach((n) => {
+      rows.push({ id: n.id, parent_id: parentId, sort_order: n.sortOrder });
+      collect(n.children, n.id);
+    });
+  }
+  collect(ordered, null);
+
+  for (const r of rows) {
+    const { error } = await supabase
+      .from('project_todos')
+      .update({
+        parent_id: r.parent_id,
+        sort_order: r.sort_order,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', r.id)
+      .eq('project_id', projectId);
+    if (error) return { error: new Error(error.message) };
+  }
+
+  await touchFirmOrderUpdatedAt(orderId);
+  return { error: null };
 }
 
 /** 删除项目任务（Phase 1：仅允许叶子节点，即无子节点） */
@@ -2204,6 +2243,37 @@ export async function updateSkuItem(
   return { error: null };
 }
 
+/** 将 sku_items 树的 parent_id 与 sort_order（同级兄弟 1..n）写回 firm.sku_items（Web 拖放用） */
+export async function applySkuItemsTreeOrder(
+  skuId: string,
+  roots: ProjectTodoNode[],
+): Promise<{ error: Error | null }> {
+  const ordered = renumberTodoTreeSortOrders(roots as TodoReorderNode[]) as ProjectTodoNode[];
+  const rows: { id: string; parent_id: string | null; sort_order: number }[] = [];
+  function collect(nodes: ProjectTodoNode[], parentId: string | null) {
+    nodes.forEach((n) => {
+      rows.push({ id: n.id, parent_id: parentId, sort_order: n.sortOrder });
+      collect(n.children, n.id);
+    });
+  }
+  collect(ordered, null);
+
+  for (const r of rows) {
+    const { error } = await supabase
+      .schema('firm')
+      .from('sku_items')
+      .update({
+        parent_id: r.parent_id,
+        sort_order: r.sort_order,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', r.id)
+      .eq('sku_id', skuId);
+    if (error) return { error: new Error(error.message) };
+  }
+  return { error: null };
+}
+
 /** 删除 SKU item（会级联删除子节点，由数据库 ON DELETE CASCADE 保证） */
 export async function deleteSkuItem(itemId: string): Promise<{ error: Error | null }> {
   const { error } = await supabase.schema('firm').from('sku_items').delete().eq('id', itemId);
@@ -2533,3 +2603,10 @@ export async function updateClientTodoStatus(
 ): Promise<{ error: Error | null }> {
   return updateProjectStatus(id, status);
 }
+
+export {
+  moveProjectTodoInTree,
+  renumberTodoTreeSortOrders,
+  findTodoNodeById,
+} from './todo-tree-reorder';
+export type { TodoDropPosition, TodoReorderNode } from './todo-tree-reorder';
