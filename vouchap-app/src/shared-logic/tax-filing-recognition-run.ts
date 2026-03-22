@@ -6,21 +6,19 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { getAvailableImageModel } from './gemini-helper';
+import {
+  getAvailableImageModel,
+  buildGeminiModelOrder,
+  mergeGeminiModelsWithAvailable,
+  inferComplexGeminiContent,
+} from './gemini-helper';
 import {
   buildTaxFilingRecognitionPrompt,
   type TaxFilingProjectContext,
   type TaxFilingTodoContext,
   type TaxFilingTaskListItem,
 } from './tax-filing-recognition-prompt';
-
-const POSSIBLE_MODELS = [
-  'gemini-2.5-flash-lite',
-  'gemini-2.0-flash-lite',
-  'gemini-2.0-flash',
-  'gemini-2.5-flash',
-  'gemini-2.5-pro',
-];
+import { isSpreadsheetMime, spreadsheetBase64ToPlainText } from './spreadsheet-to-text';
 
 /** 下载图片或 PDF/文档为 base64，支持报税附件为文档时走同一套识别 prompt */
 async function downloadFileToBase64(fileUrl: string, mimeHint?: string): Promise<{ base64: string; mimeType: string }> {
@@ -95,20 +93,32 @@ export async function runTaxFilingRecognition(
 
   const prompt = buildTaxFilingRecognitionPrompt({ projectContext, todoContext, taskList, userInstructions });
   const { base64, mimeType } = await downloadFileToBase64(imageUrl, mimeHint);
-  const filePart = { inlineData: { data: base64, mimeType } };
+  const isSheet = isSpreadsheetMime(mimeType, imageUrl);
+  const spreadsheetText = isSheet ? spreadsheetBase64ToPlainText(base64, mimeType, imageUrl) : '';
+  const promptForGemini = isSheet
+    ? `${prompt}\n\n---\nSpreadsheet content (extracted as text):\n${spreadsheetText}`
+    : prompt;
   const genAI = new GoogleGenerativeAI(currentApiKey);
   let availableModel: string | null = null;
   try {
     availableModel = await getAvailableImageModel();
   } catch (_) {}
-  const modelsToTry = availableModel ? [availableModel, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+  const modelsToTry = mergeGeminiModelsWithAvailable(availableModel, buildGeminiModelOrder({
+    preferProAfterFlash: inferComplexGeminiContent({
+      promptTextLength: promptForGemini.length,
+      inlineBase64Length: isSheet ? 0 : base64.length,
+      mimeType: isSheet ? undefined : mimeType,
+    }),
+  }));
   const validTaskIds = taskList ? new Set(taskList.map((t) => t.id)) : undefined;
   let lastError: Error | null = null;
 
   for (const modelName of modelsToTry) {
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent([prompt, filePart]);
+      const result = isSheet
+        ? await model.generateContent(promptForGemini)
+        : await model.generateContent([prompt, { inlineData: { data: base64, mimeType } }]);
       const text = result.response.text();
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON in response');

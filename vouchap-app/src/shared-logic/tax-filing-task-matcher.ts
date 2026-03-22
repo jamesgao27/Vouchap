@@ -6,7 +6,12 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { getAvailableImageModel } from './gemini-helper';
+import {
+  getAvailableImageModel,
+  buildGeminiModelOrder,
+  mergeGeminiModelsWithAvailable,
+  inferComplexGeminiContent,
+} from './gemini-helper';
 
 export interface TaxDocumentTaskMatcherContext {
   /** 报税辖区：CANADA | USA */
@@ -19,14 +24,6 @@ export interface TaxDocumentTaskOption {
   id: string;
   title: string;
 }
-
-const POSSIBLE_MODELS = [
-  'gemini-2.5-flash-lite',
-  'gemini-2.0-flash-lite',
-  'gemini-2.0-flash',
-  'gemini-2.5-flash',
-  'gemini-2.5-pro',
-];
 
 /** Web 上使用 fetch 转 base64；Native 使用 expo-file-system（downloadAsync 在 web 不可用） */
 async function downloadImageToBase64(imageUrl: string): Promise<{ base64: string; mimeType: string }> {
@@ -117,7 +114,13 @@ export async function classifyTaxDocumentAndPickTask(
   try {
     availableModel = await getAvailableImageModel();
   } catch (_) {}
-  const modelsToTry = availableModel ? [availableModel, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+  const modelsToTry = mergeGeminiModelsWithAvailable(availableModel, buildGeminiModelOrder({
+    preferProAfterFlash: inferComplexGeminiContent({
+      promptTextLength: prompt.length,
+      inlineBase64Length: base64.length,
+      mimeType,
+    }),
+  }));
   const validIds = new Set(tasks.map((t) => t.id));
   let lastError: Error | null = null;
 

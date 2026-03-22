@@ -16,10 +16,16 @@ import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as FileSystemNew from 'expo-file-system';
 import { GeminiReceiptResult, GeminiVoucherResult, GeminiInboundOutboundResult, VoucherLogType, ExtractedClient, ClientRecognitionResult } from '@/types';
-import { getAvailableImageModel } from './gemini-helper';
+import {
+  getAvailableImageModel,
+  buildGeminiModelOrder,
+  mergeGeminiModelsWithAvailable,
+  inferComplexGeminiContent,
+} from './gemini-helper';
 import { getMostFrequentCurrency, getCurrenciesByUsage } from './database';
 import { normalizeShortDate, getLocalDateString } from './date-utils';
 import { supabase } from './supabase';
+import { isSpreadsheetMime, spreadsheetBase64ToPlainText } from './spreadsheet-to-text';
 
 // 引用 gemini-helper 中处理好的安全判断逻辑（如果 gemini-helper 导出了 apiKey）
 // 或者直接在此处复制安全获取逻辑：
@@ -34,17 +40,20 @@ const genAI = (apiKey && apiKey !== '')
   ? new GoogleGenerativeAI(apiKey)
   : null;
 
-// 按你后台可用模型与配额排序：优先使用 2.0 Flash / Flash-lite（成本更低，适合结构化 JSON 提取），失败时自动切换下一模型
-const POSSIBLE_MODELS = [
-  'gemini-2.0-flash-lite',   // 20K RPM, 10M TPM（首选：低成本 JSON 抽取）
-  'gemini-2.0-flash',        // 10K RPM, 10M TPM
-  'gemini-2.5-flash-lite',   // 10K RPM, 10M TPM
-  'gemini-2.5-flash',        // 2K RPM, 3M TPM
-  'gemini-3-flash-preview',  // 2K RPM, 3M TPM（Gemini 3 Flash）
-  'gemini-2.5-pro',          // 1K RPM, 5M TPM
-  'gemini-3-pro-preview',    // 1K RPM, 5M TPM（Gemini 3 Pro）
-  'gemini-2.0-flash-exp',    // 10 RPM 兜底
-];
+// 默认尝试顺序：优先 gemini-1.5-flash，复杂场景 gemini-2.5-pro 紧接兜底（1.5-pro 已从 v1 移除），其余为兼容/配额回退
+const POSSIBLE_MODELS = buildGeminiModelOrder();
+
+function geminiModelsToTry(
+  available: string | null | undefined,
+  complexity: { promptTextLength: number; inlineBase64Length?: number; mimeType?: string }
+): string[] {
+  return mergeGeminiModelsWithAvailable(
+    available,
+    buildGeminiModelOrder({
+      preferProAfterFlash: inferComplexGeminiContent(complexity),
+    })
+  );
+}
 
 // 动态获取可用模型的缓存
 let availableModelCache: string | null = null;
@@ -178,9 +187,6 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
     }
   }
 
-  // 如果找到了可用模型，优先使用它
-  const modelsToTry = availableModelCache ? [availableModelCache, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
-
   // 支出：获取支出分类与用途，分别提交模型
   let categoryNames: string[] = [];
   try {
@@ -286,6 +292,12 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
   }
 
   console.log('Image downloaded, size:', base64.length, 'bytes, mime type:', mimeType);
+
+  const modelsToTry = geminiModelsToTry(availableModelCache, {
+    promptTextLength: prompt.length,
+    inlineBase64Length: base64.length,
+    mimeType,
+  });
 
   // 使用 base64 图片数据
   const imagePart = {
@@ -544,7 +556,6 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
       availableModelCache = await getAvailableImageModel() ?? null;
     } catch (_) {}
   }
-  const modelsToTry = availableModelCache ? [availableModelCache, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
 
   let categoryNames: string[] = [];
   try {
@@ -568,7 +579,7 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
 
   let supplierNamesImg: string[] = [];
   try {
-    const entities = await getEntityOptions('expense');
+    const entities = await getEntityOptions();
     supplierNamesImg = entities.map(e => e.name);
   } catch (_) {}
 
@@ -602,7 +613,17 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
   const prompt = RECEIPT_DOCUMENT_PARSE_INTRO + extractionRules;
 
   const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
+  if (isSpreadsheetMime(mimeType, fileUrl)) {
+    const plain = spreadsheetBase64ToPlainText(base64, mimeType, fileUrl);
+    return recognizeReceiptFromText(plain);
+  }
   const filePart = { inlineData: { data: base64, mimeType } };
+
+  const modelsToTry = geminiModelsToTry(availableModelCache, {
+    promptTextLength: prompt.length,
+    inlineBase64Length: base64.length,
+    mimeType,
+  });
 
   const defaultCategory = categoryNames.length > 0 ? categoryNames[0] : 'Meal';
   let lastError: Error | null = null;
@@ -790,8 +811,11 @@ Return ONLY valid JSON format without any extra text:
       },
     };
 
-    // 尝试使用可用的模型
-    const modelsToTry = availableModelCache ? [availableModelCache, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+    const modelsToTry = geminiModelsToTry(availableModelCache, {
+      promptTextLength: prompt.length,
+      inlineBase64Length: base64.length,
+      mimeType,
+    });
 
     for (const modelName of modelsToTry) {
       try {
@@ -933,10 +957,7 @@ User text:
       console.warn('⚠️  Could not fetch available models from API:', error);
     }
 
-    // 尝试使用模型（优先使用从 API 获取的模型）
-    const modelsToTry = availableModel
-      ? [availableModel, ...POSSIBLE_MODELS]
-      : POSSIBLE_MODELS;
+    const modelsToTry = geminiModelsToTry(availableModel, { promptTextLength: prompt.length });
 
     let lastError: Error | null = null;
 
@@ -1202,10 +1223,11 @@ Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymen
       console.warn('⚠️  Could not fetch available models from API:', error);
     }
 
-    // 尝试使用支持音频的模型（优先使用从 API 获取的模型）
-    const modelsToTry = availableModel
-      ? [availableModel, ...POSSIBLE_MODELS]
-      : POSSIBLE_MODELS;
+    const modelsToTry = geminiModelsToTry(availableModel, {
+      promptTextLength: prompt.length,
+      inlineBase64Length: audioBase64.length,
+      mimeType,
+    });
 
     let lastError: Error | null = null;
 
@@ -1377,7 +1399,7 @@ User input:
   try {
     availableModel = await getAvailableImageModel();
   } catch {}
-  const modelsToTry = availableModel ? [availableModel, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+  const modelsToTry = geminiModelsToTry(availableModel, { promptTextLength: prompt.length });
   let lastError: Error | null = null;
 
   for (const modelName of modelsToTry) {
@@ -1468,13 +1490,21 @@ Output: customerName, date, totalAmount, currency, paymentAccountName (optional)
 
   const prompt = INVOICE_DOCUMENT_PARSE_INTRO + rulesAndData;
   const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
+  if (isSpreadsheetMime(mimeType, fileUrl)) {
+    const plain = spreadsheetBase64ToPlainText(base64, mimeType, fileUrl);
+    return recognizeInvoiceFromText(plain);
+  }
   const filePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
   let availableModel: string | null = null;
   try {
     availableModel = await getAvailableImageModel();
   } catch {}
-  const modelsToTry = availableModel ? [availableModel, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+  const modelsToTry = geminiModelsToTry(availableModel, {
+    promptTextLength: prompt.length,
+    inlineBase64Length: base64.length,
+    mimeType,
+  });
   let lastError: Error | null = null;
   for (const modelName of modelsToTry) {
     try {
@@ -1582,7 +1612,11 @@ Data: today=${today}. Customers [${customerListAudio || 'None'}]. Currencies [${
   try {
     availableModel = await getAvailableImageModel();
   } catch {}
-  const modelsToTry = availableModel ? [availableModel, ...POSSIBLE_MODELS] : POSSIBLE_MODELS;
+  const modelsToTry = geminiModelsToTry(availableModel, {
+    promptTextLength: prompt.length,
+    inlineBase64Length: audioBase64.length,
+    mimeType: 'audio/m4a',
+  });
   let lastError: Error | null = null;
 
   for (const modelName of modelsToTry) {
@@ -1621,17 +1655,6 @@ Data: today=${today}. Customers [${customerListAudio || 'None'}]. Currencies [${
 }
 
 // ---------- 入库/出库识别（另一套 prompt：货物流，明细为 数量+单位+单价） ----------
-
-const INBOUND_OUTBOUND_POSSIBLE_MODELS = [
-  'gemini-2.0-flash-lite',
-  'gemini-2.5-flash-lite',
-  'gemini-2.0-flash',
-  'gemini-2.5-flash',
-  'gemini-3-flash-preview',
-  'gemini-2.5-pro',
-  'gemini-3-pro-preview',
-  'gemini-2.0-flash-exp',
-];
 
 const INBOUND_JSON_EXAMPLE = (today: string) => `{
   "documentNo": "CK-06072",
@@ -1708,8 +1731,9 @@ User input:
 "${text}"`;
 
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  const modelsToTry = geminiModelsToTry(null, { promptTextLength: prompt.length });
   let lastError: Error | null = null;
-  for (const modelName of INBOUND_OUTBOUND_POSSIBLE_MODELS) {
+  for (const modelName of modelsToTry) {
     try {
       const model = currentGenAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent(prompt);
@@ -1856,8 +1880,9 @@ User input:
 "${text}"`;
 
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  const modelsToTry = geminiModelsToTry(null, { promptTextLength: prompt.length });
   let lastError: Error | null = null;
-  for (const modelName of INBOUND_OUTBOUND_POSSIBLE_MODELS) {
+  for (const modelName of modelsToTry) {
     try {
       const model = currentGenAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent(prompt);
@@ -1892,8 +1917,13 @@ async function transcribeAudioToText(audioUri: string): Promise<string> {
   const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
   const prompt = 'Transcribe this audio to plain text. Output only the transcribed text, no JSON, no explanation.';
+  const modelsToTry = geminiModelsToTry(null, {
+    promptTextLength: prompt.length,
+    inlineBase64Length: audioBase64.length,
+    mimeType: 'audio/m4a',
+  });
   let lastError: Error | null = null;
-  for (const modelName of INBOUND_OUTBOUND_POSSIBLE_MODELS) {
+  for (const modelName of modelsToTry) {
     try {
       const model = currentGenAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent([
@@ -1968,7 +1998,11 @@ ${INBOUND_JSON_EXAMPLE(today)}`;
   try {
     availableModel = await getAvailableImageModel();
   } catch (_) {}
-  const modelsToTry = availableModel ? [availableModel, ...INBOUND_OUTBOUND_POSSIBLE_MODELS] : INBOUND_OUTBOUND_POSSIBLE_MODELS;
+  const modelsToTry = geminiModelsToTry(availableModel, {
+    promptTextLength: prompt.length,
+    inlineBase64Length: base64.length,
+    mimeType,
+  });
   let lastError: Error | null = null;
   for (const modelName of modelsToTry) {
     try {
@@ -2020,7 +2054,11 @@ ${OUTBOUND_JSON_EXAMPLE(today)}`;
   try {
     availableModel = await getAvailableImageModel();
   } catch (_) {}
-  const modelsToTry = availableModel ? [availableModel, ...INBOUND_OUTBOUND_POSSIBLE_MODELS] : INBOUND_OUTBOUND_POSSIBLE_MODELS;
+  const modelsToTry = geminiModelsToTry(availableModel, {
+    promptTextLength: prompt.length,
+    inlineBase64Length: base64.length,
+    mimeType,
+  });
   let lastError: Error | null = null;
   for (const modelName of modelsToTry) {
     try {
@@ -2065,13 +2103,21 @@ ${INBOUND_JSON_EXAMPLE(today)}`;
   const prompt = INBOUND_DOCUMENT_PARSE_INTRO + rulesAndExample;
 
   const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
+  if (isSpreadsheetMime(mimeType, fileUrl)) {
+    const plain = spreadsheetBase64ToPlainText(base64, mimeType, fileUrl);
+    return recognizeInboundFromText(plain);
+  }
   const filePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
   let availableModel: string | null = null;
   try {
     availableModel = await getAvailableImageModel();
   } catch (_) {}
-  const modelsToTry = availableModel ? [availableModel, ...INBOUND_OUTBOUND_POSSIBLE_MODELS] : INBOUND_OUTBOUND_POSSIBLE_MODELS;
+  const modelsToTry = geminiModelsToTry(availableModel, {
+    promptTextLength: prompt.length,
+    inlineBase64Length: base64.length,
+    mimeType,
+  });
   let lastError: Error | null = null;
   for (const modelName of modelsToTry) {
     try {
@@ -2153,8 +2199,9 @@ export async function recognizeClientsFromText(text: string): Promise<ClientReco
   }
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
   const prompt = `${CLIENT_EXTRACTION_PROMPT}\n\nContent to parse:\n${text}`;
+  const modelsToTry = geminiModelsToTry(null, { promptTextLength: prompt.length });
   let lastError: Error | null = null;
-  for (const modelName of INBOUND_OUTBOUND_POSSIBLE_MODELS) {
+  for (const modelName of modelsToTry) {
     try {
       const model = currentGenAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent(prompt);
@@ -2181,13 +2228,21 @@ export async function recognizeClientsFromDocument(fileUrl: string, mimeHint?: s
     throw err;
   }
   const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
+  if (isSpreadsheetMime(mimeType, fileUrl)) {
+    const plain = spreadsheetBase64ToPlainText(base64, mimeType, fileUrl);
+    return recognizeClientsFromText(plain);
+  }
   const filePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
   let availableModel: string | null = null;
   try {
     availableModel = await getAvailableImageModel();
   } catch (_) {}
-  const modelsToTry = availableModel ? [availableModel, ...INBOUND_OUTBOUND_POSSIBLE_MODELS] : INBOUND_OUTBOUND_POSSIBLE_MODELS;
+  const modelsToTry = geminiModelsToTry(availableModel, {
+    promptTextLength: CLIENT_EXTRACTION_PROMPT.length,
+    inlineBase64Length: base64.length,
+    mimeType,
+  });
   let lastError: Error | null = null;
   for (const modelName of modelsToTry) {
     try {
@@ -2231,13 +2286,21 @@ ${OUTBOUND_JSON_EXAMPLE(today)}`;
   const prompt = OUTBOUND_DOCUMENT_PARSE_INTRO + rulesAndExample;
 
   const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
+  if (isSpreadsheetMime(mimeType, fileUrl)) {
+    const plain = spreadsheetBase64ToPlainText(base64, mimeType, fileUrl);
+    return recognizeOutboundFromText(plain);
+  }
   const filePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
   let availableModel: string | null = null;
   try {
     availableModel = await getAvailableImageModel();
   } catch (_) {}
-  const modelsToTry = availableModel ? [availableModel, ...INBOUND_OUTBOUND_POSSIBLE_MODELS] : INBOUND_OUTBOUND_POSSIBLE_MODELS;
+  const modelsToTry = geminiModelsToTry(availableModel, {
+    promptTextLength: prompt.length,
+    inlineBase64Length: base64.length,
+    mimeType,
+  });
   let lastError: Error | null = null;
   for (const modelName of modelsToTry) {
     try {

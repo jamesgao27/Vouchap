@@ -68,9 +68,71 @@ export async function listAvailableModels() {
   }
 }
 
-// 获取支持图像/音频输入的第一个可用模型（Gemini 1.5 已弃用，优先 2.0/2.5）
+/** 应用内默认：成本优先用 1.5 Flash；复杂场景由 gemini-2.5-pro 兜底（gemini-1.5-pro 已从 v1 generateContent 移除） */
+export const GEMINI_PRIMARY_MODEL = 'gemini-1.5-flash' as const;
+export const GEMINI_PRO_FALLBACK_MODEL = 'gemini-2.5-pro' as const;
+
+const LONG_PROMPT_CHARS = 10_000;
+const LARGE_INLINE_BASE64 = 800_000;
+
+/** 判断当前请求是否更适合先尝试 Pro（长 prompt、大附件、PDF 等） */
+export function inferComplexGeminiContent(args: {
+  promptTextLength?: number;
+  inlineBase64Length?: number;
+  mimeType?: string;
+}): boolean {
+  const promptTextLength = args.promptTextLength ?? 0;
+  const inlineBase64Length = args.inlineBase64Length ?? 0;
+  const { mimeType } = args;
+  if (promptTextLength >= LONG_PROMPT_CHARS) return true;
+  if (inlineBase64Length >= LARGE_INLINE_BASE64) return true;
+  if (mimeType === 'application/pdf') return true;
+  return false;
+}
+
+/** 其余模型：新系列 Flash 优先；不含 GEMINI_PRO_FALLBACK_MODEL（由 buildGeminiModelOrder 单独插入） */
+const GEMINI_MODEL_TAIL = [
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-2.5-flash',
+  'gemini-3-flash-preview',
+  'gemini-3-pro-preview',
+] as const;
+
+/**
+ * 统一模型尝试顺序：默认 gemini-1.5-flash 优先，复杂时 gemini-2.5-pro 紧接兜底，否则 Pro 在队尾。
+ */
+export function buildGeminiModelOrder(opts?: { preferProAfterFlash?: boolean }): string[] {
+  const primary = GEMINI_PRIMARY_MODEL;
+  const pro = GEMINI_PRO_FALLBACK_MODEL;
+  const tail = [...GEMINI_MODEL_TAIL];
+  if (opts?.preferProAfterFlash) {
+    return [primary, pro, ...tail];
+  }
+  return [primary, ...tail, pro];
+}
+
+/** API 探测到的可用模型优先，再与静态顺序合并去重 */
+export function mergeGeminiModelsWithAvailable(
+  available: string | null | undefined,
+  ordered: readonly string[]
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (m: string) => {
+    if (!m || seen.has(m)) return;
+    seen.add(m);
+    out.push(m);
+  };
+  if (available) push(available);
+  for (const m of ordered) push(m);
+  return out;
+}
+
+// 获取支持图像/音频输入的第一个可用模型（应用内优先 1.5 Flash，与 buildGeminiModelOrder 一致）
 export async function getAvailableImageModel(): Promise<string | null> {
-  const FALLBACK_MODEL = 'gemini-2.0-flash';
+  const FALLBACK_MODEL = GEMINI_PRIMARY_MODEL;
 
   try {
     if (!apiKey) return null;
@@ -82,16 +144,15 @@ export async function getAvailableImageModel(): Promise<string | null> {
       m.supportedGenerationMethods.includes('generateContent')
     );
     
-    // 与后台可用模型一致，按配额优先（高 RPM 优先）
     const preferredModels = [
+      GEMINI_PRIMARY_MODEL,
       'gemini-2.5-flash-lite',
       'gemini-2.0-flash-lite',
       'gemini-2.0-flash',
       'gemini-2.5-flash',
       'gemini-3-flash-preview',
-      'gemini-2.5-pro',
+      GEMINI_PRO_FALLBACK_MODEL,
       'gemini-3-pro-preview',
-      'gemini-2.0-flash-exp',
     ];
     
     for (const preferred of preferredModels) {

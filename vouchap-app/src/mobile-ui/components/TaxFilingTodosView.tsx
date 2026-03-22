@@ -101,7 +101,18 @@ function setTodoTreeTransparentDragImage(dt: DataTransfer) {
     c.height = 1;
     todoDragBlankCanvas = c;
   }
-  dt.setDragImage(todoDragBlankCanvas, 0, 0);
+  try {
+    const c = todoDragBlankCanvas;
+    // Safari：部分版本要求 setDragImage 所用节点在 document 内，否则拖放链可能异常
+    if (c.parentNode !== document.body) {
+      c.setAttribute('aria-hidden', 'true');
+      c.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;opacity:0;pointer-events:none';
+      document.body.appendChild(c);
+    }
+    dt.setDragImage(c, 0, 0);
+  } catch {
+    /* Safari 旧版对 canvas drag image 偶发抛错，忽略后仍可用默认幽灵图 */
+  }
 }
 
 /** Web：canvas 测量，字重/字号与 Todo 标题行一致 */
@@ -1611,6 +1622,8 @@ function TodoTree({
                   cursor: 'grab',
                   flexShrink: 0,
                   userSelect: 'none',
+                  // Safari：子节点（SVG）会干扰原生 drag；配合内层 WebkitUserDrag:none 使用
+                  WebkitUserDrag: 'element',
                 }}
                 draggable
                 onDragStart={(e: WebDragEvent<HTMLDivElement>) => {
@@ -1656,7 +1669,17 @@ function TodoTree({
                   }
                 }}
               >
-                <Ionicons name="swap-vertical-outline" size={17} color="#95A5A6" />
+                <span
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    pointerEvents: 'none',
+                    WebkitUserDrag: 'none',
+                  }}
+                >
+                  <Ionicons name="swap-vertical-outline" size={17} color="#95A5A6" />
+                </span>
               </div>
             ) : (
               <View style={{ width: TODO_DRAG_HANDLE_SLOT_WIDTH, marginRight: 2, flexShrink: 0 }} />
@@ -2532,6 +2555,10 @@ export function TaxFilingTodosView({
     const onMove = (e: DragEvent) => {
       if (!todoDraggingIdRef.current) return;
       e.preventDefault();
+      // Safari / Firefox：必须与 dragstart 的 effectAllowed 一致，否则 drop 不触发或光标错误
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'move';
+      }
       setTodoDragGhost((g) => (g ? { ...g, pointerX: e.clientX, pointerY: e.clientY } : g));
 
       const el = document.elementFromPoint(e.clientX, e.clientY);
@@ -2603,9 +2630,19 @@ export function TaxFilingTodosView({
       })();
     };
 
+    const onDragEnterWindow = (e: DragEvent) => {
+      if (!todoDraggingIdRef.current) return;
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = 'move';
+      }
+    };
+
+    window.addEventListener('dragenter', onDragEnterWindow, true);
     window.addEventListener('dragover', onMove, true);
     window.addEventListener('drop', onDrop, true);
     return () => {
+      window.removeEventListener('dragenter', onDragEnterWindow, true);
       window.removeEventListener('dragover', onMove, true);
       window.removeEventListener('drop', onDrop, true);
     };

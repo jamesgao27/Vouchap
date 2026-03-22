@@ -31,6 +31,7 @@ import {
   getFirmSpaceMembers,
   updateFirmClientAssignee,
 } from '@/lib/firm';
+import FirmAddClientModal from '@/components/FirmAddClientModal';
 import type { FirmClientWithDetails, FirmSku, FirmSpaceMember } from '@/lib/firm';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
 import DataTable, { type DataTableColumn, WEB_POPOVER } from '@/components/DataTable';
@@ -38,8 +39,6 @@ import QRCode from 'react-native-qrcode-svg';
 import {
   buildFirmClientInviteUrl,
   createFirmClientInviteToken,
-  createPendingOrderForInvitee,
-  createInviteeOnly,
   getFirmClientInviteHistory,
   setFirmClientInviteActive,
   deleteFirmClientInviteToken,
@@ -232,17 +231,7 @@ export default function FirmClientsScreen() {
   const [assignSaving, setAssignSaving] = useState(false);
   const [isFirmAdmin, setIsFirmAdmin] = useState(false);
   const qrRef = useRef<any | null>(null);
-  // Add client (on-behalf) modal
   const [showAddClientModal, setShowAddClientModal] = useState(false);
-  const [addClientClientName, setAddClientClientName] = useState('');
-  const [addClientContactName, setAddClientContactName] = useState('');
-  const [addClientContactEmail, setAddClientContactEmail] = useState('');
-  const [addClientSkuId, setAddClientSkuId] = useState<string | null>(null);
-  const [addClientSendInvite, setAddClientSendInvite] = useState(true);
-  const [addClientSubmitting, setAddClientSubmitting] = useState(false);
-  const [addClientError, setAddClientError] = useState<string | null>(null);
-  const [showAddClientSkuMenu, setShowAddClientSkuMenu] = useState(false);
-  const [addClientSelectRect, setAddClientSelectRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
   const clientColumns = useMemo(() => getClientColumns(), []);
 
@@ -268,35 +257,6 @@ export default function FirmClientsScreen() {
     }
     setGroupPopoverRect(null);
   }, [showGroupMenu]);
-
-  // Web: 计算 Add client 表单中 Service template 选单的全局位置，用于浮层选单（避免被 ScrollView 裁剪）
-  useLayoutEffect(() => {
-    if (Platform.OS !== 'web') return;
-    if (!showAddClientSkuMenu) {
-      setAddClientSelectRect(null);
-      return;
-    }
-    const measure = () => {
-      const el = document.getElementById('add-client-template-select');
-      if (el) {
-        const r = el.getBoundingClientRect();
-        setAddClientSelectRect({
-          left: r.left,
-          top: r.top,
-          width: r.width,
-          height: r.height,
-        });
-      } else {
-        setAddClientSelectRect(null);
-      }
-    };
-    measure();
-    const t = requestAnimationFrame(measure);
-    return () => {
-      cancelAnimationFrame(t);
-      setAddClientSelectRect(null);
-    };
-  }, [showAddClientSkuMenu]);
 
   // Web: 点击浮窗外关闭（仅分组下拉；邀请使用 CenterModal 自带遮罩）
   useEffect(() => {
@@ -724,74 +684,12 @@ export default function FirmClientsScreen() {
     }
   }, [inviteFromHistory]);
 
-  const handleOpenAddClientModal = useCallback(async () => {
+  const handleOpenAddClientModal = useCallback(() => {
     setShowAddClientModal(true);
-    setAddClientError(null);
-    setAddClientClientName('');
-    setAddClientContactName('');
-    setAddClientContactEmail('');
-    setAddClientSkuId(null);
-    setAddClientSendInvite(true);
-    if (firmSpaceId && inviteSkus.length === 0) {
-      const all = await getFirmSkus(firmSpaceId);
-      const skus = all.filter(
-        (s) => (s.templateStatus != null ? s.templateStatus !== 'draft' : (s.isPublished === true || !!s.taxCountry || !!s.taxScenario))
-      );
-      setInviteSkus(skus);
-      setAddClientSkuId(skus.length > 0 ? skus[0].id : null);
-    } else {
-      setAddClientSkuId(inviteSkus.length > 0 ? inviteSkus[0].id : null);
-    }
-  }, [firmSpaceId, inviteSkus.length, inviteSkus]);
+  }, []);
   const handleCloseAddClientModal = useCallback(() => {
     setShowAddClientModal(false);
-    setAddClientError(null);
-    setShowAddClientSkuMenu(false);
   }, []);
-  const handleAddClientSubmit = useCallback(async () => {
-    if (!firmSpaceId) return;
-    const email = (addClientContactEmail || '').trim().toLowerCase();
-    if (!email) {
-      setAddClientError('Contact email is required to let the client claim this engagement later.');
-      return;
-    }
-    setAddClientSubmitting(true);
-    setAddClientError(null);
-    const hasTemplate = !!addClientSkuId;
-    let error: Error | null = null;
-    if (hasTemplate) {
-      const { error: pendingError } = await createPendingOrderForInvitee(firmSpaceId, {
-        clientName: addClientClientName.trim(),
-        contactName: addClientContactName.trim(),
-        contactEmail: email,
-        skuId: (addClientSkuId ?? '') as string,
-      });
-      error = pendingError;
-    } else {
-      const { error: inviteeError } = await createInviteeOnly(firmSpaceId, {
-        clientName: addClientClientName.trim(),
-        contactName: addClientContactName.trim(),
-        contactEmail: email,
-      });
-      error = inviteeError;
-    }
-    setAddClientSubmitting(false);
-    if (error) {
-      setAddClientError(error.message);
-      return;
-    }
-    showToast(
-      hasTemplate ? 'Pending engagement created.' : 'Client saved. They can link their space when they sign in.',
-      'success'
-    );
-    setShowAddClientModal(false);
-    setAddClientClientName('');
-    setAddClientContactName('');
-    setAddClientContactEmail('');
-    setAddClientSkuId(inviteSkus.length > 0 ? inviteSkus[0].id : null);
-    setAddClientSendInvite(true);
-    await loadData(true);
-  }, [firmSpaceId, addClientClientName, addClientContactName, addClientContactEmail, addClientSkuId, inviteSkus, loadData]);
 
   const renderMobileList = () => (
     <View style={styles.container}>
@@ -1446,78 +1344,6 @@ export default function FirmClientsScreen() {
           </View>
         </View>
       </CenterModal>
-      {Platform.OS === 'web' &&
-        showAddClientSkuMenu &&
-        addClientSelectRect &&
-        typeof document !== 'undefined' &&
-        document.body &&
-        createPortal(
-          <div
-            style={{
-              position: 'absolute',
-              left: addClientSelectRect.left,
-              top: addClientSelectRect.top + addClientSelectRect.height + 4,
-              width: addClientSelectRect.width,
-              zIndex: 99999,
-            }}
-          >
-            <View style={styles.addClientSelectDropdown}>
-              <ScrollView
-                style={styles.addClientSelectDropdownScroll}
-                contentContainerStyle={styles.addClientSelectDropdownContent}
-                nestedScrollEnabled
-              >
-                <TouchableOpacity
-                  key="__none__"
-                  style={[
-                    styles.addClientSelectOption,
-                    !addClientSkuId && styles.addClientSelectOptionSelected,
-                  ]}
-                  onPress={() => {
-                    setAddClientSkuId(null);
-                    setShowAddClientSkuMenu(false);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.addClientSelectOptionTitle,
-                      !addClientSkuId && styles.addClientSelectOptionTitleSelected,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    Create client only (no template)
-                  </Text>
-                </TouchableOpacity>
-                {inviteSkus.map((sku) => (
-                  <TouchableOpacity
-                    key={sku.id}
-                    style={[
-                      styles.addClientSelectOption,
-                      addClientSkuId === sku.id && styles.addClientSelectOptionSelected,
-                    ]}
-                    onPress={() => {
-                      setAddClientSkuId(sku.id);
-                      setShowAddClientSkuMenu(false);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text
-                      style={[
-                        styles.addClientSelectOptionTitle,
-                        addClientSkuId === sku.id && styles.addClientSelectOptionTitleSelected,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {sku.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          </div>,
-          document.body
-        )}
       <CenterModal
         visible={showInviteHistory}
         title="Open invite"
@@ -1538,215 +1364,17 @@ export default function FirmClientsScreen() {
           onCreateNewFromHistory={handleCreateNewFromHistory}
         />
       </CenterModal>
-      <CenterModal
+      <FirmAddClientModal
         visible={showAddClientModal}
-        title="Add client"
         onClose={handleCloseAddClientModal}
-        maxWidth={840}
-        cardHeight={660}
-      >
-        <View style={styles.addClientFormRow}>
-          {/* Left: form & actions (scrollable) */}
-          <ScrollView
-            style={styles.addClientFormScroll}
-            contentContainerStyle={styles.addClientFormScrollContent}
-            showsVerticalScrollIndicator={false}
-          >
-            <Text style={styles.addClientSubtitle}>
-              Add a client and create a service engagement.{'\n'}You can invite clients to sign up and collaborate, {'\n'}AI Cody can batch process your clients info later.
-            </Text>
-            <View style={styles.addClientLeft}>
-              <View style={[styles.addClientField, { marginTop: 8 }]}>
-                <Text style={styles.addClientLabel}>Client name</Text>
-                <TextInput
-                  style={styles.addClientInput}
-                  placeholder="Company or client name"
-                  placeholderTextColor="#95A5A6"
-                  value={addClientClientName}
-                  onChangeText={setAddClientClientName}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              </View>
-              <View style={styles.addClientField}>
-                <Text style={styles.addClientLabel}>Contact name</Text>
-                <TextInput
-                  style={styles.addClientInput}
-                  placeholder="Contact person name"
-                  placeholderTextColor="#95A5A6"
-                  value={addClientContactName}
-                  onChangeText={setAddClientContactName}
-                  autoCapitalize="words"
-                />
-              </View>
-              <View style={styles.addClientField}>
-                <Text style={styles.addClientLabel}>Contact email *</Text>
-                <TextInput
-                  style={styles.addClientInput}
-                  placeholder="email@example.com"
-                  placeholderTextColor="#95A5A6"
-                  value={addClientContactEmail}
-                  onChangeText={setAddClientContactEmail}
-                  keyboardType="email-address"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                />
-              </View>
-              <View style={styles.addClientField}>
-                <Text style={styles.addClientLabel}>Service template</Text>
-                {inviteSkus.length === 0 ? (
-                  <View style={[styles.addClientSelect, styles.addClientSelectDisabled]}>
-                    <Text style={styles.addClientSelectPlaceholder}>
-                      Configure Service Catalog in the Firm module first.
-                    </Text>
-                  </View>
-                ) : (
-                  <View
-                    style={[
-                      styles.addClientSelectWrapper,
-                      showAddClientSkuMenu && Platform.OS !== 'web' && styles.addClientSelectWrapperMenuOpen,
-                    ]}
-                    {...(Platform.OS === 'web' ? { nativeID: 'add-client-template-select' } : {})}
-                  >
-                    <TouchableOpacity
-                      style={styles.addClientSelect}
-                      onPress={() => setShowAddClientSkuMenu((v) => !v)}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={styles.addClientSelectText} numberOfLines={1}>
-                        {addClientSkuId
-                          ? inviteSkus.find((s) => s.id === addClientSkuId)?.name ?? 'Select a service template'
-                          : 'Create client only (no template)'}
-                      </Text>
-                      <Ionicons
-                        name={showAddClientSkuMenu ? 'chevron-up' : 'chevron-down'}
-                        size={18}
-                        color="#636E72"
-                      />
-                    </TouchableOpacity>
-                    {showAddClientSkuMenu && Platform.OS !== 'web' && (
-                      <View style={styles.addClientSelectDropdown}>
-                        <ScrollView
-                          style={styles.addClientSelectDropdownScroll}
-                          contentContainerStyle={styles.addClientSelectDropdownContent}
-                          nestedScrollEnabled
-                        >
-                          <TouchableOpacity
-                            key="__none__"
-                            style={[
-                              styles.addClientSelectOption,
-                              !addClientSkuId && styles.addClientSelectOptionSelected,
-                            ]}
-                            onPress={() => {
-                              setAddClientSkuId(null);
-                              setShowAddClientSkuMenu(false);
-                            }}
-                            activeOpacity={0.7}
-                          >
-                            <Text
-                              style={[
-                                styles.addClientSelectOptionTitle,
-                                !addClientSkuId && styles.addClientSelectOptionTitleSelected,
-                              ]}
-                              numberOfLines={1}
-                            >
-                              Create client only (no template)
-                            </Text>
-                          </TouchableOpacity>
-                          {inviteSkus.map((sku) => (
-                            <TouchableOpacity
-                              key={sku.id}
-                              style={[
-                                styles.addClientSelectOption,
-                                addClientSkuId === sku.id && styles.addClientSelectOptionSelected,
-                              ]}
-                              onPress={() => {
-                                setAddClientSkuId(sku.id);
-                                setShowAddClientSkuMenu(false);
-                              }}
-                              activeOpacity={0.7}
-                            >
-                              <Text
-                                style={[
-                                  styles.addClientSelectOptionTitle,
-                                  addClientSkuId === sku.id && styles.addClientSelectOptionTitleSelected,
-                                ]}
-                                numberOfLines={1}
-                              >
-                                {sku.name}
-                              </Text>
-                            </TouchableOpacity>
-                          ))}
-                        </ScrollView>
-                      </View>
-                    )}
-                  </View>
-                )}
-              </View>
-              {/* Invite-by-email row: always shown, disabled (grayed out) until invite-email feature is built */}
-              <View style={{ height: 48 }} />
-              <View style={[styles.addClientField, { opacity: 0.6 }]}>
-                <View style={styles.addClientCheckboxRow} pointerEvents="none">
-                  <Ionicons
-                    name="square-outline"
-                    size={18}
-                    color="#B2BEC3"
-                    style={{ marginRight: 6 }}
-                  />
-                  <Text style={[styles.addClientCheckboxLabel, { color: '#95A5A6' }]}>
-                    Invite to sign up Vouchap via email?
-                  </Text>
-                </View>
-              </View>
-              {addClientError ? (
-                <Text style={styles.addClientError}>{addClientError}</Text>
-              ) : null}
-            </View>
-            <View style={[styles.addClientBtnRow, styles.addClientBtnRowBelowDropdown]}>
-              <TouchableOpacity style={styles.addClientSecondaryBtn} onPress={handleCloseAddClientModal} activeOpacity={0.7}>
-                <Text style={styles.addClientSecondaryBtnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.addClientPrimaryBtn,
-                  addClientSubmitting && styles.invitePrimaryBtnDisabled,
-                ]}
-                onPress={handleAddClientSubmit}
-                disabled={addClientSubmitting}
-                activeOpacity={0.7}
-              >
-                {addClientSubmitting ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.addClientPrimaryBtnText}>
-                    {addClientSkuId ? 'Create Engagement' : 'Save Client'}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </ScrollView>
-
-          {/* Right: full-height SKU preview area */}
-          <View style={styles.addClientRight}>
-            <Text style={styles.addClientPreviewTitle}>Service preview</Text>
-            {addClientSkuId ? (
-              <SkuPreview sku={inviteSkus.find((s) => s.id === addClientSkuId) ?? null} />
-            ) : (
-              <View style={styles.addClientNoTemplateBox}>
-                <Text style={styles.addClientNoTemplateTitle}>
-                  Create client with no engagement attached
-                </Text>
-                <Text style={styles.addClientNoTemplateDesc}>
-                  You will create this client profile without creating a service engagement.
-                </Text>
-                <Text style={styles.addClientNoTemplateDesc}>
-                  You can start a new service order for this client later from the client info page.
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-      </CenterModal>
+        firmSpaceId={firmSpaceId}
+        inviteSkusFromParent={inviteSkus}
+        variant="manual"
+        initialSkuSelection="first"
+        onSuccess={async () => {
+          await loadData(true);
+        }}
+      />
       {Platform.OS === 'web' &&
         showGroupMenu &&
         groupPopoverRect &&
@@ -2499,285 +2127,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#6C5CE7',
     fontWeight: '500',
-  },
-  addClientForm: {
-    padding: 20,
-    paddingTop: 8,
-    paddingBottom: 12,
-  },
-  addClientFormScroll: {
-    maxHeight: 560,
-  },
-  addClientFormScrollContent: {
-    padding: 20,
-    paddingTop: 8,
-    paddingBottom: 12,
-  },
-  addClientFormRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    gap: 24,
-    position: 'relative' as const,
-    overflow: 'visible' as const,
-  },
-  addClientLeft: {
-    flex: 1,
-    overflow: 'visible' as const,
-  },
-  addClientRight: {
-    width: 400,
-    paddingRight: 12,
-    flexShrink: 0,
-  },
-  addClientSkuList: {
-    marginTop: 4,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    borderRadius: 8,
-    backgroundColor: '#F8F9FA',
-  },
-  addClientSkuRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#E9ECEF',
-  },
-  addClientSkuRowSelected: {
-    backgroundColor: '#EDE9F7',
-  },
-  addClientSkuName: {
-    fontSize: 14,
-    color: '#2D3436',
-    flex: 1,
-  },
-  addClientSkuNameSelected: {
-    fontWeight: '600',
-    color: '#6C5CE7',
-  },
-  addClientSkuPreview: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    backgroundColor: '#FDFBFF',
-  },
-  addClientSkuPreviewTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#2D3436',
-    marginBottom: 4,
-  },
-  addClientSkuPreviewDesc: {
-    fontSize: 13,
-    color: '#636E72',
-    lineHeight: 18,
-  },
-  addClientSkuPreviewDescMuted: {
-    fontSize: 13,
-    color: '#B2BEC3',
-    fontStyle: 'italic',
-  },
-  addClientPreviewTitle: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#636E72',
-    marginBottom: 8,
-  },
-  addClientCheckboxRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  addClientCheckboxLabel: {
-    fontSize: 13,
-    color: '#2D3436',
-    flex: 1,
-  },
-  addClientSubtitle: {
-    fontSize: 13,
-    color: '#636E72',
-    lineHeight: 18,
-    marginBottom: 20,
-    flexWrap: 'wrap',
-  },
-  addClientField: {
-    marginBottom: 16,
-  },
-  addClientLabel: {
-    fontSize: 13,
-    color: '#636E72',
-    marginBottom: 6,
-    fontWeight: '500',
-  },
-  addClientInput: {
-    fontSize: 14,
-    color: '#2D3436',
-    backgroundColor: '#F8F9FA',
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  addClientError: {
-    fontSize: 12,
-    color: '#D63031',
-    marginBottom: 12,
-  },
-  addClientBtnRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    marginTop: 16,
-  },
-  addClientSecondaryBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: '#F8F9FA',
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-  },
-  addClientSecondaryBtnText: {
-    fontSize: 13,
-    color: '#636E72',
-    fontWeight: '500',
-  },
-  addClientPrimaryBtn: {
-    flex: 1.618,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 10,
-    paddingHorizontal: 14,
-    borderRadius: 8,
-    backgroundColor: '#6C5CE7',
-  },
-  addClientPrimaryBtnText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: '#fff',
-  },
-  addClientHint: {
-    fontSize: 12,
-    color: '#95A5A6',
-    marginTop: 8,
-    marginBottom: 8,
-    textAlign: 'left',
-  },
-  addClientNoTemplateBox: {
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E2E4F0',
-    backgroundColor: '#FDFBFF',
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    minHeight: 560,
-    maxHeight: 560,
-    justifyContent: 'center',
-  },
-  addClientNoTemplateTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#2D3436',
-    marginBottom: 6,
-  },
-  addClientNoTemplateDesc: {
-    fontSize: 13,
-    color: '#636E72',
-    lineHeight: 18,
-    marginBottom: 2,
-  },
-  addClientSelectWrapper: {
-    marginTop: 4,
-    position: 'relative' as const,
-    zIndex: 50,
-  },
-  addClientSelectWrapperMenuOpen: {
-    zIndex: 10000,
-    elevation: 10000,
-  },
-  addClientBtnRowBelowDropdown: {
-    zIndex: 0,
-    elevation: 0,
-  },
-  addClientSelect: {
-    minHeight: 40,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    backgroundColor: '#F8F9FA',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  addClientSelectDisabled: {
-    opacity: 0.6,
-  },
-  addClientSelectText: {
-    flex: 1,
-    fontSize: 13,
-    color: '#636E72',
-    marginRight: 8,
-  },
-  addClientSelectPlaceholder: {
-    fontSize: 13,
-    color: '#B2BEC3',
-  },
-  addClientSelectDropdown: {
-    position: 'absolute',
-    top: '100%',
-    left: 0,
-    right: 0,
-    marginTop: 4,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    backgroundColor: '#FFFFFF',
-    maxHeight: 220,
-    overflow: 'hidden',
-    zIndex: 9999,
-    elevation: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.12,
-    shadowRadius: 6,
-  },
-  addClientSelectDropdownScroll: {
-    maxHeight: 220,
-  },
-  addClientSelectDropdownContent: {
-    paddingVertical: 4,
-  },
-  addClientSelectOption: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F0F2F5',
-  },
-  addClientSelectOptionSelected: {
-    backgroundColor: 'rgba(108,92,231,0.06)',
-  },
-  addClientSelectOptionTitle: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: '#2D3436',
-    marginBottom: 2,
-  },
-  addClientSelectOptionTitleSelected: {
-    color: '#6C5CE7',
-  },
-  addClientSelectOptionDesc: {
-    fontSize: 12,
-    color: '#7F8C8D',
   },
   inviteQrPlaceholder: {
     width: 80,

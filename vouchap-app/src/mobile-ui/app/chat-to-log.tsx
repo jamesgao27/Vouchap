@@ -35,7 +35,15 @@ import { getCurrentSpace } from '@/lib/auth';
 import { getChatToLogAllowedTypes, getChatToLogAllowedTypeValues } from '@/lib/chat-to-log-allowed-types';
 import { getAssistantInfo, getInputPlaceholder } from '../../shared-logic/assistant-config';
 import { uploadTaxFilingFile, uploadReceiptImageTempWithSpace } from '@/lib/supabase';
-import { getProjectById, getProjectTodosTree, createProjectTodoAttachment, updateProjectTodoAttachment, getProjectTodoAttachmentById, buildExtractedPreview, type ProjectTodoNode } from '@/lib/firm';
+import {
+  getProjectById,
+  getProjectTodosTree,
+  createProjectTodoAttachment,
+  updateProjectTodoAttachment,
+  getProjectTodoAttachmentById,
+  buildExtractedPreview,
+  type ProjectTodoNode,
+} from '@/lib/firm';
 import { classifyTaxDocumentAndPickTask, getFallbackTaskId } from '@/lib/tax-filing-task-matcher';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
 import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound, ExtractedClient, ClientRecognitionResult } from '@/types';
@@ -51,13 +59,44 @@ import {
   requestAudioPermission,
 } from '@/lib/audio';
 import { showToast } from '@/lib/toast';
-import { createPendingOrderForInvitee } from '@/lib/firm-clients';
 import { useChatPanel } from '../contexts/ChatPanelContext';
+import FirmAddClientModal, {
+  type FirmAddClientRecognitionDisplay,
+  type FirmAddClientBatchRow,
+} from '@/components/FirmAddClientModal';
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 import { webInputBlockStyles } from '../styles/web-input-block-styles';
 
 // 语音识别置信度阈值：与照片 needs_retake 一致，低于此值视为无可识别内容，提示重新提交
 const VOICE_CONFIDENCE_THRESHOLD = 0.4;
+
+function buildRecognitionAddClientPayload(items: ExtractedClient[]): {
+  display: FirmAddClientRecognitionDisplay;
+  batchRows: FirmAddClientBatchRow[];
+} {
+  const batchRows: FirmAddClientBatchRow[] = [];
+  for (const item of items) {
+    const contactEmail = (item.email || '').trim().toLowerCase();
+    if (!contactEmail) continue;
+    const clientName = (item.orgName?.trim() || item.contactName?.trim() || item.email) || 'Client Space';
+    batchRows.push({
+      clientName,
+      contactName: item.contactName?.trim() || '',
+      contactEmail,
+    });
+  }
+  const multiple = items.length > 1;
+  const display: FirmAddClientRecognitionDisplay = multiple
+    ? { clientName: 'Multiple', contactName: 'Multiple', contactEmail: 'Multiple' }
+    : batchRows.length === 1
+      ? {
+          clientName: batchRows[0].clientName,
+          contactName: batchRows[0].contactName,
+          contactEmail: batchRows[0].contactEmail,
+        }
+      : { clientName: '—', contactName: '—', contactEmail: '—' };
+  return { display, batchRows };
+}
 
 /** 各助理的预设说明（助理口吻）：如何交代工作、支持哪些输入、处理后的效果。始终保留在聊天最顶部。 */
 function getWelcomeMessage(voucherType: VoucherLogType): Message {
@@ -424,6 +463,12 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   const [confirmedInbounds, setConfirmedInbounds] = useState<Set<string>>(new Set());
   const [confirmedOutbounds, setConfirmedOutbounds] = useState<Set<string>>(new Set());
   const [confirmedClientPreviews, setConfirmedClientPreviews] = useState<Set<string>>(new Set());
+  const [recognitionAddClientModal, setRecognitionAddClientModal] = useState<{
+    messageId: string;
+    firmSpaceId: string;
+    display: FirmAddClientRecognitionDisplay;
+    batchRows: FirmAddClientBatchRow[];
+  } | null>(null);
   // Panel 模式：首帧即用当前类型的欢迎语，避免刷新/切换时先闪 Eric 再变 Cody
   const [messages, setMessages] = useState<Message[]>(() =>
     props.voucherType !== undefined ? [getWelcomeMessage(props.voucherType)] : [],
@@ -2119,6 +2164,35 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
           />
         </Modal>
       ) : null}
+      <FirmAddClientModal
+        visible={!!recognitionAddClientModal}
+        onClose={() => setRecognitionAddClientModal(null)}
+        firmSpaceId={recognitionAddClientModal?.firmSpaceId ?? null}
+        variant="recognition"
+        initialSkuSelection="none"
+        recognitionDisplay={recognitionAddClientModal?.display}
+        batchRows={recognitionAddClientModal?.batchRows}
+        onSuccess={async () => {
+          const ctx = recognitionAddClientModal;
+          if (!ctx) return;
+          const snapshot = messages.find((m) => m.id === ctx.messageId)?.clientPreview;
+          const logId = ctx.messageId.replace(/-preview$/, '');
+          setConfirmedClientPreviews((prev) => new Set(prev).add(ctx.messageId));
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === ctx.messageId && m.clientPreview
+                ? { ...m, clientPreview: { ...m.clientPreview, confirmed: true } }
+                : m
+            )
+          );
+          if (logId && snapshot) {
+            await updateChatLogResponseData(logId, {
+              clientPreview: { ...snapshot, confirmed: true },
+            });
+          }
+          setRecognitionAddClientModal(null);
+        }}
+      />
       <FlatList
         ref={listRef}
         data={messages}
@@ -2730,67 +2804,27 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[styles.previewActionButton, styles.previewActionButtonPrimary, styles.previewActionButtonPrimaryGolden]}
-                        onPress={async () => {
+                        onPress={() => {
                           const firmSpaceId = message.clientPreview?.firmSpaceId;
                           if (!firmSpaceId || !message.clientPreview?.items?.length) {
                             showToast('Missing firm context or client list.', 'error');
                             return;
                           }
-                          try {
-                            let created = 0;
-                            let failed = 0;
-                            let lastError: string | null = null;
-                            const emailTrimmed = (e: string) => (e || '').trim().toLowerCase();
-                            for (const item of message.clientPreview.items) {
-                              const contactEmail = emailTrimmed(item.email);
-                              if (!contactEmail) {
-                                failed++;
-                                lastError = 'Contact email is required';
-                                continue;
-                              }
-                              const clientName = (item.orgName?.trim() || item.contactName?.trim() || item.email) || 'Client Space';
-                              const { result, error } = await createPendingOrderForInvitee(firmSpaceId, {
-                                clientName,
-                                contactName: item.contactName?.trim() || '',
-                                contactEmail,
-                              });
-                              if (error || !result) {
-                                failed++;
-                                lastError = error?.message ?? 'Create failed';
-                                continue;
-                              }
-                              created++;
-                            }
-                            setConfirmedClientPreviews((prev) => new Set(prev).add(message.id));
-                            setMessages((prev) =>
-                              prev.map((m) =>
-                                m.id === message.id && m.clientPreview
-                                  ? { ...m, clientPreview: { ...m.clientPreview!, confirmed: true } }
-                                  : m
-                              )
-                            );
-                            const logId = message.id.replace(/-preview$/, '');
-                            if (logId && message.clientPreview) {
-                              await updateChatLogResponseData(logId, {
-                                clientPreview: { ...message.clientPreview, confirmed: true },
-                              });
-                            }
-                            if (failed > 0 && created === 0) {
-                              showToast(lastError ?? 'Failed to create clients.', 'error');
-                            } else {
-                              const toastMsg =
-                                failed > 0
-                                  ? 'Created ' + created + ' pending engagement(s); ' + failed + ' failed.'
-                                  : 'Created ' + created + ' pending engagement(s).';
-                              showToast(toastMsg, created > 0 ? 'success' : 'error');
-                            }
-                          } catch (err) {
-                            showToast(err instanceof Error ? err.message : 'Failed to create clients.', 'error');
+                          const { display, batchRows } = buildRecognitionAddClientPayload(message.clientPreview.items);
+                          if (batchRows.length === 0) {
+                            showToast('No valid contact emails to create clients.', 'error');
+                            return;
                           }
+                          setRecognitionAddClientModal({
+                            messageId: message.id,
+                            firmSpaceId,
+                            display,
+                            batchRows,
+                          });
                         }}
                       >
-                        <Ionicons name="checkmark-circle-outline" size={16} color="#fff" />
-                        <Text style={[styles.previewActionText, styles.previewActionTextPrimary]}>Confirm & create clients</Text>
+                        <Ionicons name="open-outline" size={16} color="#fff" />
+                        <Text style={[styles.previewActionText, styles.previewActionTextPrimary]}>Review & create</Text>
                       </TouchableOpacity>
                     </>
                   )}
