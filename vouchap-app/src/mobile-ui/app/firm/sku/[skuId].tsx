@@ -82,21 +82,30 @@ function skuItemsToProjectTodoTree(items: FirmSkuItem[]): ProjectTodoNode[] {
 
   function build(parentKey: string | null, depth: number): ProjectTodoNode[] {
     const list = byParent.get(parentKey) ?? [];
-    return list.map((it) => ({
-      id: it.id,
-      orderId: '',
-      parentId: it.parentId ?? null,
-      type: it.type,
-      initialResponsibleSide: it.type,
-      title: it.title,
-      description: it.description ?? null,
-      status: 'in_progress' as const,
-      sortOrder: it.sortOrder,
-      depth,
-      itemKind: it.itemKind,
-      dependsOnId: it.dependsOnId ?? null,
-      children: build(it.id, depth + 1),
-    }));
+    return list.map((it) => {
+      const depIds =
+        Array.isArray(it.dependsOnIds) && it.dependsOnIds.length > 0
+          ? it.dependsOnIds
+          : it.dependsOnId
+            ? [it.dependsOnId]
+            : [];
+      return {
+        id: it.id,
+        orderId: '',
+        parentId: it.parentId ?? null,
+        type: it.type,
+        initialResponsibleSide: it.type,
+        title: it.title,
+        description: it.description ?? null,
+        status: 'in_progress' as const,
+        sortOrder: it.sortOrder,
+        depth,
+        itemKind: it.itemKind,
+        dependsOnId: depIds[0] ?? null,
+        dependsOnIds: depIds,
+        children: build(it.id, depth + 1),
+      };
+    });
   }
   return build(null, 0);
 }
@@ -265,13 +274,28 @@ export default function FirmSkuDetailScreen() {
     );
   }, [skuId, router, markTouched]);
 
-  // ─────────────── WBS: dependency ───────────────
-  const handleSetDependsOn = useCallback(async (itemId: string, dependsOnId: string | null) => {
-    setItems((prev) => prev.map((it) => it.id === itemId ? { ...it, dependsOnId } : it));
-    const { error: err } = await updateSkuItemDependsOn(itemId, dependsOnId);
-    if (err) { showToast('Failed to update dependency', 'error'); await load(); return; }
-    markTouched();
-  }, [load, markTouched]);
+  // ─────────────── WBS: dependency（与 TaxFilingTodosView 浮窗一致：多选 dependsOnIds → firm.sku_items.depends_on_ids） ───────────────
+  const onCatalogSetDependsOn = useCallback(
+    async (itemId: string, dependsOnIds: string[] | null) => {
+      const ids = dependsOnIds?.length ? dependsOnIds : [];
+      setItems((prev) =>
+        prev.map((it) =>
+          it.id === itemId
+            ? { ...it, dependsOnId: ids[0] ?? null, dependsOnIds: ids }
+            : it,
+        ),
+      );
+      const { error } = await updateSkuItemDependsOn(itemId, dependsOnIds);
+      if (error) {
+        showToast('Failed to update dependency', 'error');
+        await load();
+        return { error };
+      }
+      markTouched();
+      return { error: null };
+    },
+    [load, markTouched],
+  );
 
   // ─────────────── guards ───────────────
   if (loading) return <View style={s.centered}><ActivityIndicator size="large" color="#6C5CE7" /></View>;
@@ -666,6 +690,7 @@ export default function FirmSkuDetailScreen() {
             if (err) { showToast('Failed to update', 'error'); await load(); return; }
             markTouched();
           }}
+          onCatalogSetDependsOn={onCatalogSetDependsOn}
           onRequestDeletePhase={(phaseId, _phaseTitle) => {
             showConfirmDestructiveDialog(
               'Delete phase',
@@ -708,6 +733,11 @@ export default function FirmSkuDetailScreen() {
                   }
                   return { error };
                 }
+              : undefined
+          }
+          onPersistTodoTitle={
+            Platform.OS === 'web'
+              ? async (itemId, title) => updateSkuItem(itemId, { title })
               : undefined
           }
         />

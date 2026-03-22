@@ -210,6 +210,8 @@ export interface ProjectDetailViewProps {
   persistTodoTreeOrder?: (roots: ProjectTodoNode[]) => Promise<{ error: Error | null }>;
   /** Web：拖放排序成功后本地更新树，避免整表 onRefresh */
   onTodoTreeOrderSaved?: (roots: ProjectTodoNode[]) => void;
+  /** Web：行标题重命名（与 TaxFilingTodosView 内编辑图标联动） */
+  persistTodoTitle?: (todoId: string, title: string) => Promise<{ error: Error | null }>;
 }
 
 export function ProjectDetailView({
@@ -246,6 +248,7 @@ export function ProjectDetailView({
   skuDetailForInfo,
   persistTodoTreeOrder,
   onTodoTreeOrderSaved,
+  persistTodoTitle,
 }: ProjectDetailViewProps) {
   const navigation = useNavigation();
 
@@ -580,6 +583,7 @@ export function ProjectDetailView({
           catalogPreviewReadOnly={isDetailReadOnly}
           persistTodoTreeOrder={persistTodoTreeOrder}
           onTodoTreeOrderSaved={onTodoTreeOrderSaved}
+          onPersistTodoTitle={isWeb && !isDetailReadOnly && persistTodoTitle ? persistTodoTitle : undefined}
         />
       )}
     </View>

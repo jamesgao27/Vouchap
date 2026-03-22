@@ -45,6 +45,19 @@ function sortSkuItemsDepthFirst<
   return result;
 }
 
+/**
+ * project_todos 与 firm.sku_items 共用：优先 depends_on_ids，否则回退 depends_on_id（与 getOrderProjects 一致）。
+ */
+function parseDependsOnIdsFromRow(row: {
+  depends_on_ids?: unknown;
+  depends_on_id?: string | null;
+}): string[] {
+  if (Array.isArray(row.depends_on_ids) && row.depends_on_ids.length > 0) {
+    return row.depends_on_ids.filter((x: unknown) => x != null) as string[];
+  }
+  return row.depends_on_id != null ? [row.depends_on_id] : [];
+}
+
 /** 报税季配置：开始/结束月日（1-based），用于计算「报税季已来临」「报税季已过」 */
 const TAX_SEASON_START_MONTH = 1;
 const TAX_SEASON_START_DAY = 1;
@@ -972,6 +985,7 @@ export async function confirmOrderAndCreateProjectTodos(
         title: row.title,
         description: row.description ?? null,
         depends_on_id: row.depends_on_id ?? null,
+        depends_on_ids: Array.isArray(row.depends_on_ids) ? row.depends_on_ids : [],
       }))
     );
 
@@ -1005,15 +1019,24 @@ export async function confirmOrderAndCreateProjectTodos(
       if (newId) oldIdToNewId.set(row.id, newId);
     }
 
-    // 第二步：回填 depends_on_id（全部节点插入后，oldIdToNewId 已完整）
+    // 第二步：回填 depends_on_ids / depends_on_id（全部节点插入后，oldIdToNewId 已完整；与 updateProjectTodoDependsOn 字段一致）
     for (const row of ordered) {
-      if (!row.depends_on_id) continue;
       const newTodoId = oldIdToNewId.get(row.id);
-      const newDepsId = oldIdToNewId.get(row.depends_on_id);
-      if (!newTodoId || !newDepsId) continue;
+      if (!newTodoId) continue;
+      const oldDepIds = parseDependsOnIdsFromRow({
+        depends_on_ids: (row as { depends_on_ids?: unknown }).depends_on_ids,
+        depends_on_id: row.depends_on_id ?? null,
+      });
+      if (oldDepIds.length === 0) continue;
+      const newDepIds = oldDepIds.map((oid) => oldIdToNewId.get(oid)).filter((x): x is string => !!x);
+      if (newDepIds.length === 0) continue;
       await supabase
         .from('project_todos')
-        .update({ depends_on_id: newDepsId })
+        .update({
+          depends_on_ids: newDepIds,
+          depends_on_id: newDepIds[0] ?? null,
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', newTodoId);
     }
   }
@@ -1166,9 +1189,10 @@ export async function getOrderProjects(orderId: string): Promise<FirmProject[]> 
     return [];
   }
   return (data || []).map((row: any) => {
-    const ids = Array.isArray(row.depends_on_ids) && row.depends_on_ids.length > 0
-      ? row.depends_on_ids.filter((x: unknown) => x != null)
-      : (row.depends_on_id != null ? [row.depends_on_id] : []);
+    const ids = parseDependsOnIdsFromRow({
+      depends_on_ids: row.depends_on_ids,
+      depends_on_id: row.depends_on_id ?? null,
+    });
     return {
       id: row.id,
       orderId: orderId,
@@ -2152,34 +2176,46 @@ export async function getSkuItems(skuId: string): Promise<FirmSkuItem[]> {
     console.error('getSkuItems:', error);
     return [];
   }
-  const mapped = (data || []).map((row: any) => ({
-    id: row.id,
-    skuId: row.sku_id,
-    parentId: row.parent_id ?? null,
-    itemKind: (row.item_kind ?? 'task') as 'phase' | 'section' | 'task',
-    type: row.initial_responsible_side,
-    title: row.title,
-    description: row.description ?? null,
-    sortOrder: row.sort_order ?? 0,
-    dependsOnId: row.depends_on_id ?? null,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  }));
+  const mapped = (data || []).map((row: any) => {
+    const ids = parseDependsOnIdsFromRow({
+      depends_on_ids: row.depends_on_ids,
+      depends_on_id: row.depends_on_id ?? null,
+    });
+    return {
+      id: row.id,
+      skuId: row.sku_id,
+      parentId: row.parent_id ?? null,
+      itemKind: (row.item_kind ?? 'task') as 'phase' | 'section' | 'task',
+      type: row.initial_responsible_side,
+      title: row.title,
+      description: row.description ?? null,
+      sortOrder: row.sort_order ?? 0,
+      dependsOnId: ids[0] ?? null,
+      dependsOnIds: ids,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    };
+  });
   return sortSkuItemsDepthFirst(mapped);
 }
 
 /**
- * 设置或清除 sku_item 的前置依赖（depends_on_id）。
- * 传 null 表示清除依赖（该 item 无前置条件，立即可操作）。
+ * 设置或清除 sku_item 的多前置依赖（与 updateProjectTodoDependsOn 相同语义：depends_on_ids + depends_on_id 首项）。
+ * 传 null 或 [] 表示清除。不触碰订单 updated_at（SKU 无 order 关联）。
  */
 export async function updateSkuItemDependsOn(
   skuItemId: string,
-  dependsOnId: string | null,
+  dependsOnIds: string[] | null,
 ): Promise<{ error: Error | null }> {
+  const ids = dependsOnIds?.length ? dependsOnIds : [];
   const { error } = await supabase
     .schema('firm')
     .from('sku_items')
-    .update({ depends_on_id: dependsOnId })
+    .update({
+      depends_on_ids: ids,
+      depends_on_id: ids[0] ?? null,
+      updated_at: new Date().toISOString(),
+    })
     .eq('id', skuItemId);
   if (error) return { error: new Error(error.message) };
   return { error: null };

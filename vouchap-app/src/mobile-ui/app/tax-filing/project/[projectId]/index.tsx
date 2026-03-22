@@ -26,6 +26,7 @@ import {
   getSkuById,
   confirmOrderAndCreateProjectTodos,
   updateOrderStatus,
+  updateProjectTodo,
   type ProjectTodoNode,
 } from '@/lib/firm';
 import { showToast } from '@/lib/toast';
@@ -297,6 +298,11 @@ export default function ProjectTodosScreen() {
         skuItems={skuItems}
         skuInfo={skuInfo}
         skuDetailForInfo={skuDetailForInfo}
+        persistTodoTitle={
+          Platform.OS === 'web' && header?.status === 'processing'
+            ? (todoId, title) => updateProjectTodo(todoId, { title })
+            : undefined
+        }
       />
       {showTinaFab && (
         <TouchableOpacity

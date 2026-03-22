@@ -31,6 +31,7 @@ import {
   Image,
   Dimensions,
   Modal,
+  ActivityIndicator,
 } from 'react-native';
 import { createPortal, flushSync } from 'react-dom';
 import { Ionicons } from '@expo/vector-icons';
@@ -99,6 +100,91 @@ function setTodoTreeTransparentDragImage(dt: DataTransfer) {
     todoDragBlankCanvas = c;
   }
   dt.setDragImage(todoDragBlankCanvas, 0, 0);
+}
+
+/** Web：canvas 测量，字重/字号与 Todo 标题行一致 */
+function measureTodoRenameTextWidthWeb(text: string, fontSize: number, fontWeight: string): number {
+  if (typeof document === 'undefined') return 0;
+  try {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return 0;
+    ctx.font = `${fontWeight} ${fontSize}px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif`;
+    let maxLine = 0;
+    for (const line of text.split(/\r?\n/)) {
+      const m = ctx.measureText(line);
+      const w =
+        typeof m.actualBoundingBoxLeft === 'number' && typeof m.actualBoundingBoxRight === 'number'
+          ? Math.ceil(m.actualBoundingBoxRight - m.actualBoundingBoxLeft)
+          : Math.ceil(m.width);
+      if (w > maxLine) maxLine = w;
+    }
+    return maxLine + 8;
+  } catch {
+    return 0;
+  }
+}
+
+/** 原生 / 回退：按码位保守加宽，避免中英文混排低估 */
+function estimateTodoRenameTextWidthFallback(text: string, fontSize: number): number {
+  let w = 0;
+  for (const ch of text) {
+    const cp = ch.codePointAt(0)!;
+    if (cp <= 0x7f) {
+      w += fontSize * 0.68;
+    } else if (
+      (cp >= 0x4e00 && cp <= 0x9fff) ||
+      (cp >= 0x3400 && cp <= 0x4dbf) ||
+      (cp >= 0x3000 && cp <= 0x303f) ||
+      (cp >= 0xff00 && cp <= 0xffef) ||
+      (cp >= 0x3040 && cp <= 0x30ff) ||
+      (cp >= 0xac00 && cp <= 0xd7af)
+    ) {
+      w += fontSize * 1.15;
+    } else {
+      w += fontSize * 1.08;
+    }
+  }
+  return Math.ceil(w) + 6;
+}
+
+function todoRenameTitleFontWeightForDepth(depth: number): string {
+  if (depth === 0) return '700';
+  if (depth === 1) return '600';
+  return '500';
+}
+
+function todoRenameInputContentWidthPx(text: string, fontSize: number, depth: number): number {
+  const fw = todoRenameTitleFontWeightForDepth(depth);
+  if (Platform.OS === 'web') {
+    const mw = measureTodoRenameTextWidthWeb(text, fontSize, fw);
+    if (mw > 0) return mw;
+  }
+  return estimateTodoRenameTextWidthFallback(text, fontSize);
+}
+
+/** 含边框与内边距，保证输入框宽度不小于现有名称的显示宽度 */
+function todoRenameInputMinWidthPx(text: string, fontSize: number, depth: number): number {
+  const horizontalChrome = 28;
+  return Math.max(96, todoRenameInputContentWidthPx(text, fontSize, depth) + horizontalChrome);
+}
+
+function titleFontSizeForTodoDepth(depth: number): number {
+  if (depth === 0) return 15;
+  if (depth === 1) return 14;
+  return 13;
+}
+
+/** 全树节点当前标题按层级字号测量后取最大，供行内重命名输入框统一宽度（避免随草稿变宽引起抖动） */
+function maxTodoRenameInputWidthAcrossProjectTree(phases: ProjectTodoNode[]): number {
+  let maxW = 96;
+  const visit = (n: ProjectTodoNode, depth: number) => {
+    const fs = titleFontSizeForTodoDepth(depth);
+    maxW = Math.max(maxW, todoRenameInputMinWidthPx(n.title ?? '', fs, depth));
+    for (const c of n.children) visit(c, depth + 1);
+  };
+  for (const p of phases) visit(p, 0);
+  return maxW;
 }
 
 type TodoGhostRow = {
@@ -544,6 +630,13 @@ function TodoTree({
   onCatalogDeleteItem,
   onCatalogUpdateType,
   hideDepsEditor = false,
+  renameInline = null,
+  onRenameInlineTitleChange,
+  onCancelRenameInline,
+  onConfirmRenameInline,
+  renameInlineSaving = false,
+  onStartRenameInline,
+  renameInlineListInputWidthPx = 96,
 }: {
   nodes: ProjectTodoNode[];
   depth: number;
@@ -612,6 +705,16 @@ function TodoTree({
   onCatalogUpdateType?: (itemId: string, type: 'client' | 'firm') => void;
   /** 只读预览：不展示 depends on 编辑入口（仅展示已有依赖） */
   hideDepsEditor?: boolean;
+  /** Web：当前行内重命名状态（与 PendingAddRow 同交互） */
+  renameInline?: { id: string; title: string } | null;
+  onRenameInlineTitleChange?: (text: string) => void;
+  onCancelRenameInline?: () => void;
+  onConfirmRenameInline?: () => void | Promise<void>;
+  renameInlineSaving?: boolean;
+  /** Web：点击铅笔进入行内重命名 */
+  onStartRenameInline?: (nodeId: string, currentTitle: string) => void;
+  /** Web：由整棵树最长标题算出的统一输入框宽度（px） */
+  renameInlineListInputWidthPx?: number;
 }) {
   const dragCtx = useContext(TodoDragContext);
   const isWeb = Platform.OS === 'web';
@@ -674,6 +777,7 @@ function TodoTree({
 
         // ── 节点锁定：父级锁定时继承，或本节点自身有未完成前置 ──
         const nodeIsBlocked = isBlocked || blockedNodes.has(node.id);
+        const isThisRowRenaming = renameInline != null && renameInline.id === node.id;
 
         // ── 角色权限 + 阶段锁定判断 ──
         const isSelfTodo = node.type === viewerRole;
@@ -683,6 +787,7 @@ function TodoTree({
 
         const titleStyle =
           depth === 0 ? ts.treeTitleL0 : depth === 1 ? ts.treeTitleL1 : ts.treeTitleL2;
+        const titleFontSize = depth === 0 ? 15 : depth === 1 ? 14 : 13;
 
         // 终止权限：client 仅能终止责任方为 client 的非 completed；firm 可终止所有非 completed
         const canTerminateForRow =
@@ -696,9 +801,10 @@ function TodoTree({
         // 移动端不需要这类悬停/触摸小按钮，仅在 Web 端启用。
         const enableRowIcons = Platform.OS === 'web';
         const showRowIconsOnTouch = enableRowIcons && !hideDepsEditor &&
+          (typeof onStartRenameInline === 'function' ||
           ((onStartAddChild && canAddChild) ||
           (isTask && (catalogMode ? !!onCatalogDeleteItem : (canUpload || canCancelRestore || canTerminateForRow || isCanceled || node.status === 'completed'))) ||
-          (onRequestDeletePhase != null && isPhaseOrSectionRow));
+          (onRequestDeletePhase != null && isPhaseOrSectionRow)));
 
         // phase 上 +Section，section 上 +Task；其他非 task 节点兜底为 Child
         const addChildLabel =
@@ -955,16 +1061,28 @@ function TodoTree({
         // 责任方标签放在任务名称前（与标题同一行）；catalog 模式下可点击切换 client/firm；移动端不显示
         const roleBadgeInline = isWeb && isTask && !isCanceled ? (
           catalogMode && onCatalogUpdateType ? (
-            <Pressable
-              style={[
-                ts.roleBadgeInlineWrap,
-                ts.roleBadge,
-                node.type === 'firm' ? ts.roleBadgeFirm : ts.roleBadgeClient,
-              ]}
-              onPress={() => onCatalogUpdateType(node.id, node.type === 'client' ? 'firm' : 'client')}
-            >
-              <Text style={ts.roleBadgeText}>{node.type === 'firm' ? 'Firm' : 'Client'}</Text>
-            </Pressable>
+            isThisRowRenaming ? (
+              <View
+                style={[
+                  ts.roleBadgeInlineWrap,
+                  ts.roleBadge,
+                  node.type === 'firm' ? ts.roleBadgeFirm : ts.roleBadgeClient,
+                ]}
+              >
+                <Text style={ts.roleBadgeText}>{node.type === 'firm' ? 'Firm' : 'Client'}</Text>
+              </View>
+            ) : (
+              <Pressable
+                style={[
+                  ts.roleBadgeInlineWrap,
+                  ts.roleBadge,
+                  node.type === 'firm' ? ts.roleBadgeFirm : ts.roleBadgeClient,
+                ]}
+                onPress={() => onCatalogUpdateType(node.id, node.type === 'client' ? 'firm' : 'client')}
+              >
+                <Text style={ts.roleBadgeText}>{node.type === 'firm' ? 'Firm' : 'Client'}</Text>
+              </Pressable>
+            )
           ) : (
             <View
               style={[
@@ -998,8 +1116,18 @@ function TodoTree({
           </View>
         );
 
+        const activeInlineRename =
+          isWeb &&
+          renameInline &&
+          renameInline.id === node.id &&
+          onRenameInlineTitleChange &&
+          onCancelRenameInline &&
+          onConfirmRenameInline
+            ? renameInline
+            : null;
+
         const wbsExtraSpacingForTask = !isWeb && isTask ? { marginRight: 6 } : null;
-        const WbsCell = collapseHandlers ? (
+        const WbsCell = collapseHandlers && !activeInlineRename ? (
           <TouchableOpacity style={[ts.wbsHotzone, wbsExtraSpacingForTask]} {...collapseHandlers}>
             <Text
               style={ts.wbsColText}
@@ -1024,6 +1152,102 @@ function TodoTree({
             ? { onTouchStart: showRowIconsOnTouchStart, onTouchEnd: showRowIconsOnTouchEnd }
             : undefined;
         const clearStatusVerb = () => setRowIdShowingStatusVerb?.(null);
+
+        const renameLockForInline =
+          nodeIsBlocked && (depth === 0 || depth === 1) ? (
+            <Ionicons
+              name="lock-closed-outline"
+              size={11}
+              color="#B2BEC3"
+              style={{ marginRight: 5, marginTop: 1 }}
+            />
+          ) : null;
+
+        const renameInlineTrailJsx = activeInlineRename ? (
+          <View style={ts.renameInlineInputTrail}>
+            <TextInput
+              style={[
+                ts.pendingAddInput,
+                {
+                  flex: 0,
+                  flexGrow: 0,
+                  flexShrink: 0,
+                  width: renameInlineListInputWidthPx,
+                  minWidth: renameInlineListInputWidthPx,
+                  maxWidth: renameInlineListInputWidthPx,
+                  fontSize: titleFontSize,
+                  paddingLeft: isWeb ? 6 : 2,
+                  ...(isWeb
+                    ? ({
+                        boxSizing: 'border-box',
+                        outlineStyle: 'none',
+                        outlineWidth: 0,
+                        overflowX: 'auto' as const,
+                      } as object)
+                    : {}),
+                },
+              ]}
+              value={activeInlineRename.title}
+              onChangeText={(t) => onRenameInlineTitleChange!(t)}
+              placeholder="Item name"
+              placeholderTextColor="#95A5A6"
+              returnKeyType="done"
+              editable={!renameInlineSaving}
+              onSubmitEditing={() => {
+                void onConfirmRenameInline!();
+              }}
+              blurOnSubmit
+              autoFocus
+            />
+            <View style={ts.renameInlineActions}>
+              <Pressable
+                style={ts.cancelAddBtn}
+                onPress={onCancelRenameInline}
+                hitSlop={8}
+                disabled={renameInlineSaving}
+                {...(isWeb
+                  ? ({
+                      onMouseDown: (e: { preventDefault?: () => void }) => e.preventDefault?.(),
+                    } as object)
+                  : {})}
+              >
+                <Ionicons name="close-outline" size={16} color="#95A5A6" />
+              </Pressable>
+              <Pressable
+                style={ts.confirmAddBtn}
+                onPress={() => {
+                  void onConfirmRenameInline!();
+                }}
+                hitSlop={8}
+                disabled={renameInlineSaving}
+                {...(isWeb
+                  ? ({
+                      onMouseDown: (e: { preventDefault?: () => void }) => e.preventDefault?.(),
+                    } as object)
+                  : {})}
+              >
+                {renameInlineSaving ? (
+                  <ActivityIndicator size="small" color="#6C5CE7" />
+                ) : (
+                  <Ionicons name="checkmark-outline" size={16} color="#6C5CE7" />
+                )}
+              </Pressable>
+            </View>
+          </View>
+        ) : null;
+
+        const TitleCellRename = activeInlineRename ? (
+          <View style={[ts.titleHotzone, { flex: 1, minWidth: 0 }]}>
+            <View style={[ts.treeTitleWrapAdaptive, ts.renameTitleRow]}>
+              <View style={ts.renameLeadCluster}>
+                {roleBadgeInline}
+                {renameLockForInline}
+              </View>
+              <View style={ts.renameInlineTitleTrack}>{renameInlineTrailJsx}</View>
+            </View>
+          </View>
+        ) : null;
+
         const TitleCell = onCollapsePress ? (
           <TouchableOpacity
             style={ts.titleHotzone}
@@ -1134,9 +1358,30 @@ function TodoTree({
             </Pressable>
           ) : null;
 
+        const showEditTitleIcon =
+          enableRowIcons &&
+          typeof onStartRenameInline === 'function' &&
+          !hideDepsEditor &&
+          rowIdShowingAdd === node.id &&
+          !(renameInline && renameInline.id === node.id) &&
+          (!isTask || (!isCanceled && node.status !== 'completed'));
+        const EditTitleSlot = showEditTitleIcon ? (
+          <Pressable
+            style={ts.terminateTaskBtnHotzone}
+            onPress={() => onStartRenameInline(node.id, node.title)}
+            hitSlop={6}
+          >
+            <Ionicons name="create-outline" size={14} color="#6C5CE7" />
+          </Pressable>
+        ) : null;
+
         const TitleColumnInner = Platform.OS === 'web' ? (
-          <>
+          activeInlineRename ? (
+            <>{TitleCellRename}</>
+          ) : (
+            <>
             {TitleCell}
+            {EditTitleSlot}
             {RemovePhaseIconSlot}
             {AddIconSlot}
             {CancelTaskSlot}
@@ -1144,12 +1389,16 @@ function TodoTree({
             {RestoreTaskSlot}
             {RestartTaskSlot}
           </>
+          )
         ) : (
           <>{TitleCell}</>
         );
 
-        const TitleColumnWrap = showAddHandlers ? (
-          <View style={ts.titleColumnWrap} {...showAddHandlers}>
+        // 行内重命名时不要挂 mouseLeave 延时清 rowIdShowingAdd，减少与点击/焦点竞争；且此时本行也不展示 +/-
+        const titleColumnHoverHandlers =
+          showAddHandlers && !activeInlineRename ? showAddHandlers : undefined;
+        const TitleColumnWrap = titleColumnHoverHandlers ? (
+          <View style={ts.titleColumnWrap} {...titleColumnHoverHandlers}>
             {TitleColumnInner}
           </View>
         ) : (
@@ -1160,7 +1409,7 @@ function TodoTree({
 
         // Web 端：chevron 可点击以收起/展开；移动端：仅保留缩进，不显示 chevron
         const chevronBtn = hasChildren && isWeb ? (
-          onCollapsePress ? (
+          onCollapsePress && !activeInlineRename ? (
             <Pressable style={ts.chevronWrap} onPress={onCollapsePress} hitSlop={6}>
               <Ionicons name={isCollapsed ? 'chevron-forward' : 'chevron-down'} size={14} color="#636E72" />
             </Pressable>
@@ -1191,7 +1440,9 @@ function TodoTree({
             dragCtx.draggingIdRef.current === node.id);
         const dragHandleEl =
           isWeb && dragCtx?.enabled ? (
-            showDragHandle ? (
+            activeInlineRename ? (
+              <View style={{ width: TODO_DRAG_HANDLE_SLOT_WIDTH, marginRight: 2, flexShrink: 0 }} />
+            ) : showDragHandle ? (
               <div
                 style={{
                   width: TODO_DRAG_HANDLE_SLOT_WIDTH,
@@ -1265,7 +1516,11 @@ function TodoTree({
         );
 
         // 状态列：Web 为 hover 显示按钮；移动端为点击切换，行内稳定显示不随抬起消失
-        const statusHoverHandlers = !hideDepsEditor && handoffButtons.length > 0 && setRowIdShowingStatusVerb
+        const statusHoverHandlers =
+          !activeInlineRename &&
+          !hideDepsEditor &&
+          handoffButtons.length > 0 &&
+          setRowIdShowingStatusVerb
           ? (Platform.OS === 'web'
               ? {
                   onMouseEnter: () => setRowIdShowingStatusVerb(node.id),
@@ -1279,7 +1534,7 @@ function TodoTree({
         // Web：使用宽度固定的 progressFilesCol；
         // 移动端：仅使用更窄的 progressFilesColMobile，避免多占名称空间
         const progressColWrapStyle = isWeb ? ts.progressFilesCol : ts.progressFilesColMobile;
-        const ProgressCell = collapseHandlers ? (
+        const ProgressCell = collapseHandlers && !activeInlineRename ? (
           <TouchableOpacity style={progressColWrapStyle} {...collapseHandlers}>
             {progressColContent}
           </TouchableOpacity>
@@ -1400,7 +1655,62 @@ function TodoTree({
           : {};
         // 移动端移除「Depends on」列，仅保留：责任竖条、WBS、名称、文件计数、状态圆点、提交等（点圆点浮层）
         const TaskDepsCol = isTask && isWeb ? (
-          hideDepsEditor && !hasDeps ? <View style={ts.taskDepsCol} /> : showDepsContent ? (
+          activeInlineRename ? (
+            hideDepsEditor && !hasDeps ? (
+              <View style={ts.taskDepsCol} />
+            ) : showDepsContent ? (
+              hideDepsEditor ? (
+                <View style={ts.taskDepsCol}>
+                  <Text style={ts.taskDepsLabel}>Depends on</Text>
+                  {hasDeps ? (
+                    <View style={ts.taskDepsChipsWrap}>
+                      {depChipInfos.map((info: { depId: string; wbs: string; title: string; status: string }) => {
+                        const { text, bg } = getDepStatusColor(info.status);
+                        return (
+                          <View
+                            key={info.depId}
+                            style={[ts.taskDepsChip, { backgroundColor: bg }]}
+                          >
+                            <Text style={[ts.taskDepsChipText, { color: text }]}>{info.wbs}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : (
+                    <Text style={ts.taskDepsLabel} numberOfLines={1}>—</Text>
+                  )}
+                </View>
+              ) : (
+                <View style={ts.taskDepsCol}>
+                  <Text style={ts.taskDepsLabel}>Depends on</Text>
+                  {hasDeps ? (
+                    <View style={ts.taskDepsChipsWrap}>
+                      {depChipInfos.map((info: { depId: string; wbs: string; title: string; status: string }) => {
+                        const { text, bg } = getDepStatusColor(info.status);
+                        return (
+                          <View
+                            key={info.depId}
+                            style={[ts.taskDepsChip, { backgroundColor: bg }]}
+                          >
+                            <Text style={[ts.taskDepsChipText, { color: text }]}>{info.wbs}</Text>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                  {!nodeIsBlocked && (
+                    <View style={ts.taskDepsTrigger}>
+                      <Ionicons name="add-circle-outline" size={12} color="#B2BEC3" />
+                    </View>
+                  )}
+                </View>
+              )
+            ) : (
+              <View style={[ts.taskDepsCol]} />
+            )
+          ) : hideDepsEditor && !hasDeps ? (
+            <View style={ts.taskDepsCol} />
+          ) : showDepsContent ? (
             hideDepsEditor ? (
               <View style={ts.taskDepsCol}>
                 <Text style={ts.taskDepsLabel}>Depends on</Text>
@@ -1458,8 +1768,15 @@ function TodoTree({
         ) : null;
 
         // 移动端：左侧块弹性占满，右侧文件计数+状态圆点紧凑靠右，名称获得更多空间
+        // Web 行内重命名：整段左侧叠在 Progress/Status 列之上，避免溢出时按钮被后绘制的右列抢走点击
         const leftBlockStyle = isWeb
-          ? [ts.treeRowLeftBlock, { width: maxLeftBlockWidth }]
+          ? [
+              ts.treeRowLeftBlock,
+              { width: maxLeftBlockWidth },
+              ...(activeInlineRename
+                ? ([{ position: 'relative' as const, zIndex: 2 }] as const)
+                : ([] as const)),
+            ]
           : [ts.treeRowLeftBlock, ts.treeRowLeftBlockMobile];
         const leftBlockFull = (
           <View style={leftBlockStyle}>
@@ -1479,8 +1796,8 @@ function TodoTree({
             ) : (
               // Web 端：无论是否显示提交/召回按钮，都保留 Progress 列 + 状态列 + Depends 列
               <View style={ts.treeRowRightColsWrap}>
-                {ProgressCell}
-                {StatusCell}
+                {activeInlineRename ? null : ProgressCell}
+                {activeInlineRename ? null : StatusCell}
                 {TaskDepsCol}
               </View>
             );
@@ -1518,18 +1835,22 @@ function TodoTree({
                   boxSizing: 'border-box',
                   ...(StyleSheet.flatten(rowContainerStyle) as object),
                 }}
-                {...(hideDepsOnRowHandlers as object)}
+                {...(activeInlineRename ? {} : (hideDepsOnRowHandlers as object))}
                 onMouseEnter={() => {
+                  if (activeInlineRename) return;
                   dragHandleRevealHandlers?.onMouseEnter?.();
                 }}
                 onMouseLeave={() => {
+                  if (activeInlineRename) return;
                   (hideDepsOnRowHandlers as { onMouseLeave?: () => void }).onMouseLeave?.();
                   dragHandleRevealHandlers?.onMouseLeave?.();
                 }}
                 onTouchStart={() => {
+                  if (activeInlineRename) return;
                   dragHandleRevealHandlers?.onTouchStart?.();
                 }}
                 onTouchEnd={() => {
+                  if (activeInlineRename) return;
                   (hideDepsOnRowHandlers as { onTouchEnd?: () => void }).onTouchEnd?.();
                   dragHandleRevealHandlers?.onTouchEnd?.();
                 }}
@@ -1537,7 +1858,7 @@ function TodoTree({
                 {rowContent}
               </div>
             ) : (
-              <View style={rowContainerStyle} {...hideDepsOnRowHandlers}>
+              <View style={rowContainerStyle} {...(activeInlineRename ? {} : hideDepsOnRowHandlers)}>
                 {rowContent}
               </View>
             )}
@@ -1595,6 +1916,13 @@ function TodoTree({
                 onCatalogDeleteItem={onCatalogDeleteItem}
                 onCatalogUpdateType={onCatalogUpdateType}
                 hideDepsEditor={hideDepsEditor}
+                renameInline={renameInline}
+                onRenameInlineTitleChange={onRenameInlineTitleChange}
+                onCancelRenameInline={onCancelRenameInline}
+                onConfirmRenameInline={onConfirmRenameInline}
+                renameInlineSaving={renameInlineSaving}
+                onStartRenameInline={onStartRenameInline}
+                renameInlineListInputWidthPx={renameInlineListInputWidthPx}
               />
             )}
             {pendingParentId === node.id && onConfirmAddChild && onCancelAddChild && (
@@ -1755,6 +2083,14 @@ export interface TaxFilingTodosViewProps {
   onCatalogDeleteItem?: (itemId: string) => void;
   /** Catalog 模式：切换 task 责任方 client ↔ firm */
   onCatalogUpdateType?: (itemId: string, type: 'client' | 'firm') => void;
+  /**
+   * Catalog 模式（SKU）：写入 sku_item 的 `depends_on_ids`（及首项 `depends_on_id`）；与项目浮窗相同的多选 `dependsOnIds`。
+   * 未传时仍走 `updateProjectTodoDependsOn`（仅适用于项目 todos）。
+   */
+  onCatalogSetDependsOn?: (
+    itemId: string,
+    dependsOnIds: string[] | null,
+  ) => Promise<{ error: Error | null }>;
   /** Catalog 模式：phase/section 行点击删除时由外部处理（确认后递归删 sku_item） */
   onRequestDeletePhase?: (phaseId: string, phaseTitle: string) => void;
   /** Catalog 只读预览（如 engagement 详情）：不展示 + / - / depends on 编辑，仅展示树与依赖 */
@@ -1770,6 +2106,11 @@ export interface TaxFilingTodosViewProps {
    * If omitted, falls back to onRefresh() (full reload).
    */
   onTodoTreeOrderSaved?: (roots: ProjectTodoNode[]) => void;
+  /**
+   * Web only: persist edited row title (project todo or SKU template item).
+   * When set, an edit icon appears after the name (same reveal as +/-); row switches to in-place input + cancel/confirm like PendingAddRow.
+   */
+  onPersistTodoTitle?: (todoId: string, title: string) => Promise<{ error: Error | null }>;
 }
 
 export function TaxFilingTodosView({
@@ -1783,10 +2124,12 @@ export function TaxFilingTodosView({
   catalogMode = false,
   onCatalogDeleteItem,
   onCatalogUpdateType,
+  onCatalogSetDependsOn,
   onRequestDeletePhase: onRequestDeletePhaseProp,
   catalogPreviewReadOnly = false,
   persistTodoTreeOrder,
   onTodoTreeOrderSaved,
+  onPersistTodoTitle,
 }: TaxFilingTodosViewProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [taskFilesExpanded, setTaskFilesExpanded] = useState<Set<string>>(new Set());
@@ -1808,6 +2151,8 @@ export function TaxFilingTodosView({
   const hideFileColTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // zone3：状态标签点击后，状态 pill 变为动词按钮
   const [rowIdShowingStatusVerb, setRowIdShowingStatusVerb] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState<{ id: string; title: string } | null>(null);
+  const [renameSaving, setRenameSaving] = useState(false);
   const [depsPanelNodeId, setDepsPanelNodeId] = useState<string | null>(null);
   /** 前置多选浮窗内勾选的前置 ID 列表（None 外可多选；持久化仍用首项） */
   const [depsPickerSelectedIds, setDepsPickerSelectedIds] = useState<string[]>([]);
@@ -2278,8 +2623,9 @@ export function TaxFilingTodosView({
       nodes.forEach((n) => {
         const indent = 12 + d * 14;
         const titleLen = (n.title ?? '').length;
-        // 预留：chevron(28) + WBS(36) + 责任方标签(≈60) + 标题 + 额外留白(24)
-        const w = indent + 28 + 36 + 60 + titleLen * 8 + 24;
+        // 预留：chevron(28) + WBS(36) + 责任方标签(≈60) + 标题 + 行尾图标(edit / - / + 等，Web)
+        const trailingIcons = Platform.OS === 'web' ? 72 : 24;
+        const w = indent + 28 + 36 + 60 + titleLen * 8 + trailingIcons;
         if (w > maxW) maxW = w;
         walk(n.children, d + 1);
       });
@@ -2287,10 +2633,15 @@ export function TaxFilingTodosView({
     walk(tree, 0);
     const minW = 190;
     // 右侧需要预留的宽度：进度列(icon+数字) + 与状态圆点之间的间距 + 状态列本身 + 一点安全空白
-    const rightReserve = Platform.OS === 'web' ? 80 + 16 + 120 + 24 : 48 + 6 + 28 + 12;
+    const rightReserve = Platform.OS === 'web' ? 80 + 16 + 120 + 24 + 18 : 48 + 6 + 28 + 12;
     const cap = Math.floor(winW - 32 - rightReserve);
     return Math.min(Math.max(maxW, minW), cap);
   }, [tree]);
+
+  const renameInlineListInputWidthPx = useMemo(
+    () => maxTodoRenameInputWidthAcrossProjectTree(tree),
+    [tree],
+  );
 
   const toggleCollapse = useCallback((id: string) => {
     setCollapsed((prev) => {
@@ -2310,17 +2661,22 @@ export function TaxFilingTodosView({
     });
   }, []);
 
-  const handleSetDependsOn = useCallback(async (nodeId: string, dependsOnIds: string[] | null) => {
-    const ids = dependsOnIds?.length ? dependsOnIds : null;
-    const { error } = await updateProjectTodoDependsOn(nodeId, ids);
-    if (error) {
-      if (Platform.OS === 'web') window.alert('Failed to update dependency: ' + error.message);
-      else Alert.alert('Error', error.message);
-      return;
-    }
-    setDepsPanelNodeId(null);
-    await onRefresh();
-  }, [onRefresh]);
+  const handleSetDependsOn = useCallback(
+    async (nodeId: string, dependsOnIds: string[] | null) => {
+      const ids = dependsOnIds?.length ? dependsOnIds : null;
+      const { error } = onCatalogSetDependsOn
+        ? await onCatalogSetDependsOn(nodeId, ids)
+        : await updateProjectTodoDependsOn(nodeId, ids);
+      if (error) {
+        if (Platform.OS === 'web') window.alert('Failed to update dependency: ' + error.message);
+        else Alert.alert('Error', error.message);
+        return;
+      }
+      setDepsPanelNodeId(null);
+      await onRefresh();
+    },
+    [onRefresh, onCatalogSetDependsOn],
+  );
 
   const refreshFiles = useCallback(async (currentTree: ProjectTodoNode[]) => {
     const taskIds = collectTaskIds(currentTree);
@@ -2733,6 +3089,42 @@ export function TaxFilingTodosView({
     setTaskFilesExpanded((prev) => new Set(prev).add(targetTodoId));
   }, [moveFileContext, tree, refreshFiles]);
 
+  const handleStartRenameInline = useCallback((id: string, title: string) => {
+    if (hideAddTimeoutRef.current) {
+      clearTimeout(hideAddTimeoutRef.current);
+      hideAddTimeoutRef.current = null;
+    }
+    setRowIdShowingAdd(null);
+    setRenameDraft({ id, title });
+  }, []);
+
+  const handleRenameInlineTitleChange = useCallback((text: string) => {
+    setRenameDraft((prev) => (prev ? { ...prev, title: text } : prev));
+  }, []);
+
+  const handleCancelRenameInline = useCallback(() => {
+    if (renameSaving) return;
+    setRenameDraft(null);
+  }, [renameSaving]);
+
+  const handleConfirmRenameInline = useCallback(async () => {
+    if (!renameDraft || !onPersistTodoTitle) return;
+    const t = renameDraft.title.trim();
+    if (!t) {
+      if (Platform.OS === 'web') window.alert('Name cannot be empty.');
+      return;
+    }
+    setRenameSaving(true);
+    const { error } = await onPersistTodoTitle(renameDraft.id, t);
+    setRenameSaving(false);
+    if (error) {
+      if (Platform.OS === 'web') window.alert(error.message ?? 'Failed to save');
+      return;
+    }
+    setRenameDraft(null);
+    await onRefresh();
+  }, [renameDraft, onPersistTodoTitle, onRefresh]);
+
   if (tree.length === 0) {
     return (
       <View style={ts.root}>
@@ -2750,7 +3142,13 @@ export function TaxFilingTodosView({
       <ScrollView style={ts.scroll} contentContainerStyle={ts.scrollContent}>
         <View style={ts.phaseBlocksWrap}>
           {todoDragListTree.map((phaseNode, phaseIndex) => (
-            <View key={phaseNode.id} style={ts.phaseBlock}>
+            <View
+              key={phaseNode.id}
+              style={[
+                ts.phaseBlock,
+                Platform.OS === 'web' && renameDraft ? ts.phaseBlockWhileRenaming : null,
+              ]}
+            >
               <TodoTree
                 nodes={[phaseNode]}
                 depth={0}
@@ -2803,6 +3201,21 @@ export function TaxFilingTodosView({
                 onCatalogDeleteItem={catalogPreviewReadOnly ? undefined : onCatalogDeleteItem}
                 onCatalogUpdateType={catalogPreviewReadOnly ? undefined : onCatalogUpdateType}
                 hideDepsEditor={catalogPreviewReadOnly}
+                renameInline={Platform.OS === 'web' && onPersistTodoTitle ? renameDraft : null}
+                onRenameInlineTitleChange={
+                  Platform.OS === 'web' && onPersistTodoTitle ? handleRenameInlineTitleChange : undefined
+                }
+                onCancelRenameInline={
+                  Platform.OS === 'web' && onPersistTodoTitle ? handleCancelRenameInline : undefined
+                }
+                onConfirmRenameInline={
+                  Platform.OS === 'web' && onPersistTodoTitle ? handleConfirmRenameInline : undefined
+                }
+                renameInlineSaving={renameSaving}
+                onStartRenameInline={
+                  Platform.OS === 'web' && onPersistTodoTitle ? handleStartRenameInline : undefined
+                }
+                renameInlineListInputWidthPx={renameInlineListInputWidthPx}
               />
             </View>
           ))}
@@ -3120,7 +3533,7 @@ export function TaxFilingTodosView({
         );
       })()}
 
-      {/* 前置依赖选单浮窗：section 缩进列表，None 外可多选（持久化取首项） */}
+      {/* 前置依赖选单浮窗：section 缩进列表，None 外可多选；项目 / SKU 均持久化完整 id 列表 */}
       {depsPanelNodeId && (() => {
         const currentNode = allNodesFlat.find((n) => n.id === depsPanelNodeId);
         if (!currentNode) return null;
@@ -3354,6 +3767,10 @@ const ts = StyleSheet.create({
     borderColor: '#DEE2E6',
     overflow: 'hidden',
   },
+  /** Web 行内重命名：避免圆角卡片裁切输入框左缘/描边 */
+  phaseBlockWhileRenaming: {
+    overflow: 'visible',
+  } as const,
   /** 与 phase 标题左端对齐：左留白(62) + icon(20) + gap(6) = 88，与 phase 标题起点一致 */
   addPhaseRow: {
     flexDirection: 'row',
@@ -3406,8 +3823,8 @@ const ts = StyleSheet.create({
     alignItems: 'center',
     flexWrap: 'nowrap',
     minWidth: 0,
-    // Web：预留右侧间距给文件计数 / 状态列；移动端不额外预留，让名称贴近文件计数列
-    marginRight: Platform.OS === 'web' ? 24 : 0,
+    // Web：预留右侧间距给文件计数 / 状态列（含 edit / - 等行尾图标，避免与计数重叠）
+    marginRight: Platform.OS === 'web' ? 40 : 0,
   },
   /** 移动端：左侧块弹性占满，与文件计数间距紧凑 */
   treeRowLeftBlockMobile: {
@@ -3460,6 +3877,51 @@ const ts = StyleSheet.create({
   titleColumnTrailing: { flex: 1, minWidth: 0, cursor: 'pointer' } as any,
   titleHotzone: { alignSelf: 'stretch', justifyContent: 'center', flexShrink: 0 },
   treeTitleWrapAdaptive: { flexDirection: 'row', alignItems: 'center' },
+  /** 原生行内重命名：层叠上下文 */
+  renameTitleRow: Platform.OS === 'web'
+    ? ({ position: 'relative' as const, isolation: 'isolate' as const } as object)
+    : {},
+  /** 徽章+锁：与只读行同一行内顺序；标签自带 marginRight，此处不再额外拉大与标题/输入的间距 */
+  renameLeadCluster: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    zIndex: 0,
+    ...(Platform.OS === 'web' ? ({ position: 'relative' as const } as object) : {}),
+  },
+  /** 标题/输入轨：与只读 Text 同一水平起点（紧随徽章+锁） */
+  renameInlineTitleTrack: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    paddingLeft: 0,
+    ...(Platform.OS === 'web'
+      ? ({
+          position: 'relative' as const,
+          zIndex: 25,
+        } as object)
+      : {}),
+  },
+  /** 固定宽输入 + 框外取消/确认；宽度由整树最长标题统一算出，避免随输入变化引起布局抖动 */
+  renameInlineInputTrail: {
+    flexGrow: 0,
+    flexShrink: 0,
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'nowrap',
+    gap: 8,
+    ...(Platform.OS === 'web' ? ({ overflow: 'visible' } as object) : {}),
+  },
+  /** 取消/确认：在输入框右缘外侧；整行左块在重命名时会 zIndex 抬高，避免 Web 点穿到右列 */
+  renameInlineActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
   treeTitleAdaptive: { fontSize: 15, color: '#2D3436' },
   treeTitleCanceled: { textDecorationLine: 'line-through', color: '#95A5A6' },
   terminateTaskBtnHotzone: { alignSelf: 'stretch', justifyContent: 'center', marginLeft: 2, cursor: 'pointer', minWidth: 20 } as any,
@@ -3518,6 +3980,7 @@ const ts = StyleSheet.create({
     alignItems: 'flex-start',
     justifyContent: 'center',
     alignSelf: 'stretch',
+    ...(Platform.OS === 'web' ? { paddingLeft: 14, marginLeft: 4 } : {}),
   },
   /** 移动端：文件计数列紧凑（icon + 数字） */
   progressFilesColMobile: {
@@ -3923,7 +4386,6 @@ const ts = StyleSheet.create({
     gap: 12,
   },
   roleBadge: {
-    alignSelf: 'flex-start',
     minWidth: 52,
     height: 20,
     paddingHorizontal: 8,

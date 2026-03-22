@@ -521,10 +521,11 @@ export interface FirmSkuItem {
   sortOrder: number;
   /**
    * 可选前置节点 id（同 SKU 内的另一个 sku_item，通常是 section 或 phase 级别）。
-   * 非空时，表示该节点必须等前置节点完成（status=success）后才能解锁。
-   * 创建订单时，通过 oldIdToNewId 映射复制为对应的 project_todo.depends_on_id。
+   * 与 dependsOnIds[0] 一致；创建订单时映射到 project_todo.depends_on_id / depends_on_ids。
    */
   dependsOnId?: string | null;
+  /** 多前置依赖（同 SKU 内）；空数组表示无前置 */
+  dependsOnIds?: string[];
   createdAt?: string;
   updatedAt?: string;
 }

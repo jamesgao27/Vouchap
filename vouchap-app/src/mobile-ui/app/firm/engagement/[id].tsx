@@ -34,6 +34,7 @@ import {
   updateOrderStatus,
   confirmOrderAndCreateProjectTodos,
   applyProjectTodosTreeOrder,
+  updateProjectTodo,
   type ProjectTodoNode,
   type FirmOrderById,
 } from '@/lib/firm';
@@ -422,6 +423,11 @@ export default function FirmEngagementDetailScreen() {
           order.status === 'processing' &&
           orderId
             ? (roots) => applyProjectTodosTreeOrder(orderId, roots)
+            : undefined
+        }
+        persistTodoTitle={
+          Platform.OS === 'web' && order.status === 'processing' && orderId
+            ? (todoId, title) => updateProjectTodo(todoId, { title })
             : undefined
         }
       />
