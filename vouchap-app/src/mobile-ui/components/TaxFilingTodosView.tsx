@@ -301,7 +301,12 @@ function PendingAddRow({
           <View style={{ width: 12 + indent }} />
           <View style={ts.chevronWrap} />
           <View style={ts.wbsHotzone}>
-            <Text style={ts.wbsColText} numberOfLines={1}>{nextWbsCode}</Text>
+            <Text
+              style={ts.wbsColText}
+              {...(Platform.OS === 'web' ? { numberOfLines: 1 } : {})}
+            >
+              {nextWbsCode}
+            </Text>
           </View>
           <View style={ts.pendingAddInputRow}>
             <TextInput
@@ -817,11 +822,21 @@ function TodoTree({
         const wbsExtraSpacingForTask = !isWeb && isTask ? { marginRight: 6 } : null;
         const WbsCell = collapseHandlers ? (
           <TouchableOpacity style={[ts.wbsHotzone, wbsExtraSpacingForTask]} {...collapseHandlers}>
-            <Text style={ts.wbsColText} numberOfLines={1}>{wbsCode}</Text>
+            <Text
+              style={ts.wbsColText}
+              {...(Platform.OS === 'web' ? { numberOfLines: 1 } : {})}
+            >
+              {wbsCode}
+            </Text>
           </TouchableOpacity>
         ) : (
           <View style={[ts.wbsHotzone, wbsExtraSpacingForTask]}>
-            <Text style={ts.wbsColText} numberOfLines={1}>{wbsCode}</Text>
+            <Text
+              style={ts.wbsColText}
+              {...(Platform.OS === 'web' ? { numberOfLines: 1 } : {})}
+            >
+              {wbsCode}
+            </Text>
           </View>
         );
 
@@ -1153,20 +1168,23 @@ function TodoTree({
           </View>
         );
 
+        // catalogMode（如 onboarding 只读 SKU 树）：移动端不展示文件/状态/依赖列，右侧无内容却曾占位 ~80+32px，挤压标题省略
         const rowRightCols =
-          // 移动端：显示提交/召回等按钮时，用按钮覆盖文件计数+状态标区域
-          showStatusVerb && !isWeb ? (
-            <View style={ts.treeRowRightColsWrap}>
-              {StatusCell}
-            </View>
-          ) : (
-            // Web 端：无论是否显示提交/召回按钮，都保留 Progress 列 + 状态列 + Depends 列
-            <View style={ts.treeRowRightColsWrap}>
-              {ProgressCell}
-              {StatusCell}
-              {TaskDepsCol}
-            </View>
-          );
+          catalogMode && !isWeb
+            ? null
+            : // 移动端：显示提交/召回等按钮时，用按钮覆盖文件计数+状态标区域
+            showStatusVerb && !isWeb ? (
+              <View style={ts.treeRowRightColsWrap}>
+                {StatusCell}
+              </View>
+            ) : (
+              // Web 端：无论是否显示提交/召回按钮，都保留 Progress 列 + 状态列 + Depends 列
+              <View style={ts.treeRowRightColsWrap}>
+                {ProgressCell}
+                {StatusCell}
+                {TaskDepsCol}
+              </View>
+            );
 
         const rowContent = (
           <>
@@ -1803,12 +1821,28 @@ export function TaxFilingTodosView({
     setPendingParentId(parentId);
   }, []);
 
-  const onConfirmAddChild = useCallback(async (parentId: string, parentType: ProjectTodoNode['type'], title: string) => {
+  const onConfirmAddChild = useCallback(async (parentId: string, _parentResponsibleSide: ProjectTodoNode['type'], title: string) => {
     const trimmed = (title ?? '').trim();
     if (!trimmed) { setPendingParentId(null); return; }
     try {
       const creatorSide: ProjectTodoNode['type'] = viewerRole;
-      const { error: err } = await createProjectTodo({ orderId, parentId, type: creatorSide, title: trimmed });
+      const parentNode = allNodesFlat.find((n) => n.id === parentId);
+      // phase 下 +Section → itemKind section；section 下 +Task → task（此前缺省 task 导致 phase 下误建 task）
+      let childItemKind: 'phase' | 'section' | 'task' = 'task';
+      if (parentNode?.itemKind === 'phase') {
+        childItemKind = 'section';
+      } else if (parentNode?.itemKind === 'section') {
+        childItemKind = 'task';
+      } else if (parentNode && tree.some((p) => p.id === parentId)) {
+        childItemKind = 'section';
+      }
+      const { error: err } = await createProjectTodo({
+        orderId,
+        parentId,
+        type: creatorSide,
+        title: trimmed,
+        itemKind: childItemKind,
+      });
       if (err) {
         const msg = err.message ?? 'Could not create item.';
         if (Platform.OS === 'web') window.alert('Save failed: ' + msg);
@@ -1823,7 +1857,7 @@ export function TaxFilingTodosView({
       if (Platform.OS === 'web') window.alert('Save failed: ' + msg);
       else Alert.alert('Save failed', msg);
     }
-  }, [orderId, createProjectTodo, onRefresh, viewerRole]);
+  }, [orderId, createProjectTodo, onRefresh, viewerRole, allNodesFlat, tree]);
 
   const onCancelAddChild = useCallback(() => setPendingParentId(null), []);
 
@@ -2627,8 +2661,10 @@ const ts = StyleSheet.create({
   },
   wbsHotzone: {
     // WBS 列整体靠左对齐，编号与标题共享同一左起点（垂直方向仍居中）
-    width: Platform.OS === 'web' ? 36 : 24,
-    marginRight: Platform.OS === 'web' ? 8 : 2,
+    // Web：固定列宽；移动端：用 minWidth + flexShrink:0，避免大字体/长编号被压成省略号
+    ...(Platform.OS === 'web'
+      ? { width: 36, marginRight: 8 }
+      : { minWidth: 48, marginRight: 6, flexShrink: 0 }),
     alignItems: 'flex-start',
     justifyContent: 'center',
     alignSelf: 'stretch',
@@ -2651,7 +2687,12 @@ const ts = StyleSheet.create({
   terminateTaskBtnIcon: { height: 20, width: 20, justifyContent: 'center', alignItems: 'center', transform: [{ translateY: 1 }] },
   restoreTaskBtnIcon: { height: 20, width: 20, justifyContent: 'center', alignItems: 'center', transform: [{ translateY: 1 }] },
   addIconSlot: { width: 96, height: 20, justifyContent: 'center', alignItems: 'flex-start', marginLeft: 8 },
-  wbsColText: { fontSize: 11, color: '#95A5A6', fontWeight: '500' },
+  wbsColText: {
+    fontSize: 11,
+    color: '#95A5A6',
+    fontWeight: '500',
+    ...(Platform.OS === 'web' ? {} : { flexShrink: 0 }),
+  },
   titleColumnTrailingInner: { flex: 1, minWidth: 0 },
   addChildBtn: { padding: 0, marginLeft: 0, marginTop: 2 },
   addChildPill: {

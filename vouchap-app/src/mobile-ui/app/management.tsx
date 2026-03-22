@@ -25,6 +25,7 @@ import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '@/lib/alertWeb';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 export default function ManagementScreen() {
   const MAX_LOGO_FILE_SIZE = 500 * 1024;
@@ -38,6 +39,7 @@ export default function ManagementScreen() {
   const [spaceImageUri, setSpaceImageUri] = useState<string | null>(null);
   const [spaceImageClear, setSpaceImageClear] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [canEditSpaceInfo, setCanEditSpaceInfo] = useState(false);
   const [editingPersonal, setEditingPersonal] = useState(false);
   const [personalName, setPersonalName] = useState('');
   const [userLogoUri, setUserLogoUri] = useState<string | null>(null);
@@ -87,9 +89,74 @@ export default function ManagementScreen() {
     return true;
   };
 
+  const getUriFileSize = async (uri: string): Promise<number | null> => {
+    try {
+      if (Platform.OS !== 'web' && uri.startsWith('file://')) {
+        const info = await FileSystem.getInfoAsync(uri, { size: true } as any);
+        if (info.exists && typeof (info as any).size === 'number') return (info as any).size;
+      }
+      const res = await fetch(uri);
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      return blob.size;
+    } catch (_) {
+      return null;
+    }
+  };
+
+  const compressImageForLogoIfNeeded = async (
+    uri: string,
+    originWidth?: number,
+    originHeight?: number
+  ): Promise<string | null> => {
+    let currentUri = uri;
+    // Web 端补齐裁切：按中心裁成正方形；移动端已有系统裁切，此处不重复裁切
+    if (Platform.OS === 'web' && originWidth && originHeight && originWidth > 0 && originHeight > 0) {
+      const cropSize = Math.min(originWidth, originHeight);
+      const cropX = Math.max(0, Math.floor((originWidth - cropSize) / 2));
+      const cropY = Math.max(0, Math.floor((originHeight - cropSize) / 2));
+      const cropped = await ImageManipulator.manipulateAsync(
+        currentUri,
+        [{ crop: { originX: cropX, originY: cropY, width: cropSize, height: cropSize } }],
+        { compress: 1, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      currentUri = cropped.uri;
+    }
+
+    let currentSize = await getUriFileSize(currentUri);
+    if (currentSize !== null && currentSize <= MAX_LOGO_FILE_SIZE) return currentUri;
+
+    // 逐步降低质量并缩放，尽量压到 500KB 以下
+    let width = 1280;
+    let height = 1280;
+    const qualitySteps = [0.82, 0.72, 0.62, 0.52, 0.42];
+
+    for (let i = 0; i < qualitySteps.length; i++) {
+      const manipulated = await ImageManipulator.manipulateAsync(
+        currentUri,
+        [{ resize: { width, height } }],
+        { compress: qualitySteps[i], format: ImageManipulator.SaveFormat.JPEG }
+      );
+      currentUri = manipulated.uri;
+      currentSize = await getUriFileSize(currentUri);
+      if (currentSize !== null && currentSize <= MAX_LOGO_FILE_SIZE) return currentUri;
+
+      width = Math.max(480, Math.round(width * 0.85));
+      height = Math.max(480, Math.round(height * 0.85));
+    }
+
+    return null;
+  };
+
   useEffect(() => {
     loadData();
   }, []);
+
+  useEffect(() => {
+    if (!canEditSpaceInfo && editing) {
+      setEditing(false);
+    }
+  }, [canEditSpaceInfo, editing]);
 
   const loadData = async () => {
     try {
@@ -104,6 +171,19 @@ export default function ManagementScreen() {
       const userData = await getCurrentUser();
       setUser(userData);
       setPersonalName(userData?.name || '');
+
+      // 仅当前空间管理员可编辑 Space Information
+      if (spaceData?.id && userData?.id) {
+        const { data: memberRow } = await supabase
+          .from('user_spaces')
+          .select('is_admin')
+          .eq('space_id', spaceData.id)
+          .eq('user_id', userData.id)
+          .maybeSingle();
+        setCanEditSpaceInfo(memberRow?.is_admin === true);
+      } else {
+        setCanEditSpaceInfo(false);
+      }
     } catch (error) {
       console.error('Error loading data:', error);
       showToast('Failed to load space information', 'error');
@@ -120,6 +200,18 @@ export default function ManagementScreen() {
         setSpace(spaceData);
         setSpaceName(spaceData.name);
         setSpaceAddress(spaceData.address || '');
+      }
+      const userData = await getCurrentUser();
+      if (spaceData?.id && userData?.id) {
+        const { data: memberRow } = await supabase
+          .from('user_spaces')
+          .select('is_admin')
+          .eq('space_id', spaceData.id)
+          .eq('user_id', userData.id)
+          .maybeSingle();
+        setCanEditSpaceInfo(memberRow?.is_admin === true);
+      } else {
+        setCanEditSpaceInfo(false);
       }
     } catch (error) {
       console.error('Error loading space:', error);
@@ -260,10 +352,23 @@ export default function ManagementScreen() {
 
       if (!result.canceled && result.assets?.[0]?.uri) {
         const asset = result.assets[0];
-        const valid = await validateLogoFileSize(asset);
-        if (!valid) return;
+        const compressedUri = await compressImageForLogoIfNeeded(asset.uri, asset.width, asset.height);
+        if (!compressedUri) {
+          showToast('Unable to compress image below 500KB. Please choose another one.', 'error');
+          return;
+        }
+        let finalUri = compressedUri;
+
+        // 兜底：如果压缩函数未拿到大小，仍使用原校验提示
+        if (Platform.OS === 'web') {
+          const finalSize = await getUriFileSize(finalUri);
+          if (finalSize === null) {
+            const valid = await validateLogoFileSize(asset);
+            if (!valid) return;
+          }
+        }
         setSpaceImageClear(false);
-        setSpaceImageUri(asset.uri);
+        setSpaceImageUri(finalUri);
       }
     } catch (e) {
       console.error('pickSpaceImage error:', e);
@@ -290,10 +395,22 @@ export default function ManagementScreen() {
 
       if (!result.canceled && result.assets?.[0]?.uri) {
         const asset = result.assets[0];
-        const valid = await validateLogoFileSize(asset);
-        if (!valid) return;
+        const compressedUri = await compressImageForLogoIfNeeded(asset.uri, asset.width, asset.height);
+        if (!compressedUri) {
+          showToast('Unable to compress image below 500KB. Please choose another one.', 'error');
+          return;
+        }
+        let finalUri = compressedUri;
+
+        if (Platform.OS === 'web') {
+          const finalSize = await getUriFileSize(finalUri);
+          if (finalSize === null) {
+            const valid = await validateLogoFileSize(asset);
+            if (!valid) return;
+          }
+        }
         setUserLogoClear(false);
-        setUserLogoUri(asset.uri);
+        setUserLogoUri(finalUri);
       }
     } catch (e) {
       console.error('pickUserLogo error:', e);
@@ -548,6 +665,14 @@ export default function ManagementScreen() {
                     </View>
                   </View>
                 )}
+                {editingPersonal && (
+                  <View pointerEvents="none" style={styles.logoEditOverlay} />
+                )}
+                {editingPersonal && (
+                  <View pointerEvents="none" style={styles.logoReplaceIconButton}>
+                    <Ionicons name="cloud-upload-outline" size={12} color="#fff" />
+                  </View>
+                )}
                 {editingPersonal && (effectiveUserLogoUri || user?.logoUrl || userLogoUri) && (
                   <TouchableOpacity
                     style={styles.logoRemoveIconButton}
@@ -647,6 +772,7 @@ export default function ManagementScreen() {
             <TouchableOpacity
               activeOpacity={0.7}
               onPress={() => {
+                if (!canEditSpaceInfo) return;
                 if (editing) {
                   pickSpaceImage();
                   return;
@@ -666,6 +792,14 @@ export default function ManagementScreen() {
                     <View style={styles.logoPlaceholderSquare}>
                       <Ionicons name="business-outline" size={24} color="#6C5CE7" />
                     </View>
+                  </View>
+                )}
+                {editing && (
+                  <View pointerEvents="none" style={styles.logoEditOverlay} />
+                )}
+                {editing && (
+                  <View pointerEvents="none" style={styles.logoReplaceIconButton}>
+                    <Ionicons name="cloud-upload-outline" size={12} color="#fff" />
                   </View>
                 )}
                 {editing && (effectiveSpaceImageUri || space?.logoUrl || spaceImageUri) && (
@@ -736,16 +870,18 @@ export default function ManagementScreen() {
                     ) : (
                       <>
                         <Text style={styles.spaceName}>{space?.name || 'N/A'}</Text>
-                        <TouchableOpacity
-                          style={styles.editButton}
-                          onPress={() => {
-                            setSpaceImageUri(null);
-                            setSpaceImageClear(false);
-                            setEditing(true);
-                          }}
-                        >
-                          <Ionicons name="create-outline" size={18} color="#6C5CE7" />
-                        </TouchableOpacity>
+                        {canEditSpaceInfo && (
+                          <TouchableOpacity
+                            style={styles.editButton}
+                            onPress={() => {
+                              setSpaceImageUri(null);
+                              setSpaceImageClear(false);
+                              setEditing(true);
+                            }}
+                          >
+                            <Ionicons name="create-outline" size={18} color="#6C5CE7" />
+                          </TouchableOpacity>
+                        )}
                       </>
                     )}
                   </View>
@@ -1112,11 +1248,38 @@ const styles = StyleSheet.create({
     width: 18,
     height: 18,
     borderRadius: 9,
-    backgroundColor: '#E74C3C',
+    backgroundColor: '#636E72',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#fff',
+    zIndex: 3,
+  },
+  logoEditOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 12,
+    backgroundColor: 'rgba(45, 52, 54, 0.16)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
+  },
+  logoReplaceIconButton: {
+    position: 'absolute',
+    bottom: -5,
+    right: -5,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#636E72',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#fff',
+    zIndex: 3,
   },
   logoPlaceholderWrap: {
     width: 48,

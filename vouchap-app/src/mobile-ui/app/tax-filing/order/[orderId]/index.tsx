@@ -335,18 +335,36 @@ export default function OrderTodosScreen() {
   }, []);
 
   const onConfirmAddChild = useCallback(
-    async (parentId: string, parentType: ProjectTodoNode['type'], title: string) => {
+    async (parentId: string, _parentResponsibleSide: ProjectTodoNode['type'], title: string) => {
       const trimmed = (title ?? '').trim();
       if (!trimmed) {
         setPendingParentId(null);
         return;
       }
       try {
+        const findNodeById = (nodes: ProjectTodoNode[], id: string): ProjectTodoNode | null => {
+          for (const n of nodes) {
+            if (n.id === id) return n;
+            const found = findNodeById(n.children, id);
+            if (found) return found;
+          }
+          return null;
+        };
+        const parentNode = findNodeById(tree, parentId);
+        let childItemKind: 'phase' | 'section' | 'task' = 'task';
+        if (parentNode?.itemKind === 'phase') {
+          childItemKind = 'section';
+        } else if (parentNode?.itemKind === 'section') {
+          childItemKind = 'task';
+        } else if (parentNode && tree.some((p) => p.id === parentId)) {
+          childItemKind = 'section';
+        }
         const { error: err } = await createProjectTodo({
           orderId,
           parentId,
           type: 'client',
           title: trimmed,
+          itemKind: childItemKind,
         });
         if (err) {
           const msg = err.message ?? 'Could not create item.';
@@ -377,7 +395,7 @@ export default function OrderTodosScreen() {
         }
       }
     },
-    [orderId]
+    [orderId, tree]
   );
 
   const onCancelAddChild = useCallback(() => {
