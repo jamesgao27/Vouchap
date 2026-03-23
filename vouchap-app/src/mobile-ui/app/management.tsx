@@ -621,16 +621,17 @@ export default function ManagementScreen() {
 
   const menuItems = [
     { id: 'members', title: 'Members', icon: 'people-outline', route: '/space-members', description: 'Manage members & invitations' },
+    { id: 'permissions', title: 'Permissions', icon: 'shield-checkmark-outline', route: '/firm/permissions', description: 'Roles and permission scopes settings' },
     { id: 'claim', title: 'Claim engagement', icon: 'link-outline', route: '/auth/claim', description: 'Link your space with a pending engagement from a firm' },
     { id: 'categories', title: 'Categories', icon: 'pricetags-outline', route: '/categories-manage', description: 'Expense & income categories' },
     { id: 'purposes', title: 'Purposes & Sources', icon: 'briefcase-outline', route: '/purposes-manage', description: 'For expenses & income tracking' },
     { id: 'accounts', title: 'Accounts', icon: 'wallet-outline', route: '/accounts-manage', description: 'Manage and merge accounts' },
     { id: 'entities', title: 'Entities', icon: 'storefront-outline', route: '/entities-manage', description: 'Payee/Payer/Sender/Receiver' },
   ];
-  // firm 管理界面隐去分类、用途、账户、Entities，仅保留 Members
+  // firm 管理界面隐去分类、用途、账户、Entities，仅保留 Members + Permission
   const visibleMenuItems = space?.kind === 'firm'
-    ? menuItems.filter((item) => item.id === 'members')
-    : menuItems.filter((item) => item.id !== 'claim');
+    ? menuItems.filter((item) => item.id === 'members' || item.id === 'permissions')
+    : menuItems.filter((item) => item.id !== 'claim' && item.id !== 'permissions');
 
   return (
     <View style={styles.container}>

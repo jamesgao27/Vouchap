@@ -13,6 +13,8 @@ import {
   ActivityIndicator,
   TextInput,
   TouchableOpacity,
+  Modal,
+  Pressable,
   Platform,
   RefreshControl,
 } from 'react-native';
@@ -24,6 +26,9 @@ import { supabase } from '@/lib/supabase';
 import {
   getFirmOrdersWithDetails,
   updateOrderStatus,
+  getFirmSpaceMembers,
+  updateFirmOrderManager,
+  type FirmSpaceMember,
   type FirmOrderWithDetails,
 } from '@/lib/firm';
 import DataTable, { type DataTableColumn, WEB_POPOVER } from '@/components/DataTable';
@@ -308,7 +313,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
     },
     {
       id: 'assigneeName',
-      label: 'Creator',
+      label: 'Manager',
       minWidth: 100,
       getValue: (r) => (
         <Text style={cellText} numberOfLines={1}>
@@ -353,6 +358,11 @@ export default function FirmEngagementsScreen() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
   const [bulkCancelling, setBulkCancelling] = useState(false);
+  const [showAssignManagerPicker, setShowAssignManagerPicker] = useState(false);
+  const [assignMembers, setAssignMembers] = useState<FirmSpaceMember[]>([]);
+  const [assignSelectedMemberId, setAssignSelectedMemberId] = useState<string | null>(null);
+  const [assignLoading, setAssignLoading] = useState(false);
+  const [assignSaving, setAssignSaving] = useState(false);
   const [groupPopoverRect, setGroupPopoverRect] = useState<{ left: number; top: number } | null>(null);
   const [filterPopoverRect, setFilterPopoverRect] = useState<{ left: number; top: number } | null>(null);
 
@@ -589,6 +599,37 @@ export default function FirmEngagementsScreen() {
     }
   }, [selectedOrderIds, loadData]);
 
+  const handleOpenAssignManagerPicker = useCallback(async () => {
+    if (!firmSpaceId || selectedOrderIds.length === 0) return;
+    setShowAssignManagerPicker(true);
+    setAssignLoading(true);
+    setAssignSelectedMemberId(null);
+    const members = await getFirmSpaceMembers(firmSpaceId);
+    setAssignMembers(members);
+    setAssignLoading(false);
+  }, [firmSpaceId, selectedOrderIds.length]);
+
+  const handleAssignManagerDone = useCallback(async () => {
+    if (!firmSpaceId || !assignSelectedMemberId || selectedOrderIds.length === 0) return;
+    setAssignSaving(true);
+    let error: Error | null = null;
+    for (const orderId of selectedOrderIds) {
+      const res = await updateFirmOrderManager(firmSpaceId, orderId, assignSelectedMemberId);
+      if (res.error) {
+        error = res.error;
+        break;
+      }
+    }
+    setAssignSaving(false);
+    setShowAssignManagerPicker(false);
+    if (error) {
+      if (typeof window !== 'undefined') window.alert(error.message);
+      return;
+    }
+    setSelectedOrderIds([]);
+    await loadData(true);
+  }, [firmSpaceId, assignSelectedMemberId, selectedOrderIds, loadData]);
+
   // Mobile: receipt-style list (Group, Filter, Search + firstRow/secondRow)
   const engagementSections = useMemo(() => {
     const col = sortKey ? orderColumns.find((c) => c.id === sortKey) : undefined;
@@ -776,6 +817,14 @@ export default function FirmEngagementsScreen() {
                 <Ionicons name="close-circle-outline" size={18} color="#fff" />
               )}
               <Text style={styles.bulkBtnText}>Cancel engagements</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.bulkBtnSecondary}
+              onPress={handleOpenAssignManagerPicker}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="person-outline" size={18} color="#6C5CE7" />
+              <Text style={styles.bulkBtnSecondaryText}>Assign manager</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.bulkBtnClear}
@@ -1113,6 +1162,54 @@ export default function FirmEngagementsScreen() {
           </div>,
           document.body
         )}
+
+      <Modal visible={showAssignManagerPicker} transparent animationType="fade" onRequestClose={() => !assignSaving && setShowAssignManagerPicker(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => !assignSaving && setShowAssignManagerPicker(false)}>
+          <Pressable style={styles.modalCard} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.modalTitle}>Assign manager</Text>
+            <Text style={styles.modalSubtitle}>Selected engagements: {selectedOrderIds.length}</Text>
+            {assignLoading ? (
+              <View style={styles.modalLoadingWrap}>
+                <ActivityIndicator size="small" color="#6C5CE7" />
+              </View>
+            ) : (
+              <ScrollView style={{ maxHeight: 320 }}>
+                {assignMembers.map((m) => {
+                  const selected = assignSelectedMemberId === m.id;
+                  return (
+                    <TouchableOpacity
+                      key={m.id}
+                      style={[styles.assignRow, selected && styles.assignRowSelected]}
+                      onPress={() => setAssignSelectedMemberId(m.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.assignRowText, selected && styles.assignRowTextSelected]}>
+                        {m.name || m.email || m.id}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            )}
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => !assignSaving && setShowAssignManagerPicker(false)}
+                disabled={assignSaving}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalConfirmBtn, (!assignSelectedMemberId || assignSaving) && styles.bulkBtnDisabled]}
+                onPress={handleAssignManagerDone}
+                disabled={!assignSelectedMemberId || assignSaving}
+              >
+                {assignSaving ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.modalConfirmText}>Save</Text>}
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1300,8 +1397,57 @@ const styles = StyleSheet.create({
   },
   bulkBtnDisabled: { opacity: 0.6 },
   bulkBtnText: { fontSize: 14, color: '#fff', fontWeight: '600' },
+  bulkBtnSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: '#F3EEFF',
+    borderRadius: 8,
+  },
+  bulkBtnSecondaryText: { fontSize: 14, color: '#6C5CE7', fontWeight: '600' },
   bulkBtnClear: { paddingVertical: 8, paddingHorizontal: 12 },
   bulkBtnClearText: { fontSize: 14, color: '#636E72', fontWeight: '500' },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    padding: 16,
+  },
+  modalTitle: { fontSize: 18, fontWeight: '700', color: '#2D3436' },
+  modalSubtitle: { fontSize: 13, color: '#636E72', marginTop: 4, marginBottom: 10 },
+  modalLoadingWrap: { paddingVertical: 18, alignItems: 'center' },
+  assignRow: {
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+  },
+  assignRowSelected: { backgroundColor: '#F3EEFF' },
+  assignRowText: { fontSize: 14, color: '#2D3436' },
+  assignRowTextSelected: { color: '#6C5CE7', fontWeight: '600' },
+  modalActions: { flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 12 },
+  modalCancelBtn: { paddingHorizontal: 14, paddingVertical: 8 },
+  modalCancelText: { fontSize: 14, color: '#636E72', fontWeight: '500' },
+  modalConfirmBtn: {
+    backgroundColor: '#6C5CE7',
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    minWidth: 84,
+    alignItems: 'center',
+  },
+  modalConfirmText: { fontSize: 14, color: '#fff', fontWeight: '600' },
   searchWrap: {
     flex: 1,
     flexDirection: 'row',

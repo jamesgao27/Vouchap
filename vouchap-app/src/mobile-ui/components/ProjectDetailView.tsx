@@ -22,6 +22,23 @@ import type { FirmSkuItem } from '@/types';
 import type { ProjectSkuInfo, TodoRow } from '@/components/ProjectSkuDetail';
 import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors';
 
+const TAG_PALETTE: [string, string][] = [
+  ['#EDE9FD', '#6C5CE7'], // violet
+  ['#E3F2FD', '#1E88E5'], // blue
+  ['#E8F5E9', '#2ECC71'], // green
+  ['#FFF3E0', '#E67E22'], // amber
+  ['#FCE4EC', '#E91E63'], // rose
+  ['#E0F7FA', '#00ACC1'], // teal
+  ['#FFF8E1', '#F9A825'], // yellow
+  ['#F3E5F5', '#9C27B0'], // purple
+];
+
+function getTagColor(tag: string): [string, string] {
+  let hash = 0;
+  for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) & 0xffff;
+  return TAG_PALETTE[hash % TAG_PALETTE.length];
+}
+
 /** 将 sku_items 转为 TaxFilingTodosView 所需的 ProjectTodoNode 树（与 firm/sku/[skuId] 一致） */
 function skuItemsToProjectTodoTree(items: FirmSkuItem[]): ProjectTodoNode[] {
   const byParent = new Map<string | null, FirmSkuItem[]>();
@@ -448,9 +465,14 @@ export function ProjectDetailView({
                 <View style={sharedStyles.skuInfoCfTagCol}><Text style={sharedStyles.skuInfoCfLabel}>Jurisdiction</Text></View>
                 <View style={sharedStyles.skuInfoCfValueCol}>
                   {skuDetailForInfo?.taxCountry ? (
-                    <View style={[sharedStyles.skuInfoValuePill, { backgroundColor: '#EDE9FD' }]}>
-                      <Text style={[sharedStyles.skuInfoValuePillText, { color: '#6C5CE7' }]}>{skuDetailForInfo.taxCountry}</Text>
-                    </View>
+                    (() => {
+                      const [bg, fg] = getTagColor(skuDetailForInfo.taxCountry);
+                      return (
+                        <View style={[sharedStyles.skuInfoValuePill, { backgroundColor: bg }]}>
+                          <Text style={[sharedStyles.skuInfoValuePillText, { color: fg }]}>{skuDetailForInfo.taxCountry}</Text>
+                        </View>
+                      );
+                    })()
                   ) : <Text style={sharedStyles.skuInfoCfEmpty}>—</Text>}
                 </View>
               </View>
@@ -459,9 +481,14 @@ export function ProjectDetailView({
                 <View style={sharedStyles.skuInfoCfTagCol}><Text style={sharedStyles.skuInfoCfLabel}>Scenario</Text></View>
                 <View style={sharedStyles.skuInfoCfValueCol}>
                   {skuDetailForInfo?.taxScenario ? (
-                    <View style={[sharedStyles.skuInfoValuePill, { backgroundColor: '#E3F2FD' }]}>
-                      <Text style={[sharedStyles.skuInfoValuePillText, { color: '#1E88E5' }]}>{skuDetailForInfo.taxScenario}</Text>
-                    </View>
+                    (() => {
+                      const [bg, fg] = getTagColor(skuDetailForInfo.taxScenario);
+                      return (
+                        <View style={[sharedStyles.skuInfoValuePill, { backgroundColor: bg }]}>
+                          <Text style={[sharedStyles.skuInfoValuePillText, { color: fg }]}>{skuDetailForInfo.taxScenario}</Text>
+                        </View>
+                      );
+                    })()
                   ) : <Text style={sharedStyles.skuInfoCfEmpty}>—</Text>}
                 </View>
               </View>

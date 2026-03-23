@@ -258,6 +258,10 @@ function LayoutContent() {
           name="firm/service-catalog" 
           options={{ title: 'Service Catalog', headerBackTitle: 'Back' }} 
         />
+        <Stack.Screen
+          name="firm/permissions"
+          options={{ title: 'Permission Roles', headerBackTitle: 'Back' }}
+        />
         <Stack.Screen 
           name="invoices" 
           options={{ 

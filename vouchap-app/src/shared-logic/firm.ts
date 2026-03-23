@@ -58,6 +58,104 @@ function parseDependsOnIdsFromRow(row: {
   return row.depends_on_id != null ? [row.depends_on_id] : [];
 }
 
+function normalizeLabelName(input: string | null | undefined): string | null {
+  const v = (input ?? '').trim();
+  return v.length > 0 ? v : null;
+}
+
+async function getOrderLabelNameMap(labelIds: string[]): Promise<Record<string, string>> {
+  const ids = Array.from(new Set(labelIds.filter(Boolean)));
+  if (ids.length === 0) return {};
+  const { data } = await supabase
+    .schema('firm')
+    .from('order_labels')
+    .select('id, label_name')
+    .in('id', ids);
+  const map: Record<string, string> = {};
+  (data || []).forEach((r: any) => {
+    map[r.id] = r.label_name ?? '';
+  });
+  return map;
+}
+
+async function ensureOrderLabelIdsByNames(
+  firmSpaceId: string,
+  dimension: 'season' | 'country' | 'scenario' | 'custom',
+  names: string[],
+): Promise<string[]> {
+  const cleaned = Array.from(
+    new Set(
+      names
+        .map((n) => normalizeLabelName(n))
+        .filter((n): n is string => !!n),
+    ),
+  );
+  if (cleaned.length === 0) return [];
+
+  const norms = cleaned.map((n) => n.toLowerCase());
+  const { data: existingData, error: existingError } = await supabase
+    .schema('firm')
+    .from('order_labels')
+    .select('id, label_name, label_name_norm')
+    .eq('firm_space_id', firmSpaceId)
+    .eq('dimension', dimension)
+    .in('label_name_norm', norms);
+  if (existingError) throw new Error(existingError.message);
+
+  const existingNorms = new Set((existingData || []).map((r: any) => r.label_name_norm as string));
+  const missingNames = cleaned.filter((name) => !existingNorms.has(name.toLowerCase()));
+
+  if (missingNames.length > 0) {
+    const insertRows = missingNames.map((labelName) => ({
+      firm_space_id: firmSpaceId,
+      dimension,
+      label_name: labelName,
+    }));
+    const { error: insertErr } = await supabase
+      .schema('firm')
+      .from('order_labels')
+      .insert(insertRows);
+    if (insertErr) {
+      // Race-safe: if another request inserted concurrently, continue and re-query below.
+      if (!insertErr.message.toLowerCase().includes('duplicate key')) {
+        throw new Error(insertErr.message);
+      }
+    }
+  }
+
+  const { data, error } = await supabase
+    .schema('firm')
+    .from('order_labels')
+    .select('id, label_name_norm')
+    .eq('firm_space_id', firmSpaceId)
+    .eq('dimension', dimension)
+    .in('label_name_norm', norms);
+  if (error) throw new Error(error.message);
+
+  const byNorm: Record<string, string> = {};
+  (data || []).forEach((r: any) => {
+    byNorm[r.label_name_norm] = r.id;
+  });
+  return cleaned.map((name) => byNorm[name.toLowerCase()]).filter(Boolean);
+}
+
+export async function getFirmOrderLabelsByDimension(
+  firmSpaceId: string,
+  dimension: 'season' | 'country' | 'scenario' | 'custom',
+): Promise<string[]> {
+  const { data, error } = await supabase
+    .schema('firm')
+    .from('order_labels')
+    .select('label_name')
+    .eq('firm_space_id', firmSpaceId)
+    .eq('dimension', dimension)
+    .order('label_name', { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data || [])
+    .map((r: any) => normalizeLabelName(r.label_name))
+    .filter((name): name is string => !!name);
+}
+
 /** 报税季配置：开始/结束月日（1-based），用于计算「报税季已来临」「报税季已过」 */
 const TAX_SEASON_START_MONTH = 1;
 const TAX_SEASON_START_DAY = 1;
@@ -83,6 +181,7 @@ function getOrderYear(order: { dueAt?: string | null; createdAt?: string | null 
 }
 
 type OrderForStatus = {
+  id?: string;
   clientSpaceId: string | null;
   inviteeClientId?: string | null;
   status: string;
@@ -158,7 +257,7 @@ export interface FirmOrderForClient extends FirmOrder {
   firmName?: string;
   /** Space-level hidden: when set, order is hidden from client list for this space (all members). */
   hiddenFromClientAt?: string | null;
-  /** 报税分类：项目维度上的国家 / 场景 / 自定义标签（来自 projects.tax_country / tax_scenario / tags） */
+  /** 报税分类：项目维度上的国家 / 场景 / 自定义标签（client 侧读取 projects.*） */
   taxCountry?: string | null;
   taxScenario?: string | null;
   tags?: string[] | null;
@@ -173,6 +272,14 @@ export interface FirmOrderById {
   clientSpaceId: string;
   skuId: string;
   status: string;
+  taxCountry?: string | null;
+  taxScenario?: string | null;
+  tags?: string[] | null;
+  taxCountryLabelId?: string | null;
+  taxScenarioLabelId?: string | null;
+  taxSeasonLabelId?: string | null;
+  taxSeasonLabelName?: string | null;
+  customLabelIds?: string[] | null;
   dueAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -182,6 +289,10 @@ export interface FirmOrderById {
   skuName?: string | null;
   /** SKU 描述（附带查询，用于项目信息展示） */
   skuDescription?: string | null;
+  /** Unique manager user id from firm.order_managers */
+  managerUserId?: string | null;
+  /** Manager display name/email */
+  managerName?: string | null;
 }
 
 /** 根据 orderId 获取订单（用于 engagement 详情）；附带查询关联 SKU 基本信息 */
@@ -189,7 +300,7 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
   const { data, error } = await supabase
     .schema('firm')
     .from('orders')
-    .select('id, firm_space_id, client_space_id, sku_id, status, due_at, created_at, updated_at')
+    .select('id, firm_space_id, client_space_id, sku_id, status, tax_country, tax_scenario, tags, tax_country_label_id, tax_scenario_label_id, tax_season_label_id, custom_label_ids, tax_season_year, due_at, created_at, updated_at')
     .eq('id', orderId)
     .maybeSingle();
 
@@ -199,7 +310,6 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
   // 附带拉取 SKU 名称与描述，供详情页展示
   let skuName: string | null = null;
   let skuDescription: string | null = null;
-  let taxSeasonYear: number | null = null;
   if (row.sku_id) {
     const { data: skuRow } = await supabase
       .schema('firm')
@@ -213,15 +323,44 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
     }
   }
 
-  // 附带拉取关联 project 的 tax_season_year 作为显式税季年份
-  // 注意：使用与 client 侧一致的 public schema 下的 projects 表，确保 Info 页修改后两侧显示一致。
-  const { data: projectRow } = await supabase
-    .from('projects')
-    .select('tax_season_year')
+  const countryLabelId = row.tax_country_label_id as string | null;
+  const scenarioLabelId = row.tax_scenario_label_id as string | null;
+  const seasonLabelId = row.tax_season_label_id as string | null;
+  const customLabelIds = (Array.isArray(row.custom_label_ids) ? row.custom_label_ids : []) as string[];
+  const labelNameMap = await getOrderLabelNameMap([
+    ...(countryLabelId ? [countryLabelId] : []),
+    ...(scenarioLabelId ? [scenarioLabelId] : []),
+    ...(seasonLabelId ? [seasonLabelId] : []),
+    ...customLabelIds,
+  ]);
+
+  const resolvedCountry = countryLabelId ? (labelNameMap[countryLabelId] ?? null) : null;
+  const resolvedScenario = scenarioLabelId ? (labelNameMap[scenarioLabelId] ?? null) : null;
+  const resolvedTags = customLabelIds.map((id) => labelNameMap[id]).filter(Boolean);
+
+  const seasonLabelName = seasonLabelId ? (labelNameMap[seasonLabelId] ?? null) : null;
+  const seasonLabelParsed = seasonLabelName ? parseInt(seasonLabelName, 10) : NaN;
+  const taxSeasonYear = Number.isFinite(seasonLabelParsed) ? seasonLabelParsed : (typeof row.tax_season_year === 'number' ? row.tax_season_year : null);
+
+  let managerUserId: string | null = null;
+  let managerName: string | null = null;
+  const { data: managerRow } = await supabase
+    .schema('firm')
+    .from('order_managers')
+    .select('manager_user_id')
     .eq('order_id', row.id)
     .maybeSingle();
-  if (projectRow && typeof (projectRow as any).tax_season_year === 'number') {
-    taxSeasonYear = (projectRow as any).tax_season_year;
+  managerUserId = (managerRow as any)?.manager_user_id ?? null;
+  if (managerUserId) {
+    const { data: managerUserRow } = await supabase
+      .from('users')
+      .select('name, email')
+      .eq('id', managerUserId)
+      .maybeSingle();
+    managerName =
+      ((managerUserRow as any)?.name as string | null) ||
+      ((managerUserRow as any)?.email as string | null) ||
+      null;
   }
 
   return {
@@ -230,12 +369,22 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
     clientSpaceId: row.client_space_id,
     skuId: row.sku_id,
     status: row.status ?? 'onboarding',
+    taxCountry: resolvedCountry,
+    taxScenario: resolvedScenario,
+    tags: resolvedTags,
+    taxCountryLabelId: countryLabelId,
+    taxScenarioLabelId: scenarioLabelId,
+    taxSeasonLabelId: seasonLabelId,
+    taxSeasonLabelName: seasonLabelName,
+    customLabelIds,
     dueAt: row.due_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     taxSeasonYear,
     skuName,
     skuDescription,
+    managerUserId,
+    managerName,
   };
 }
 
@@ -296,12 +445,12 @@ export async function getOrderHeaderForClient(orderId: string): Promise<{
   };
 }
 
-/** 根据 skuId 获取 SKU 基本信息（名称、说明、封面、报税辖区与场景、发布状态、模板状态） */
-export async function getSkuById(skuId: string): Promise<{ name: string; description?: string | null; imageUrl?: string | null; taxCountry?: string | null; taxScenario?: string | null; isPublished?: boolean; templateStatus?: 'draft' | 'private' | 'published' | null } | null> {
+/** 根据 skuId 获取 SKU 基本信息（名称、说明、封面、报税辖区与场景、标签、发布状态、模板状态） */
+export async function getSkuById(skuId: string): Promise<{ name: string; description?: string | null; imageUrl?: string | null; taxCountry?: string | null; taxScenario?: string | null; tags?: string[] | null; isPublished?: boolean; templateStatus?: 'draft' | 'private' | 'published' | null } | null> {
   const { data, error } = await supabase
     .schema('firm')
     .from('skus')
-    .select('name, description, image_url, tax_country, tax_scenario, is_published, template_status')
+    .select('name, description, image_url, tax_country, tax_scenario, tags, is_published, template_status')
     .eq('id', skuId)
     .maybeSingle();
 
@@ -314,6 +463,7 @@ export async function getSkuById(skuId: string): Promise<{ name: string; descrip
     imageUrl: row.image_url ?? null,
     taxCountry: row.tax_country ?? null,
     taxScenario: row.tax_scenario ?? null,
+    tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
     isPublished: row.is_published ?? false,
     templateStatus: templateStatus ?? undefined,
   };
@@ -517,24 +667,22 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
   const spaceIds = [...new Set([...clients.map((c) => c.clientSpaceId), ...orphanClientSpaceIds])];
   const ctx = getTaxSeasonContext();
 
-  const [spacesRes, userSpacesRes, ordersRes, memberClientsRes, followUpsRes, inviteeAssigneesRes] = await Promise.all([
+  const [spacesRes, userSpacesRes, ordersRes, orderManagersRes, followUpsRes] = await Promise.all([
     spaceIds.length > 0 ? supabase.from('spaces').select('id, name').in('id', spaceIds) : Promise.resolve({ data: [] as any[] }),
     spaceIds.length > 0 ? supabase.from('user_spaces').select('space_id, user_id, is_admin').in('space_id', spaceIds) : Promise.resolve({ data: [] as any[] }),
-    supabase.schema('firm').from('orders').select('client_space_id, invitee_client_id, status, due_at, created_at, updated_at').eq('firm_space_id', firmSpaceId),
-    supabase.schema('firm').from('clients_assignee').select('client_space_id, user_id').eq('firm_space_id', firmSpaceId),
+    supabase.schema('firm').from('orders').select('id, client_space_id, invitee_client_id, status, due_at, created_at, updated_at').eq('firm_space_id', firmSpaceId),
+    supabase.schema('firm').from('order_managers').select('order_id, manager_user_id').eq('firm_space_id', firmSpaceId),
     supabase
       .schema('firm')
       .from('client_follow_ups')
       .select('client_space_id, invitee_client_id, firm_space_id, created_at')
       .eq('firm_space_id', firmSpaceId),
-    pendingInviteeIdList.length > 0
-      ? supabase.schema('firm').from('clients_assignee').select('invitee_client_id, user_id').eq('firm_space_id', firmSpaceId).in('invitee_client_id', pendingInviteeIdList)
-      : Promise.resolve({ data: [] as any[] }),
   ]);
 
   const inviteeToAssigneeId: Record<string, string> = {};
-  (inviteeAssigneesRes.data || []).forEach((row: any) => {
-    if (row.invitee_client_id) inviteeToAssigneeId[row.invitee_client_id] = row.user_id;
+  const orderIdToManagerId: Record<string, string> = {};
+  (orderManagersRes.data || []).forEach((row: any) => {
+    if (row.order_id && row.manager_user_id) orderIdToManagerId[row.order_id] = row.manager_user_id;
   });
 
   const spaceMap: Record<string, { name: string }> = {};
@@ -557,6 +705,7 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
   });
 
   const orders: OrderForStatus[] = (ordersRes.data || []).map((r: any) => ({
+    id: r.id,
     clientSpaceId: r.client_space_id,
     inviteeClientId: r.invitee_client_id ?? null,
     status: r.status,
@@ -577,11 +726,17 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
   });
 
   const clientSpaceToUserIds: Record<string, string[]> = {};
-  (memberClientsRes.data || []).forEach((mc: any) => {
-    if (!mc.client_space_id) return;
-    if (!clientSpaceToUserIds[mc.client_space_id]) clientSpaceToUserIds[mc.client_space_id] = [];
-    if (!clientSpaceToUserIds[mc.client_space_id].includes(mc.user_id)) {
-      clientSpaceToUserIds[mc.client_space_id].push(mc.user_id);
+  orders.forEach((o: any) => {
+    const managerId = orderIdToManagerId[o.id];
+    if (!managerId) return;
+    if (o.clientSpaceId) {
+      if (!clientSpaceToUserIds[o.clientSpaceId]) clientSpaceToUserIds[o.clientSpaceId] = [];
+      if (!clientSpaceToUserIds[o.clientSpaceId].includes(managerId)) {
+        clientSpaceToUserIds[o.clientSpaceId].push(managerId);
+      }
+    }
+    if (o.inviteeClientId && !inviteeToAssigneeId[o.inviteeClientId]) {
+      inviteeToAssigneeId[o.inviteeClientId] = managerId;
     }
   });
 
@@ -605,7 +760,7 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
 
   const inviteeAssigneeIds = Object.values(inviteeToAssigneeId);
   const contactUserIds = [...new Set(Object.values(spaceToUserId))];
-  const assigneeUserIds = [...new Set((memberClientsRes.data || []).map((mc: any) => mc.user_id))];
+  const assigneeUserIds = [...new Set(Object.values(orderIdToManagerId))];
   const allUserIds = [...new Set([...contactUserIds, ...assigneeUserIds, ...inviteeAssigneeIds])];
   let userMap: Record<string, { name: string | null; email: string }> = {};
   if (allUserIds.length > 0) {
@@ -703,32 +858,10 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     };
   });
 
-  // Defensive filter: when not firm admin, only show clients/orphans/pending where current user is assignee
-  // (RLS on firm.clients / firm.orders should already enforce this; this guards against misconfiguration or service role)
-  const { data: { user: currentUser } } = await supabase.auth.getUser();
-  const currentUserId = currentUser?.id ?? null;
-  let result: FirmClientWithDetails[] = [...detailedClients, ...orphanRows, ...pendingRows];
-  if (currentUserId) {
-    const us = await supabase
-      .from('user_spaces')
-      .select('is_admin')
-      .eq('space_id', firmSpaceId)
-      .eq('user_id', currentUserId)
-      .maybeSingle();
-    const isAdmin = us.data?.is_admin === true;
-    if (!isAdmin) {
-      const assigneeSetForClient = (clientSpaceId: string) =>
-        (clientSpaceToUserIds[clientSpaceId] ?? []).includes(currentUserId);
-      result = result.filter((row) => {
-        if (row.isPendingClaim && row.inviteeClientId) {
-          return inviteeToAssigneeId[row.inviteeClientId] === currentUserId;
-        }
-        return row.clientSpaceId ? assigneeSetForClient(row.clientSpaceId) : false;
-      });
-    }
-  }
-
-  return result;
+  // Visibility: rely on RLS (firm.clients → can_access_client, firm.orders → can_access_order).
+  // Do not filter by firm.order_managers here — permission-role users may see engagements without being
+  // listed as manager; a client-side assignee-only filter would hide those rows while orders still appear.
+  return [...detailedClients, ...orphanRows, ...pendingRows];
 }
 
 /** Firm 空间：获取订单列表（可选按 client 或 invitee 筛选） */
@@ -757,10 +890,19 @@ export async function getFirmOrders(
     inviteeClientId: row.invitee_client_id ?? null,
     skuId: row.sku_id,
     status: row.status,
+    taxCountry: row.tax_country ?? null,
+    taxScenario: row.tax_scenario ?? null,
+    tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
+    taxSeasonYear: typeof row.tax_season_year === 'number' ? row.tax_season_year : null,
+    taxCountryLabelId: row.tax_country_label_id ?? null,
+    taxScenarioLabelId: row.tax_scenario_label_id ?? null,
+    taxSeasonLabelId: row.tax_season_label_id ?? null,
+    customLabelIds: Array.isArray(row.custom_label_ids) ? row.custom_label_ids : [],
     dueAt: row.due_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: row.created_by ?? null,
+    managerUserId: row.manager_user_id ?? null,
   }));
 }
 
@@ -772,11 +914,14 @@ export interface FirmOrderWithDetails extends FirmOrder {
   source: string;
   /** 负责人：创建人姓名或 email，无则 — */
   assigneeName: string | null;
-  /** 报税分类：项目维度上的国家 / 场景 / 自定义标签（来自 projects.tax_country / tax_scenario / tags） */
+  /** 经理 user id（firm.order_managers） */
+  managerUserId?: string | null;
+  /** 报税分类：全部从 order_labels(id) 解析得到 */
   taxCountry?: string | null;
   taxScenario?: string | null;
   tags?: string[] | null;
   taxSeasonYear?: number | null;
+  taxSeasonLabelName?: string | null;
 }
 
 /** Firm 空间：获取订单列表（含客户名、SKU 名、来源、负责人），用于表格展示；含 pending（client_space_id 为空）订单，客户名取自 invitee_clients */
@@ -790,16 +935,30 @@ export async function getFirmOrdersWithDetails(
   const clientSpaceIds = [...new Set(orders.map((o) => o.clientSpaceId).filter(Boolean))] as string[];
   const inviteeClientIds = [...new Set(orders.map((o) => o.inviteeClientId).filter(Boolean))] as string[];
   const skuIds = [...new Set(orders.map((o) => o.skuId))];
-  const createdByIds = [...new Set(orders.map((o) => o.createdBy).filter(Boolean))] as string[];
-  const orderIds = [...new Set(orders.map((o) => o.id))];
+  const managerOrderIds = orders.map((o) => o.id);
+  const [managerRowsRes] = await Promise.all([
+    managerOrderIds.length > 0
+      ? supabase
+          .schema('firm')
+          .from('order_managers')
+          .select('order_id, manager_user_id')
+          .in('order_id', managerOrderIds)
+      : Promise.resolve({ data: [] as any[] }),
+  ]);
 
-  const [spacesRes, skusRes, projectsRes, inviteeRes] = await Promise.all([
+  const orderToManagerUserId: Record<string, string> = {};
+  (managerRowsRes.data || []).forEach((row: any) => {
+    if (row.order_id && row.manager_user_id) {
+      orderToManagerUserId[row.order_id] = row.manager_user_id;
+    }
+  });
+
+  const createdByIds = [...new Set(orders.map((o) => o.createdBy).filter(Boolean))] as string[];
+  const managerUserIds = [...new Set(Object.values(orderToManagerUserId).filter(Boolean))] as string[];
+  const displayUserIds = [...new Set([...createdByIds, ...managerUserIds])];
+  const [spacesRes, skusRes, inviteeRes] = await Promise.all([
     clientSpaceIds.length > 0 ? supabase.from('spaces').select('id, name').in('id', clientSpaceIds) : Promise.resolve({ data: [] as any[] }),
     supabase.schema('firm').from('skus').select('id, name').in('id', skuIds),
-    supabase
-      .from('projects')
-      .select('order_id, tax_country, tax_scenario, tags, tax_season_year')
-      .in('order_id', orderIds),
     inviteeClientIds.length > 0
       ? supabase.schema('firm').from('invitee_clients').select('id, invitee_client_name, invitee_contact_name, invitee_email').in('id', inviteeClientIds)
       : Promise.resolve({ data: [] as any[] }),
@@ -807,8 +966,8 @@ export async function getFirmOrdersWithDetails(
 
   // Created-by column: only need creator (created_by) display; permissions use clients_assignee
   let userMap: Record<string, { name: string | null; email: string }> = {};
-  if (createdByIds.length > 0) {
-    const usersRes = await supabase.from('users').select('id, name, email').in('id', createdByIds);
+  if (displayUserIds.length > 0) {
+    const usersRes = await supabase.from('users').select('id, name, email').in('id', displayUserIds);
     (usersRes.data || []).forEach((u: any) => {
       userMap[u.id] = { name: u.name ?? null, email: u.email || '' };
     });
@@ -832,26 +991,28 @@ export async function getFirmOrdersWithDetails(
     skuMap[s.id] = s.name || s.id;
   });
 
-  const projectMap: Record<
-    string,
-    { taxCountry: string | null; taxScenario: string | null; tags: string[] | null; taxSeasonYear: number | null }
-  > = {};
-  (projectsRes.data || []).forEach((p: any) => {
-    const orderId = p.order_id as string | undefined;
-    if (!orderId) return;
-    projectMap[orderId] = {
-      taxCountry: p.tax_country ?? null,
-      taxScenario: p.tax_scenario ?? null,
-      tags: Array.isArray(p.tags) ? (p.tags as string[]) : null,
-      taxSeasonYear: typeof p.tax_season_year === 'number' ? p.tax_season_year : null,
-    };
-  });
+  const allLabelIds = Array.from(new Set(
+    orders.flatMap((o: any) => [
+      ...(o.taxCountryLabelId ? [o.taxCountryLabelId] : []),
+      ...(o.taxScenarioLabelId ? [o.taxScenarioLabelId] : []),
+      ...(o.taxSeasonLabelId ? [o.taxSeasonLabelId] : []),
+      ...((Array.isArray(o.customLabelIds) ? o.customLabelIds : []) as string[]),
+    ]),
+  ));
+  const orderLabelMap = await getOrderLabelNameMap(allLabelIds);
 
   return orders.map((o) => {
-    const inviteeInfo = o.inviteeClientId ? inviteeMap[o.inviteeClientId] : null;
-    // "Created by" column: show order creator (created_by), not used for permissions
-    const assigneeName = o.createdBy ? (userMap[o.createdBy]?.name || userMap[o.createdBy]?.email || null) : null;
-    const project = projectMap[o.id];
+    const managerUserId = orderToManagerUserId[o.id] ?? null;
+    const assigneeName = managerUserId
+      ? (userMap[managerUserId]?.name || userMap[managerUserId]?.email || null)
+      : null;
+    const countryFromId = o.taxCountryLabelId ? (orderLabelMap[o.taxCountryLabelId] ?? null) : null;
+    const scenarioFromId = o.taxScenarioLabelId ? (orderLabelMap[o.taxScenarioLabelId] ?? null) : null;
+    const customFromIds = (Array.isArray(o.customLabelIds) ? o.customLabelIds : [])
+      .map((id: string) => orderLabelMap[id])
+      .filter(Boolean) as string[];
+    const seasonFromId = o.taxSeasonLabelId ? (orderLabelMap[o.taxSeasonLabelId] ?? null) : null;
+    const seasonFromIdParsed = seasonFromId ? parseInt(seasonFromId, 10) : NaN;
     const clientName = o.clientSpaceId
       ? (clientNameBySpace[o.clientSpaceId] ?? o.clientSpaceId)
       : (o.inviteeClientId && inviteeMap[o.inviteeClientId]
@@ -863,12 +1024,114 @@ export async function getFirmOrdersWithDetails(
       skuName: skuMap[o.skuId] ?? o.skuId,
       source: 'Manual',
       assigneeName,
-      taxCountry: project?.taxCountry ?? null,
-      taxScenario: project?.taxScenario ?? null,
-      tags: project?.tags ?? null,
-      taxSeasonYear: project?.taxSeasonYear ?? null,
+      managerUserId,
+      taxCountry: countryFromId,
+      taxScenario: scenarioFromId,
+      tags: customFromIds,
+      taxSeasonYear: Number.isFinite(seasonFromIdParsed) ? seasonFromIdParsed : (o.taxSeasonYear ?? null),
+      taxSeasonLabelName: seasonFromId,
     };
   });
+}
+
+/** 更新订单唯一 manager（firm.order_managers）。 */
+export async function updateFirmOrderManager(
+  firmSpaceId: string,
+  orderId: string,
+  managerUserId: string
+): Promise<{ error: Error | null }> {
+  const { error } = await supabase
+    .schema('firm')
+    .from('order_managers')
+    .upsert(
+      {
+        firm_space_id: firmSpaceId,
+        order_id: orderId,
+        manager_user_id: managerUserId,
+        created_at: new Date().toISOString(),
+      },
+      { onConflict: 'order_id' }
+    );
+  return { error: error ? new Error(error.message) : null };
+}
+
+export async function updateOrderClassificationByLabelNames(
+  params: {
+    orderId: string;
+    firmSpaceId: string;
+    taxCountry?: string | null;
+    taxScenario?: string | null;
+    taxSeasonLabelName?: string | null;
+    customTags?: string[];
+  },
+): Promise<{ error: Error | null }> {
+  try {
+    const countryName = normalizeLabelName(params.taxCountry);
+    const scenarioName = normalizeLabelName(params.taxScenario);
+    const seasonName = normalizeLabelName(params.taxSeasonLabelName);
+    const customNames = Array.from(
+      new Set((params.customTags || []).map((t) => normalizeLabelName(t)).filter((t): t is string => !!t)),
+    );
+
+    const [countryIds, scenarioIds, seasonIds, customIds] = await Promise.all([
+      countryName ? ensureOrderLabelIdsByNames(params.firmSpaceId, 'country', [countryName]) : Promise.resolve([]),
+      scenarioName ? ensureOrderLabelIdsByNames(params.firmSpaceId, 'scenario', [scenarioName]) : Promise.resolve([]),
+      seasonName
+        ? ensureOrderLabelIdsByNames(params.firmSpaceId, 'season', [seasonName])
+        : Promise.resolve([]),
+      ensureOrderLabelIdsByNames(params.firmSpaceId, 'custom', customNames),
+    ]);
+
+    const parsedSeasonYear = seasonName ? parseInt(seasonName, 10) : NaN;
+
+    const updates: Record<string, unknown> = {
+      tax_country_label_id: countryIds[0] ?? null,
+      tax_scenario_label_id: scenarioIds[0] ?? null,
+      tax_season_label_id: seasonIds[0] ?? null,
+      custom_label_ids: customIds,
+      tax_season_year: Number.isFinite(parsedSeasonYear) ? parsedSeasonYear : null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await supabase
+      .schema('firm')
+      .from('orders')
+      .update(updates)
+      .eq('id', params.orderId)
+      .select('id')
+      .maybeSingle();
+
+    if (error) return { error: new Error(error.message) };
+    if (!data?.id) return { error: new Error('No permission to update order classification or order not found') };
+
+    // Read-after-write verification to avoid false "Saved" on silent policy mismatches.
+    const { data: verifyRow, error: verifyErr } = await supabase
+      .schema('firm')
+      .from('orders')
+      .select('tax_country_label_id, tax_scenario_label_id, tax_season_label_id, custom_label_ids')
+      .eq('id', params.orderId)
+      .maybeSingle();
+    if (verifyErr) return { error: new Error(verifyErr.message) };
+    if (!verifyRow) return { error: new Error('Order verification failed: row not visible') };
+
+    const actualCustomIds = Array.isArray((verifyRow as any).custom_label_ids)
+      ? ((verifyRow as any).custom_label_ids as string[])
+      : [];
+    const expectedCustomIds = customIds;
+    const normalizedActual = [...actualCustomIds].sort().join(',');
+    const normalizedExpected = [...expectedCustomIds].sort().join(',');
+    if (
+      ((verifyRow as any).tax_country_label_id ?? null) !== (countryIds[0] ?? null) ||
+      ((verifyRow as any).tax_scenario_label_id ?? null) !== (scenarioIds[0] ?? null) ||
+      ((verifyRow as any).tax_season_label_id ?? null) !== (seasonIds[0] ?? null) ||
+      normalizedActual !== normalizedExpected
+    ) {
+      return { error: new Error('Order classification verification mismatch') };
+    }
+    return { error: null };
+  } catch (e) {
+    return { error: e instanceof Error ? e : new Error('Failed to update order classification') };
+  }
 }
 
 /** Firm 空间：创建订单（初始为 onboarding，仅记录 SKU，projects 需待客户确认后再创建） */
@@ -1619,7 +1882,7 @@ export async function applyProjectTodosTreeOrder(
 ): Promise<{ error: Error | null }> {
   const projectId = await getProjectIdByOrderId(orderId);
   if (!projectId) return { error: new Error('Project not found') };
-  const ordered = renumberTodoTreeSortOrders(roots as TodoReorderNode[]) as ProjectTodoNode[];
+  const ordered = renumberTodoTreeSortOrders(roots as unknown as TodoReorderNode[]) as unknown as ProjectTodoNode[];
 
   const rows: { id: string; parent_id: string | null; sort_order: number }[] = [];
   function collect(nodes: ProjectTodoNode[], parentId: string | null) {
@@ -2083,6 +2346,7 @@ export async function getFirmSkus(firmSpaceId: string): Promise<FirmSku[]> {
       itemsCount: itemsCountMap[row.id] ?? 0,
       taxCountry: row.tax_country ?? null,
       taxScenario: row.tax_scenario ?? null,
+      tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -2122,6 +2386,7 @@ export async function updateFirmSku(
     templateStatus?: 'draft' | 'private' | 'published';
     taxCountry?: string | null;
     taxScenario?: string | null;
+    tags?: string[] | null;
   }
 ): Promise<{ error: Error | null }> {
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -2136,6 +2401,7 @@ export async function updateFirmSku(
   }
   if (payload.taxCountry !== undefined) updates.tax_country = payload.taxCountry;
   if (payload.taxScenario !== undefined) updates.tax_scenario = payload.taxScenario;
+  if (payload.tags !== undefined) updates.tags = payload.tags;
   const { error } = await supabase
     .schema('firm')
     .from('skus')
@@ -2284,7 +2550,7 @@ export async function applySkuItemsTreeOrder(
   skuId: string,
   roots: ProjectTodoNode[],
 ): Promise<{ error: Error | null }> {
-  const ordered = renumberTodoTreeSortOrders(roots as TodoReorderNode[]) as ProjectTodoNode[];
+  const ordered = renumberTodoTreeSortOrders(roots as unknown as TodoReorderNode[]) as unknown as ProjectTodoNode[];
   const rows: { id: string; parent_id: string | null; sort_order: number }[] = [];
   function collect(nodes: ProjectTodoNode[], parentId: string | null) {
     nodes.forEach((n) => {

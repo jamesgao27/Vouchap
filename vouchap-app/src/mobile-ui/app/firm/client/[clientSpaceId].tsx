@@ -10,6 +10,7 @@ import {
   TextInput,
   Modal,
   Pressable,
+  Switch,
 } from 'react-native';
 import { useLocalSearchParams, useRouter, useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,12 +23,13 @@ import {
   getFirmSkus,
   createFirmOrder,
   updateFirmClientLabels,
-  getFirmSpaceMembers,
-  updateFirmClientAssignee,
+  listFirmPermissionGroups,
+  updateFirmClientGroups,
 } from '@/lib/firm';
 import { createPendingOrderForInvitee } from '@/lib/firm-clients';
-import { showToast } from '../../../../shared-logic/toast';
-import type { FirmClientWithDetails, FirmOrder, FirmClientFollowUp, FirmSku, FirmSpaceMember } from '@/lib/firm';
+import { showToast } from '@/lib/toast';
+import type { FirmClientWithDetails, FirmPermissionGroupRow } from '@/lib/firm';
+import type { FirmOrder, FirmClientFollowUp, FirmSku } from '@/types';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
 import DataTable, { type DataTableColumn } from '@/components/DataTable';
 import CenterModal from '../../../components/CenterModal';
@@ -56,9 +58,10 @@ export default function FirmClientDetailScreen() {
   const [newOrderModalVisible, setNewOrderModalVisible] = useState(false);
   const [creatingOrder, setCreatingOrder] = useState(false);
   const [selectedSkuId, setSelectedSkuId] = useState<string | null>(null);
-  const [showAssigneePicker, setShowAssigneePicker] = useState(false);
-  const [assigneeMembers, setAssigneeMembers] = useState<FirmSpaceMember[]>([]);
-  const [savingAssignee, setSavingAssignee] = useState(false);
+  const [showGroupPicker, setShowGroupPicker] = useState(false);
+  const [pickerGroups, setPickerGroups] = useState<FirmPermissionGroupRow[]>([]);
+  const [draftGroupIds, setDraftGroupIds] = useState<string[]>([]);
+  const [savingGroups, setSavingGroups] = useState(false);
   const [isFirmAdmin, setIsFirmAdmin] = useState(false);
   const [newTagInput, setNewTagInput] = useState('');
   const [savingLabels, setSavingLabels] = useState(false);
@@ -137,33 +140,35 @@ export default function FirmClientDetailScreen() {
     [client, handleSaveLabels]
   );
 
-  const handleOpenAssigneePicker = useCallback(async () => {
+  const handleOpenGroupPicker = useCallback(async () => {
     if (!client?.firmSpaceId) return;
-    setShowAssigneePicker(true);
-    const members = await getFirmSpaceMembers(client.firmSpaceId);
-    setAssigneeMembers(members);
-  }, [client?.firmSpaceId]);
+    setShowGroupPicker(true);
+    const rows = await listFirmPermissionGroups(client.firmSpaceId);
+    setPickerGroups(rows);
+    setDraftGroupIds((client.groups ?? []).map((g) => g.id));
+  }, [client?.firmSpaceId, client?.groups]);
 
-  const handleSelectAssignee = useCallback(async (userId: string | null) => {
+  const handleSaveGroups = useCallback(async () => {
     if (!client?.id || !client?.firmSpaceId) return;
-    setSavingAssignee(true);
-    const { error } = await updateFirmClientAssignee(client.id, userId, client.firmSpaceId);
-    setSavingAssignee(false);
-    setShowAssigneePicker(false);
+    const c = client;
+    setSavingGroups(true);
+    const { error } = await updateFirmClientGroups(c.id, draftGroupIds, c.firmSpaceId);
+    setSavingGroups(false);
     if (error) {
-      showToast(error.message ?? 'Failed to update assignee.', 'error');
+      showToast(error.message ?? 'Failed to update groups.', 'error');
       return;
     }
+    setShowGroupPicker(false);
     const space = await getCurrentSpace();
     if (space?.id && space.kind === 'firm') {
-      const [clientsRes] = await Promise.all([getFirmClientsWithDetails(space.id)]);
-      const found = client.isPendingClaim
-        ? clientsRes.find((c) => c.id === client.id || c.inviteeClientId === client.id) ?? null
-        : clientsRes.find((c) => c.clientSpaceId === client.clientSpaceId) ?? null;
+      const clientsRes = await getFirmClientsWithDetails(space.id);
+      const found = c.isPendingClaim
+        ? clientsRes.find((row) => row.id === c.id || row.inviteeClientId === c.id) ?? null
+        : clientsRes.find((row) => row.clientSpaceId === c.clientSpaceId) ?? null;
       if (found) setClient(found);
     }
-    showToast('Assignee updated.', 'success');
-  }, [client?.id, client?.firmSpaceId, client?.clientSpaceId, client?.isPendingClaim]);
+    showToast('Groups updated.', 'success');
+  }, [client, draftGroupIds]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -395,11 +400,29 @@ export default function FirmClientDetailScreen() {
                 </View>
               )}
               <View style={styles.infoItem}>
-                <Text style={styles.infoLabel}>Assignee</Text>
+                <Text style={styles.infoLabel}>Groups</Text>
                 <View style={styles.infoValueRow}>
-                  <Text style={styles.infoValue}>{client.assigneeName ?? client.assigneeEmail ?? '—'}</Text>
+                  <View style={{ flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
+                    {(client.groups ?? []).length === 0 ? (
+                      <Text style={styles.infoValue}>—</Text>
+                    ) : (
+                      (client.groups ?? []).map((g) => (
+                        <View
+                          key={g.id}
+                          style={{
+                            paddingHorizontal: 8,
+                            paddingVertical: 4,
+                            borderRadius: 10,
+                            backgroundColor: g.color || '#6C5CE7',
+                          }}
+                        >
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: '#fff' }}>{g.name}</Text>
+                        </View>
+                      ))
+                    )}
+                  </View>
                   {isFirmAdmin && (
-                    <TouchableOpacity onPress={handleOpenAssigneePicker} style={styles.changeLink} activeOpacity={0.7}>
+                    <TouchableOpacity onPress={handleOpenGroupPicker} style={styles.changeLink} activeOpacity={0.7}>
                       <Text style={styles.changeLinkText}>Change</Text>
                     </TouchableOpacity>
                   )}
@@ -698,37 +721,50 @@ export default function FirmClientDetailScreen() {
         )}
       </Modal>
 
-      <Modal visible={showAssigneePicker} transparent animationType="fade" onRequestClose={() => setShowAssigneePicker(false)}>
-        <Pressable style={styles.modalOverlay} onPress={() => setShowAssigneePicker(false)}>
-          <Pressable style={[styles.modalCard, { maxWidth: 320 }]} onPress={(e) => e.stopPropagation()}>
+      <Modal visible={showGroupPicker} transparent animationType="fade" onRequestClose={() => !savingGroups && setShowGroupPicker(false)}>
+        <Pressable style={styles.modalOverlay} onPress={() => !savingGroups && setShowGroupPicker(false)}>
+          <Pressable style={[styles.modalCard, { maxWidth: 360 }]} onPress={(e) => e.stopPropagation()}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Assignee</Text>
-              <TouchableOpacity onPress={() => setShowAssigneePicker(false)} hitSlop={12}>
+              <Text style={styles.modalTitle}>Permission groups</Text>
+              <TouchableOpacity onPress={() => !savingGroups && setShowGroupPicker(false)} hitSlop={12}>
                 <Ionicons name="close" size={24} color="#636E72" />
               </TouchableOpacity>
             </View>
-            <ScrollView style={{ maxHeight: 280 }}>
-              <TouchableOpacity
-                style={styles.pickerRow}
-                onPress={() => handleSelectAssignee(null)}
-                disabled={savingAssignee}
-              >
-                <Text style={styles.pickerRowText}>None</Text>
-                {!client?.assignedUserId ? <Ionicons name="checkmark" size={20} color="#6C5CE7" /> : null}
-              </TouchableOpacity>
-              {assigneeMembers.map((m) => (
-                <TouchableOpacity
-                  key={m.id}
-                  style={styles.pickerRow}
-                  onPress={() => handleSelectAssignee(m.id)}
-                  disabled={savingAssignee}
-                >
-                  <Text style={styles.pickerRowText}>{m.name || m.email || m.id}</Text>
-                  {client?.assignedUserId === m.id ? <Ionicons name="checkmark" size={20} color="#6C5CE7" /> : null}
-                </TouchableOpacity>
-              ))}
+            <Text style={{ fontSize: 12, color: '#95A5A6', marginBottom: 10 }}>
+              Members in these groups can see this client and related engagements.
+            </Text>
+            <ScrollView style={{ maxHeight: 320 }}>
+              {pickerGroups.map((g) => {
+                const on = draftGroupIds.includes(g.id);
+                return (
+                  <View key={g.id} style={[styles.pickerRow, { justifyContent: 'space-between' }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 8 }}>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: g.groupColor || '#6C5CE7' }} />
+                      <Text style={styles.pickerRowText} numberOfLines={1}>
+                        {g.groupName}
+                        {g.isSystemAdmin ? ' (system)' : ''}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={on}
+                      disabled={savingGroups}
+                      onValueChange={(v) =>
+                        setDraftGroupIds((prev) => (v ? [...new Set([...prev, g.id])] : prev.filter((id) => id !== g.id)))
+                      }
+                      trackColor={{ false: '#E9ECEF', true: '#C4B5FD' }}
+                      thumbColor={on ? '#6C5CE7' : '#f4f3f4'}
+                    />
+                  </View>
+                );
+              })}
             </ScrollView>
-            {savingAssignee ? <ActivityIndicator size="small" color="#6C5CE7" style={{ marginVertical: 8 }} /> : null}
+            <TouchableOpacity
+              style={[styles.followUpBtn, { marginTop: 12 }, savingGroups && styles.followUpBtnDisabled]}
+              onPress={handleSaveGroups}
+              disabled={savingGroups}
+            >
+              {savingGroups ? <ActivityIndicator size="small" color="#fff" /> : <Text style={styles.followUpBtnText}>Save</Text>}
+            </TouchableOpacity>
           </Pressable>
         </Pressable>
       </Modal>
@@ -736,7 +772,7 @@ export default function FirmClientDetailScreen() {
   );
 }
 
-function formatDate(iso: string | null): string {
+function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—';
   try {
     const d = new Date(iso);

@@ -840,11 +840,13 @@ const styles = StyleSheet.create({
   section: {
     marginBottom: 24,
   },
+  /** Match categories-manage `sectionLabel` (e.g. Expense categories) */
   sectionTitle: {
-    fontSize: 18,
+    fontSize: 14,
     fontWeight: '600',
-    color: '#2D3436',
-    marginBottom: 12,
+    color: '#636E72',
+    marginBottom: 4,
+    marginTop: 2,
   },
   compactList: {
     backgroundColor: '#fff',

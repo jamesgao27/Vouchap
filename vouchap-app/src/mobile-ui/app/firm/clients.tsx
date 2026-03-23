@@ -957,16 +957,7 @@ export default function FirmClientsScreen() {
               )}
               <Text style={styles.bulkBtnText}>Delete</Text>
             </TouchableOpacity>
-            {isFirmAdmin && (
-              <TouchableOpacity
-                style={styles.bulkBtn}
-                onPress={handleOpenAssignPicker}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="person-outline" size={18} color="#fff" />
-                <Text style={styles.bulkBtnText}>Assign</Text>
-              </TouchableOpacity>
-            )}
+            {/* Assign moved to Engagements (order manager). */}
             <TouchableOpacity
               style={styles.bulkBtnClear}
               onPress={() => setSelectedClientIds([])}

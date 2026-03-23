@@ -548,6 +548,8 @@ export interface FirmSku {
   taxCountry?: string | null;
   /** 报税场景：如 T1, T2, 1040, 1120-S */
   taxScenario?: string | null;
+  /** SKU 自定义标签（用于创建订单时复制到订单） */
+  tags?: string[] | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -569,10 +571,26 @@ export interface FirmOrder {
   inviteeClientId?: string | null;
   skuId: string;
   status: FirmOrderStatus;
+  /** 报税辖区（与 project 双向同步） */
+  taxCountry?: string | null;
+  /** 报税场景（与 project 双向同步） */
+  taxScenario?: string | null;
+  /** Firm 侧自定义标签（创建时从 SKU 复制；不与 project.tags 同步） */
+  tags?: string[] | null;
+  /** 关联标签库 id（firm.order_labels） */
+  taxCountryLabelId?: string | null;
+  taxScenarioLabelId?: string | null;
+  taxSeasonLabelId?: string | null;
+  taxSeasonLabelName?: string | null;
+  customLabelIds?: string[] | null;
+  /** 税季年份（与 project 双向同步） */
+  taxSeasonYear?: number | null;
   dueAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
   createdBy?: string | null;
+  /** Unique manager for the order (firm.order_managers.manager_user_id) */
+  managerUserId?: string | null;
 }
 
 // 项目（订单下的清单项，由 sku_items 复制；进展状态以 order.status 为准）

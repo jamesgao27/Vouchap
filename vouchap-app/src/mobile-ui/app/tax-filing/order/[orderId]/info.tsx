@@ -72,7 +72,7 @@ export default function OrderInfoScreen() {
       setProject(projectData ?? null);
       setEditName(projectData?.name ?? orderData?.skuName ?? '');
       setEditImageUrl(projectData?.imageUrl ?? null);
-      setEditTags([]);
+      setEditTags(projectData?.tags ?? []);
       if (orderData.firmSpaceId) {
         const { data: space } = await supabase
           .from('spaces')
@@ -170,6 +170,7 @@ export default function OrderInfoScreen() {
       const { error: err } = await updateProject(project.id, {
         name: editName || project.name,
         imageUrl: editImageUrl ?? undefined,
+        tags: editTags,
       });
       if (err) throw err;
       setEditing(false);
@@ -180,11 +181,13 @@ export default function OrderInfoScreen() {
     } finally {
       setSaving(false);
     }
-  }, [project?.id, editName, editImageUrl, load]);
+  }, [project?.id, project?.name, editName, editImageUrl, editTags, load]);
 
-  const taxSeasonYear = order?.dueAt || order?.createdAt
-    ? new Date((order.dueAt || order.createdAt)!).getFullYear()
-    : null;
+  const taxSeasonYear = project?.taxSeasonYear != null
+    ? project.taxSeasonYear
+    : (order?.dueAt || order?.createdAt
+        ? new Date((order.dueAt || order.createdAt)!).getFullYear()
+        : null);
 
   if (loading) {
     return (
@@ -301,7 +304,7 @@ export default function OrderInfoScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Tags</Text>
+          <Text style={styles.sectionLabel}>Custom label</Text>
           <View style={styles.tagsRow}>
             {taxSeasonYear != null && (
               <View style={styles.tagPill}>
@@ -314,7 +317,7 @@ export default function OrderInfoScreen() {
               </View>
             ))}
           </View>
-          {!isOnboarding && editing && (
+          {false && (
             <View style={styles.tagInputRow}>
               <TextInput
                 style={styles.tagInput}
@@ -371,6 +374,10 @@ export default function OrderInfoScreen() {
               </Text>
             </View>
           )}
+          <View style={styles.orderRow}>
+            <Text style={styles.value}>Manager</Text>
+            <Text style={styles.valueSecondary}>{order.managerName ?? '—'}</Text>
+          </View>
         </View>
       </ScrollView>
     </View>

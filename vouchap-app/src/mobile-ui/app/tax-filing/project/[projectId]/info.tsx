@@ -29,13 +29,15 @@ import * as ImagePicker from 'expo-image-picker';
 import {
   getOrderById,
   getProjectById,
-  getSpaceProjectTags,
+  getFirmOrderLabelsByDimension,
   updateProject,
+  updateOrderClassificationByLabelNames,
   type FirmProjectInfo,
 } from '@/lib/firm';
 import { supabase, uploadProjectCover } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors';
+import { getCurrentSpace } from '@/lib/auth';
 
 // ── Stage display configs（4 态，与 firm.orders.status 一致） ──
 const STAGE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -44,19 +46,6 @@ const STAGE_CONFIG: Record<string, { label: string; color: string; bg: string }>
   completed:  { label: 'Completed',  color: '#00875A', bg: '#E3FCEF' },
   cancelled:  { label: 'Cancelled',  color: '#636E72', bg: '#F0F2F5' },
 };
-
-const TAX_COUNTRY_OPTIONS = [
-  { value: '', label: '—' },
-  { value: 'CANADA', label: 'Canada' },
-  { value: 'USA', label: 'USA' },
-];
-const TAX_SCENARIO_OPTIONS = [
-  { value: '', label: '—' },
-  { value: 'T1', label: 'T1' },
-  { value: 'T2', label: 'T2' },
-  { value: '1040', label: '1040' },
-  { value: '1120-S', label: '1120-S' },
-];
 
 const COVER_SIZE = 176;
 
@@ -114,7 +103,10 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
   const [editTaxScenario, setEditTaxScenario] = useState('');
   const [editTags, setEditTags]               = useState<string[]>([]);
   const [tagInput, setTagInput]               = useState('');
-  const [allSpaceTags, setAllSpaceTags]       = useState<string[]>([]);
+  const [seasonLabelOptions, setSeasonLabelOptions] = useState<string[]>([]);
+  const [countryLabelOptions, setCountryLabelOptions] = useState<string[]>([]);
+  const [scenarioLabelOptions, setScenarioLabelOptions] = useState<string[]>([]);
+  const [customLabelOptions, setCustomLabelOptions] = useState<string[]>([]);
   const [uploadingCover, setUploadingCover]   = useState(false);
   const [editTaxSeasonYear, setEditTaxSeasonYear] = useState<string>('');
 
@@ -134,21 +126,25 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
       setEditName(projectData.name ?? '');
       setEditDesc(projectData.description ?? '');
       setEditImageUrl(projectData.imageUrl ?? null);
-      setEditTaxCountry(projectData.taxCountry ?? '');
-      setEditTaxScenario(projectData.taxScenario ?? '');
-      setEditTags(projectData.tags ?? []);
+      setEditTaxCountry(mode === 'firm' ? (orderData.taxCountry ?? '') : (projectData.taxCountry ?? ''));
+      setEditTaxScenario(mode === 'firm' ? (orderData.taxScenario ?? '') : (projectData.taxScenario ?? ''));
+      setEditTags(mode === 'firm' ? (orderData.tags ?? []) : (projectData.tags ?? []));
 
-      // 税季：默认使用项目已保存的 taxSeasonYear；若为空则回退到订单的 dueAt/createdAt 推断
-      const derivedYear =
-        orderData.dueAt || orderData.createdAt
-          ? new Date((orderData.dueAt || orderData.createdAt)!).getFullYear()
-          : null;
-      const initialYear =
-        projectData.taxSeasonYear != null ? projectData.taxSeasonYear : derivedYear;
-      setEditTaxSeasonYear(initialYear != null ? String(initialYear) : '');
+      setEditTaxSeasonYear(mode === 'firm'
+        ? (orderData.taxSeasonLabelName ?? (orderData.taxSeasonYear != null ? String(orderData.taxSeasonYear) : ''))
+        : (projectData.taxSeasonYear != null ? String(projectData.taxSeasonYear) : ''));
 
-      if (orderData.clientSpaceId) {
-        getSpaceProjectTags(orderData.clientSpaceId).then(setAllSpaceTags);
+      if (mode === 'firm' && orderData.firmSpaceId) {
+        const [seasonLabels, countryLabels, scenarioLabels, customLabels] = await Promise.all([
+          getFirmOrderLabelsByDimension(orderData.firmSpaceId, 'season'),
+          getFirmOrderLabelsByDimension(orderData.firmSpaceId, 'country'),
+          getFirmOrderLabelsByDimension(orderData.firmSpaceId, 'scenario'),
+          getFirmOrderLabelsByDimension(orderData.firmSpaceId, 'custom'),
+        ]);
+        setSeasonLabelOptions(seasonLabels);
+        setCountryLabelOptions(countryLabels);
+        setScenarioLabelOptions(scenarioLabels);
+        setCustomLabelOptions(customLabels);
       }
 
       // firm 模式：显示 client 空间名；client 模式：显示 firm 空间名
@@ -167,7 +163,7 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, mode]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -202,31 +198,64 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
     if (!project?.id) return false;
     setSaving(true);
     try {
-      const { error: err } = await updateProject(project.id, {
-        name: editName.trim() || project.name,
-        description: editDesc.trim() || null,
-        imageUrl: editImageUrl ?? undefined,
-        taxCountry: editTaxCountry.trim() || null,
-        taxScenario: editTaxScenario.trim() || null,
-        tags: editTags.length > 0 ? editTags : null,
-        taxSeasonYear: (() => {
-          const y = parseInt(editTaxSeasonYear.trim(), 10);
-          return Number.isFinite(y) ? y : null;
-        })(),
-      });
-      if (err) throw err;
+      const pendingTag = tagInput.trim();
+      const trimmedTags = Array.from(
+        new Set([
+          ...editTags.map((t) => t.trim()).filter((t) => t.length > 0),
+          ...(pendingTag ? [pendingTag] : []),
+        ]),
+      );
+      const parsedYear = (() => {
+        const y = parseInt(editTaxSeasonYear.trim(), 10);
+        return Number.isFinite(y) ? y : null;
+      })();
+
+      if (mode === 'firm') {
+        const { error: heroErr } = await updateProject(project.id, {
+          name: editName.trim() || project.name,
+          description: editDesc.trim() || null,
+          imageUrl: editImageUrl ?? undefined,
+        });
+        if (heroErr) throw heroErr;
+
+        const { error: classErr } = await updateOrderClassificationByLabelNames({
+          orderId: order.id,
+          firmSpaceId: order.firmSpaceId,
+          taxCountry: editTaxCountry.trim() || null,
+          taxScenario: editTaxScenario.trim() || null,
+          taxSeasonLabelName: editTaxSeasonYear.trim() || null,
+          customTags: trimmedTags,
+        });
+        if (classErr) throw classErr;
+      } else {
+        const { error: err } = await updateProject(project.id, {
+          name: editName.trim() || project.name,
+          description: editDesc.trim() || null,
+          imageUrl: editImageUrl ?? undefined,
+          taxCountry: editTaxCountry.trim() || null,
+          taxScenario: editTaxScenario.trim() || null,
+          tags: trimmedTags.length > 0 ? trimmedTags : null,
+          taxSeasonYear: parsedYear,
+        });
+        if (err) throw err;
+      }
+
+      if (pendingTag) {
+        setCustomLabelOptions((prev) => (prev.includes(pendingTag) ? prev : [...prev, pendingTag]));
+        setTagInput('');
+      }
       setEditingHero(false);
       setEditingClassification(false);
       showToast('Saved', 'success');
       load();
       return true;
-    } catch {
-      showToast('Failed to save', 'error');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to save', 'error');
       return false;
     } finally {
       setSaving(false);
     }
-  }, [project?.id, editName, editDesc, editImageUrl, editTaxCountry, editTaxScenario, editTags, editTaxSeasonYear, load]);
+  }, [project?.id, project?.name, editName, editDesc, editImageUrl, editTaxCountry, editTaxScenario, editTags, editTaxSeasonYear, tagInput, load, mode, order]);
 
   /** 仅保存 Hero 卡片字段（名称 / 描述 / 封面） */
   const handleSaveHero = useCallback(async (): Promise<void> => {
@@ -254,38 +283,61 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
     if (!project?.id) return;
     setSaving(true);
     try {
-      const { error: err } = await updateProject(project.id, {
-        taxCountry: editTaxCountry.trim() || null,
-        taxScenario: editTaxScenario.trim() || null,
-        tags: editTags.length > 0 ? editTags : null,
-        taxSeasonYear: (() => {
-          const y = parseInt(editTaxSeasonYear.trim(), 10);
-          return Number.isFinite(y) ? y : null;
-        })(),
-      });
+      const parsedYear = (() => {
+        const y = parseInt(editTaxSeasonYear.trim(), 10);
+        return Number.isFinite(y) ? y : null;
+      })();
+      const trimmedCountry = editTaxCountry.trim() || null;
+      const trimmedScenario = editTaxScenario.trim() || null;
+      const pendingTag = tagInput.trim();
+      const trimmedTags = Array.from(
+        new Set([
+          ...editTags.map((t) => t.trim()).filter((t) => t.length > 0),
+          ...(pendingTag ? [pendingTag] : []),
+        ]),
+      );
+      const { error: err } = mode === 'firm'
+        ? await updateOrderClassificationByLabelNames({
+            orderId: order.id,
+            firmSpaceId: order.firmSpaceId,
+            taxCountry: trimmedCountry,
+            taxScenario: trimmedScenario,
+            taxSeasonLabelName: editTaxSeasonYear.trim() || null,
+            customTags: trimmedTags,
+          })
+        : await updateProject(project.id, {
+            taxCountry: trimmedCountry,
+            taxScenario: trimmedScenario,
+            tags: trimmedTags.length > 0 ? trimmedTags : null,
+            taxSeasonYear: parsedYear,
+          });
       if (err) throw err;
+      if (pendingTag) {
+        setCustomLabelOptions((prev) => (prev.includes(pendingTag) ? prev : [...prev, pendingTag]));
+        setTagInput('');
+      }
       setEditingClassification(false);
       showToast('Saved', 'success');
       load();
-    } catch {
-      showToast('Failed to save', 'error');
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Failed to save', 'error');
     } finally {
       setSaving(false);
     }
-  }, [project?.id, editTaxCountry, editTaxScenario, editTags, editTaxSeasonYear, load]);
+  }, [project?.id, editTaxCountry, editTaxScenario, editTags, editTaxSeasonYear, load, mode, order]);
 
   const handleCancelEditAll = useCallback(() => {
     if (!project) return;
     setEditName(project.name ?? '');
     setEditDesc(project.description ?? '');
     setEditImageUrl(project.imageUrl ?? null);
-    setEditTaxCountry(project.taxCountry ?? '');
-    setEditTaxScenario(project.taxScenario ?? '');
-    setEditTags(project.tags ?? []);
+    setEditTaxCountry(mode === 'firm' ? (order?.taxCountry ?? '') : (project.taxCountry ?? ''));
+    setEditTaxScenario(mode === 'firm' ? (order?.taxScenario ?? '') : (project.taxScenario ?? ''));
+    setEditTags(mode === 'firm' ? (order?.tags ?? []) : (project.tags ?? []));
     setTagInput('');
     setEditingHero(false);
     setEditingClassification(false);
-  }, [project]);
+  }, [project, mode, order]);
 
   /** 仅取消 Hero 卡片的编辑（还原名称/描述/封面） */
   const handleCancelHero = useCallback(() => {
@@ -299,23 +351,15 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
   /** 仅取消 Classification 卡片编辑（还原税季/国别/场景/标签） */
   const handleCancelClassification = useCallback(() => {
     if (!project) return;
-    setEditTaxCountry(project.taxCountry ?? '');
-    setEditTaxScenario(project.taxScenario ?? '');
-    setEditTags(project.tags ?? []);
+    setEditTaxCountry(mode === 'firm' ? (order?.taxCountry ?? '') : (project.taxCountry ?? ''));
+    setEditTaxScenario(mode === 'firm' ? (order?.taxScenario ?? '') : (project.taxScenario ?? ''));
+    setEditTags(mode === 'firm' ? (order?.tags ?? []) : (project.tags ?? []));
     setTagInput('');
-    setEditTaxSeasonYear(
-      project.taxSeasonYear != null
-        ? String(project.taxSeasonYear)
-        : (() => {
-            const baseYear =
-              order?.dueAt || order?.createdAt
-                ? new Date((order.dueAt || order.createdAt)!).getFullYear()
-                : null;
-            return baseYear != null ? String(baseYear) : '';
-          })(),
-    );
+    setEditTaxSeasonYear(mode === 'firm'
+      ? (order?.taxSeasonLabelName ?? (order?.taxSeasonYear != null ? String(order.taxSeasonYear) : ''))
+      : (project.taxSeasonYear != null ? String(project.taxSeasonYear) : ''));
     setEditingClassification(false);
-  }, [project, order?.dueAt, order?.createdAt]);
+  }, [project, order, mode]);
 
   // useImperativeHandle 放在 handleSave / handleCancelEdit 定义之后，避免暂时性死区
   useImperativeHandle(
@@ -335,7 +379,7 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
     const t = tagInput.trim();
     if (!t) return;
     setEditTags((prev) => (prev.includes(t) ? prev : [...prev, t]));
-    setAllSpaceTags((prev) => (prev.includes(t) ? prev : [...prev, t]));
+    setCustomLabelOptions((prev) => (prev.includes(t) ? prev : [...prev, t]));
     setTagInput('');
   };
   const removeTag = (t: string) => setEditTags((p) => p.filter((x) => x !== t));
@@ -360,7 +404,12 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
     ? new Date((order.dueAt || order.createdAt)!).getFullYear()
     : null;
   const taxSeasonYear =
-    project.taxSeasonYear != null ? project.taxSeasonYear : derivedTaxSeasonYear;
+    mode === 'firm'
+      ? (order.taxSeasonYear != null ? order.taxSeasonYear : derivedTaxSeasonYear)
+      : (project.taxSeasonYear != null ? project.taxSeasonYear : derivedTaxSeasonYear);
+  const taxSeasonLabelName = mode === 'firm'
+    ? (order.taxSeasonLabelName ?? (taxSeasonYear != null ? String(taxSeasonYear) : null))
+    : (taxSeasonYear != null ? String(taxSeasonYear) : null);
   const stageConfig = STAGE_CONFIG[order.status] ?? STAGE_CONFIG.onboarding;
   const displayImageUrl = editingHero ? editImageUrl : project.imageUrl;
 
@@ -471,13 +520,15 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
       <View style={s.card}>
         {/* Classification 卡片编辑入口：右上角铅笔 / 取消 / 保持 */}
         {!editingClassification ? (
-          <TouchableOpacity
-            style={s.cardEditIcon}
-            onPress={() => setEditingClassification(true)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="create-outline" size={18} color="#636E72" />
-          </TouchableOpacity>
+          mode === 'firm' ? (
+            <TouchableOpacity
+              style={s.cardEditIcon}
+              onPress={() => setEditingClassification(true)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="create-outline" size={18} color="#636E72" />
+            </TouchableOpacity>
+          ) : null
         ) : (
           <View style={s.cardEditActions}>
             <TouchableOpacity
@@ -509,33 +560,29 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
             <Text style={s.cfLabel}>Tax season</Text>
           </View>
           <View style={s.cfValueCol}>
-            {editingClassification ? (
+            {editingClassification && mode === 'firm' ? (
               <View style={[s.optionRow, { alignItems: 'center', justifyContent: 'space-between' }]}>
                 <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, flex: 1 }}>
-                  {(() => {
-                    const base = derivedTaxSeasonYear ?? new Date().getFullYear();
-                    const candidates = Array.from(new Set([base - 1, base, base + 1]));
-                    return candidates.map((y) => (
+                  {seasonLabelOptions.map((label) => (
                       <TouchableOpacity
-                        key={y}
+                        key={label}
                         style={[
                           s.optChip,
-                          String(y) === editTaxSeasonYear.trim() && s.optChipActive,
+                          label === editTaxSeasonYear.trim() && s.optChipActive,
                         ]}
-                        onPress={() => setEditTaxSeasonYear(String(y))}
+                        onPress={() => setEditTaxSeasonYear(label)}
                         activeOpacity={0.7}
                       >
                         <Text
                           style={[
                             s.optChipText,
-                            String(y) === editTaxSeasonYear.trim() && s.optChipTextActive,
+                            label === editTaxSeasonYear.trim() && s.optChipTextActive,
                           ]}
                         >
-                          {y}
+                          {label}
                         </Text>
                       </TouchableOpacity>
-                    ));
-                  })()}
+                    ))}
                 </View>
                 <TextInput
                   style={[s.tagsInput, { width: 80, marginLeft: 8 }]}
@@ -543,24 +590,25 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
                   onChangeText={setEditTaxSeasonYear}
                   placeholder="YYYY"
                   placeholderTextColor="#B2BEC3"
-                  keyboardType="numeric"
-                  maxLength={4}
                 />
               </View>
-            ) : taxSeasonYear != null ? (
+            ) : taxSeasonLabelName ? (
               <View
                 style={[
                   s.taxSeasonPill,
-                  { backgroundColor: getTaxSeasonBgColor(taxSeasonYear) },
+                  {
+                    backgroundColor:
+                      taxSeasonYear != null ? getTaxSeasonBgColor(taxSeasonYear) : '#EEF2F7',
+                  },
                 ]}
               >
                 <Text
                   style={[
                     s.taxSeasonPillText,
-                    { color: getTaxSeasonColor(taxSeasonYear) },
+                    { color: taxSeasonYear != null ? getTaxSeasonColor(taxSeasonYear) : '#5A6B7A' },
                   ]}
                 >
-                  {taxSeasonYear}
+                  {taxSeasonLabelName}
                 </Text>
               </View>
             ) : (
@@ -577,19 +625,19 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
             <Text style={s.cfLabel}>Jurisdiction</Text>
           </View>
           <View style={s.cfValueCol}>
-            {editingClassification
+            {editingClassification && mode === 'firm'
               ? (
                 <View style={[s.optionRow, { alignItems: 'center', justifyContent: 'space-between' }]}>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, flex: 1 }}>
-                    {TAX_COUNTRY_OPTIONS.map((opt) => (
+                    {countryLabelOptions.map((opt) => (
                       <TouchableOpacity
-                        key={opt.value || '_c'}
-                        style={[s.optChip, editTaxCountry === opt.value && s.optChipActive]}
-                        onPress={() => setEditTaxCountry(opt.value)}
+                        key={opt}
+                        style={[s.optChip, editTaxCountry === opt && s.optChipActive]}
+                        onPress={() => setEditTaxCountry(opt)}
                         activeOpacity={0.7}
                       >
-                        <Text style={[s.optChipText, editTaxCountry === opt.value && s.optChipTextActive]}>
-                          {opt.label}
+                        <Text style={[s.optChipText, editTaxCountry === opt && s.optChipTextActive]}>
+                          {opt}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -603,8 +651,12 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
                   />
                 </View>
               )
-              : project.taxCountry
-                  ? (() => { const [bg, fg] = getTagColor(project.taxCountry); return <View style={[s.valueTagPill, { backgroundColor: bg }]}><Text style={[s.valueTagText, { color: fg }]}>{project.taxCountry}</Text></View>; })()
+              : (mode === 'firm' ? order.taxCountry : project.taxCountry)
+                  ? (() => {
+                      const name = (mode === 'firm' ? order.taxCountry : project.taxCountry) as string;
+                      const [bg, fg] = getTagColor(name);
+                      return <View style={[s.valueTagPill, { backgroundColor: bg }]}><Text style={[s.valueTagText, { color: fg }]}>{name}</Text></View>;
+                    })()
                   : <Text style={s.cfEmptyTag}>—</Text>}
           </View>
         </View>
@@ -617,19 +669,19 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
             <Text style={s.cfLabel}>Scenario</Text>
           </View>
           <View style={s.cfValueCol}>
-            {editingClassification
+            {editingClassification && mode === 'firm'
               ? (
                 <View style={[s.optionRow, { alignItems: 'center', justifyContent: 'space-between' }]}>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, flex: 1 }}>
-                    {TAX_SCENARIO_OPTIONS.map((opt) => (
+                    {scenarioLabelOptions.map((opt) => (
                       <TouchableOpacity
-                        key={opt.value || '_s'}
-                        style={[s.optChip, editTaxScenario === opt.value && s.optChipActive]}
-                        onPress={() => setEditTaxScenario(opt.value)}
+                        key={opt}
+                        style={[s.optChip, editTaxScenario === opt && s.optChipActive]}
+                        onPress={() => setEditTaxScenario(opt)}
                         activeOpacity={0.7}
                       >
-                        <Text style={[s.optChipText, editTaxScenario === opt.value && s.optChipTextActive]}>
-                          {opt.label}
+                        <Text style={[s.optChipText, editTaxScenario === opt && s.optChipTextActive]}>
+                          {opt}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -643,22 +695,26 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
                   />
                 </View>
               )
-              : project.taxScenario
-                  ? (() => { const [bg, fg] = getTagColor(project.taxScenario); return <View style={[s.valueTagPill, { backgroundColor: bg }]}><Text style={[s.valueTagText, { color: fg }]}>{project.taxScenario}</Text></View>; })()
+              : (mode === 'firm' ? order.taxScenario : project.taxScenario)
+                  ? (() => {
+                      const name = (mode === 'firm' ? order.taxScenario : project.taxScenario) as string;
+                      const [bg, fg] = getTagColor(name);
+                      return <View style={[s.valueTagPill, { backgroundColor: bg }]}><Text style={[s.valueTagText, { color: fg }]}>{name}</Text></View>;
+                    })()
                   : <Text style={s.cfEmptyTag}>—</Text>}
           </View>
         </View>
 
         <View style={s.divider} />
 
-        {/* Tags — 已有标签 + 行内新增入口（同一行：chips + 输入框+号） */}
+        {/* Custom label — 已有标签 + 行内新增入口（同一行：chips + 输入框+号） */}
         <View style={s.cfRow}>
           <View style={s.cfTagCol}>
-            <Text style={s.cfLabel}>Tags</Text>
+            <Text style={s.cfLabel}>Custom label</Text>
           </View>
           <View style={[s.cfValueCol, { gap: 8 }]}>
             <View style={s.tagsRow}>
-              {(allSpaceTags.length > 0 ? allSpaceTags : editTags).map((t) => {
+              {(customLabelOptions.length > 0 ? customLabelOptions : editTags).map((t) => {
                 const isSelected = editTags.includes(t);
                 const [bg, fg] = getTagColor(t);
                 return (
@@ -668,12 +724,16 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
                       s.tagPill,
                       isSelected && { backgroundColor: bg, borderColor: 'transparent' },
                     ]}
-                    onPress={() => {
-                      setEditTags((prev) =>
-                        prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
-                      );
-                    }}
-                    activeOpacity={0.7}
+                    onPress={
+                      editingClassification && mode === 'firm'
+                        ? () => {
+                            setEditTags((prev) =>
+                              prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
+                            );
+                          }
+                        : undefined
+                    }
+                    activeOpacity={editingClassification && mode === 'firm' ? 0.7 : 1}
                   >
                     <Text
                       style={[
@@ -686,7 +746,7 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
                   </TouchableOpacity>
                 );
               })}
-              {editingClassification && (
+              {editingClassification && mode === 'firm' && (
                 <View style={s.tagInlineInputWrap}>
                   <TextInput
                     style={[s.tagInlineInput, { flex: 1 }]}
@@ -773,6 +833,13 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
             <Text style={s.tableCellValue}>{formatDate(order.updatedAt)}</Text>
           </View>
         </View>
+
+        <View style={[s.tableRow, s.tableRowBorder]}>
+          <View style={s.tableCellFull}>
+            <Text style={s.tableCellLabel}>Manager</Text>
+            <Text style={s.tableCellValue}>{order.managerName ?? '—'}</Text>
+          </View>
+        </View>
       </View>
 
       {footer ? <View style={{ marginTop: 12 }}>{footer}</View> : null}
@@ -786,9 +853,20 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ProjectInfoScreen() {
   const { projectId } = useLocalSearchParams<{ projectId: string }>();
+  const [mode, setMode] = useState<'client' | 'firm'>('client');
+  useEffect(() => {
+    let mounted = true;
+    getCurrentSpace(true).then((space) => {
+      if (!mounted) return;
+      setMode(space?.kind === 'firm' ? 'firm' : 'client');
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
   return (
     <View style={{ flex: 1, backgroundColor: '#F0F2F5' }}>
-      <ProjectInfoTab projectId={projectId ?? ''} />
+      <ProjectInfoTab projectId={projectId ?? ''} mode={mode} />
     </View>
   );
 }
@@ -1000,7 +1078,7 @@ const s = StyleSheet.create({
   optChipText: { fontSize: 12, color: '#636E72', fontWeight: '500' },
   optChipTextActive: { color: '#6C5CE7', fontWeight: '700' },
 
-  // Tags 行 — 阅读/编辑态共用同一 flex-wrap 容器，行高由 cfRow minHeight 保证
+  // Custom label row — 阅读/编辑态共用同一 flex-wrap 容器，行高由 cfRow minHeight 保证
   // justifyContent: 'flex-start' 覆盖 cfValueCol 的 'center'，确保左端对齐
   tagsRow: {
     flexDirection: 'row',
