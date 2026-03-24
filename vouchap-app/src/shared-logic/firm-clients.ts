@@ -413,12 +413,12 @@ export async function createClientOnBehalf(
 export interface CreatePendingOrderForInviteeResult {
   orderId: string;
   firmSpaceId: string;
-  inviteeClientId: string;
+  firmClientId: string;
   inviteeEmail: string;
 }
 
 export interface CreateInviteeOnlyResult {
-  inviteeClientId: string;
+  firmClientId: string;
   inviteeEmail: string;
 }
 
@@ -448,13 +448,13 @@ export async function createInviteeOnly(
       return { result: null, error: new Error(msg) };
     }
     const row = Array.isArray(data) ? data[0] : data;
-    const inviteeClientId = row?.invitee_client_id;
-    if (!inviteeClientId) {
+    const firmClientId = row?.firm_client_id;
+    if (!firmClientId) {
       return { result: null, error: new Error('Unexpected response from server') };
     }
     return {
       result: {
-        inviteeClientId,
+        firmClientId,
         inviteeEmail: row?.invitee_email ?? params.contactEmail,
       },
       error: null,
@@ -509,7 +509,7 @@ export async function createPendingOrderForInvitee(
       result: {
         orderId,
         firmSpaceId: row?.out_firm_space_id ?? row?.firm_space_id ?? '',
-        inviteeClientId: row?.out_invitee_client_id ?? row?.invitee_client_id ?? '',
+        firmClientId: row?.firm_client_id ?? row?.out_firm_client_id ?? '',
         inviteeEmail: row?.out_invitee_email ?? row?.invitee_email ?? '',
       },
       error: null,
@@ -531,13 +531,13 @@ export async function createPendingOrderForInvitee(
 /** Firm 迁移模式：将某 invitee 的所有 pending orders 绑定到指定 client_space_id（原地更新 firm.orders） */
 export async function migratePendingOrdersToClientSpace(
   firmSpaceId: string,
-  inviteeClientId: string,
+  firmClientId: string,
   clientSpaceId: string
 ): Promise<{ migratedOrderIds: string[]; error: Error | null }> {
   try {
     const { data, error } = await supabase.rpc('migrate_pending_orders_to_client_space', {
       p_firm_space_id: firmSpaceId,
-      p_invitee_client_id: inviteeClientId,
+      p_firm_client_id: firmClientId,
       p_client_space_id: clientSpaceId,
     });
     if (error) {
@@ -571,8 +571,8 @@ export async function migratePendingOrdersToClientSpace(
 export interface PendingInviteeForClaim {
   firmSpaceId: string;
   firmName: string;
-  /** firm.clients row id (pending: client_space_id is null); RPC column name unchanged */
-  inviteeClientId: string;
+  /** firm.clients row id (pending: client_space_id is null) */
+  firmClientId: string;
   inviteeClientName: string | null;
   inviteeContactEmail: string | null;
   /** SKU id for the engagement (for preview); from first pending order */
@@ -594,7 +594,7 @@ export async function getPendingInviteesForEmail(
     const list = rows.map((r: any) => ({
       firmSpaceId: r.firm_space_id,
       firmName: r.firm_name ?? '',
-      inviteeClientId: r.invitee_client_id,
+      firmClientId: r.firm_client_id,
       inviteeClientName: r.invitee_client_name ?? null,
       inviteeContactEmail: r.invitee_email ?? null,
       skuId: r.sku_id ?? null,
@@ -610,12 +610,12 @@ export async function getPendingInviteesForEmail(
 
 /** Client 认领 engagement：创建/绑定 client space，迁移 pending orders，加入 space */
 export async function inviteeClaimEngagement(
-  inviteeClientId: string,
+  firmClientId: string,
   clientSpaceId: string
 ): Promise<{ result: { clientSpaceId: string; firmSpaceId: string } | null; error: Error | null }> {
   try {
     const { data, error } = await supabase.rpc('invitee_claim_engagement', {
-      p_invitee_client_id: inviteeClientId,
+      p_firm_client_id: firmClientId,
       p_client_space_id: clientSpaceId,
     });
     if (error) {

@@ -42,7 +42,7 @@ const INVITEE_PREFIX = 'invitee-';
 export default function FirmClientDetailScreen() {
   const { clientSpaceId: segment } = useLocalSearchParams<{ clientSpaceId: string }>();
   const isInvitee = typeof segment === 'string' && segment.startsWith(INVITEE_PREFIX);
-  const inviteeClientId = isInvitee ? segment!.slice(INVITEE_PREFIX.length) : undefined;
+  const pendingFirmClientId = isInvitee ? segment!.slice(INVITEE_PREFIX.length) : undefined;
   const resolvedClientSpaceId = isInvitee ? undefined : segment ?? undefined;
 
   const router = useRouter();
@@ -83,19 +83,19 @@ export default function FirmClientDetailScreen() {
     setLoading(true);
     const [clients, ords, fus, skuList] = await Promise.all([
       getFirmClientsWithDetails(space.id),
-      getFirmOrders(space.id, resolvedClientSpaceId, inviteeClientId),
-      getFirmClientFollowUps(space.id, resolvedClientSpaceId, inviteeClientId),
+      getFirmOrders(space.id, resolvedClientSpaceId, pendingFirmClientId),
+      getFirmClientFollowUps(space.id, resolvedClientSpaceId, pendingFirmClientId),
       getFirmSkus(space.id),
     ]);
-    const found = inviteeClientId
-      ? clients.find((c) => c.inviteeClientId === inviteeClientId || c.id === inviteeClientId) ?? null
+    const found = pendingFirmClientId
+      ? clients.find((c) => c.id === pendingFirmClientId) ?? null
       : clients.find((c) => c.clientSpaceId === resolvedClientSpaceId) ?? null;
     setClient(found);
     setOrders(ords);
     setFollowUps(fus);
     setSkus(skuList);
     setLoading(false);
-  }, [segment, resolvedClientSpaceId, inviteeClientId]);
+  }, [segment, resolvedClientSpaceId, pendingFirmClientId]);
 
   useEffect(() => {
     load();
@@ -163,7 +163,7 @@ export default function FirmClientDetailScreen() {
     if (space?.id && space.kind === 'firm') {
       const clientsRes = await getFirmClientsWithDetails(space.id);
       const found = c.isPendingClaim
-        ? clientsRes.find((row) => row.id === c.id || row.inviteeClientId === c.id) ?? null
+        ? clientsRes.find((row) => row.id === c.id) ?? null
         : clientsRes.find((row) => row.clientSpaceId === c.clientSpaceId) ?? null;
       if (found) setClient(found);
     }

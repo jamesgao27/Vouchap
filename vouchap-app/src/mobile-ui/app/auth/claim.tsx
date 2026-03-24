@@ -45,7 +45,7 @@ export default function ClaimEngagementScreen() {
   // Single pending: go straight to setup (reuse full page)
   useEffect(() => {
     if (status !== 'ready' || list.length !== 1) return;
-    router.replace({ pathname: '/auth/setup', params: { inviteeClientId: list[0].inviteeClientId } });
+    router.replace({ pathname: '/auth/setup', params: { firmClientId: list[0].firmClientId } });
   }, [status, list, router]);
 
   if (status === 'loading') {
@@ -97,7 +97,7 @@ export default function ClaimEngagementScreen() {
     );
   }
 
-  // Multiple: show list; tap → /auth/setup?inviteeClientId=...
+  // Multiple: show list; tap → /auth/setup?firmClientId=...
   const listContent = (
     <>
       <Text style={styles.title}>Claim your engagement</Text>
@@ -106,10 +106,10 @@ export default function ClaimEngagementScreen() {
       </Text>
       {list.map((inv) => (
         <TouchableOpacity
-          key={inv.inviteeClientId}
+          key={inv.firmClientId}
           style={styles.card}
           onPress={() =>
-            router.replace({ pathname: '/auth/setup', params: { inviteeClientId: inv.inviteeClientId } })
+            router.replace({ pathname: '/auth/setup', params: { firmClientId: inv.firmClientId } })
           }
         >
           <Text style={styles.cardTitle}>{inv.firmName || 'Firm'}</Text>

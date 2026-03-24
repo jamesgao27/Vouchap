@@ -45,14 +45,14 @@ const MOBILE_FIXED_HEIGHT_EXCLUDING_LIST = 566;
 
 export default function ClientSetupScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ token?: string; inviteeClientId?: string }>();
+  const params = useLocalSearchParams<{ token?: string; firmClientId?: string }>();
   const token = (params.token ?? '').trim();
-  const inviteeClientIdParam = (params.inviteeClientId ?? '').trim();
-  const claimMode = Boolean(inviteeClientIdParam);
+  const firmClientIdParam = (params.firmClientId ?? '').trim();
+  const claimMode = Boolean(firmClientIdParam);
 
   const [status, setStatus] = useState<Status>('checking');
   const [inviteInfo, setInviteInfo] = useState<FirmClientInviteInfo | null>(null);
-  const [claimInviteeId, setClaimInviteeId] = useState<string | null>(null);
+  const [claimFirmClientId, setClaimFirmClientId] = useState<string | null>(null);
   const [spaces, setSpaces] = useState<UserSpace[]>([]);
   const [selectedSpaceId, setSelectedSpaceId] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -129,14 +129,14 @@ export default function ClientSetupScreen() {
     if (!authed) {
       router.replace({
         pathname: '/login',
-        params: claimMode ? { redirect: '/auth/setup', inviteeClientId: inviteeClientIdParam } : { redirect: '/auth/setup', token },
+        params: claimMode ? { redirect: '/auth/setup', firmClientId: firmClientIdParam } : { redirect: '/auth/setup', token },
       });
       return;
     }
 
     setStatus('loading');
     setErrorMessage('');
-    setClaimInviteeId(claimMode ? inviteeClientIdParam : null);
+    setClaimFirmClientId(claimMode ? firmClientIdParam : null);
 
     if (claimMode) {
       const user = await getCurrentUser();
@@ -151,7 +151,7 @@ export default function ClientSetupScreen() {
         setErrorMessage(error?.message ?? 'No pending engagements found.');
         return;
       }
-      const inv = pending.find((p) => p.inviteeClientId === inviteeClientIdParam);
+      const inv = pending.find((p) => p.firmClientId === firmClientIdParam);
       if (!inv) {
         setStatus('error');
         setErrorMessage('This engagement is not available for your account.');
@@ -165,7 +165,7 @@ export default function ClientSetupScreen() {
         firmName: inv.firmName ?? undefined,
         inviterUserId: '',
         skuId: inv.skuId ?? '',
-        tokenId: inv.inviteeClientId,
+        tokenId: inv.firmClientId,
       });
 
       if (inv.skuId) {
@@ -260,7 +260,7 @@ export default function ClientSetupScreen() {
       setSelectedSpaceId(NEW_SPACE_SENTINEL_ID);
     }
     setStatus('ready');
-  }, [router, token, claimMode, inviteeClientIdParam]);
+  }, [router, token, claimMode, firmClientIdParam]);
 
   useEffect(() => {
     load();
@@ -317,9 +317,9 @@ export default function ClientSetupScreen() {
       clientSpaceId = selectedSpaceId;
     }
 
-    if (claimInviteeId) {
+    if (claimFirmClientId) {
       setStatus('submitting');
-      const { result, error } = await inviteeClaimEngagement(claimInviteeId, clientSpaceId);
+      const { result, error } = await inviteeClaimEngagement(claimFirmClientId, clientSpaceId);
       if (error || !result) {
         setStatus('ready');
         showToast(error?.message ?? 'Failed to claim engagement', 'error');
@@ -360,7 +360,7 @@ export default function ClientSetupScreen() {
   const handleCreateSpace = () => {
     router.replace({
       pathname: '/setup-space',
-      params: claimMode ? { redirect: '/auth/setup', inviteeClientId: inviteeClientIdParam } : { redirect: '/auth/setup', token },
+      params: claimMode ? { redirect: '/auth/setup', firmClientId: firmClientIdParam } : { redirect: '/auth/setup', token },
     });
   };
 
@@ -385,7 +385,7 @@ export default function ClientSetupScreen() {
                 onPress={() =>
                   router.replace({
                     pathname: '/login',
-                    params: claimMode ? { redirect: '/auth/setup', inviteeClientId: inviteeClientIdParam } : { redirect: '/auth/setup', token },
+                    params: claimMode ? { redirect: '/auth/setup', firmClientId: firmClientIdParam } : { redirect: '/auth/setup', token },
                   })
                 }
               >

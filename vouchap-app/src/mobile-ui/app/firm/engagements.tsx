@@ -62,10 +62,10 @@ const STATUS_FG_SOFT: Record<string, string> = {
   cancelled: '#636E72',
 };
 
-/** Client type dot: green = claimed (order has clientSpaceId), amber = invitee only (pending claim). Align with clients list. */
+/** Client type dot: green = claimed (order has clientSpaceId), amber = pending firm.clients row (order.client_id, no space yet). */
 const CLIENT_TYPE_DOT = { client: '#27AE60', pendingInvitee: '#F39C12' };
-function isOrderInviteeOnly(o: { clientSpaceId?: string | null; inviteeClientId?: string | null }): boolean {
-  return !!o.inviteeClientId && !o.clientSpaceId;
+function isOrderPendingClaim(o: { clientSpaceId?: string | null; clientId?: string | null }): boolean {
+  return !o.clientSpaceId && !!o.clientId;
 }
 
 // 与报税项目 Info 页相同的标签配色
@@ -203,7 +203,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
       label: 'Client',
       minWidth: 140,
       getValue: (r) => {
-        const isInvitee = isOrderInviteeOnly(r);
+        const isInvitee = isOrderPendingClaim(r);
         const dotColor = isInvitee ? CLIENT_TYPE_DOT.pendingInvitee : CLIENT_TYPE_DOT.client;
         return (
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
@@ -743,7 +743,7 @@ export default function FirmEngagementsScreen() {
                         style={[
                           styles.clientDot,
                           {
-                            backgroundColor: isOrderInviteeOnly(o)
+                            backgroundColor: isOrderPendingClaim(o)
                               ? CLIENT_TYPE_DOT.pendingInvitee
                               : CLIENT_TYPE_DOT.client,
                           },

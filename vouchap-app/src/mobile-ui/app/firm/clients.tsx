@@ -26,7 +26,7 @@ import {
   getFirmClientsWithDetails,
   getFirmOrders,
   deleteFirmClients,
-  deleteFirmInviteeClients,
+  deleteFirmPendingClients,
   getFirmSkus,
   getFirmSpaceMembers,
   updateFirmClientAssignee,
@@ -204,7 +204,7 @@ export default function FirmClientsScreen() {
   const [showGroupMenu, setShowGroupMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [orderCountByClient, setOrderCountByClient] = useState<Record<string, number>>({});
-  const [orderCountByInvitee, setOrderCountByInvitee] = useState<Record<string, number>>({});
+  const [orderCountByPendingClient, setOrderCountByPendingClient] = useState<Record<string, number>>({});
   const [groupPopoverRect, setGroupPopoverRect] = useState<{ left: number; top: number } | null>(null);
   const [sortKey, setSortKey] = useState<string | null>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
@@ -293,13 +293,13 @@ export default function FirmClientsScreen() {
     ]);
     setClients(list);
     const countsClient: Record<string, number> = {};
-    const countsInvitee: Record<string, number> = {};
+    const countsPending: Record<string, number> = {};
     orders.forEach((o) => {
       if (o.clientSpaceId) countsClient[o.clientSpaceId] = (countsClient[o.clientSpaceId] ?? 0) + 1;
-      if (o.inviteeClientId) countsInvitee[o.inviteeClientId] = (countsInvitee[o.inviteeClientId] ?? 0) + 1;
+      if (!o.clientSpaceId && o.clientId) countsPending[o.clientId] = (countsPending[o.clientId] ?? 0) + 1;
     });
     setOrderCountByClient(countsClient);
-    setOrderCountByInvitee(countsInvitee);
+    setOrderCountByPendingClient(countsPending);
   }, [router]);
 
   useEffect(() => {
@@ -440,7 +440,7 @@ export default function FirmClientsScreen() {
     setBulkDeleting(true);
     const [clientErr, inviteeErr] = await Promise.all([
       clientIds.length ? deleteFirmClients(clientIds) : Promise.resolve({ error: null }),
-      inviteeIds.length ? deleteFirmInviteeClients(inviteeIds) : Promise.resolve({ error: null }),
+      inviteeIds.length ? deleteFirmPendingClients(inviteeIds) : Promise.resolve({ error: null }),
     ]);
     setBulkDeleting(false);
     if (clientErr?.error || inviteeErr?.error) {
@@ -809,7 +809,7 @@ export default function FirmClientsScreen() {
           keyExtractor={(c) => c.id}
           renderItem={({ item: c }) => {
             const orderCount = c.isPendingClaim
-              ? (orderCountByInvitee[c.id] ?? 0)
+              ? (orderCountByPendingClient[c.id] ?? 0)
               : (orderCountByClient[c.clientSpaceId] ?? 0);
             const firstTag = c.labels?.[0];
             const statusLabel =

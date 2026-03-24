@@ -28,7 +28,14 @@ const PRIVACY_URL = 'https://vouchap.com/privacy';
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ inviteId?: string; email?: string; redirect?: string; token?: string; fromInvite?: string }>();
+  const params = useLocalSearchParams<{
+    inviteId?: string;
+    email?: string;
+    redirect?: string;
+    token?: string;
+    firmClientId?: string;
+    fromInvite?: string;
+  }>();
   const isFromInvite = params.fromInvite === '1' || params.fromInvite === 'true';
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -165,13 +172,18 @@ export default function RegisterScreen() {
 
       setLoading(false);
       showToast('Your account has been created. Please sign in to continue.', 'success');
-      if (params.redirect === '/auth/setup' && params.token) {
-        router.replace({ pathname: '/auth/setup', params: { token: params.token } });
-      } else {
-        router.replace({
-          pathname: '/login',
-          params: params.redirect && params.token ? { redirect: params.redirect, token: params.token } : {},
-        });
+      {
+        const t = (params.token ?? '').trim();
+        const f = (params.firmClientId ?? '').trim();
+        if (params.redirect === '/auth/setup' && (t || f)) {
+          router.replace({ pathname: '/auth/setup', params: t ? { token: t } : { firmClientId: f } });
+        } else {
+          const lp: Record<string, string> = {};
+          if (params.redirect) lp.redirect = params.redirect;
+          if (t) lp.token = t;
+          if (f) lp.firmClientId = f;
+          router.replace({ pathname: '/login', params: lp });
+        }
       }
     } catch (err) {
       setLoading(false);
@@ -187,13 +199,18 @@ export default function RegisterScreen() {
       animationType="fade"
       onRequestClose={() => {
         setShowEmailConfirmationModal(false);
-        if (params.redirect === '/auth/setup' && params.token) {
-          router.replace({ pathname: '/auth/setup', params: { token: params.token } });
-        } else {
-          router.replace({
-            pathname: '/login',
-            params: params.redirect && params.token ? { redirect: params.redirect, token: params.token } : {},
-          });
+        {
+          const t = (params.token ?? '').trim();
+          const f = (params.firmClientId ?? '').trim();
+          if (params.redirect === '/auth/setup' && (t || f)) {
+            router.replace({ pathname: '/auth/setup', params: t ? { token: t } : { firmClientId: f } });
+          } else {
+            const lp: Record<string, string> = {};
+            if (params.redirect) lp.redirect = params.redirect;
+            if (t) lp.token = t;
+            if (f) lp.firmClientId = f;
+            router.replace({ pathname: '/login', params: lp });
+          }
         }
       }}
     >
@@ -215,13 +232,16 @@ export default function RegisterScreen() {
             style={styles.modalButton}
             onPress={() => {
               setShowEmailConfirmationModal(false);
-              if (params.redirect === '/auth/setup' && params.token) {
-                router.replace({ pathname: '/auth/setup', params: { token: params.token } });
+              const t = (params.token ?? '').trim();
+              const f = (params.firmClientId ?? '').trim();
+              if (params.redirect === '/auth/setup' && (t || f)) {
+                router.replace({ pathname: '/auth/setup', params: t ? { token: t } : { firmClientId: f } });
               } else {
-                router.replace({
-                  pathname: '/login',
-                  params: params.redirect && params.token ? { redirect: params.redirect, token: params.token } : {},
-                });
+                const lp: Record<string, string> = {};
+                if (params.redirect) lp.redirect = params.redirect;
+                if (t) lp.token = t;
+                if (f) lp.firmClientId = f;
+                router.replace({ pathname: '/login', params: lp });
               }
             }}
           >
@@ -393,6 +413,7 @@ export default function RegisterScreen() {
                       params: {
                         ...(params.redirect ? { redirect: params.redirect } : {}),
                         ...(params.token ? { token: params.token } : {}),
+                        ...(params.firmClientId ? { firmClientId: params.firmClientId } : {}),
                         ...(params.email ? { email: params.email } : {}),
                       },
                     })
@@ -599,6 +620,7 @@ export default function RegisterScreen() {
                   params: {
                     ...(params.redirect ? { redirect: params.redirect } : {}),
                     ...(params.token ? { token: params.token } : {}),
+                    ...(params.firmClientId ? { firmClientId: params.firmClientId } : {}),
                     ...(params.email ? { email: params.email } : {}),
                   },
                 })

@@ -474,6 +474,8 @@ export interface FirmClient {
   assignedUserId?: string | null;
   /** 最近跟进时间 */
   lastFollowUpAt?: string | null;
+  /** Who created this firm.clients row (RPC actor; open-invite rows use token inviter). */
+  creatorUserId?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -576,8 +578,6 @@ export interface FirmOrder {
   clientSpaceId: string | null;
   /** firm.clients id for this engagement (pending or claimed). */
   clientId?: string | null;
-  /** Legacy pending link; same id as clientId when backfilled; optional until column removal. */
-  inviteeClientId?: string | null;
   skuId: string;
   status: FirmOrderStatus;
   /** 报税辖区（与 project 双向同步） */

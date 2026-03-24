@@ -20,7 +20,13 @@ import { showToast } from '@/lib/toast';
 
 export default function LoginScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ inviteId?: string; email?: string; redirect?: string; token?: string }>();
+  const params = useLocalSearchParams<{
+    inviteId?: string;
+    email?: string;
+    redirect?: string;
+    token?: string;
+    firmClientId?: string;
+  }>();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -51,8 +57,12 @@ export default function LoginScreen() {
     try {
       const { isAuthenticated } = await import('@/lib/auth');
       if (!(await isAuthenticated())) return;
-      if (params.redirect === '/auth/setup' && params.token) {
-        router.replace({ pathname: '/auth/setup', params: { token: params.token } });
+      if (params.redirect === '/auth/setup') {
+        const t = (params.token ?? '').trim();
+        const f = (params.firmClientId ?? '').trim();
+        if (t) router.replace({ pathname: '/auth/setup', params: { token: t } });
+        else if (f) router.replace({ pathname: '/auth/setup', params: { firmClientId: f } });
+        else router.replace('/');
       } else {
         router.replace('/');
       }
@@ -71,9 +81,17 @@ export default function LoginScreen() {
       showToast(error.message, 'error');
       return;
     }
-    if (params.redirect === '/auth/setup' && params.token) {
-      router.replace({ pathname: '/auth/setup', params: { token: params.token } });
-      return;
+    if (params.redirect === '/auth/setup') {
+      const t = (params.token ?? '').trim();
+      const f = (params.firmClientId ?? '').trim();
+      if (t) {
+        router.replace({ pathname: '/auth/setup', params: { token: t } });
+        return;
+      }
+      if (f) {
+        router.replace({ pathname: '/auth/setup', params: { firmClientId: f } });
+        return;
+      }
     }
     // 顺序：先查 member 邀请，再查 firm 邀请，最后进入首页（首页会进入当前/最新空间或新建空间）
     try {
@@ -202,6 +220,7 @@ export default function LoginScreen() {
                       params: {
                         ...(params.redirect ? { redirect: params.redirect } : {}),
                         ...(params.token ? { token: params.token } : {}),
+                        ...(params.firmClientId ? { firmClientId: params.firmClientId } : {}),
                         ...(params.email ? { email: params.email } : {}),
                       },
                     })
@@ -359,6 +378,7 @@ export default function LoginScreen() {
                   params: {
                     ...(params.redirect ? { redirect: params.redirect } : {}),
                     ...(params.token ? { token: params.token } : {}),
+                    ...(params.firmClientId ? { firmClientId: params.firmClientId } : {}),
                     ...(params.email ? { email: params.email } : {}),
                   },
                 })

@@ -26,7 +26,7 @@ import * as ImagePicker from 'expo-image-picker';
 
 export default function SetupHouseholdScreen() {
   const router = useRouter();
-  const params = useLocalSearchParams<{ inviteId?: string; redirect?: string; token?: string }>();
+  const params = useLocalSearchParams<{ inviteId?: string; redirect?: string; token?: string; firmClientId?: string }>();
   const [loading, setLoading] = useState(true);
   const [isAuthed, setIsAuthed] = useState<boolean | null>(null);
   const [pendingInvitations, setPendingInvitations] = useState<SpaceInvitation[]>([]);
@@ -40,13 +40,21 @@ export default function SetupHouseholdScreen() {
   const [verificationFileUri, setVerificationFileUri] = useState<string | null>(null);
   const [mode, setMode] = useState<'invite' | 'create'>('invite'); // 'invite' 显示邀请，'create' 显示创建表单
 
-  // 认证检查：未登录时重定向到登录页（若带 redirect+token 则传给 login 以便登录后回到 auth/setup）
+  // 认证检查：未登录时重定向到登录页（若带 redirect+token 或 firmClientId 则传给 login 以便登录后回到 auth/setup）
   useEffect(() => {
     const checkAuth = async () => {
       const authed = await isAuthenticated();
       if (!authed) {
-        if (params.redirect === '/auth/setup' && params.token) {
-          router.replace({ pathname: '/login', params: { redirect: '/auth/setup', token: params.token } });
+        if (params.redirect === '/auth/setup') {
+          const t = (params.token ?? '').trim();
+          const f = (params.firmClientId ?? '').trim();
+          if (t) {
+            router.replace({ pathname: '/login', params: { redirect: '/auth/setup', token: t } });
+          } else if (f) {
+            router.replace({ pathname: '/login', params: { redirect: '/auth/setup', firmClientId: f } });
+          } else {
+            router.replace('/login');
+          }
         } else {
           router.replace('/login');
         }
@@ -56,7 +64,7 @@ export default function SetupHouseholdScreen() {
       loadInvitations();
     };
     checkAuth();
-  }, [params.redirect, params.token]);
+  }, [params.redirect, params.token, params.firmClientId]);
 
   useEffect(() => {
     if (params.inviteId && pendingInvitations.length > 0) {
@@ -264,8 +272,12 @@ export default function SetupHouseholdScreen() {
         if (spaceKind === 'firm') {
           showToast('Firm space created. It will be activated after approval.', 'success');
         }
-        if (params.redirect === '/auth/setup' && params.token) {
-          router.replace({ pathname: '/auth/setup', params: { token: params.token } });
+        if (params.redirect === '/auth/setup') {
+          const t = (params.token ?? '').trim();
+          const f = (params.firmClientId ?? '').trim();
+          if (t) router.replace({ pathname: '/auth/setup', params: { token: t } });
+          else if (f) router.replace({ pathname: '/auth/setup', params: { firmClientId: f } });
+          else router.replace('/');
         } else {
           router.replace('/');
         }
