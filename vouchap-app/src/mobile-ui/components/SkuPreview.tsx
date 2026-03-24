@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { FirmSku } from '@/types';
-import { supabase } from '@/lib/supabase';
+import { fetchSkuItemsForClientPreview } from '@/lib/firm';
 
 type Props = {
   sku?: FirmSku | null;
@@ -19,6 +19,8 @@ type Props = {
   variant?: 'card' | 'mobile-full';
   /** 可选：约束容器最大高度（如右浮窗内嵌时由父级传入），覆盖默认 560 */
   maxHeight?: number;
+  /** Client invite / link flow: load sku_items via RPC (RLS blocks direct reads for non–firm members). */
+  clientPreviewAuth?: { firmClientId?: string; inviteToken?: string; orderId?: string };
 };
 
 type SkuItemRow = {
@@ -49,7 +51,7 @@ function getTagColor(s: string): [string, string] {
   return TAG_PALETTE[Math.abs(h) % TAG_PALETTE.length]!;
 }
 
-export default function SkuPreview({ sku, variant = 'card', maxHeight }: Props) {
+export default function SkuPreview({ sku, variant = 'card', maxHeight, clientPreviewAuth }: Props) {
   const [items, setItems] = useState<SkuItemRow[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [listLayoutHeight, setListLayoutHeight] = useState(0);
@@ -75,20 +77,12 @@ export default function SkuPreview({ sku, variant = 'card', maxHeight }: Props) 
     (async () => {
       try {
         setLoading(true);
-        const { data, error } = await supabase
-          .schema('firm')
-          .from('sku_items')
-          .select('id, sku_id, parent_id, item_kind, initial_responsible_side, title, description, sort_order')
-          .eq('sku_id', sku.id)
-          .order('sort_order', { ascending: true });
-        if (error) {
-          console.error('SkuPreview: load sku_items', error);
-          if (!cancelled) setItems([]);
-          return;
-        }
-        if (!cancelled) {
-          setItems((data || []) as SkuItemRow[]);
-        }
+        const rows = await fetchSkuItemsForClientPreview(sku.id, {
+          firmClientId: clientPreviewAuth?.firmClientId,
+          inviteToken: clientPreviewAuth?.inviteToken,
+          orderId: clientPreviewAuth?.orderId,
+        });
+        if (!cancelled) setItems(rows as SkuItemRow[]);
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -96,7 +90,7 @@ export default function SkuPreview({ sku, variant = 'card', maxHeight }: Props) 
     return () => {
       cancelled = true;
     };
-  }, [sku?.id]);
+  }, [sku?.id, clientPreviewAuth?.firmClientId, clientPreviewAuth?.inviteToken, clientPreviewAuth?.orderId]);
 
   useEffect(() => {
     if (loading || !items || items.length === 0) {

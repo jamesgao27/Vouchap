@@ -81,8 +81,8 @@ export default function ProjectTodosScreen() {
       if (order.status === 'onboarding') {
         setTree([]);
         const [items, sku] = await Promise.all([
-          getSkuItems(order.skuId),
-          getSkuById(order.skuId),
+          getSkuItems(order.skuId, orderIdVal),
+          getSkuById(order.skuId, orderIdVal),
         ]);
         setSkuItems(items);
         if (sku) {

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, Platform } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { getSkuById } from '../../../shared-logic/firm';
+import { resolveSkuForPreview } from '../../../shared-logic/firm';
 import type { FirmSku } from '@/types';
 import SkuPreview from '../../components/SkuPreview';
 
@@ -13,9 +13,18 @@ import SkuPreview from '../../components/SkuPreview';
  * Used from "Link your space with" header tap on mobile.
  */
 export default function SetupSkuPreviewScreen() {
-  const params = useLocalSearchParams<{ skuId?: string; firmSpaceId?: string }>();
+  const params = useLocalSearchParams<{
+    skuId?: string;
+    firmSpaceId?: string;
+    firmClientId?: string;
+    token?: string;
+    orderId?: string;
+  }>();
   const skuId = (params.skuId ?? '').trim();
   const firmSpaceId = (params.firmSpaceId ?? '').trim();
+  const firmClientId = (params.firmClientId ?? '').trim();
+  const inviteToken = (params.token ?? '').trim();
+  const previewOrderId = (params.orderId ?? '').trim();
 
   const [sku, setSku] = useState<FirmSku | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,7 +39,11 @@ export default function SetupSkuPreviewScreen() {
     setLoading(true);
     setError(null);
     try {
-      const data = await getSkuById(skuId);
+      const data = await resolveSkuForPreview(skuId, {
+        firmClientId: firmClientId || null,
+        inviteToken: inviteToken || null,
+        orderId: previewOrderId || null,
+      });
       if (data) {
         const skuObj: FirmSku = {
           id: skuId,
@@ -57,7 +70,7 @@ export default function SetupSkuPreviewScreen() {
     } finally {
       setLoading(false);
     }
-  }, [skuId, firmSpaceId]);
+  }, [skuId, firmSpaceId, firmClientId, inviteToken, previewOrderId]);
 
   useEffect(() => {
     load();
@@ -100,6 +113,11 @@ export default function SetupSkuPreviewScreen() {
         <SkuPreview
           sku={sku}
           variant={Platform.OS === 'web' ? 'card' : 'mobile-full'}
+          clientPreviewAuth={{
+            firmClientId: firmClientId || undefined,
+            inviteToken: inviteToken || undefined,
+            orderId: previewOrderId || undefined,
+          }}
         />
       </ScrollView>
     </View>

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -31,7 +31,7 @@ import {
   inviteeClaimEngagement,
   type FirmClientInviteInfo,
 } from '@/lib/firm-clients';
-import { getSkuById } from '../../../shared-logic/firm';
+import { resolveSkuForPreview } from '../../../shared-logic/firm';
 import type { UserSpace, FirmSku } from '@/types';
 import { showToast } from '@/lib/toast';
 import SkuPreview from '../../components/SkuPreview';
@@ -49,6 +49,20 @@ export default function ClientSetupScreen() {
   const token = (params.token ?? '').trim();
   const firmClientIdParam = (params.firmClientId ?? '').trim();
   const claimMode = Boolean(firmClientIdParam);
+
+  /** Pending-claim flow: first order id for order-scoped SKU preview RPC after user is in client space */
+  const [claimPreviewOrderId, setClaimPreviewOrderId] = useState<string | null>(null);
+
+  const setupSkuPreviewAuth = useMemo(
+    () =>
+      claimMode
+        ? {
+            firmClientId: firmClientIdParam || undefined,
+            orderId: claimPreviewOrderId || undefined,
+          }
+        : { inviteToken: token || undefined },
+    [claimMode, firmClientIdParam, token, claimPreviewOrderId],
+  );
 
   const [status, setStatus] = useState<Status>('checking');
   const [inviteInfo, setInviteInfo] = useState<FirmClientInviteInfo | null>(null);
@@ -137,6 +151,7 @@ export default function ClientSetupScreen() {
     setStatus('loading');
     setErrorMessage('');
     setClaimFirmClientId(claimMode ? firmClientIdParam : null);
+    setClaimPreviewOrderId(null);
 
     if (claimMode) {
       const user = await getCurrentUser();
@@ -167,10 +182,14 @@ export default function ClientSetupScreen() {
         skuId: inv.skuId ?? '',
         tokenId: inv.firmClientId,
       });
+      setClaimPreviewOrderId(inv.orderId ?? null);
 
       if (inv.skuId) {
         try {
-          const sku = await getSkuById(inv.skuId);
+          const sku = await resolveSkuForPreview(inv.skuId, {
+            firmClientId: firmClientIdParam,
+            orderId: inv.orderId ?? undefined,
+          });
           if (sku) {
             setSkuPreview({
               id: inv.skuId,
@@ -227,7 +246,7 @@ export default function ClientSetupScreen() {
     setSpaces(clientSpaces);
 
     try {
-      const sku = await getSkuById(infoRes.info.skuId);
+      const sku = await resolveSkuForPreview(infoRes.info.skuId, { inviteToken: token });
       if (sku) {
         const skuObj: FirmSku = {
           id: infoRes.info.skuId,
@@ -456,14 +475,18 @@ export default function ClientSetupScreen() {
   const skuName = skuPreview?.name ?? '';
 
   const openSkuPreview = () => {
-    if (skuId && inviteInfo?.firmSpaceId) {
-      router.push({
-        pathname: '/auth/setup-sku-preview',
-        params: { skuId, firmSpaceId: inviteInfo.firmSpaceId },
-      });
-    } else if (skuId) {
-      router.push({ pathname: '/auth/setup-sku-preview', params: { skuId } });
+    if (!skuId) return;
+    const params: Record<string, string> = {
+      skuId,
+      firmSpaceId: inviteInfo?.firmSpaceId ?? '',
+    };
+    if (claimMode && firmClientIdParam) {
+      params.firmClientId = firmClientIdParam;
+      if (claimPreviewOrderId) params.orderId = claimPreviewOrderId;
+    } else if (token) {
+      params.token = token;
     }
+    router.push({ pathname: '/auth/setup-sku-preview', params });
   };
 
   const cardHeaderContent = (
@@ -984,6 +1007,7 @@ export default function ClientSetupScreen() {
                       <SkuPreview
                         sku={skuPreview}
                         maxHeight={Math.max(0, webPanelHeightRight - 60)}
+                        clientPreviewAuth={setupSkuPreviewAuth}
                       />
                     </View>
                   </View>
@@ -999,7 +1023,10 @@ export default function ClientSetupScreen() {
             {skuPreview && (
               <View style={styles.skuPreviewColumn}>
                 <Text style={styles.skuPreviewTitle}>Service preview</Text>
-                <SkuPreview sku={skuPreview} />
+                <SkuPreview
+                  sku={skuPreview}
+                  clientPreviewAuth={setupSkuPreviewAuth}
+                />
               </View>
             )}
           </View>

@@ -307,19 +307,14 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
   if (error || !data) return null;
   const row = data as any;
 
-  // 附带拉取 SKU 名称与描述，供详情页展示
+  // SKU 名称与描述：firm 成员直读 skus；client 走 getSkuById（含 RPC 回退）
   let skuName: string | null = null;
   let skuDescription: string | null = null;
   if (row.sku_id) {
-    const { data: skuRow } = await supabase
-      .schema('firm')
-      .from('skus')
-      .select('name, description')
-      .eq('id', row.sku_id)
-      .maybeSingle();
-    if (skuRow) {
-      skuName = (skuRow as any).name ?? null;
-      skuDescription = (skuRow as any).description ?? null;
+    const skuHdr = await getSkuById(row.sku_id as string, row.id as string);
+    if (skuHdr) {
+      skuName = skuHdr.name ?? null;
+      skuDescription = skuHdr.description ?? null;
     }
   }
 
@@ -428,8 +423,13 @@ export async function getOrderHeaderForClient(orderId: string): Promise<{
     taxSeasonYear = project?.taxSeasonYear ?? null;
     firmName = (spaceRow.data as any)?.name ?? '';
   } else {
-    const sku = await getSkuById(order.skuId);
-    if (sku) projectName = sku.name;
+    const skuNameTrim = (order.skuName ?? '').trim();
+    if (skuNameTrim) {
+      projectName = skuNameTrim;
+    } else {
+      const sku = await getSkuById(order.skuId, orderId);
+      if (sku?.name?.trim()) projectName = sku.name;
+    }
     if (order.firmSpaceId) {
       const { data: spaceRow } = await supabase.from('spaces').select('name').eq('id', order.firmSpaceId).maybeSingle();
       firmName = (spaceRow as any)?.name ?? '';
@@ -445,8 +445,18 @@ export async function getOrderHeaderForClient(orderId: string): Promise<{
   };
 }
 
-/** 根据 skuId 获取 SKU 基本信息（名称、说明、封面、报税辖区与场景、标签、发布状态、模板状态） */
-export async function getSkuById(skuId: string): Promise<{ name: string; description?: string | null; imageUrl?: string | null; taxCountry?: string | null; taxScenario?: string | null; tags?: string[] | null; isPublished?: boolean; templateStatus?: 'draft' | 'private' | 'published' | null } | null> {
+export type FirmSkuHeader = {
+  name: string;
+  description?: string | null;
+  imageUrl?: string | null;
+  taxCountry?: string | null;
+  taxScenario?: string | null;
+  tags?: string[] | null;
+  isPublished?: boolean;
+  templateStatus?: 'draft' | 'private' | 'published' | null;
+};
+
+async function fetchSkuHeaderFromTable(skuId: string): Promise<FirmSkuHeader | null> {
   const { data, error } = await supabase
     .schema('firm')
     .from('skus')
@@ -456,7 +466,10 @@ export async function getSkuById(skuId: string): Promise<{ name: string; descrip
 
   if (error || !data) return null;
   const row = data as any;
-  const templateStatus = row.template_status === 'draft' || row.template_status === 'private' || row.template_status === 'published' ? row.template_status : null;
+  const templateStatus =
+    row.template_status === 'draft' || row.template_status === 'private' || row.template_status === 'published'
+      ? row.template_status
+      : null;
   return {
     name: row.name ?? '',
     description: row.description ?? null,
@@ -467,6 +480,194 @@ export async function getSkuById(skuId: string): Promise<{ name: string; descrip
     isPublished: row.is_published ?? false,
     templateStatus: templateStatus ?? undefined,
   };
+}
+
+function mapSkuPreviewRpcRow(r: Record<string, unknown>): FirmSkuHeader {
+  const ts = r.template_status;
+  const templateStatus = ts === 'draft' || ts === 'private' || ts === 'published' ? ts : null;
+  const tagsVal = r.tags;
+  const tags = Array.isArray(tagsVal) ? (tagsVal as string[]) : [];
+  return {
+    name: (r.name as string) ?? '',
+    description: (r.description as string | null | undefined) ?? null,
+    imageUrl: (r.image_url as string | null | undefined) ?? null,
+    taxCountry: (r.tax_country as string | null | undefined) ?? null,
+    taxScenario: (r.tax_scenario as string | null | undefined) ?? null,
+    tags,
+    isPublished: Boolean(r.is_published),
+    templateStatus: templateStatus ?? undefined,
+  };
+}
+
+/** Client member of order.client_space: read SKU header despite firm.skus RLS (see get_firm_sku_preview_for_order_client). */
+async function fetchSkuHeaderFromOrderClient(orderId: string): Promise<FirmSkuHeader | null> {
+  const oid = (orderId ?? '').trim();
+  if (!oid) return null;
+  const { data, error } = await supabase.rpc('get_firm_sku_preview_for_order_client', { p_order_id: oid });
+  if (error) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('fetchSkuHeaderFromOrderClient:', error);
+    }
+    return null;
+  }
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+  return mapSkuPreviewRpcRow(row as Record<string, unknown>);
+}
+
+async function fetchSkuHeaderFromRpc(
+  skuId: string,
+  firmClientId: string | null,
+  inviteToken: string | null,
+): Promise<FirmSkuHeader | null> {
+  const { data, error } = await supabase.rpc('get_firm_sku_preview_for_client', {
+    p_sku_id: skuId,
+    p_firm_client_id: firmClientId,
+    p_invite_token: inviteToken,
+  });
+
+  if (error) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.warn('fetchSkuHeaderFromRpc:', error);
+    }
+    return null;
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) return null;
+  return mapSkuPreviewRpcRow(row as Record<string, unknown>);
+}
+
+/** 根据 skuId 获取 SKU 基本信息（名称、说明、封面、报税辖区与场景、标签、发布状态、模板状态） */
+export async function getSkuById(skuId: string, forOrderId?: string | null): Promise<FirmSkuHeader | null> {
+  const id = (skuId ?? '').trim();
+  if (!id) return null;
+  const direct = await fetchSkuHeaderFromTable(id);
+  if (direct) return direct;
+  const oid = (forOrderId ?? '').trim() || null;
+  if (oid) {
+    const viaOrder = await fetchSkuHeaderFromOrderClient(oid);
+    if (viaOrder?.name?.trim()) return viaOrder;
+  }
+  return fetchSkuHeaderFromRpc(id, null, null);
+}
+
+/** Client link / invite onboarding: firm.skus RLS only allows firm space members; RPC covers pending invite, token, and linked order + client_space. */
+export async function resolveSkuForPreview(
+  skuId: string,
+  previewAuth?: { firmClientId?: string | null; inviteToken?: string | null; orderId?: string | null },
+): Promise<FirmSkuHeader | null> {
+  const id = (skuId ?? '').trim();
+  if (!id) return null;
+  const direct = await fetchSkuHeaderFromTable(id);
+  if (direct) return direct;
+  const orderIdEarly = (previewAuth?.orderId ?? '').trim() || null;
+  if (orderIdEarly) {
+    const viaOrder = await fetchSkuHeaderFromOrderClient(orderIdEarly);
+    if (viaOrder?.name?.trim()) return viaOrder;
+  }
+  const firmClientId = (previewAuth?.firmClientId ?? '').trim() || null;
+  const inviteToken = (previewAuth?.inviteToken ?? '').trim() || null;
+  let hdr = await fetchSkuHeaderFromRpc(id, firmClientId, inviteToken);
+  if (hdr?.name?.trim()) return hdr;
+  // Token / pending invitee params can be stale after claim or single-use token; linked-order gate uses nulls only.
+  if (firmClientId != null || inviteToken != null) {
+    const fallback = await fetchSkuHeaderFromRpc(id, null, null);
+    if (fallback?.name?.trim()) return fallback;
+  }
+  return hdr;
+}
+
+/** sku_items for preview / client path (same RPC gate as SKU header); omit ids for plain firm member table reads. */
+export async function fetchSkuItemsForClientPreview(
+  skuId: string,
+  previewAuth?: { firmClientId?: string | null; inviteToken?: string | null; orderId?: string | null },
+): Promise<
+  {
+    id: string;
+    sku_id: string;
+    parent_id?: string | null;
+    item_kind: 'phase' | 'section' | 'task';
+    initial_responsible_side: 'client' | 'firm';
+    title: string;
+    description?: string | null;
+    sort_order?: number | null;
+    depends_on_id?: string | null;
+    depends_on_ids?: string[];
+  }[]
+> {
+  const id = (skuId ?? '').trim();
+  if (!id) return [];
+  const firmClientId = (previewAuth?.firmClientId ?? '').trim() || null;
+  const inviteToken = (previewAuth?.inviteToken ?? '').trim() || null;
+  const orderId = (previewAuth?.orderId ?? '').trim() || null;
+
+  const mapSkuItemRow = (row: Record<string, unknown>) => {
+    const depIds = parseDependsOnIdsFromRow({
+      depends_on_ids: row.depends_on_ids as string[] | null | undefined,
+      depends_on_id: (row.depends_on_id as string | null | undefined) ?? null,
+    });
+    return {
+      id: String(row.id),
+      sku_id: String(row.sku_id),
+      parent_id: row.parent_id != null ? String(row.parent_id) : null,
+      item_kind: (['phase', 'section', 'task'].includes(String(row.item_kind))
+        ? String(row.item_kind)
+        : 'task') as 'phase' | 'section' | 'task',
+      initial_responsible_side: (String(row.initial_responsible_side) === 'firm' ? 'firm' : 'client') as
+        | 'client'
+        | 'firm',
+      title: String(row.title ?? ''),
+      description: (row.description as string | null | undefined) ?? null,
+      sort_order: row.sort_order != null ? Number(row.sort_order) : null,
+      depends_on_id: depIds[0] ?? null,
+      depends_on_ids: depIds,
+    };
+  };
+
+  const { data: directRows, error: directErr } = await supabase
+    .schema('firm')
+    .from('sku_items')
+    .select('*')
+    .eq('sku_id', id);
+  if (!directErr && directRows?.length) {
+    return (directRows as Record<string, unknown>[]).map(mapSkuItemRow);
+  }
+
+  if (orderId) {
+    const { data: ordData, error: ordErr } = await supabase.rpc('get_firm_sku_items_preview_for_order_client', {
+      p_order_id: orderId,
+    });
+    if (!ordErr && ordData?.length) {
+      return (ordData as Record<string, unknown>[]).map(mapSkuItemRow);
+    }
+  }
+
+  let { data, error } = await supabase.rpc('get_firm_sku_items_preview_for_client', {
+    p_sku_id: id,
+    p_firm_client_id: firmClientId,
+    p_invite_token: inviteToken,
+  });
+
+  if ((!data || !data.length) && (firmClientId != null || inviteToken != null)) {
+    const second = await supabase.rpc('get_firm_sku_items_preview_for_client', {
+      p_sku_id: id,
+      p_firm_client_id: null,
+      p_invite_token: null,
+    });
+    data = second.data;
+    error = second.error;
+  }
+
+  if (error || !data?.length) {
+    if (typeof __DEV__ !== 'undefined' && __DEV__ && error) {
+      console.warn('fetchSkuItemsForClientPreview RPC:', error);
+    }
+    return [];
+  }
+
+  const rows = data as Record<string, unknown>[];
+  return rows.map(mapSkuItemRow);
 }
 
 /** 客户端空间：获取本空间的所有订单；附带 sku 与 project（确认后有 project）用于展示 */
@@ -498,6 +699,18 @@ export async function getClientOrdersForClientSpace(clientSpaceId: string): Prom
   (skusRes.data || []).forEach((s: any) => {
     skuMap[s.id] = { name: s.name || '', description: s.description ?? null, image_url: s.image_url ?? null };
   });
+  const missingSkuIds = skuIds.filter((sid: string) => !skuMap[sid]?.name);
+  for (const sid of missingSkuIds) {
+    const orderRow = (ordersData as any[]).find((o: any) => o.sku_id === sid);
+    const hdr = await getSkuById(sid, orderRow?.id != null ? String(orderRow.id) : null);
+    if (hdr) {
+      skuMap[sid] = {
+        name: hdr.name || '',
+        description: hdr.description ?? null,
+        image_url: hdr.imageUrl ?? null,
+      };
+    }
+  }
   const projectsList = (projectsRes.data || []) as any[];
   const projectByOrderId: Record<
     string,
@@ -2454,7 +2667,28 @@ export async function applyPresetSkusToFirm(
 }
 
 /** Firm 空间：获取 SKU 关联的 sku_items（按树深度优先排序；sort_order 为同 parent 兄弟序） */
-export async function getSkuItems(skuId: string): Promise<FirmSkuItem[]> {
+export async function getSkuItems(skuId: string, forOrderId?: string | null): Promise<FirmSkuItem[]> {
+  const mapRpcRowToItem = (row: Record<string, unknown>): FirmSkuItem => {
+    const ids = parseDependsOnIdsFromRow({
+      depends_on_ids: row.depends_on_ids as string[] | null | undefined,
+      depends_on_id: (row.depends_on_id as string | null | undefined) ?? null,
+    });
+    return {
+      id: String(row.id),
+      skuId: String(row.sku_id),
+      parentId: row.parent_id != null ? String(row.parent_id) : null,
+      itemKind: (['phase', 'section', 'task'].includes(String(row.item_kind))
+        ? String(row.item_kind)
+        : 'task') as 'phase' | 'section' | 'task',
+      type: (String(row.initial_responsible_side) === 'firm' ? 'firm' : 'client') as 'client' | 'firm',
+      title: String(row.title ?? ''),
+      description: (row.description as string | null | undefined) ?? null,
+      sortOrder: row.sort_order != null ? Number(row.sort_order) : 0,
+      dependsOnId: ids[0] ?? null,
+      dependsOnIds: ids,
+    };
+  };
+
   const { data, error } = await supabase
     .schema('firm')
     .from('sku_items')
@@ -2463,7 +2697,6 @@ export async function getSkuItems(skuId: string): Promise<FirmSkuItem[]> {
 
   if (error) {
     console.error('getSkuItems:', error);
-    return [];
   }
   const mapped = (data || []).map((row: any) => {
     const ids = parseDependsOnIdsFromRow({
@@ -2485,7 +2718,30 @@ export async function getSkuItems(skuId: string): Promise<FirmSkuItem[]> {
       updatedAt: row.updated_at,
     };
   });
-  return sortSkuItemsDepthFirst(mapped);
+  if (mapped.length > 0) return sortSkuItemsDepthFirst(mapped);
+
+  const id = (skuId ?? '').trim();
+  if (!id) return [];
+  const oid = (forOrderId ?? '').trim();
+  if (oid) {
+    const { data: ordData, error: ordErr } = await supabase.rpc('get_firm_sku_items_preview_for_order_client', {
+      p_order_id: oid,
+    });
+    if (!ordErr && ordData?.length) {
+      return sortSkuItemsDepthFirst((ordData as Record<string, unknown>[]).map(mapRpcRowToItem));
+    }
+  }
+  const { data: rpcData, error: rpcErr } = await supabase.rpc('get_firm_sku_items_preview_for_client', {
+    p_sku_id: id,
+    p_firm_client_id: null,
+    p_invite_token: null,
+  });
+  if (rpcErr || !rpcData?.length) {
+    if (rpcErr) console.error('getSkuItems RPC fallback:', rpcErr);
+    return [];
+  }
+  const rpcMapped = (rpcData as Record<string, unknown>[]).map(mapRpcRowToItem);
+  return sortSkuItemsDepthFirst(rpcMapped);
 }
 
 /**
@@ -2925,3 +3181,29 @@ export {
   findTodoNodeById,
 } from './todo-tree-reorder';
 export type { TodoDropPosition, TodoReorderNode } from './todo-tree-reorder';
+
+/** Invite / pending engagement helpers are implemented in `firm-clients.ts`; re-export so `@/lib/firm` is a single safe entry (avoids runtime `undefined` when a call site imports the wrong module). */
+export {
+  acceptFirmClientInvite,
+  buildFirmClientInviteUrl,
+  createClientOnBehalf,
+  createFirmClientInviteToken,
+  createInviteeOnly,
+  createPendingOrderForInvitee,
+  deleteFirmClientInviteToken,
+  getFirmClientInviteHistory,
+  getFirmClientInviteInfo,
+  getPendingInviteesForEmail,
+  inviteeClaimEngagement,
+  migratePendingOrdersToClientSpace,
+  setFirmClientInviteActive,
+} from './firm-clients';
+export type {
+  CreateClientOnBehalfResult,
+  CreateInviteeOnlyResult,
+  CreatePendingOrderForInviteeResult,
+  FirmClientAcceptResult,
+  FirmClientInviteInfo,
+  FirmClientInviteToken,
+  PendingInviteeForClaim,
+} from './firm-clients';

@@ -577,6 +577,8 @@ export interface PendingInviteeForClaim {
   inviteeContactEmail: string | null;
   /** SKU id for the engagement (for preview); from first pending order */
   skuId: string | null;
+  /** First pending order id (for order-scoped SKU RPC after user joins client space) */
+  orderId: string | null;
 }
 
 /** Pending engagements for email via public.get_pending_invitees_for_email (firm.clients pending rows). */
@@ -598,6 +600,7 @@ export async function getPendingInviteesForEmail(
       inviteeClientName: r.invitee_client_name ?? null,
       inviteeContactEmail: r.invitee_email ?? null,
       skuId: r.sku_id ?? null,
+      orderId: r.order_id ?? null,
     }));
     return { list, error: null };
   } catch (e) {

@@ -117,8 +117,8 @@ export default function FirmEngagementDetailScreen() {
 
       if (ord.status === 'onboarding') {
         const [sku, items, clientDisplayName] = await Promise.all([
-          getSkuById(ord.skuId),
-          getSkuItems(ord.skuId),
+          getSkuById(ord.skuId, orderId!),
+          getSkuItems(ord.skuId, orderId!),
           role === 'firm' && ord.clientSpaceId && ord.firmSpaceId
             ? getClientDisplayName(ord.clientSpaceId, ord.firmSpaceId)
             : Promise.resolve(null),
@@ -363,8 +363,12 @@ export default function FirmEngagementDetailScreen() {
             h.taxSeasonYear ??
             explicitTaxSeasonYear ??
             (d ? new Date(d).getFullYear() : null);
+          const title =
+            order.status === 'onboarding' && (order.skuName ?? '').trim()
+              ? (order.skuName as string)
+              : (h.projectName ?? '');
           return {
-            title: h.projectName ?? '',
+            title,
             subtitle: h.firmName ? `by ${h.firmName}` : '',
             taxSeasonYear: ty,
             status: ORDER_STATUS_CONFIG[h.status] ?? ORDER_STATUS_CONFIG.onboarding,

@@ -234,10 +234,10 @@ export default function OrderTodosScreen() {
       setHeader(headerData ?? null);
       if (order.status === 'onboarding') {
         setTree([]);
-        const items = order.skuId ? await getSkuItems(order.skuId) : [];
+        const items = order.skuId ? await getSkuItems(order.skuId, orderId) : [];
         setSkuItems(items);
         if (order.skuId) {
-          const sku = await getSkuById(order.skuId);
+          const sku = await getSkuById(order.skuId, orderId);
           setSkuInfo(sku ? { name: sku.name, description: sku.description, imageUrl: sku.imageUrl } : { name: 'Service' });
           setSkuDetailForInfo(sku ? { taxCountry: sku.taxCountry ?? null, taxScenario: sku.taxScenario ?? null } : null);
         } else {
@@ -598,6 +598,7 @@ export default function OrderTodosScreen() {
     : (dateForYear ? new Date(dateForYear).getFullYear() : null);
   const navigation = useNavigation();
   const isOnboarding = (order?.status === 'onboarding') || (header?.status === 'onboarding');
+  const onboardingSkuTitle = (order?.skuName ?? '').trim();
   const isProcessing = order?.status === 'processing';
   const isCancelled = order?.status === 'cancelled';
   useLayoutEffect(() => {
@@ -608,7 +609,11 @@ export default function OrderTodosScreen() {
       headerBackButtonVisible: true,
       headerTitle: () => (
         <OrderTodosHeaderTitle
-          projectName={header?.projectName ?? order?.skuName ?? ''}
+          projectName={
+            isOnboarding && onboardingSkuTitle
+              ? onboardingSkuTitle
+              : (header?.projectName ?? order?.skuName ?? '')
+          }
           firmName={header?.firmName ?? ''}
           taxSeasonYear={taxSeasonYear ?? null}
         />
@@ -685,7 +690,7 @@ export default function OrderTodosScreen() {
         );
       },
     });
-  }, [navigation, header, order, taxSeasonYear, isOnboarding, isProcessing, isCancelled, goToInfo, handleRejectOrder, handleAcceptOrder, rejecting, accepting, handleAbortOrder, abortLoading, handleRestartOrder, restartLoading]);
+  }, [navigation, header, order, taxSeasonYear, isOnboarding, onboardingSkuTitle, isProcessing, isCancelled, goToInfo, handleRejectOrder, handleAcceptOrder, rejecting, accepting, handleAbortOrder, abortLoading, handleRestartOrder, restartLoading]);
 
   if (loading) {
     return (
