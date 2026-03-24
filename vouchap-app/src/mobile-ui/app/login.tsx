@@ -75,7 +75,7 @@ export default function LoginScreen() {
       return;
     }
     setLoading(true);
-    const { error } = await signIn(email.trim(), password);
+    const { error } = await signIn(email.trim(), password.trim());
     setLoading(false);
     if (error) {
       showToast(error.message, 'error');

@@ -4,12 +4,39 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
 
-// 移动端不在此处 require AsyncStorage，否则在 NativeModule 未 link（如未执行 pod install / 未用 dev client 构建）时
-// require 阶段就会抛错且可能无法被 try/catch 捕获，导致白屏。此处直接返回 undefined，应用可正常启动，会话仅内存持久化。
-// 若需移动端会话持久化，请执行：cd ios && pod install && cd .. 后重新 npx expo run:ios / run:android。
-function getAuthStorage(): undefined | { getItem: (key: string) => Promise<string | null>; setItem: (key: string, value: string) => Promise<void>; removeItem: (key: string) => Promise<void> } {
+type SupabaseAuthStorage = {
+  getItem: (key: string) => Promise<string | null>;
+  setItem: (key: string, value: string) => Promise<void>;
+  removeItem: (key: string) => Promise<void>;
+};
+
+// Web：不传 storage，由 @supabase/auth-js 使用 localStorage。
+// 原生：不传 storage 时会退化为内存适配器，杀进程后会话丢失；用户会误以为「每次都要登录」且易与密码错误混淆。
+// 在首次创建 client 时用 try/catch require AsyncStorage；未 link 时退回 undefined（与旧行为一致，不白屏）。
+let nativeAuthStorageMemo: SupabaseAuthStorage | 'unavailable' | undefined;
+
+function getAuthStorage(): SupabaseAuthStorage | undefined {
   if (Platform.OS === 'web') return undefined;
-  return undefined;
+  if (nativeAuthStorageMemo === 'unavailable') return undefined;
+  if (nativeAuthStorageMemo) return nativeAuthStorageMemo;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const AsyncStorage = require('@react-native-async-storage/async-storage').default as {
+      getItem: (key: string) => Promise<string | null>;
+      setItem: (key: string, value: string) => Promise<void>;
+      removeItem: (key: string) => Promise<void>;
+    };
+    nativeAuthStorageMemo = {
+      getItem: (key) => AsyncStorage.getItem(key),
+      setItem: (key, value) => AsyncStorage.setItem(key, value),
+      removeItem: (key) => AsyncStorage.removeItem(key),
+    };
+    return nativeAuthStorageMemo;
+  } catch (e) {
+    console.warn('[supabase] AsyncStorage unavailable; auth session will not persist across restarts.', e);
+    nativeAuthStorageMemo = 'unavailable';
+    return undefined;
+  }
 }
 
 // 安全获取环境变量，避免启动时崩溃
