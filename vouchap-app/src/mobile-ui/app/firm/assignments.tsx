@@ -1,5 +1,5 @@
 /**
- * Firm - Assignment: placeholder for member-client assignments (firm.clients_assignee).
+ * Firm - Assignment: placeholder; service owners are managed per order (firm.order_managers).
  */
 export { default } from './member-clients';
 

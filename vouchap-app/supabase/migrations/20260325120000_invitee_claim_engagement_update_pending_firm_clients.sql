@@ -1,5 +1,6 @@
 -- Phase 2b: When phase-1 pending firm.clients row exists (id = invitee_clients.id), claim updates it in place
 -- before INSERT, so we do not leave duplicate firm.clients rows.
+-- SUPERSEDED by 20260325140000_phase3_invitee_rpc_firm_clients_followups.sql (invitee_claim_engagement: firm.clients only, no invitee_clients write).
 SET search_path = public, firm;
 
 DROP FUNCTION IF EXISTS public.invitee_claim_engagement(uuid, uuid);

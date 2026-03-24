@@ -571,6 +571,7 @@ export async function migratePendingOrdersToClientSpace(
 export interface PendingInviteeForClaim {
   firmSpaceId: string;
   firmName: string;
+  /** firm.clients row id (pending: client_space_id is null); RPC column name unchanged */
   inviteeClientId: string;
   inviteeClientName: string | null;
   inviteeContactEmail: string | null;
@@ -578,7 +579,7 @@ export interface PendingInviteeForClaim {
   skuId: string | null;
 }
 
-/** Client 按邮箱查询可认领的 engagement 列表 */
+/** Pending engagements for email via public.get_pending_invitees_for_email (firm.clients pending rows). */
 export async function getPendingInviteesForEmail(
   email: string
 ): Promise<{ list: PendingInviteeForClaim[]; error: Error | null }> {

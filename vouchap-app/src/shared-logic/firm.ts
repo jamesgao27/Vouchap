@@ -183,6 +183,7 @@ function getOrderYear(order: { dueAt?: string | null; createdAt?: string | null 
 type OrderForStatus = {
   id?: string;
   clientSpaceId: string | null;
+  clientId?: string | null;
   inviteeClientId?: string | null;
   status: string;
   dueAt?: string | null;
@@ -223,13 +224,15 @@ function computeClientDisplayStatus(
   return computeDisplayStatusFromOrders(clientOrders, ctx);
 }
 
-/** Invitee 展示状态：按 invitee_client_id 过滤订单后与 client 同一套规则 */
+/** Pending firm.clients row display status: orders linked by client_id and/or legacy invitee_client_id */
 function computeInviteeDisplayStatus(
-  inviteeClientId: string,
+  pendingClientId: string,
   orders: OrderForStatus[],
   ctx: { currentYear: number; lastYear: number; taxSeasonStarted: boolean; taxSeasonEnded: boolean }
 ): ClientDisplayStatus {
-  const inviteeOrders = orders.filter((o) => o.inviteeClientId === inviteeClientId);
+  const inviteeOrders = orders.filter(
+    (o) => o.inviteeClientId === pendingClientId || o.clientId === pendingClientId
+  );
   return computeDisplayStatusFromOrders(inviteeOrders, ctx);
 }
 
@@ -596,12 +599,14 @@ export async function unhideOrderForClientSpace(orderId: string): Promise<{ erro
   return { error: null };
 }
 
-/** Firm 空间：获取在服客户列表（仅已认领的 client；名称/联系人由 getFirmClientsWithDetails 从 space / invitee_clients 解析） */
+/** Firm 空间：获取在服客户列表（含 pending：client_space_id 为空时名称在 invitee_* 列） */
 export async function getFirmClients(firmSpaceId: string): Promise<FirmClient[]> {
   const { data, error } = await supabase
     .schema('firm')
     .from('clients')
-    .select('id, firm_space_id, client_space_id, labels, created_at, updated_at')
+    .select(
+      'id, firm_space_id, client_space_id, labels, created_at, updated_at, invitee_email, invitee_client_name, invitee_contact_name'
+    )
     .eq('firm_space_id', firmSpaceId)
     .order('created_at', { ascending: false });
 
@@ -612,7 +617,10 @@ export async function getFirmClients(firmSpaceId: string): Promise<FirmClient[]>
   return (data || []).map((row: any) => ({
     id: row.id,
     firmSpaceId: row.firm_space_id,
-    clientSpaceId: row.client_space_id,
+    clientSpaceId: row.client_space_id ?? '',
+    inviteeEmail: row.invitee_email ?? null,
+    inviteeClientName: row.invitee_client_name ?? null,
+    inviteeContactName: row.invitee_contact_name ?? null,
     labels: Array.isArray(row.labels) ? row.labels : [],
     assignedUserId: null,
     lastFollowUpAt: null,
@@ -623,7 +631,7 @@ export async function getFirmClients(firmSpaceId: string): Promise<FirmClient[]>
 
 /** 列表项：关联的 client，含名称、联系人、服务负责人、自动计算状态、最近跟进时间等 */
 export interface FirmClientWithDetails extends FirmClient {
-  /** 名称：client 来自 space 名称，invitee 来自 invitee_clients */
+  /** 名称：client 来自 space；pending 来自 firm.clients.invitee_* */
   name: string;
   /** 联系人：client 空间管理员名称 */
   contactName: string | null;
@@ -633,30 +641,35 @@ export interface FirmClientWithDetails extends FirmClient {
   serviceStartAt: string | null;
   /** 自动计算的状态标签（见 docs/CRM-CLIENT-STATUS.md） */
   displayStatus: ClientDisplayStatus;
-  /** 服务负责人姓名（来自 clients_assignee，多人时拼接） */
+  /** 服务负责人姓名（来自 order_managers，多人时拼接） */
   assigneeName: string | null;
   /** 服务负责人 email（多人时取第一个） */
   assigneeEmail: string | null;
   /** 是否为待认领（仅 invitee，尚无 client space） */
   isPendingClaim?: boolean;
-  /** 对应 firm.invitee_clients.id，仅 isPendingClaim 时有值 */
+  /** firm.clients id when isPendingClaim; same as legacy invitee row id when backfilled */
   inviteeClientId?: string | null;
 }
 
 /** Firm 空间：获取在服客户列表（含名称、联系人、服务负责人、自动计算 displayStatus、最近跟进时间）；含待认领 invitee（无 client space 的订单联系人） */
 export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<FirmClientWithDetails[]> {
-  const [clients, ordersAll, inviteeList] = await Promise.all([
+  const [clients, ordersAll] = await Promise.all([
     getFirmClients(firmSpaceId),
-    supabase.schema('firm').from('orders').select('client_space_id, invitee_client_id').eq('firm_space_id', firmSpaceId),
-    supabase.schema('firm').from('invitee_clients').select('id, invitee_client_name, invitee_contact_name, invitee_email, created_at').eq('firm_space_id', firmSpaceId),
+    supabase
+      .schema('firm')
+      .from('orders')
+      .select('client_space_id, invitee_client_id, client_id')
+      .eq('firm_space_id', firmSpaceId),
   ]);
   const ordersData = ordersAll.data || [];
   const pendingInviteeIds = new Set<string>();
   ordersData.forEach((o: any) => {
-    if (o.client_space_id == null && o.invitee_client_id) pendingInviteeIds.add(o.invitee_client_id);
+    if (o.client_space_id == null) {
+      if (o.invitee_client_id) pendingInviteeIds.add(o.invitee_client_id);
+      if (o.client_id) pendingInviteeIds.add(o.client_id);
+    }
   });
-  const pendingInvitees = (inviteeList.data || []).filter((inv: any) => pendingInviteeIds.has(inv.id));
-  const pendingInviteeIdList = pendingInvitees.map((inv: any) => inv.id);
+  const pendingInvitees = clients.filter((c) => !c.clientSpaceId && pendingInviteeIds.has(c.id));
 
   const orderClientSpaceIds = new Set((ordersData as any[]).map((o: any) => o.client_space_id).filter(Boolean));
   const clientSpaceIdsFromClients = new Set(clients.map((c) => c.clientSpaceId));
@@ -664,18 +677,25 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
 
   if (clients.length === 0 && pendingInvitees.length === 0 && orphanClientSpaceIds.length === 0) return [];
 
-  const spaceIds = [...new Set([...clients.map((c) => c.clientSpaceId), ...orphanClientSpaceIds])];
+  // Pending rows use clientSpaceId ''; never pass '' into spaces / user_spaces .in('id', ...) or lookups break and names fall back to UUID.
+  const spaceIds = [
+    ...new Set([...clients.map((c) => c.clientSpaceId), ...orphanClientSpaceIds].filter(Boolean)),
+  ];
   const ctx = getTaxSeasonContext();
 
   const [spacesRes, userSpacesRes, ordersRes, orderManagersRes, followUpsRes] = await Promise.all([
     spaceIds.length > 0 ? supabase.from('spaces').select('id, name').in('id', spaceIds) : Promise.resolve({ data: [] as any[] }),
     spaceIds.length > 0 ? supabase.from('user_spaces').select('space_id, user_id, is_admin').in('space_id', spaceIds) : Promise.resolve({ data: [] as any[] }),
-    supabase.schema('firm').from('orders').select('id, client_space_id, invitee_client_id, status, due_at, created_at, updated_at').eq('firm_space_id', firmSpaceId),
+    supabase
+      .schema('firm')
+      .from('orders')
+      .select('id, client_space_id, invitee_client_id, client_id, status, due_at, created_at, updated_at')
+      .eq('firm_space_id', firmSpaceId),
     supabase.schema('firm').from('order_managers').select('order_id, manager_user_id').eq('firm_space_id', firmSpaceId),
     supabase
       .schema('firm')
       .from('client_follow_ups')
-      .select('client_space_id, invitee_client_id, firm_space_id, created_at')
+      .select('client_space_id, invitee_client_id, client_id, firm_space_id, created_at')
       .eq('firm_space_id', firmSpaceId),
   ]);
 
@@ -707,6 +727,7 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
   const orders: OrderForStatus[] = (ordersRes.data || []).map((r: any) => ({
     id: r.id,
     clientSpaceId: r.client_space_id,
+    clientId: r.client_id ?? null,
     inviteeClientId: r.invitee_client_id ?? null,
     status: r.status,
     dueAt: r.due_at,
@@ -714,10 +735,10 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     updatedAt: r.updated_at ?? null,
   }));
 
-  // Invitee 最近活动时间（订单 created_at/updated_at 最大值），用于无 follow_ups 行时的 last follow-up 回退
+  // Pending 客户最近活动时间（订单 created_at/updated_at 最大值），用于无 follow_ups 行时的 last follow-up 回退
   const inviteeToLastOrderActivity: Record<string, string> = {};
   orders.forEach((o) => {
-    const invId = o.inviteeClientId;
+    const invId = o.clientSpaceId ? null : (o.clientId ?? o.inviteeClientId);
     if (!invId) return;
     const at = o.updatedAt || o.createdAt;
     if (!at) return;
@@ -735,8 +756,9 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
         clientSpaceToUserIds[o.clientSpaceId].push(managerId);
       }
     }
-    if (o.inviteeClientId && !inviteeToAssigneeId[o.inviteeClientId]) {
-      inviteeToAssigneeId[o.inviteeClientId] = managerId;
+    const pendingKey = o.clientSpaceId ? null : (o.clientId ?? o.inviteeClientId);
+    if (pendingKey && !inviteeToAssigneeId[pendingKey]) {
+      inviteeToAssigneeId[pendingKey] = managerId;
     }
   });
 
@@ -751,10 +773,10 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
       const prev = clientSpaceToLastFollowUp[csId];
       if (!prev || new Date(createdAt) > new Date(prev)) clientSpaceToLastFollowUp[csId] = createdAt;
     }
-    if (fu.invitee_client_id) {
-      const invId = fu.invitee_client_id;
-      const prev = inviteeToLastFollowUp[invId];
-      if (!prev || new Date(createdAt) > new Date(prev)) inviteeToLastFollowUp[invId] = createdAt;
+    const pendFollowId = fu.client_id ?? fu.invitee_client_id;
+    if (pendFollowId) {
+      const prev = inviteeToLastFollowUp[pendFollowId];
+      if (!prev || new Date(createdAt) > new Date(prev)) inviteeToLastFollowUp[pendFollowId] = createdAt;
     }
   });
 
@@ -770,7 +792,8 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     });
   }
 
-  const detailedClients = clients.map((c) => {
+  const claimedClients = clients.filter((c) => !!c.clientSpaceId);
+  const detailedClients = claimedClients.map((c) => {
     const space = spaceMap[c.clientSpaceId];
     const contactUserId = spaceToUserId[c.clientSpaceId];
     const contactUser = contactUserId ? userMap[contactUserId] : null;
@@ -798,8 +821,8 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     };
   });
 
-  const pendingRows: FirmClientWithDetails[] = pendingInvitees.map((inv: any) => {
-    const name = inv.invitee_client_name || inv.invitee_contact_name || inv.invitee_email || 'Pending';
+  const pendingRows: FirmClientWithDetails[] = pendingInvitees.map((inv) => {
+    const name = inv.inviteeClientName || inv.inviteeContactName || inv.inviteeEmail || 'Pending';
     const assigneeId = inviteeToAssigneeId[inv.id] ?? null;
     const assigneeUser = assigneeId ? userMap[assigneeId] : null;
     const assigneeName = assigneeUser?.name ?? null;
@@ -810,15 +833,15 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
       id: inv.id,
       firmSpaceId,
       clientSpaceId: '',
-      labels: [],
+      labels: inv.labels ?? [],
       assignedUserId: assigneeId ?? null,
       lastFollowUpAt,
-      createdAt: inv.created_at,
-      updatedAt: inv.created_at,
+      createdAt: inv.createdAt,
+      updatedAt: inv.updatedAt,
       name,
-      contactName: inv.invitee_contact_name ?? null,
-      contactEmail: inv.invitee_email ?? null,
-      serviceStartAt: inv.created_at ?? null,
+      contactName: inv.inviteeContactName ?? null,
+      contactEmail: inv.inviteeEmail ?? null,
+      serviceStartAt: inv.createdAt ?? null,
       displayStatus,
       assigneeName,
       assigneeEmail,
@@ -876,7 +899,9 @@ export async function getFirmOrders(
     .select('*')
     .eq('firm_space_id', firmSpaceId);
   if (clientSpaceId) q = q.eq('client_space_id', clientSpaceId);
-  if (inviteeClientId) q = q.eq('invitee_client_id', inviteeClientId);
+  if (inviteeClientId) {
+    q = q.or(`invitee_client_id.eq.${inviteeClientId},client_id.eq.${inviteeClientId}`);
+  }
   const { data, error } = await q.order('due_at', { ascending: false, nullsFirst: false }).order('created_at', { ascending: false });
 
   if (error) {
@@ -887,6 +912,7 @@ export async function getFirmOrders(
     id: row.id,
     firmSpaceId: row.firm_space_id,
     clientSpaceId: row.client_space_id,
+    clientId: row.client_id ?? null,
     inviteeClientId: row.invitee_client_id ?? null,
     skuId: row.sku_id,
     status: row.status,
@@ -924,7 +950,7 @@ export interface FirmOrderWithDetails extends FirmOrder {
   taxSeasonLabelName?: string | null;
 }
 
-/** Firm 空间：获取订单列表（含客户名、SKU 名、来源、负责人），用于表格展示；含 pending（client_space_id 为空）订单，客户名取自 invitee_clients */
+/** Firm 空间：获取订单列表（含客户名、SKU 名、来源、负责人），用于表格展示；pending 订单客户名取自 firm.clients.invitee_* */
 export async function getFirmOrdersWithDetails(
   firmSpaceId: string,
   clientSpaceId?: string
@@ -933,7 +959,11 @@ export async function getFirmOrdersWithDetails(
   if (orders.length === 0) return [];
 
   const clientSpaceIds = [...new Set(orders.map((o) => o.clientSpaceId).filter(Boolean))] as string[];
-  const inviteeClientIds = [...new Set(orders.map((o) => o.inviteeClientId).filter(Boolean))] as string[];
+  const pendingClientIds = [
+    ...new Set(
+      orders.flatMap((o) => (!o.clientSpaceId ? ([o.clientId, o.inviteeClientId].filter(Boolean) as string[]) : []))
+    ),
+  ];
   const skuIds = [...new Set(orders.map((o) => o.skuId))];
   const managerOrderIds = orders.map((o) => o.id);
   const [managerRowsRes] = await Promise.all([
@@ -956,15 +986,20 @@ export async function getFirmOrdersWithDetails(
   const createdByIds = [...new Set(orders.map((o) => o.createdBy).filter(Boolean))] as string[];
   const managerUserIds = [...new Set(Object.values(orderToManagerUserId).filter(Boolean))] as string[];
   const displayUserIds = [...new Set([...createdByIds, ...managerUserIds])];
-  const [spacesRes, skusRes, inviteeRes] = await Promise.all([
+  const [spacesRes, skusRes, pendingClientsRes] = await Promise.all([
     clientSpaceIds.length > 0 ? supabase.from('spaces').select('id, name').in('id', clientSpaceIds) : Promise.resolve({ data: [] as any[] }),
     supabase.schema('firm').from('skus').select('id, name').in('id', skuIds),
-    inviteeClientIds.length > 0
-      ? supabase.schema('firm').from('invitee_clients').select('id, invitee_client_name, invitee_contact_name, invitee_email').in('id', inviteeClientIds)
+    pendingClientIds.length > 0
+      ? supabase
+          .schema('firm')
+          .from('clients')
+          .select('id, invitee_client_name, invitee_contact_name, invitee_email')
+          .in('id', pendingClientIds)
+          .is('client_space_id', null)
       : Promise.resolve({ data: [] as any[] }),
   ]);
 
-  // Created-by column: only need creator (created_by) display; permissions use clients_assignee
+  // Created-by column: only need creator (created_by) display; manager column uses order_managers
   let userMap: Record<string, { name: string | null; email: string }> = {};
   if (displayUserIds.length > 0) {
     const usersRes = await supabase.from('users').select('id, name, email').in('id', displayUserIds);
@@ -981,10 +1016,10 @@ export async function getFirmOrdersWithDetails(
   clientSpaceIds.forEach((id) => {
     clientNameBySpace[id] = spaceMap[id] ?? id;
   });
-  const inviteeMap: Record<string, { name: string; email: string }> = {};
-  (inviteeRes.data || []).forEach((inv: any) => {
-    const name = inv.invitee_client_name || inv.invitee_contact_name || inv.invitee_email || 'Pending';
-    inviteeMap[inv.id] = { name, email: inv.invitee_email || '' };
+  const pendingClientMap: Record<string, { name: string; email: string }> = {};
+  (pendingClientsRes.data || []).forEach((row: any) => {
+    const name = row.invitee_client_name || row.invitee_contact_name || row.invitee_email || 'Pending';
+    pendingClientMap[row.id] = { name, email: row.invitee_email || '' };
   });
   const skuMap: Record<string, string> = {};
   (skusRes.data || []).forEach((s: any) => {
@@ -1013,11 +1048,13 @@ export async function getFirmOrdersWithDetails(
       .filter(Boolean) as string[];
     const seasonFromId = o.taxSeasonLabelId ? (orderLabelMap[o.taxSeasonLabelId] ?? null) : null;
     const seasonFromIdParsed = seasonFromId ? parseInt(seasonFromId, 10) : NaN;
+    const pendingKey = o.clientId ?? o.inviteeClientId;
     const clientName = o.clientSpaceId
       ? (clientNameBySpace[o.clientSpaceId] ?? o.clientSpaceId)
-      : (o.inviteeClientId && inviteeMap[o.inviteeClientId]
-          ? inviteeMap[o.inviteeClientId].name + (inviteeMap[o.inviteeClientId].email ? ` (${inviteeMap[o.inviteeClientId].email})` : '')
-          : 'Pending claim');
+      : pendingKey && pendingClientMap[pendingKey]
+        ? pendingClientMap[pendingKey].name +
+          (pendingClientMap[pendingKey].email ? ` (${pendingClientMap[pendingKey].email})` : '')
+        : 'Pending claim';
     return {
       ...o,
       clientName,
@@ -2633,8 +2670,9 @@ export async function getFirmClientFollowUps(
     .from('client_follow_ups')
     .select('*')
     .eq('firm_space_id', firmSpaceId);
-  if (inviteeClientId) q = q.eq('invitee_client_id', inviteeClientId);
-  else if (clientSpaceId) q = q.eq('client_space_id', clientSpaceId);
+  if (inviteeClientId) {
+    q = q.or(`invitee_client_id.eq.${inviteeClientId},client_id.eq.${inviteeClientId}`);
+  } else if (clientSpaceId) q = q.eq('client_space_id', clientSpaceId);
   const { data, error } = await q.order('created_at', { ascending: false });
 
   if (error) {
@@ -2645,6 +2683,7 @@ export async function getFirmClientFollowUps(
     id: row.id,
     firmSpaceId: row.firm_space_id,
     clientSpaceId: row.client_space_id ?? '',
+    firmClientId: row.client_id ?? row.invitee_client_id ?? null,
     content: row.content ?? '',
     kind: (row.kind ?? 'note') as FirmClientFollowUp['kind'],
     referenceId: row.reference_id ?? null,
@@ -2668,7 +2707,7 @@ export async function addFirmClientFollowUp(
     created_by: user.user?.id ?? null,
   };
   if (inviteeClientId) {
-    payload.invitee_client_id = inviteeClientId;
+    payload.client_id = inviteeClientId;
   } else {
     payload.client_space_id = clientSpaceId;
   }
@@ -2748,99 +2787,87 @@ export async function getFirmSpaceMembers(firmSpaceId: string): Promise<FirmSpac
   }));
 }
 
-/** 更新客户/Invitee 负责人。clientId 可为：firm.clients.id、invitee_clients.id、或 "orphan-{client_space_id}"；后两种需传 firmSpaceId */
+/** Sets the same manager on all orders for a client (claimed or pending) via firm.order_managers. */
+async function setOrderManagersForOrders(
+  firmSpaceId: string,
+  orderIds: string[],
+  managerUserId: string | null
+): Promise<{ error: Error | null }> {
+  if (orderIds.length === 0) return { error: null };
+  if (managerUserId) {
+    const rows = orderIds.map((orderId) => ({
+      firm_space_id: firmSpaceId,
+      order_id: orderId,
+      manager_user_id: managerUserId,
+      created_at: new Date().toISOString(),
+    }));
+    const { error } = await supabase.schema('firm').from('order_managers').upsert(rows, { onConflict: 'order_id' });
+    return { error: error ? new Error(error.message) : null };
+  }
+  const { error } = await supabase.schema('firm').from('order_managers').delete().in('order_id', orderIds);
+  return { error: error ? new Error(error.message) : null };
+}
+
+/** 更新客户/Invitee 负责人：同步到该客户下全部订单的 order_managers。clientId 为 firm.clients.id 或 "orphan-{client_space_id}"（无 clients 行时） */
 export async function updateFirmClientAssignee(
   clientId: string,
   assignedUserId: string | null,
   firmSpaceId?: string
 ): Promise<{ error: Error | null }> {
-  let targetFirmSpaceId: string;
-  let byClientSpaceId: string | null = null;
-  let byInviteeClientId: string | null = null;
-
-  // 1) 孤儿行：id 为 "orphan-{client_space_id}"，无 firm.clients 记录，直接按 client_space_id 写 clients_assignee
   if (clientId.startsWith('orphan-') && firmSpaceId) {
-    targetFirmSpaceId = firmSpaceId;
-    byClientSpaceId = clientId.slice(7);
-  } else {
-    // 2) 先按 firm.clients.id 查
-    const { data: clientRow, error: clientErr } = await supabase
+    const csId = clientId.slice(7);
+    const { data: orderRows, error: oErr } = await supabase
       .schema('firm')
-      .from('clients')
-      .select('firm_space_id, client_space_id')
-      .eq('id', clientId)
-      .maybeSingle();
-
-    if (!clientErr && clientRow) {
-      targetFirmSpaceId = (clientRow as any).firm_space_id;
-      byClientSpaceId = (clientRow as any).client_space_id;
-    } else if (firmSpaceId) {
-      // 3) 未找到则视为 invitee_clients.id，校验属于当前 firm 后按 invitee 行更新
-      const { data: invRow, error: invErr } = await supabase
-        .schema('firm')
-        .from('invitee_clients')
-        .select('firm_space_id')
-        .eq('id', clientId)
-        .eq('firm_space_id', firmSpaceId)
-        .maybeSingle();
-      if (invErr || !invRow) {
-        return { error: invErr ? new Error(invErr.message) : new Error('Client not found') };
-      }
-      targetFirmSpaceId = firmSpaceId;
-      byInviteeClientId = clientId;
-    } else {
-      return { error: clientErr ? new Error(clientErr.message) : new Error('Client not found') };
-    }
+      .from('orders')
+      .select('id')
+      .eq('firm_space_id', firmSpaceId)
+      .eq('client_space_id', csId);
+    if (oErr) return { error: new Error(oErr.message) };
+    const orderIds = (orderRows || []).map((r: { id: string }) => r.id);
+    return setOrderManagersForOrders(firmSpaceId, orderIds, assignedUserId);
   }
 
-  if (byClientSpaceId != null) {
-    const { error: delErr } = await supabase
-      .schema('firm')
-      .from('clients_assignee')
-      .delete()
-      .eq('firm_space_id', targetFirmSpaceId)
-      .eq('client_space_id', byClientSpaceId);
-
-    if (delErr) return { error: new Error(delErr.message) };
-
-    if (assignedUserId) {
-      const { error: insErr } = await supabase
-        .schema('firm')
-        .from('clients_assignee')
-        .insert({
-          firm_space_id: targetFirmSpaceId,
-          user_id: assignedUserId,
-          client_space_id: byClientSpaceId,
-          created_at: new Date().toISOString(),
-        });
-      if (insErr) return { error: new Error(insErr.message) };
-    }
-    return { error: null };
-  }
-
-  // byInviteeClientId: 删该 invitee 的 assignee 行再按需插入
-  const { error: delErr } = await supabase
+  const { data: clientRow, error: clientErr } = await supabase
     .schema('firm')
-    .from('clients_assignee')
-    .delete()
-    .eq('firm_space_id', targetFirmSpaceId)
-    .eq('invitee_client_id', byInviteeClientId);
+    .from('clients')
+    .select('id, firm_space_id, client_space_id')
+    .eq('id', clientId)
+    .maybeSingle();
 
-  if (delErr) return { error: new Error(delErr.message) };
-
-  if (assignedUserId) {
-    const { error: insErr } = await supabase
-      .schema('firm')
-      .from('clients_assignee')
-      .insert({
-        firm_space_id: targetFirmSpaceId,
-        user_id: assignedUserId,
-        invitee_client_id: byInviteeClientId,
-        created_at: new Date().toISOString(),
-      });
-    if (insErr) return { error: new Error(insErr.message) };
+  if (clientErr || !clientRow) {
+    return { error: clientErr ? new Error(clientErr.message) : new Error('Client not found') };
   }
-  return { error: null };
+
+  const targetFirmSpaceId = (clientRow as { firm_space_id: string }).firm_space_id;
+  if (firmSpaceId && targetFirmSpaceId !== firmSpaceId) {
+    return { error: new Error('Client not found') };
+  }
+
+  const csId = (clientRow as { client_space_id: string | null }).client_space_id;
+  let orderIds: string[] = [];
+
+  if (csId) {
+    const { data: orderRows, error: oErr } = await supabase
+      .schema('firm')
+      .from('orders')
+      .select('id')
+      .eq('firm_space_id', targetFirmSpaceId)
+      .eq('client_space_id', csId);
+    if (oErr) return { error: new Error(oErr.message) };
+    orderIds = (orderRows || []).map((r: { id: string }) => r.id);
+  } else {
+    const pk = (clientRow as { id: string }).id;
+    const { data: orderRows, error: oErr } = await supabase
+      .schema('firm')
+      .from('orders')
+      .select('id')
+      .eq('firm_space_id', targetFirmSpaceId)
+      .or(`client_id.eq.${pk},invitee_client_id.eq.${pk}`);
+    if (oErr) return { error: new Error(oErr.message) };
+    orderIds = (orderRows || []).map((r: { id: string }) => r.id);
+  }
+
+  return setOrderManagersForOrders(targetFirmSpaceId, orderIds, assignedUserId);
 }
 
 /** 批量删除客户（firm.clients） */
@@ -2854,14 +2881,15 @@ export async function deleteFirmClients(clientIds: string[]): Promise<{ error: E
   return { error: error ? new Error(error.message) : null };
 }
 
-/** 批量删除 invitee 客户（firm.invitee_clients）。订单 invitee_client_id 会 SET NULL，clients_assignee/client_follow_ups 会 CASCADE */
+/** 批量删除 pending 客户行（firm.clients where client_space_id IS NULL） */
 export async function deleteFirmInviteeClients(inviteeClientIds: string[]): Promise<{ error: Error | null }> {
   if (inviteeClientIds.length === 0) return { error: null };
   const { error } = await supabase
     .schema('firm')
-    .from('invitee_clients')
+    .from('clients')
     .delete()
-    .in('id', inviteeClientIds);
+    .in('id', inviteeClientIds)
+    .is('client_space_id', null);
   return { error: error ? new Error(error.message) : null };
 }
 

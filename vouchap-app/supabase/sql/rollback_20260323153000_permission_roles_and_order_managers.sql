@@ -1,3 +1,6 @@
+-- Manual rollback for 20260323153000. invitee_client_id / invitee_clients references here are legacy;
+-- after 20260325140000, production RPCs use firm.clients; review before running against merged DBs.
+
 SET search_path = public, firm;
 
 --------------------------------------------------------------------------------

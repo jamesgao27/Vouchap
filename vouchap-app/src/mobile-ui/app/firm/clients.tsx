@@ -327,7 +327,7 @@ export default function FirmClientsScreen() {
       .subscribe();
     const chInvitees = supabase
       .channel(`firm-invitee-clients-${firmSpaceId}`)
-      .on('postgres_changes', { event: '*', schema: 'firm', table: 'invitee_clients', filter: `firm_space_id=eq.${firmSpaceId}` }, debouncedRefresh)
+      .on('postgres_changes', { event: '*', schema: 'firm', table: 'clients', filter: `firm_space_id=eq.${firmSpaceId}` }, debouncedRefresh)
       .subscribe();
     return () => {
       if (refreshTimeout) clearTimeout(refreshTimeout);

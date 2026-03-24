@@ -7,6 +7,10 @@
 -- (Table name may be `schema_migrations` in `supabase_migrations` schema depending on CLI version.)
 --
 -- Restores: RLS + RPC bodies to the state from earlier repo migrations (see comments per section).
+--
+-- After invitee→client merge (20260325140000+), RPC bodies in this rollback for invitee_claim_engagement /
+-- firm_create_* / invitee_clients are OUT OF DATE. Do not run those sections against production without
+-- reconciling with current migrations.
 
 SET search_path = public, firm;
 

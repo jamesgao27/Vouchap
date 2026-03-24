@@ -4,6 +4,7 @@ SET search_path = public, firm;
 
 --------------------------------------------------------------------------------
 -- 1) can_access_client: keep invitee_clients + project paths; add orders.client_id → firm.clients
+--    Replaced again by 20260325140000_phase3_invitee_rpc_firm_clients_followups.sql (no invitee_clients JOIN).
 --------------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION firm.can_access_client(

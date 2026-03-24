@@ -1,5 +1,8 @@
 SET search_path = public, firm;
 
+-- SUPERSEDED by 20260325110000 then 20260325140000 (firm.can_access_client uses firm.clients via COALESCE(client_id, invitee_client_id); no invitee_clients JOIN).
+-- Kept for migration replay order on new environments.
+
 -- firm.can_access_client previously required firm.orders.client_space_id = firm.clients.client_space_id.
 -- Engagements can still be visible via can_access_order when:
 --   - order links client only through invitee_clients.clients_space_id (order.client_space_id not set yet), or

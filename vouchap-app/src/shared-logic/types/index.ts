@@ -458,14 +458,19 @@ export const CLIENT_DISPLAY_STATUS_LABELS: Record<ClientDisplayStatus, string> =
   churned: 'Churned',
 };
 
-// Firm 在服客户（关联 firm space 与 client space）。名称/联系人来自 space 或 invitee_clients，不再存于 clients 表
+// Firm 在服客户：已认领名称来自 space；pending 时 client_space_id 为空，名称/邮箱在 invitee_* 列
 export interface FirmClient {
   id: string;
   firmSpaceId: string;
+  /** Empty when pending (no client space yet). */
   clientSpaceId: string;
+  /** Pending-only snapshot fields on firm.clients */
+  inviteeEmail?: string | null;
+  inviteeClientName?: string | null;
+  inviteeContactName?: string | null;
   /** 自定义标签（文本数组）；仅在客户详情页编辑 */
   labels?: string[];
-  /** 负责人 user id（可选，列表负责人优先从 clients_assignee 取） */
+  /** Optional; list UI resolves assignee from firm.order_managers on that client’s orders */
   assignedUserId?: string | null;
   /** 最近跟进时间 */
   lastFollowUpAt?: string | null;
@@ -485,6 +490,8 @@ export interface FirmClientFollowUp {
   id: string;
   firmSpaceId: string;
   clientSpaceId: string;
+  /** Pending firm.clients id when follow-up is not tied to a client space yet */
+  firmClientId?: string | null;
   content: string;
   kind: FirmClientFollowUpKind;
   referenceId?: string | null;
@@ -567,7 +574,9 @@ export interface FirmOrder {
   firmSpaceId: string;
   /** 对于 pending orders，clientSpaceId 为空，仅由 firm 可见；迁移完成后绑定实际 client space。 */
   clientSpaceId: string | null;
-  /** 可选：对应 firm.invitee_clients.id，用于在未迁移前按 invitee 视角查看订单 */
+  /** firm.clients id for this engagement (pending or claimed). */
+  clientId?: string | null;
+  /** Legacy pending link; same id as clientId when backfilled; optional until column removal. */
   inviteeClientId?: string | null;
   skuId: string;
   status: FirmOrderStatus;
