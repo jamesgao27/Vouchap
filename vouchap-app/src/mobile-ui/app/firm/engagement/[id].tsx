@@ -129,7 +129,7 @@ export default function FirmEngagementDetailScreen() {
         setSkuItems(items);
         setClientName(clientDisplayName ?? '');
       } else {
-        const detail = await getProjectDetail(orderId);
+        const detail = await getProjectDetail(orderId, { order: ord });
         if (detail) {
           if (role === 'firm') {
             setClientName(detail.clientName ?? '');
@@ -178,7 +178,7 @@ export default function FirmEngagementDetailScreen() {
     try {
       const { error } = await confirmOrderAndCreateProjectTodos(orderId);
       if (error) return;
-      if (viewerRole === 'client') showToast('Order accepted', 'success');
+      if (viewerRole === 'client') showToast('Engagement accepted', 'success');
       await loadData();
     } finally {
       setAcceptLoading(false);
@@ -195,18 +195,18 @@ export default function FirmEngagementDetailScreen() {
           showToast(error.message ?? 'Failed to reject', 'error');
           return;
         }
-        showToast('Order rejected', 'success');
+        showToast('Engagement rejected', 'success');
         router.back();
       } finally {
         setRejectLoading(false);
       }
     };
     if (Platform.OS === 'web') {
-      if (typeof window !== 'undefined' && !window.confirm('Reject this order? You can\'t undo this.')) return;
+      if (typeof window !== 'undefined' && !window.confirm('Reject this engagement? You can\'t undo this.')) return;
       void run();
       return;
     }
-    Alert.alert('Reject order', 'Reject this order? You can\'t undo this.', [
+    Alert.alert('Reject engagement', 'Reject this engagement? You can\'t undo this.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Reject', style: 'destructive', onPress: () => void run() },
     ]);

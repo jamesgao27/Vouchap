@@ -35,13 +35,12 @@ function stackedBarSegmentPath(
 }
 import { getCurrentSpace } from '@/lib/auth';
 import {
-  getFirmClientsWithDetails,
-  getFirmOrders,
+  getFirmClientsListBundle,
   getFirmClientFollowUps,
 } from '@/lib/firm';
 import { supabase } from '@/lib/supabase';
 import type { ClientDisplayStatus, FirmOrderStatus } from '@/types';
-import type { FirmClientWithDetails, FirmClientFollowUp, FirmOrder } from '@/lib/firm';
+import type { FirmClientWithDetails, FirmClientFollowUp } from '@/lib/firm';
 
 /** 非 status 图表用（assignee / follow-up 系列） */
 const FIRM_CHART_COLORS = ['#6C5CE7', '#00B894', '#0298D1', '#FDCB6E', '#E17055'];
@@ -103,7 +102,7 @@ export default function CrmDashboardView() {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [loading, setLoading] = useState(true);
   const [clients, setClients] = useState<FirmClientWithDetails[]>([]);
-  const [orders, setOrders] = useState<FirmOrder[]>([]);
+  const [orderCountByStatus, setOrderCountByStatus] = useState<Record<string, number>>({});
   const [followUps, setFollowUps] = useState<FirmClientFollowUp[]>([]);
   const [authorNames, setAuthorNames] = useState<Record<string, string>>({});
 
@@ -116,14 +115,13 @@ export default function CrmDashboardView() {
           setLoading(false);
           return;
         }
-        const [clientList, orderList, followUpList] = await Promise.all([
-          getFirmClientsWithDetails(space.id),
-          getFirmOrders(space.id),
+        const [bundle, followUpList] = await Promise.all([
+          getFirmClientsListBundle(space.id),
           getFirmClientFollowUps(space.id),
         ]);
         if (cancelled) return;
-        setClients(clientList);
-        setOrders(orderList);
+        setClients(bundle.clients);
+        setOrderCountByStatus(bundle.orderCountByStatus);
         setFollowUps(followUpList);
 
         const authorIds = Array.from(
@@ -190,18 +188,15 @@ export default function CrmDashboardView() {
 
   const orderStatusEntries = useMemo(() => {
     const base: Record<FirmOrderStatus, number> = {
-      onboarding: 0,
-      processing: 0,
-      completed: 0,
-      cancelled: 0,
+      onboarding: orderCountByStatus['onboarding'] ?? 0,
+      processing: orderCountByStatus['processing'] ?? 0,
+      completed: orderCountByStatus['completed'] ?? 0,
+      cancelled: orderCountByStatus['cancelled'] ?? 0,
     };
-    orders.forEach((o) => {
-      base[o.status] = (base[o.status] ?? 0) + 1;
-    });
     return (Object.keys(base) as FirmOrderStatus[])
       .filter((k) => base[k] > 0)
       .map((k) => [ORDER_STATUS_LABELS[k], base[k]] as [string, number]);
-  }, [orders]);
+  }, [orderCountByStatus]);
 
   const followUpSeries = useMemo<FollowUpSeries[]>(() => {
     if (followUps.length === 0) return [];

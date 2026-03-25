@@ -17,7 +17,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getCurrentSpace, getUserSpaces } from '@/lib/auth';
 import {
   getFirmClientsWithDetails,
-  getFirmOrders,
+  getFirmOrdersWithDetails,
   getFirmClientFollowUps,
   addFirmClientFollowUp,
   getFirmSkus,
@@ -28,10 +28,11 @@ import {
 } from '@/lib/firm';
 import { createPendingOrderForInvitee } from '@/lib/firm-clients';
 import { showToast } from '@/lib/toast';
-import type { FirmClientWithDetails, FirmPermissionGroupRow } from '@/lib/firm';
-import type { FirmOrder, FirmClientFollowUp, FirmSku } from '@/types';
+import type { FirmClientWithDetails, FirmOrderWithDetails, FirmPermissionGroupRow } from '@/lib/firm';
+import type { FirmClientFollowUp, FirmSku } from '@/types';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
 import DataTable, { type DataTableColumn } from '@/components/DataTable';
+import { buildEngagementTableColumns } from '@/components/engagementTableColumns';
 import CenterModal from '../../../components/CenterModal';
 import SkuPreview from '../../../components/SkuPreview';
 
@@ -49,7 +50,7 @@ export default function FirmClientDetailScreen() {
   const navigation = useNavigation();
   const [loading, setLoading] = useState(true);
   const [client, setClient] = useState<FirmClientWithDetails | null>(null);
-  const [orders, setOrders] = useState<FirmOrder[]>([]);
+  const [orders, setOrders] = useState<FirmOrderWithDetails[]>([]);
   const [followUps, setFollowUps] = useState<FirmClientFollowUp[]>([]);
   const [skus, setSkus] = useState<FirmSku[]>([]);
   const [activeTab, setActiveTab] = useState<TabKey>('info');
@@ -83,7 +84,7 @@ export default function FirmClientDetailScreen() {
     setLoading(true);
     const [clients, ords, fus, skuList] = await Promise.all([
       getFirmClientsWithDetails(space.id),
-      getFirmOrders(space.id, resolvedClientSpaceId, pendingFirmClientId),
+      getFirmOrdersWithDetails(space.id, resolvedClientSpaceId, pendingFirmClientId),
       getFirmClientFollowUps(space.id, resolvedClientSpaceId, pendingFirmClientId),
       getFirmSkus(space.id),
     ]);
@@ -176,43 +177,20 @@ export default function FirmClientDetailScreen() {
     });
   }, [navigation, client?.name]);
 
-  const orderColumns = useMemo<DataTableColumn<FirmOrder & { skuName?: string }>[]>(() => [
-    {
-      id: 'createdAt',
-      label: 'Created at',
-      minWidth: 150,
-      getValue: (r) => <Text style={styles.cellText}>{formatDate(r.createdAt)}</Text>,
-      getSortValue: (r) => r.createdAt,
-    },
-    {
-      id: 'sku',
-      label: 'Service',
-      minWidth: 160,
-      getValue: (r) => <Text style={styles.cellText}>{r.skuName ?? '—'}</Text>,
-      getSortValue: (r) => (r.skuName ?? '').toLowerCase(),
-    },
-    {
-      id: 'status',
-      label: 'Status',
-      minWidth: 100,
-      getValue: (r) => <Text style={styles.cellText}>{r.status}</Text>,
-      getSortValue: (r) => r.status,
-    },
-    {
-      id: 'dueAt',
-      label: 'Due at',
-      minWidth: 140,
-      getValue: (r) => <Text style={styles.cellText}>{r.dueAt ? formatDate(r.dueAt) : '—'}</Text>,
-      getSortValue: (r) => r.dueAt ?? '',
-    },
-  ], []);
-
-  const ordersWithSkuName = useMemo(
-    () => orders.map((o) => ({
-      ...o,
-      skuName: skus.find((s) => s.id === o.skuId)?.name,
-    })),
-    [orders, skus],
+  const orderColumns = useMemo<DataTableColumn<FirmOrderWithDetails>[]>(
+    () =>
+      buildEngagementTableColumns({
+        includeClientColumn: false,
+        includeClassificationColumn: true,
+        includeStatusColumn: true,
+        includeUpdatedAtColumn: true,
+        includeManagerColumn: true,
+        includeCreatorColumn: false,
+        includeCreatedDateColumn: true,
+        includeSourceColumn: true,
+        serviceColumnLabel: 'Engagement',
+      }),
+    []
   );
 
   const selectableSkus = useMemo(
@@ -252,12 +230,13 @@ export default function FirmClientDetailScreen() {
     setNewOrderModalVisible(true);
   }, [selectableSkus]);
 
-  const handleCreateOrder = useCallback(async (): Promise<boolean> => {
-    if (!client || !selectedSkuId) return false;
+  const handleCreateOrder = useCallback(async (opts?: { skipRefresh?: boolean }): Promise<string | null> => {
+    if (!client || !selectedSkuId) return null;
     const space = await getCurrentSpace();
-    if (!space?.id || space.kind !== 'firm') return false;
+    if (!space?.id || space.kind !== 'firm') return null;
     setCreatingOrder(true);
     let error: Error | null = null;
+    let createdOrderId: string | null = null;
     if (client.isPendingClaim) {
       const res = await createPendingOrderForInvitee(space.id, {
         clientName: client.name || '',
@@ -267,25 +246,35 @@ export default function FirmClientDetailScreen() {
       });
       error = res.error;
       if (!error) {
-        const fresh = await getFirmOrders(space.id, undefined, client.id);
-        setOrders(fresh);
+        createdOrderId = res.result?.orderId ?? null;
+        if (!opts?.skipRefresh) {
+          const fresh = await getFirmOrdersWithDetails(space.id, undefined, client.id);
+          setOrders(fresh);
+        }
       }
     } else {
       const res = await createFirmOrder(space.id, client.clientSpaceId, selectedSkuId, null);
       error = res?.error ?? null;
       if (!error) {
-        const fresh = await getFirmOrders(space.id, client.clientSpaceId);
-        setOrders(fresh);
+        createdOrderId = res?.id ?? null;
+        if (!opts?.skipRefresh) {
+          const fresh = await getFirmOrdersWithDetails(space.id, client.clientSpaceId);
+          setOrders(fresh);
+        }
       }
     }
     setCreatingOrder(false);
-    if (error) showToast(error.message ?? 'Failed to create order.', 'error');
-    return !error;
+    if (error) showToast(error.message ?? 'Failed to create engagement.', 'error');
+    return error ? null : createdOrderId;
   }, [client, selectedSkuId]);
 
   const confirmCreateAndClose = useCallback(async () => {
-    const ok = await handleCreateOrder();
-    if (ok) setNewOrderModalVisible(false);
+    // Skip the extra list refresh; navigating immediately is much faster.
+    const orderId = await handleCreateOrder({ skipRefresh: true });
+    if (orderId) {
+      setNewOrderModalVisible(false);
+      router.push(`/firm/engagement/${orderId}`);
+    }
   }, [handleCreateOrder]);
 
   if (!segment || typeof segment !== 'string') {
@@ -328,13 +317,13 @@ export default function FirmClientDetailScreen() {
             onPress={() => setActiveTab('orders')}
             activeOpacity={0.8}
           >
-            <Text style={[styles.tabChipText, activeTab === 'orders' && styles.tabChipTextActive]}>Orders</Text>
+            <Text style={[styles.tabChipText, activeTab === 'orders' && styles.tabChipTextActive]}>Engagements</Text>
           </TouchableOpacity>
         </View>
         {activeTab === 'orders' && selectableSkus.length > 0 && (
           <TouchableOpacity style={styles.operationBtn} onPress={openNewOrderModal} activeOpacity={0.7}>
             <Ionicons name="add-circle-outline" size={16} color="#6C5CE7" />
-            <Text style={styles.operationBtnText}>New order</Text>
+            <Text style={styles.operationBtnText}>New engagement</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -436,7 +425,7 @@ export default function FirmClientDetailScreen() {
                 onPress={() => setActiveTab('orders')}
               >
                 <Text style={styles.statNumber}>{orders.length}</Text>
-                <Text style={styles.statLabel}>Orders</Text>
+                <Text style={styles.statLabel}>Engagements</Text>
               </TouchableOpacity>
               <View style={styles.statPill}>
                 <Text style={styles.statNumber}>{followUps.length}</Text>
@@ -517,20 +506,20 @@ export default function FirmClientDetailScreen() {
       {activeTab === 'orders' && (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           {Platform.OS === 'web' ? (
-            <DataTable<FirmOrder & { skuName?: string }>
+            <DataTable<FirmOrderWithDetails>
               columns={orderColumns}
-              data={ordersWithSkuName}
+              data={orders}
               keyExtractor={(r) => r.id}
-              emptyMessage="No orders yet."
+              emptyMessage="No engagements yet."
               storageKey="client-orders-table"
               onRowPress={(row) => router.push(`/firm/engagement/${row.id}`)}
             />
           ) : (
             orders.length === 0 ? (
-              <Text style={styles.emptyText}>No orders yet.</Text>
+              <Text style={styles.emptyText}>No engagements yet.</Text>
             ) : (
               orders.map((o) => {
-                const skuName = skus.find((s) => s.id === o.skuId)?.name ?? '—';
+                const skuName = o.skuName ?? skus.find((s) => s.id === o.skuId)?.name ?? '—';
                 return (
                   <TouchableOpacity
                     key={o.id}
@@ -549,7 +538,7 @@ export default function FirmClientDetailScreen() {
       )}
       <CenterModal
         visible={newOrderModalVisible}
-        title="Create new order"
+        title="Create new engagement"
         onClose={() => {
           setNewOrderModalVisible(false);
           setShowNewOrderSkuMenu(false);
@@ -650,7 +639,7 @@ export default function FirmClientDetailScreen() {
                 {creatingOrder ? (
                   <ActivityIndicator size="small" color="#fff" />
                 ) : (
-                  <Text style={styles.modalConfirmText}>Create order</Text>
+                  <Text style={styles.modalConfirmText}>Create engagement</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -664,7 +653,7 @@ export default function FirmClientDetailScreen() {
         </View>
       </CenterModal>
 
-      {/* Create new order: template dropdown in a top-level Modal so it is never covered by buttons */}
+      {/* Create new engagement: template dropdown in a top-level Modal so it is never covered by buttons */}
       <Modal
         visible={showNewOrderSkuMenu && newOrderDropdownRect !== null}
         transparent

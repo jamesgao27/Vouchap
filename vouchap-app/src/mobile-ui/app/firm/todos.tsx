@@ -1,5 +1,5 @@
 /**
- * Firm - Orders (deprecated route): kept for backward compatibility, logic moved to app/firm/engagements.tsx.
+ * Firm - Engagements (deprecated route): kept for backward compatibility, logic moved to app/firm/engagements.tsx.
  */
 import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, ActivityIndicator, TouchableOpacity } from 'react-native';
@@ -75,7 +75,7 @@ export default function FirmOrdersScreen() {
                   </View>
                   {o.dueAt ? <Text style={styles.dueAt}>Due: {o.dueAt}</Text> : null}
                   <View style={styles.cardFooter}>
-                    <Text style={styles.metaText}>Order ID: {o.id.slice(0, 8)}…</Text>
+                    <Text style={styles.metaText}>Engagement ID: {o.id.slice(0, 8)}…</Text>
                     <Ionicons name="chevron-forward" size={16} color="#636E72" />
                   </View>
                 </TouchableOpacity>
@@ -89,7 +89,7 @@ export default function FirmOrdersScreen() {
 }
 
 function formatOrderTitle(o: FirmOrder): string {
-  const base = 'Service order';
+  const base = 'Service engagement';
   const d = o.dueAt || o.createdAt || null;
   if (!d) return base;
   try {

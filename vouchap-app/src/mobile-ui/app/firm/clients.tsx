@@ -23,8 +23,7 @@ import { format } from 'date-fns';
 import { getCurrentSpace, getUserSpaces } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import {
-  getFirmClientsWithDetails,
-  getFirmOrders,
+  getFirmClientsListBundle,
   deleteFirmClients,
   deleteFirmPendingClients,
   getFirmSkus,
@@ -280,19 +279,10 @@ export default function FirmClientsScreen() {
     }
     setFirmSpaceId(space.id);
     setFirmSpaceName(space.name ?? '');
-    const [list, orders] = await Promise.all([
-      getFirmClientsWithDetails(space.id),
-      getFirmOrders(space.id),
-    ]);
+    const { clients: list, orderCountByClient, orderCountByPendingClient } = await getFirmClientsListBundle(space.id);
     setClients(list);
-    const countsClient: Record<string, number> = {};
-    const countsPending: Record<string, number> = {};
-    orders.forEach((o) => {
-      if (o.clientSpaceId) countsClient[o.clientSpaceId] = (countsClient[o.clientSpaceId] ?? 0) + 1;
-      if (!o.clientSpaceId && o.clientId) countsPending[o.clientId] = (countsPending[o.clientId] ?? 0) + 1;
-    });
-    setOrderCountByClient(countsClient);
-    setOrderCountByPendingClient(countsPending);
+    setOrderCountByClient(orderCountByClient);
+    setOrderCountByPendingClient(orderCountByPendingClient);
   }, [router]);
 
   useEffect(() => {
@@ -318,15 +308,10 @@ export default function FirmClientsScreen() {
       .channel(`firm-orders-clients-${firmSpaceId}`)
       .on('postgres_changes', { event: '*', schema: 'firm', table: 'orders', filter: `firm_space_id=eq.${firmSpaceId}` }, debouncedRefresh)
       .subscribe();
-    const chInvitees = supabase
-      .channel(`firm-invitee-clients-${firmSpaceId}`)
-      .on('postgres_changes', { event: '*', schema: 'firm', table: 'clients', filter: `firm_space_id=eq.${firmSpaceId}` }, debouncedRefresh)
-      .subscribe();
     return () => {
       if (refreshTimeout) clearTimeout(refreshTimeout);
       supabase.removeChannel(chClients);
       supabase.removeChannel(chOrders);
-      supabase.removeChannel(chInvitees);
     };
   }, [firmSpaceId, loadData]);
 

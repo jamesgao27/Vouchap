@@ -25,7 +25,7 @@ import WebDashboardView from '@/components/WebDashboardView';
 import CrmDashboardView from '@/components/CrmDashboardView';
 import { FirmPendingOverlay } from '@/components/FirmPendingOverlay';
 import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
-import { getFirmClientsWithDetails, getFirmOrders } from '@/lib/firm';
+import { getFirmClientsListBundle } from '@/lib/firm';
 import { getPendingInviteesForEmail } from '@/lib/firm-clients';
 import type { ClientDisplayStatus } from '@/types';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
@@ -97,10 +97,7 @@ export default function HomeScreen() {
     setFirmChartLoading(true);
     (async () => {
       try {
-        const [clients, orders] = await Promise.all([
-          getFirmClientsWithDetails(currentSpace.id),
-          getFirmOrders(currentSpace.id),
-        ]);
+        const { clients, orderCountByStatus } = await getFirmClientsListBundle(currentSpace.id);
         if (cancelled) return;
         const byStatus: Record<ClientDisplayStatus, number> = {
           new: 0,
@@ -113,11 +110,7 @@ export default function HomeScreen() {
           byStatus[c.displayStatus] = (byStatus[c.displayStatus] ?? 0) + 1;
         });
         setFirmClientCountByStatus(byStatus);
-        const byOrder: Record<string, number> = {};
-        orders.forEach((o) => {
-          byOrder[o.status] = (byOrder[o.status] ?? 0) + 1;
-        });
-        setFirmOrderCountByStatus(byOrder);
+        setFirmOrderCountByStatus(orderCountByStatus);
       } catch (e) {
         console.error('Firm chart load:', e);
       } finally {

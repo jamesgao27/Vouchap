@@ -2,7 +2,7 @@
  * Firm - Engagements: table (客户、服务项年度+SKU、创建时间、来源、进展状态、负责人、更新时间).
  * Web: DataTable with group, filter, search, multi-select, batch (e.g. cancel). Mobile: card list.
  */
-import { useEffect, useState, useMemo, useCallback, useLayoutEffect } from 'react';
+import { useEffect, useState, useMemo, useCallback, useLayoutEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import {
   View,
@@ -24,15 +24,24 @@ import { format } from 'date-fns';
 import { getCurrentSpace } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import {
+  getFirmClientsWithDetails,
   getFirmOrdersWithDetails,
+  getFirmSkus,
+  createFirmOrder,
   updateOrderStatus,
   getFirmSpaceMembers,
   updateFirmOrderManager,
+  type FirmClientWithDetails,
   type FirmSpaceMember,
   type FirmOrderWithDetails,
 } from '@/lib/firm';
 import DataTable, { type DataTableColumn, WEB_POPOVER } from '@/components/DataTable';
 import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors';
+import CenterModal from '../../components/CenterModal';
+import SkuPreview from '../../components/SkuPreview';
+import type { FirmSku } from '@/types';
+import { createPendingOrderForInvitee } from '@/lib/firm-clients';
+import { showToast } from '@/lib/toast';
 
 const STATUS_LABEL: Record<string, string> = {
   onboarding: 'Onboarding',
@@ -218,7 +227,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
     },
     {
       id: 'serviceItem',
-      label: 'Engagement',
+      label: 'Service',
       minWidth: 160,
       getValue: (r) => (
         <Text style={cellText} numberOfLines={1}>
@@ -349,6 +358,24 @@ export default function FirmEngagementsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [orders, setOrders] = useState<FirmOrderWithDetails[]>([]);
+  const [clientRows, setClientRows] = useState<FirmClientWithDetails[]>([]);
+  const [skuList, setSkuList] = useState<FirmSku[]>([]);
+  const [newEngagementModalVisible, setNewEngagementModalVisible] = useState(false);
+  const [creatingEngagement, setCreatingEngagement] = useState(false);
+  const [selectedClientKey, setSelectedClientKey] = useState<string | null>(null);
+  const [selectedSkuId, setSelectedSkuId] = useState<string | null>(null);
+  const [clientNameInput, setClientNameInput] = useState('');
+  const [contactNameInput, setContactNameInput] = useState('');
+  const [contactEmailInput, setContactEmailInput] = useState('');
+  const [activeClientField, setActiveClientField] = useState<'clientName' | 'contactName' | 'contactEmail'>('clientName');
+  const [showClientMenu, setShowClientMenu] = useState(false);
+  const [clientDropdownRect, setClientDropdownRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const clientNameRef = useRef<View>(null);
+  const contactNameRef = useRef<View>(null);
+  const contactEmailRef = useRef<View>(null);
+  const [showSkuMenu, setShowSkuMenu] = useState(false);
+  const [skuDropdownRect, setSkuDropdownRect] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+  const skuSelectRef = useRef<View>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [groupBy, setGroupBy] = useState<GroupByType>('none');
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
@@ -441,10 +468,30 @@ export default function FirmEngagementsScreen() {
       ) {
         setShowFilterMenu(false);
       }
+
+      // Create engagement dropdowns: close when clicking outside anchors + menus
+      const clientMenu = document.getElementById('create-engagement-client-menu');
+      const skuMenu = document.getElementById('create-engagement-sku-menu');
+      const anchors = [
+        document.getElementById('create-engagement-clientName-anchor'),
+        document.getElementById('create-engagement-contactName-anchor'),
+        document.getElementById('create-engagement-contactEmail-anchor'),
+        document.getElementById('create-engagement-sku-anchor'),
+      ].filter(Boolean) as HTMLElement[];
+      const clickedInAnchors = anchors.some((a) => a.contains(target));
+
+      if (showClientMenu && clientMenu && !clientMenu.contains(target) && !clickedInAnchors) {
+        setShowClientMenu(false);
+        setClientDropdownRect(null);
+      }
+      if (showSkuMenu && skuMenu && !skuMenu.contains(target) && !clickedInAnchors) {
+        setShowSkuMenu(false);
+        setSkuDropdownRect(null);
+      }
     };
     document.addEventListener('pointerdown', handler);
     return () => document.removeEventListener('pointerdown', handler);
-  }, [showGroupMenu, showFilterMenu]);
+  }, [showGroupMenu, showFilterMenu, showClientMenu, showSkuMenu]);
 
   const [firmSpaceId, setFirmSpaceId] = useState<string | null>(null);
   const loadData = useCallback(async (forceRefresh = false) => {
@@ -488,6 +535,178 @@ export default function FirmEngagementsScreen() {
     await loadData(true);
     setRefreshing(false);
   }, [loadData]);
+
+  const selectableSkus = useMemo(
+    () =>
+      skuList.filter((s) =>
+        s.templateStatus != null
+          ? s.templateStatus !== 'draft'
+          : s.isPublished === true || !!s.taxCountry || !!s.taxScenario
+      ),
+    [skuList]
+  );
+
+  const clientKey = useCallback((c: FirmClientWithDetails) => {
+    return c.isPendingClaim ? `invitee-${c.id}` : `space-${c.clientSpaceId}`;
+  }, []);
+
+  const selectedClient = useMemo(() => {
+    if (!selectedClientKey) return null;
+    return clientRows.find((c) => clientKey(c) === selectedClientKey) ?? null;
+  }, [clientRows, selectedClientKey, clientKey]);
+
+  useEffect(() => {
+    if (!selectedClient) {
+      setClientNameInput('');
+      setContactNameInput('');
+      setContactEmailInput('');
+      return;
+    }
+    setClientNameInput(selectedClient.name || '');
+    setContactNameInput(selectedClient.contactName || '');
+    setContactEmailInput(selectedClient.contactEmail || '');
+  }, [selectedClient]);
+
+  const handleOpenNewEngagementModal = useCallback(async () => {
+    const space = await getCurrentSpace();
+    if (!space?.id || space.kind !== 'firm') return;
+    setFirmSpaceId(space.id);
+
+    // 每次打开都重置上次选择/输入状态
+    setActiveClientField('clientName');
+    setClientNameInput('');
+    setContactNameInput('');
+    setContactEmailInput('');
+    setShowClientMenu(false);
+    setClientDropdownRect(null);
+    setShowSkuMenu(false);
+    setSkuDropdownRect(null);
+
+    // 不自动选中 client；前三项由用户在列表中选择或输入过滤后选择（每次打开已清空输入）
+    if (clientRows.length === 0) {
+      const rows = await getFirmClientsWithDetails(space.id);
+      setClientRows(rows);
+    }
+    setSelectedClientKey(null);
+    if (skuList.length === 0) {
+      const skus = await getFirmSkus(space.id);
+      setSkuList(skus);
+      const firstSku = (skus || []).find((s) =>
+        s.templateStatus != null
+          ? s.templateStatus !== 'draft'
+          : s.isPublished === true || !!s.taxCountry || !!s.taxScenario
+      );
+      setSelectedSkuId(firstSku?.id ?? null);
+    } else {
+      const firstSku = selectableSkus[0] ?? null;
+      setSelectedSkuId(firstSku?.id ?? null);
+    }
+
+    setNewEngagementModalVisible(true);
+  }, [clientRows.length, skuList.length, selectableSkus]);
+
+  const handleCreateEngagement = useCallback(async (): Promise<string | null> => {
+    if (!firmSpaceId) return null;
+    if (!selectedClient || !selectedSkuId) return null;
+    setCreatingEngagement(true);
+    let createdId: string | null = null;
+    let error: Error | null = null;
+
+    if (selectedClient.isPendingClaim) {
+      const res = await createPendingOrderForInvitee(firmSpaceId, {
+        clientName: selectedClient.name || '',
+        contactName: selectedClient.contactName ?? '',
+        contactEmail: selectedClient.contactEmail ?? '',
+        skuId: selectedSkuId,
+      });
+      error = res.error;
+      if (!error) createdId = res.result?.orderId ?? null;
+    } else {
+      const res = await createFirmOrder(firmSpaceId, selectedClient.clientSpaceId, selectedSkuId, null);
+      error = res?.error ?? null;
+      if (!error) createdId = res?.id ?? null;
+    }
+
+    setCreatingEngagement(false);
+    if (error) {
+      showToast(error.message ?? 'Failed to create engagement.', 'error');
+      return null;
+    }
+    return createdId;
+  }, [firmSpaceId, selectedClient, selectedSkuId]);
+
+  const confirmCreateAndClose = useCallback(async () => {
+    const orderId = await handleCreateEngagement();
+    if (orderId) {
+      setNewEngagementModalVisible(false);
+      router.push(`/firm/engagement/${orderId}`);
+    }
+  }, [handleCreateEngagement, router]);
+
+  const openClientMenu = useCallback((field: 'clientName' | 'contactName' | 'contactEmail') => {
+    setActiveClientField(field);
+    if (showClientMenu) {
+      setShowClientMenu(false);
+      return;
+    }
+    const ref =
+      field === 'clientName' ? clientNameRef : field === 'contactName' ? contactNameRef : contactEmailRef;
+    ref.current?.measureInWindow((x, y, w, h) => {
+      setClientDropdownRect({ x, y, width: w, height: h });
+      setShowClientMenu(true);
+    });
+  }, [showClientMenu]);
+
+  const onClientFieldChange = useCallback((field: 'clientName' | 'contactName' | 'contactEmail', v: string) => {
+    setActiveClientField(field);
+    if (field === 'clientName') setClientNameInput(v);
+    if (field === 'contactName') setContactNameInput(v);
+    if (field === 'contactEmail') setContactEmailInput(v);
+    const ref =
+      field === 'clientName' ? clientNameRef : field === 'contactName' ? contactNameRef : contactEmailRef;
+    ref.current?.measureInWindow((x, y, w, h) => {
+      setClientDropdownRect({ x, y, width: w, height: h });
+      setShowClientMenu(true);
+    });
+  }, []);
+
+  const clientQuery = useMemo(() => {
+    return activeClientField === 'clientName'
+      ? clientNameInput
+      : activeClientField === 'contactName'
+        ? contactNameInput
+        : contactEmailInput;
+  }, [activeClientField, clientNameInput, contactNameInput, contactEmailInput]);
+
+  const filteredClientsForMenu = useMemo(() => {
+    const q = clientQuery.trim().toLowerCase();
+    const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+    const list = clientRows.slice();
+    const getPrimary = (c: FirmClientWithDetails) =>
+      activeClientField === 'clientName'
+        ? (c.name || '')
+        : activeClientField === 'contactName'
+          ? (c.contactName || '')
+          : (c.contactEmail || '');
+    list.sort((a, b) => getPrimary(a).localeCompare(getPrimary(b)));
+    if (tokens.length === 0) return list;
+    return list.filter((c) => {
+      const hay = `${c.name || ''} ${c.contactName || ''} ${c.contactEmail || ''}`.toLowerCase();
+      return tokens.every((t) => hay.includes(t));
+    });
+  }, [clientRows, clientQuery, activeClientField]);
+
+  const openSkuMenu = useCallback(() => {
+    if (selectableSkus.length === 0) return;
+    if (showSkuMenu) {
+      setShowSkuMenu(false);
+      return;
+    }
+    skuSelectRef.current?.measureInWindow((x, y, w, h) => {
+      setSkuDropdownRect({ x, y, width: w, height: h });
+      setShowSkuMenu(true);
+    });
+  }, [selectableSkus.length, showSkuMenu]);
 
   const filteredByStatus = useMemo(() => {
     if (filterStatus === 'all') return orders;
@@ -645,6 +864,19 @@ export default function FirmEngagementsScreen() {
       <View style={styles.toolbarSlot}>
         <View style={styles.header}>
           <View style={styles.headerRow}>
+            <TouchableOpacity
+              style={[styles.inviteButton, { marginRight: 8 }]}
+              onPress={handleOpenNewEngagementModal}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="add-circle-outline"
+                size={18}
+                color="#6C5CE7"
+                style={{ marginRight: 4 }}
+              />
+              <Text style={styles.inviteButtonText}>Add engagement</Text>
+            </TouchableOpacity>
             <TouchableOpacity style={styles.sortButton} onPress={() => setShowGroupMenu(!showGroupMenu)}>
               {groupBy === 'none' && <Ionicons name="list-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
               {groupBy === 'byClient' && <Ionicons name="people-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
@@ -793,7 +1025,277 @@ export default function FirmEngagementsScreen() {
   );
 
   if (Platform.OS !== 'web') {
-    return <View style={{ flex: 1 }}>{renderMobileList()}</View>;
+    return (
+      <View style={{ flex: 1 }}>
+        {renderMobileList()}
+
+        <CenterModal
+          visible={newEngagementModalVisible}
+          title="Create new engagement"
+          onClose={() => {
+            setNewEngagementModalVisible(false);
+            setShowClientMenu(false);
+            setClientDropdownRect(null);
+            setShowSkuMenu(false);
+            setSkuDropdownRect(null);
+          }}
+          maxWidth={840}
+          cardHeight={660}
+        >
+          <View style={{ flexDirection: 'row', gap: 16, height: '100%' }}>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingRight: 4 }} showsVerticalScrollIndicator={false}>
+              <Text style={{ color: '#636E72', marginBottom: 12 }}>
+                Create a new service engagement. Select a client from your accessible client list. Client fields are linked.
+              </Text>
+
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 13, color: '#636E72', marginBottom: 6 }}>Client name</Text>
+                <TouchableOpacity
+                  style={{ paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F5F6FA', borderWidth: 1, borderColor: '#EAECEF' }}
+                  activeOpacity={0.7}
+                  onPress={() => openClientMenu('clientName')}
+                >
+                  <Text style={{ fontSize: 14, color: '#2D3436' }} numberOfLines={1}>
+                    {selectedClient?.name || '—'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 13, color: '#636E72', marginBottom: 6 }}>Contact name</Text>
+                <TouchableOpacity
+                  style={{ paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F5F6FA', borderWidth: 1, borderColor: '#EAECEF' }}
+                  activeOpacity={0.7}
+                  onPress={() => openClientMenu('contactName')}
+                >
+                  <Text style={{ fontSize: 14, color: '#2D3436' }} numberOfLines={1}>
+                    {selectedClient?.contactName || '—'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 13, color: '#636E72', marginBottom: 6 }}>Contact email</Text>
+                <TouchableOpacity
+                  style={{ paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F5F6FA', borderWidth: 1, borderColor: '#EAECEF' }}
+                  activeOpacity={0.7}
+                  onPress={() => openClientMenu('contactEmail')}
+                >
+                  <Text style={{ fontSize: 14, color: '#2D3436' }} numberOfLines={1}>
+                    {selectedClient?.contactEmail || '—'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={{ marginBottom: 12 }}>
+                <Text style={{ fontSize: 13, color: '#636E72', marginBottom: 6 }}>Service template</Text>
+                {selectableSkus.length === 0 ? (
+                  <View
+                    style={{
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                      borderRadius: 10,
+                      backgroundColor: '#F1F3F5',
+                      borderWidth: 1,
+                      borderColor: '#EAECEF',
+                    }}
+                  >
+                    <Text style={{ fontSize: 14, color: '#95A5A6' }} numberOfLines={1}>
+                      Please configure Service Catalog first.
+                    </Text>
+                  </View>
+                ) : (
+                  <View ref={skuSelectRef} collapsable={false}>
+                    <TouchableOpacity
+                      style={{
+                        paddingHorizontal: 12,
+                        paddingVertical: 10,
+                        borderRadius: 10,
+                        backgroundColor: '#F5F6FA',
+                        borderWidth: 1,
+                        borderColor: '#EAECEF',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 10,
+                      }}
+                      activeOpacity={0.7}
+                      onPress={openSkuMenu}
+                    >
+                      <Text style={{ fontSize: 14, color: '#2D3436', flex: 1 }} numberOfLines={1}>
+                        {selectedSkuId ? (selectableSkus.find((s) => s.id === selectedSkuId)?.name ?? 'Select a service template') : 'Select a service template'}
+                      </Text>
+                      <Ionicons name={showSkuMenu ? 'chevron-up' : 'chevron-down'} size={18} color="#636E72" />
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+
+              <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+                <TouchableOpacity
+                  style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F1F3F5' }}
+                  activeOpacity={0.7}
+                  onPress={() => setNewEngagementModalVisible(false)}
+                >
+                  <Text style={{ fontWeight: '600', color: '#2D3436' }}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={{
+                    paddingHorizontal: 14,
+                    paddingVertical: 10,
+                    borderRadius: 10,
+                    backgroundColor: !selectedClient || !selectedSkuId || creatingEngagement ? '#B2BEC3' : '#6C5CE7',
+                  }}
+                  activeOpacity={0.7}
+                  disabled={!selectedClient || !selectedSkuId || creatingEngagement}
+                  onPress={confirmCreateAndClose}
+                >
+                  {creatingEngagement ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={{ fontWeight: '600', color: '#fff' }}>Create engagement</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
+
+            <View style={{ flex: 1, borderLeftWidth: 1, borderLeftColor: '#F1F3F5', paddingLeft: 16 }}>
+              <Text style={{ fontSize: 13, fontWeight: '600', color: '#2D3436', marginBottom: 10 }}>Service preview</Text>
+              <SkuPreview sku={skuList.find((s) => s.id === selectedSkuId) ?? null} />
+            </View>
+          </View>
+        </CenterModal>
+
+      <Modal
+        visible={showClientMenu && clientDropdownRect !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowClientMenu(false)}
+      >
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowClientMenu(false)} />
+        {clientDropdownRect && (
+          <View
+            style={{
+              position: 'absolute',
+              left: clientDropdownRect.x,
+              top: clientDropdownRect.y + clientDropdownRect.height + 4,
+              width: Math.min(clientDropdownRect.width, 420),
+              maxHeight: 280,
+              backgroundColor: '#fff',
+              borderRadius: 10,
+              borderWidth: 1,
+              borderColor: '#EAECEF',
+              shadowColor: '#000',
+              shadowOpacity: 0.12,
+              shadowRadius: 12,
+              shadowOffset: { width: 0, height: 6 },
+              elevation: 10,
+            }}
+          >
+            <ScrollView contentContainerStyle={{ paddingVertical: 6 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+              {filteredClientsForMenu.map((c) => {
+                const key = clientKey(c);
+                const selected = selectedClientKey === key;
+                const primary =
+                  activeClientField === 'clientName'
+                    ? (c.name || '—')
+                    : activeClientField === 'contactName'
+                      ? (c.contactName || '—')
+                      : (c.contactEmail || '—');
+                const right1 = activeClientField === 'clientName' ? (c.contactName || '—') : (c.name || '—');
+                const right2 = activeClientField === 'contactEmail' ? (c.contactName || '—') : (c.contactEmail || '—');
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={{
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      backgroundColor: selected ? '#EAEAFF' : 'transparent',
+                    }}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setSelectedClientKey(key);
+                      setShowClientMenu(false);
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: selected ? '#6C5CE7' : '#2D3436' }} numberOfLines={1}>
+                        {primary}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: '#95A5A6', maxWidth: 160, textAlign: 'right' }} numberOfLines={1}>
+                        {right1}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: '#B2BEC3', maxWidth: 180, textAlign: 'right' }} numberOfLines={1}>
+                        {right2}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+      </Modal>
+
+        {/* Service template: keep same dropdown design as client detail modal */}
+        <Modal visible={showSkuMenu && skuDropdownRect !== null} transparent animationType="fade" onRequestClose={() => setShowSkuMenu(false)}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowSkuMenu(false)} />
+          {skuDropdownRect && (
+            <View
+              style={[
+                {
+                  backgroundColor: '#fff',
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: '#EAECEF',
+                  shadowColor: '#000',
+                  shadowOpacity: 0.12,
+                  shadowRadius: 12,
+                  shadowOffset: { width: 0, height: 6 },
+                  elevation: 10,
+                },
+                {
+                  position: 'absolute',
+                  left: skuDropdownRect.x,
+                  top: skuDropdownRect.y + skuDropdownRect.height + 4,
+                  width: skuDropdownRect.width,
+                  maxHeight: 280,
+                },
+              ]}
+            >
+              <ScrollView contentContainerStyle={{ paddingVertical: 6 }} nestedScrollEnabled>
+                {selectableSkus.map((sku) => (
+                  <TouchableOpacity
+                    key={sku.id}
+                    style={{
+                      paddingVertical: 10,
+                      paddingHorizontal: 12,
+                      backgroundColor: selectedSkuId === sku.id ? '#EAEAFF' : 'transparent',
+                    }}
+                    onPress={() => {
+                      setSelectedSkuId(sku.id);
+                      setShowSkuMenu(false);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 14,
+                        fontWeight: selectedSkuId === sku.id ? '700' : '600',
+                        color: selectedSkuId === sku.id ? '#6C5CE7' : '#2D3436',
+                      }}
+                      numberOfLines={1}
+                    >
+                      {sku.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </Modal>
+      </View>
+    );
   }
 
   const hasSelection = selectedOrderIds.length > 0;
@@ -837,6 +1339,14 @@ export default function FirmEngagementsScreen() {
         ) : (
           <View style={styles.header}>
             <View style={styles.headerRow}>
+              <TouchableOpacity
+                style={[styles.inviteButton, { marginRight: 8 }]}
+                onPress={handleOpenNewEngagementModal}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="add-circle-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
+                <Text style={styles.inviteButtonText}>Add engagement</Text>
+              </TouchableOpacity>
               <View
                 style={styles.groupWrap}
                 {...(Platform.OS === 'web' ? { nativeID: 'firm-engagements-group-button' } : {})}
@@ -1022,6 +1532,418 @@ export default function FirmEngagementsScreen() {
           </View>
         )}
       </View>
+
+      <CenterModal
+        visible={newEngagementModalVisible}
+        title="Create new engagement"
+        onClose={() => {
+          setNewEngagementModalVisible(false);
+          setShowClientMenu(false);
+          setClientDropdownRect(null);
+          setShowSkuMenu(false);
+          setSkuDropdownRect(null);
+        }}
+        maxWidth={840}
+        cardHeight={660}
+      >
+        <View style={{ flexDirection: 'row', gap: 16, height: '100%' }}>
+          <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingRight: 4 }} showsVerticalScrollIndicator={false}>
+            <Text style={{ color: '#636E72', marginBottom: 12 }}>
+              Create a new service engagement. Select a client from your accessible client list. Client fields are linked.
+            </Text>
+
+            <View style={{ marginBottom: 12 }}>
+              <Text style={{ fontSize: 13, color: '#636E72', marginBottom: 6 }}>Client name</Text>
+              <View
+                ref={clientNameRef}
+                collapsable={false}
+                style={{ flexDirection: 'row', alignItems: 'center' }}
+                {...(Platform.OS === 'web' ? { nativeID: 'create-engagement-clientName-anchor' } : {})}
+              >
+                <TextInput
+                  style={{ flex: 1, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F5F6FA', borderWidth: 1, borderColor: activeClientField === 'clientName' && showClientMenu ? '#6C5CE7' : '#EAECEF', paddingRight: 36, fontSize: 14, color: '#2D3436' }}
+                  value={clientNameInput}
+                  placeholder="Select a client"
+                  placeholderTextColor="#95A5A6"
+                  onChangeText={(v) => onClientFieldChange('clientName', v)}
+                  onFocus={() => openClientMenu('clientName')}
+                />
+                <TouchableOpacity
+                  style={{ position: 'absolute', right: 10, height: 40, width: 24, alignItems: 'center', justifyContent: 'center' }}
+                  onPress={() => openClientMenu('clientName')}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={showClientMenu && activeClientField === 'clientName' ? 'chevron-up' : 'chevron-down'} size={18} color="#636E72" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={{ marginBottom: 12 }}>
+              <Text style={{ fontSize: 13, color: '#636E72', marginBottom: 6 }}>Contact name</Text>
+              <View
+                ref={contactNameRef}
+                collapsable={false}
+                style={{ flexDirection: 'row', alignItems: 'center' }}
+                {...(Platform.OS === 'web' ? { nativeID: 'create-engagement-contactName-anchor' } : {})}
+              >
+                <TextInput
+                  style={{ flex: 1, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F5F6FA', borderWidth: 1, borderColor: activeClientField === 'contactName' && showClientMenu ? '#6C5CE7' : '#EAECEF', paddingRight: 36, fontSize: 14, color: '#2D3436' }}
+                  value={contactNameInput}
+                  placeholder="Select a contact"
+                  placeholderTextColor="#95A5A6"
+                  onChangeText={(v) => onClientFieldChange('contactName', v)}
+                  onFocus={() => openClientMenu('contactName')}
+                />
+                <TouchableOpacity
+                  style={{ position: 'absolute', right: 10, height: 40, width: 24, alignItems: 'center', justifyContent: 'center' }}
+                  onPress={() => openClientMenu('contactName')}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={showClientMenu && activeClientField === 'contactName' ? 'chevron-up' : 'chevron-down'} size={18} color="#636E72" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={{ marginBottom: 12 }}>
+              <Text style={{ fontSize: 13, color: '#636E72', marginBottom: 6 }}>Contact email</Text>
+              <View
+                ref={contactEmailRef}
+                collapsable={false}
+                style={{ flexDirection: 'row', alignItems: 'center' }}
+                {...(Platform.OS === 'web' ? { nativeID: 'create-engagement-contactEmail-anchor' } : {})}
+              >
+                <TextInput
+                  style={{ flex: 1, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F5F6FA', borderWidth: 1, borderColor: activeClientField === 'contactEmail' && showClientMenu ? '#6C5CE7' : '#EAECEF', paddingRight: 36, fontSize: 14, color: '#2D3436' }}
+                  value={contactEmailInput}
+                  placeholder="Select an email"
+                  placeholderTextColor="#95A5A6"
+                  onChangeText={(v) => onClientFieldChange('contactEmail', v)}
+                  onFocus={() => openClientMenu('contactEmail')}
+                  autoCapitalize="none"
+                />
+                <TouchableOpacity
+                  style={{ position: 'absolute', right: 10, height: 40, width: 24, alignItems: 'center', justifyContent: 'center' }}
+                  onPress={() => openClientMenu('contactEmail')}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={showClientMenu && activeClientField === 'contactEmail' ? 'chevron-up' : 'chevron-down'} size={18} color="#636E72" />
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={{ marginBottom: 12 }}>
+              <Text style={{ fontSize: 13, color: '#636E72', marginBottom: 6 }}>Service template</Text>
+            {selectableSkus.length === 0 ? (
+              <View
+                style={{
+                  paddingHorizontal: 12,
+                  paddingVertical: 10,
+                  borderRadius: 10,
+                  backgroundColor: '#F1F3F5',
+                  borderWidth: 1,
+                  borderColor: '#EAECEF',
+                }}
+              >
+                <Text style={{ fontSize: 14, color: '#95A5A6' }} numberOfLines={1}>
+                  Please configure Service Catalog first.
+                </Text>
+              </View>
+            ) : (
+              <View
+                ref={skuSelectRef}
+                collapsable={false}
+                {...(Platform.OS === 'web' ? { nativeID: 'create-engagement-sku-anchor' } : {})}
+              >
+                <TouchableOpacity
+                  style={{
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    borderRadius: 10,
+                    backgroundColor: '#F5F6FA',
+                    borderWidth: 1,
+                    borderColor: '#EAECEF',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                  }}
+                  activeOpacity={0.7}
+                  onPress={openSkuMenu}
+                >
+                  <Text style={{ fontSize: 14, color: '#2D3436', flex: 1 }} numberOfLines={1}>
+                    {selectedSkuId ? (selectableSkus.find((s) => s.id === selectedSkuId)?.name ?? 'Select a service template') : 'Select a service template'}
+                  </Text>
+                  <Ionicons name={showSkuMenu ? 'chevron-up' : 'chevron-down'} size={18} color="#636E72" />
+                </TouchableOpacity>
+              </View>
+            )}
+            </View>
+
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 10, marginTop: 16 }}>
+              <TouchableOpacity
+                style={{ paddingHorizontal: 14, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F1F3F5' }}
+                activeOpacity={0.7}
+                onPress={() => setNewEngagementModalVisible(false)}
+              >
+                <Text style={{ fontWeight: '600', color: '#2D3436' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={{
+                  paddingHorizontal: 14,
+                  paddingVertical: 10,
+                  borderRadius: 10,
+                  backgroundColor: !selectedClient || !selectedSkuId || creatingEngagement ? '#B2BEC3' : '#6C5CE7',
+                }}
+                activeOpacity={0.7}
+                disabled={!selectedClient || !selectedSkuId || creatingEngagement}
+                onPress={confirmCreateAndClose}
+              >
+                {creatingEngagement ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={{ fontWeight: '600', color: '#fff' }}>Create engagement</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+
+          <View style={{ flex: 1, borderLeftWidth: 1, borderLeftColor: '#F1F3F5', paddingLeft: 16 }}>
+            <Text style={{ fontSize: 13, fontWeight: '600', color: '#2D3436', marginBottom: 10 }}>Service preview</Text>
+            <SkuPreview sku={skuList.find((s) => s.id === selectedSkuId) ?? null} />
+          </View>
+        </View>
+      </CenterModal>
+
+      {/* Dropdown overlays: web uses portal (so inputs remain editable); mobile uses Modal */}
+      {Platform.OS === 'web' &&
+        showClientMenu &&
+        clientDropdownRect &&
+        typeof document !== 'undefined' &&
+        document.body &&
+        createPortal(
+          <div
+            id="create-engagement-client-menu"
+            style={{
+              position: 'absolute',
+              left: clientDropdownRect.x,
+              top: clientDropdownRect.y + clientDropdownRect.height + 4,
+              width: Math.min(clientDropdownRect.width, 420),
+              maxHeight: 280,
+              overflow: 'auto',
+              backgroundColor: '#fff',
+              borderRadius: 10,
+              border: '1px solid #EAECEF',
+              boxShadow: '0 6px 18px rgba(0,0,0,0.12)',
+              zIndex: 999999,
+            }}
+          >
+            <View style={{ paddingVertical: 6 }}>
+              {filteredClientsForMenu.map((c) => {
+                const key = clientKey(c);
+                const selected = selectedClientKey === key;
+                const primary =
+                  activeClientField === 'clientName'
+                    ? (c.name || '—')
+                    : activeClientField === 'contactName'
+                      ? (c.contactName || '—')
+                      : (c.contactEmail || '—');
+                const right1 = activeClientField === 'clientName' ? (c.contactName || '—') : (c.name || '—');
+                const right2 = activeClientField === 'contactEmail' ? (c.contactName || '—') : (c.contactEmail || '—');
+                return (
+                  <TouchableOpacity
+                    key={key}
+                    style={{ paddingVertical: 10, paddingHorizontal: 12, backgroundColor: selected ? '#EAEAFF' : 'transparent' }}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      setSelectedClientKey(key);
+                      setShowClientMenu(false);
+                      setClientDropdownRect(null);
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: selected ? '#6C5CE7' : '#2D3436' }} numberOfLines={1}>
+                        {primary}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: '#95A5A6', maxWidth: 160, textAlign: 'right' }} numberOfLines={1}>
+                        {right1}
+                      </Text>
+                      <Text style={{ fontSize: 12, color: '#B2BEC3', maxWidth: 180, textAlign: 'right' }} numberOfLines={1}>
+                        {right2}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </div>,
+          document.body
+        )}
+
+      {Platform.OS === 'web' &&
+        showSkuMenu &&
+        skuDropdownRect &&
+        typeof document !== 'undefined' &&
+        document.body &&
+        createPortal(
+          <div
+            id="create-engagement-sku-menu"
+            style={{
+              position: 'absolute',
+              left: skuDropdownRect.x,
+              top: skuDropdownRect.y + skuDropdownRect.height + 4,
+              width: skuDropdownRect.width,
+              maxHeight: 280,
+              overflow: 'auto',
+              backgroundColor: '#fff',
+              borderRadius: 10,
+              border: '1px solid #EAECEF',
+              boxShadow: '0 6px 18px rgba(0,0,0,0.12)',
+              zIndex: 999999,
+            }}
+          >
+            <View style={{ paddingVertical: 6 }}>
+              {selectableSkus.map((sku) => (
+                <TouchableOpacity
+                  key={sku.id}
+                  style={{ paddingVertical: 10, paddingHorizontal: 12, backgroundColor: selectedSkuId === sku.id ? '#EAEAFF' : 'transparent' }}
+                  onPress={() => {
+                    setSelectedSkuId(sku.id);
+                    setShowSkuMenu(false);
+                    setSkuDropdownRect(null);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{ fontSize: 14, fontWeight: selectedSkuId === sku.id ? '700' : '600', color: selectedSkuId === sku.id ? '#6C5CE7' : '#2D3436' }} numberOfLines={1}>
+                    {sku.name}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </div>,
+          document.body
+        )}
+
+      {Platform.OS !== 'web' ? (
+        <>
+          <Modal
+            visible={showClientMenu && clientDropdownRect !== null}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowClientMenu(false)}
+          >
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowClientMenu(false)} />
+            {clientDropdownRect && (
+              <View
+                style={{
+                  position: 'absolute',
+                  left: clientDropdownRect.x,
+                  top: clientDropdownRect.y + clientDropdownRect.height + 4,
+                  width: Math.min(clientDropdownRect.width, 420),
+                  maxHeight: 280,
+                  backgroundColor: '#fff',
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: '#EAECEF',
+                  shadowColor: '#000',
+                  shadowOpacity: 0.12,
+                  shadowRadius: 12,
+                  shadowOffset: { width: 0, height: 6 },
+                  elevation: 10,
+                }}
+              >
+                <ScrollView contentContainerStyle={{ paddingVertical: 6 }} nestedScrollEnabled keyboardShouldPersistTaps="handled">
+                  {filteredClientsForMenu.map((c) => {
+                    const key = clientKey(c);
+                    const selected = selectedClientKey === key;
+                    const primary =
+                      activeClientField === 'clientName'
+                        ? (c.name || '—')
+                        : activeClientField === 'contactName'
+                          ? (c.contactName || '—')
+                          : (c.contactEmail || '—');
+                    const right1 = activeClientField === 'clientName' ? (c.contactName || '—') : (c.name || '—');
+                    const right2 = activeClientField === 'contactEmail' ? (c.contactName || '—') : (c.contactEmail || '—');
+                    return (
+                      <TouchableOpacity
+                        key={key}
+                        style={{ paddingVertical: 10, paddingHorizontal: 12, backgroundColor: selected ? '#EAEAFF' : 'transparent' }}
+                        activeOpacity={0.7}
+                        onPress={() => {
+                          setSelectedClientKey(key);
+                          setShowClientMenu(false);
+                          setClientDropdownRect(null);
+                        }}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                          <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: selected ? '#6C5CE7' : '#2D3436' }} numberOfLines={1}>
+                            {primary}
+                          </Text>
+                          <Text style={{ fontSize: 12, color: '#95A5A6', maxWidth: 160, textAlign: 'right' }} numberOfLines={1}>
+                            {right1}
+                          </Text>
+                          <Text style={{ fontSize: 12, color: '#B2BEC3', maxWidth: 180, textAlign: 'right' }} numberOfLines={1}>
+                            {right2}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            )}
+          </Modal>
+
+          <Modal
+            visible={showSkuMenu && skuDropdownRect !== null}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowSkuMenu(false)}
+          >
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setShowSkuMenu(false)} />
+            {skuDropdownRect && (
+              <View
+                style={{
+                  position: 'absolute',
+                  left: skuDropdownRect.x,
+                  top: skuDropdownRect.y + skuDropdownRect.height + 4,
+                  width: skuDropdownRect.width,
+                  maxHeight: 280,
+                  backgroundColor: '#fff',
+                  borderRadius: 10,
+                  borderWidth: 1,
+                  borderColor: '#EAECEF',
+                  shadowColor: '#000',
+                  shadowOpacity: 0.12,
+                  shadowRadius: 12,
+                  shadowOffset: { width: 0, height: 6 },
+                  elevation: 10,
+                }}
+              >
+                <ScrollView contentContainerStyle={{ paddingVertical: 6 }} nestedScrollEnabled>
+                  {selectableSkus.map((sku) => (
+                    <TouchableOpacity
+                      key={sku.id}
+                      style={{ paddingVertical: 10, paddingHorizontal: 12, backgroundColor: selectedSkuId === sku.id ? '#EAEAFF' : 'transparent' }}
+                      onPress={() => {
+                        setSelectedSkuId(sku.id);
+                        setShowSkuMenu(false);
+                        setSkuDropdownRect(null);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={{ fontSize: 14, fontWeight: selectedSkuId === sku.id ? '700' : '600', color: selectedSkuId === sku.id ? '#6C5CE7' : '#2D3436' }} numberOfLines={1}>
+                        {sku.name}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              </View>
+            )}
+          </Modal>
+        </>
+      ) : null}
+
+      {/* Client menu is now anchored under the active input (showClientMenu) */}
 
       {(loading && orders.length === 0) ? (
         <View style={styles.emptyContainer}>
@@ -1238,6 +2160,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
     overflow: 'visible' as const,
+  },
+  inviteButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: '#EAEAFF',
+  },
+  inviteButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6C5CE7',
   },
   groupWrap: { position: 'relative' as const, overflow: 'visible' as const },
   sortButton: {

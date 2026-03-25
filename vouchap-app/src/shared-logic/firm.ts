@@ -307,27 +307,34 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
   if (error || !data) return null;
   const row = data as any;
 
-  // SKU 名称与描述：firm 成员直读 skus；client 走 getSkuById（含 RPC 回退）
-  let skuName: string | null = null;
-  let skuDescription: string | null = null;
-  if (row.sku_id) {
-    const skuHdr = await getSkuById(row.sku_id as string, row.id as string);
-    if (skuHdr) {
-      skuName = skuHdr.name ?? null;
-      skuDescription = skuHdr.description ?? null;
-    }
-  }
-
   const countryLabelId = row.tax_country_label_id as string | null;
   const scenarioLabelId = row.tax_scenario_label_id as string | null;
   const seasonLabelId = row.tax_season_label_id as string | null;
   const customLabelIds = (Array.isArray(row.custom_label_ids) ? row.custom_label_ids : []) as string[];
-  const labelNameMap = await getOrderLabelNameMap([
+  const labelIds = [
     ...(countryLabelId ? [countryLabelId] : []),
     ...(scenarioLabelId ? [scenarioLabelId] : []),
     ...(seasonLabelId ? [seasonLabelId] : []),
     ...customLabelIds,
+  ];
+
+  const [skuHdr, labelNameMap, managerRes] = await Promise.all([
+    row.sku_id ? getSkuById(row.sku_id as string, row.id as string) : Promise.resolve(null),
+    getOrderLabelNameMap(labelIds),
+    supabase
+      .schema('firm')
+      .from('order_managers')
+      .select('manager_user_id')
+      .eq('order_id', row.id)
+      .maybeSingle(),
   ]);
+
+  let skuName: string | null = null;
+  let skuDescription: string | null = null;
+  if (skuHdr) {
+    skuName = skuHdr.name ?? null;
+    skuDescription = skuHdr.description ?? null;
+  }
 
   const resolvedCountry = countryLabelId ? (labelNameMap[countryLabelId] ?? null) : null;
   const resolvedScenario = scenarioLabelId ? (labelNameMap[scenarioLabelId] ?? null) : null;
@@ -337,15 +344,8 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
   const seasonLabelParsed = seasonLabelName ? parseInt(seasonLabelName, 10) : NaN;
   const taxSeasonYear = Number.isFinite(seasonLabelParsed) ? seasonLabelParsed : (typeof row.tax_season_year === 'number' ? row.tax_season_year : null);
 
-  let managerUserId: string | null = null;
+  const managerUserId = (managerRes.data as any)?.manager_user_id ?? null;
   let managerName: string | null = null;
-  const { data: managerRow } = await supabase
-    .schema('firm')
-    .from('order_managers')
-    .select('manager_user_id')
-    .eq('order_id', row.id)
-    .maybeSingle();
-  managerUserId = (managerRow as any)?.manager_user_id ?? null;
   if (managerUserId) {
     const { data: managerUserRow } = await supabase
       .from('users')
@@ -860,17 +860,47 @@ export interface FirmClientWithDetails extends FirmClient {
   isPendingClaim?: boolean;
 }
 
-/** Firm 空间：获取在服客户列表（含名称、联系人、服务负责人、自动计算 displayStatus、最近跟进时间）；含待认领 invitee（无 client space 的订单联系人） */
-export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<FirmClientWithDetails[]> {
+/** One round-trip for orders used by client roster + counts (avoids a second full firm.orders fetch). */
+const FIRM_ORDERS_FOR_CLIENT_ROSTER_SELECT =
+  'id, client_space_id, client_id, status, due_at, created_at, updated_at';
+
+/** Firm engagements list row — explicit columns instead of select('*'). */
+const FIRM_ORDER_LIST_SELECT =
+  'id, firm_space_id, client_space_id, client_id, sku_id, status, tax_country, tax_scenario, tags, tax_country_label_id, tax_scenario_label_id, tax_season_label_id, custom_label_ids, tax_season_year, due_at, created_at, updated_at, created_by';
+
+/** Single fetch: client rows + order count maps (replaces parallel getFirmOrders for Clients / Insights). */
+export type FirmClientsListBundle = {
+  clients: FirmClientWithDetails[];
+  orderCountByClient: Record<string, number>;
+  orderCountByPendingClient: Record<string, number>;
+  orderCountByStatus: Record<string, number>;
+};
+
+async function buildFirmClientsListBundle(firmSpaceId: string): Promise<FirmClientsListBundle> {
   const [clients, ordersAll] = await Promise.all([
     getFirmClients(firmSpaceId),
     supabase
       .schema('firm')
       .from('orders')
-      .select('client_space_id, client_id')
+      .select(FIRM_ORDERS_FOR_CLIENT_ROSTER_SELECT)
       .eq('firm_space_id', firmSpaceId),
   ]);
   const ordersData = ordersAll.data || [];
+
+  const orderCountByClient: Record<string, number> = {};
+  const orderCountByPendingClient: Record<string, number> = {};
+  const orderCountByStatus: Record<string, number> = {};
+  ordersData.forEach((o: any) => {
+    if (o.client_space_id) {
+      orderCountByClient[o.client_space_id] = (orderCountByClient[o.client_space_id] ?? 0) + 1;
+    }
+    if (!o.client_space_id && o.client_id) {
+      orderCountByPendingClient[o.client_id] = (orderCountByPendingClient[o.client_id] ?? 0) + 1;
+    }
+    const st = (o.status ?? 'unknown') as string;
+    orderCountByStatus[st] = (orderCountByStatus[st] ?? 0) + 1;
+  });
+
   const pendingInviteeIds = new Set<string>();
   ordersData.forEach((o: any) => {
     if (o.client_space_id == null && o.client_id) pendingInviteeIds.add(o.client_id);
@@ -881,7 +911,14 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
   const clientSpaceIdsFromClients = new Set(clients.map((c) => c.clientSpaceId));
   const orphanClientSpaceIds = [...orderClientSpaceIds].filter((id) => !clientSpaceIdsFromClients.has(id));
 
-  if (clients.length === 0 && pendingInvitees.length === 0 && orphanClientSpaceIds.length === 0) return [];
+  if (clients.length === 0 && pendingInvitees.length === 0 && orphanClientSpaceIds.length === 0) {
+    return {
+      clients: [],
+      orderCountByClient,
+      orderCountByPendingClient,
+      orderCountByStatus,
+    };
+  }
 
   // Pending rows use clientSpaceId ''; never pass '' into spaces / user_spaces .in('id', ...) or lookups break and names fall back to UUID.
   const spaceIds = [
@@ -889,14 +926,9 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
   ];
   const ctx = getTaxSeasonContext();
 
-  const [spacesRes, userSpacesRes, ordersRes, orderManagersRes, followUpsRes] = await Promise.all([
+  const [spacesRes, userSpacesRes, orderManagersRes, followUpsRes] = await Promise.all([
     spaceIds.length > 0 ? supabase.from('spaces').select('id, name').in('id', spaceIds) : Promise.resolve({ data: [] as any[] }),
     spaceIds.length > 0 ? supabase.from('user_spaces').select('space_id, user_id, is_admin').in('space_id', spaceIds) : Promise.resolve({ data: [] as any[] }),
-    supabase
-      .schema('firm')
-      .from('orders')
-      .select('id, client_space_id, client_id, status, due_at, created_at, updated_at')
-      .eq('firm_space_id', firmSpaceId),
     supabase.schema('firm').from('order_managers').select('order_id, manager_user_id').eq('firm_space_id', firmSpaceId),
     supabase
       .schema('firm')
@@ -930,7 +962,7 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     if (pick) spaceToUserId[sid] = pick.user_id;
   });
 
-  const orders: OrderForStatus[] = (ordersRes.data || []).map((r: any) => ({
+  const orders: OrderForStatus[] = ordersData.map((r: any) => ({
     id: r.id,
     clientSpaceId: r.client_space_id,
     clientId: r.client_id ?? null,
@@ -1089,7 +1121,22 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
   // Visibility: rely on RLS (firm.clients → can_access_client, firm.orders → can_access_order).
   // Do not filter by firm.order_managers here — permission-role users may see engagements without being
   // listed as manager; a client-side assignee-only filter would hide those rows while orders still appear.
-  return [...detailedClients, ...orphanRows, ...pendingRows];
+  return {
+    clients: [...detailedClients, ...orphanRows, ...pendingRows],
+    orderCountByClient,
+    orderCountByPendingClient,
+    orderCountByStatus,
+  };
+}
+
+export async function getFirmClientsListBundle(firmSpaceId: string): Promise<FirmClientsListBundle> {
+  return buildFirmClientsListBundle(firmSpaceId);
+}
+
+/** Firm 空间：获取在服客户列表（含名称、联系人、服务负责人、自动计算 displayStatus、最近跟进时间）；含待认领 invitee（无 client space 的订单联系人） */
+export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<FirmClientWithDetails[]> {
+  const { clients } = await buildFirmClientsListBundle(firmSpaceId);
+  return clients;
 }
 
 /** Firm 空间：获取订单列表（可选按 client_space 或 pending firm.clients id 筛选） */
@@ -1101,7 +1148,7 @@ export async function getFirmOrders(
   let q = supabase
     .schema('firm')
     .from('orders')
-    .select('*')
+    .select(FIRM_ORDER_LIST_SELECT)
     .eq('firm_space_id', firmSpaceId);
   if (clientSpaceId) q = q.eq('client_space_id', clientSpaceId);
   if (firmClientId) q = q.eq('client_id', firmClientId);
@@ -1140,8 +1187,10 @@ export interface FirmOrderWithDetails extends FirmOrder {
   skuName: string;
   /** 来源：如 Manual、Invite 等，暂无 DB 字段时默认 Manual */
   source: string;
-  /** 负责人：创建人姓名或 email，无则 — */
+  /** 经理显示名（优先 name，其次 email）；无则 null */
   assigneeName: string | null;
+  /** 创建人显示名（优先 name，其次 email）；无则 null */
+  creatorName?: string | null;
   /** 经理 user id（firm.order_managers） */
   managerUserId?: string | null;
   /** 报税分类：全部从 order_labels(id) 解析得到 */
@@ -1155,9 +1204,10 @@ export interface FirmOrderWithDetails extends FirmOrder {
 /** Firm 空间：获取订单列表（含客户名、SKU 名、来源、负责人），用于表格展示；pending 订单客户名取自 firm.clients.invitee_* */
 export async function getFirmOrdersWithDetails(
   firmSpaceId: string,
-  clientSpaceId?: string
+  clientSpaceId?: string,
+  firmClientId?: string
 ): Promise<FirmOrderWithDetails[]> {
-  const orders = await getFirmOrders(firmSpaceId, clientSpaceId);
+  const orders = await getFirmOrders(firmSpaceId, clientSpaceId, firmClientId);
   if (orders.length === 0) return [];
 
   const clientSpaceIds = [...new Set(orders.map((o) => o.clientSpaceId).filter(Boolean))] as string[];
@@ -1243,6 +1293,10 @@ export async function getFirmOrdersWithDetails(
     const assigneeName = managerUserId
       ? (userMap[managerUserId]?.name || userMap[managerUserId]?.email || null)
       : null;
+    const creatorUserId = o.createdBy ?? null;
+    const creatorName = creatorUserId
+      ? (userMap[creatorUserId]?.name || userMap[creatorUserId]?.email || null)
+      : null;
     const countryFromId = o.taxCountryLabelId ? (orderLabelMap[o.taxCountryLabelId] ?? null) : null;
     const scenarioFromId = o.taxScenarioLabelId ? (orderLabelMap[o.taxScenarioLabelId] ?? null) : null;
     const customFromIds = (Array.isArray(o.customLabelIds) ? o.customLabelIds : [])
@@ -1263,6 +1317,7 @@ export async function getFirmOrdersWithDetails(
       skuName: skuMap[o.skuId] ?? o.skuId,
       source: 'Manual',
       assigneeName,
+      creatorName,
       managerUserId,
       taxCountry: countryFromId,
       taxScenario: scenarioFromId,
@@ -1381,6 +1436,7 @@ export async function createFirmOrder(
   dueAt: string | null = null
 ): Promise<{ id: string | null; error: Error | null }> {
   const { data: user } = await supabase.auth.getUser();
+
   const { data, error } = await supabase
     .schema('firm')
     .from('orders')
@@ -1456,7 +1512,9 @@ export async function confirmOrderAndCreateProjectTodos(
 
   let projectId: string | null = projectRow?.id ?? null;
   if (projectErr) {
-    if (projectErr.code === '23505') {
+    const isUniqueConflict =
+      (projectErr as any).code === '23505' || (projectErr as any).status === 409 || (projectErr as any).statusCode === 409;
+    if (isUniqueConflict) {
       // unique_violation: project already exists, fetch id by order_id
       const { data: existing } = await supabase.from('projects').select('id').eq('order_id', order.id).maybeSingle();
       projectId = (existing as any)?.id ?? null;
@@ -1887,7 +1945,10 @@ export async function getFirmProjects(
 }
 
 /** 项目详情（基础信息 + 统计） */
-export async function getProjectDetail(orderId: string): Promise<{
+export async function getProjectDetail(
+  orderId: string,
+  opts?: { order?: FirmOrderById | null }
+): Promise<{
   project: FirmProjectInfo | null;
   order: FirmOrderById | null;
   clientName?: string;
@@ -1895,8 +1956,9 @@ export async function getProjectDetail(orderId: string): Promise<{
   taskTotal: number;
   taskCompleted: number;
 } | null> {
+  const orderPromise = opts?.order !== undefined ? Promise.resolve(opts.order) : getOrderById(orderId);
   const [order, project, todos] = await Promise.all([
-    getOrderById(orderId),
+    orderPromise,
     getProjectByOrderId(orderId),
     getOrderProjects(orderId),
   ]);
@@ -1905,13 +1967,14 @@ export async function getProjectDetail(orderId: string): Promise<{
   const nonCanceled = taskTodos.filter((t: any) => t.status !== 'canceled' && t.status !== 'cancelled');
   const taskTotal = nonCanceled.length;
   const taskCompleted = nonCanceled.filter((t: any) => t.status === 'success' || t.status === 'completed').length;
-  let clientName: string | undefined;
-  let skuName: string | undefined;
-  if (order.clientSpaceId && order.firmSpaceId) {
-    clientName = (await getClientDisplayName(order.clientSpaceId, order.firmSpaceId)) ?? undefined;
-  }
-  const { data: sku } = await supabase.schema('firm').from('skus').select('name').eq('id', order.skuId).maybeSingle();
-  skuName = (sku as any)?.name;
+  const [clientNameRaw, skuRes] = await Promise.all([
+    order.clientSpaceId && order.firmSpaceId
+      ? getClientDisplayName(order.clientSpaceId, order.firmSpaceId)
+      : Promise.resolve(null),
+    supabase.schema('firm').from('skus').select('name').eq('id', order.skuId).maybeSingle(),
+  ]);
+  const clientName = clientNameRaw ?? undefined;
+  const skuName = (skuRes.data as any)?.name as string | undefined;
   return {
     project: project ?? null,
     order,
