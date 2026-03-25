@@ -28,11 +28,9 @@ import {
   deleteFirmClients,
   deleteFirmPendingClients,
   getFirmSkus,
-  getFirmSpaceMembers,
-  updateFirmClientAssignee,
 } from '@/lib/firm';
 import FirmAddClientModal from '@/components/FirmAddClientModal';
-import type { FirmClientWithDetails, FirmSku, FirmSpaceMember } from '@/lib/firm';
+import type { FirmClientWithDetails, FirmSku } from '@/lib/firm';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
 import DataTable, { type DataTableColumn, WEB_POPOVER } from '@/components/DataTable';
 import QRCode from 'react-native-qrcode-svg';
@@ -224,11 +222,6 @@ export default function FirmClientsScreen() {
   const [updatingInviteId, setUpdatingInviteId] = useState<string | null>(null);
   const [deletingInviteId, setDeletingInviteId] = useState<string | null>(null);
   const [inviteFromHistory, setInviteFromHistory] = useState(false);
-  const [showAssignPicker, setShowAssignPicker] = useState(false);
-  const [assignMembers, setAssignMembers] = useState<FirmSpaceMember[]>([]);
-  const [assignSelectedMemberId, setAssignSelectedMemberId] = useState<string | null>(null);
-  const [assignMembersLoading, setAssignMembersLoading] = useState(false);
-  const [assignSaving, setAssignSaving] = useState(false);
   const [isFirmAdmin, setIsFirmAdmin] = useState(false);
   const qrRef = useRef<any | null>(null);
   const [showAddClientModal, setShowAddClientModal] = useState(false);
@@ -450,36 +443,6 @@ export default function FirmClientsScreen() {
     setSelectedClientIds([]);
     await loadData(true);
   }, [selectedClientIds, clients, loadData]);
-
-  const handleOpenAssignPicker = useCallback(async () => {
-    if (selectedClientIds.length === 0 || !firmSpaceId) return;
-    setShowAssignPicker(true);
-    setAssignSelectedMemberId(null);
-    setAssignMembersLoading(true);
-    setAssignMembers([]);
-    const members = await getFirmSpaceMembers(firmSpaceId);
-    setAssignMembers(members);
-    setAssignMembersLoading(false);
-  }, [selectedClientIds.length, firmSpaceId]);
-
-  const handleAssignPickerDone = useCallback(async () => {
-    if (selectedClientIds.length === 0) return;
-    setAssignSaving(true);
-    let lastError: string | null = null;
-    for (const clientId of selectedClientIds) {
-      const { error } = await updateFirmClientAssignee(
-        clientId,
-        assignSelectedMemberId,
-        firmSpaceId ?? undefined
-      );
-      if (error) lastError = error.message;
-    }
-    setAssignSaving(false);
-    setShowAssignPicker(false);
-    setSelectedClientIds([]);
-    await loadData(true);
-    if (lastError && typeof window !== 'undefined') window.alert(lastError);
-  }, [selectedClientIds, assignSelectedMemberId, firmSpaceId, loadData]);
 
   const handleCopyInviteLink = useCallback(async () => {
     if (!inviteLink) return;
@@ -957,7 +920,6 @@ export default function FirmClientsScreen() {
               )}
               <Text style={styles.bulkBtnText}>Delete</Text>
             </TouchableOpacity>
-            {/* Assign moved to Engagements (order manager). */}
             <TouchableOpacity
               style={styles.bulkBtnClear}
               onPress={() => setSelectedClientIds([])}
@@ -1414,97 +1376,6 @@ export default function FirmClientsScreen() {
           </div>,
           document.body
         )}
-      {/* Assign 负责人浮层（复用 Depends on 选单样式） */}
-      {showAssignPicker && (
-        <View style={styles.assignPickerOverlay} pointerEvents="box-none">
-          <Pressable
-            style={styles.assignPickerBackdrop}
-            onPress={() => !assignSaving && setShowAssignPicker(false)}
-          />
-          <View style={styles.assignPickerCard}>
-            <Text style={styles.assignPickerTitle}>Assign service owner</Text>
-            <Text style={styles.assignPickerSubtitle}>
-              Select a member for {selectedClientIds.length} selected client(s):
-            </Text>
-            <Pressable
-              style={[
-                styles.assignPickerRow,
-                styles.assignPickerNoneRow,
-                assignSelectedMemberId === null && styles.assignPickerRowActive,
-              ]}
-              onPress={() => setAssignSelectedMemberId(null)}
-            >
-              <Text
-                style={[
-                  styles.assignPickerRowText,
-                  assignSelectedMemberId === null && styles.assignPickerRowTextActive,
-                ]}
-              >
-                None
-              </Text>
-              {assignSelectedMemberId === null ? (
-                <Ionicons name="checkmark-circle" size={16} color="#6C5CE7" />
-              ) : null}
-            </Pressable>
-            <ScrollView style={styles.assignPickerList} nestedScrollEnabled>
-              {assignMembersLoading ? (
-                <View style={{ paddingVertical: 16, alignItems: 'center' }}>
-                  <ActivityIndicator size="small" color="#6C5CE7" />
-                </View>
-              ) : (
-                assignMembers.map((m) => {
-                  const selected = assignSelectedMemberId === m.id;
-                  const label = [m.name, m.email].filter(Boolean).join(' · ') || m.id;
-                  return (
-                    <Pressable
-                      key={m.id}
-                      style={[
-                        styles.assignPickerRow,
-                        selected && styles.assignPickerRowActive,
-                      ]}
-                      onPress={() => setAssignSelectedMemberId(m.id)}
-                    >
-                      <Text
-                        style={[
-                          styles.assignPickerRowText,
-                          selected && styles.assignPickerRowTextActive,
-                        ]}
-                        numberOfLines={1}
-                      >
-                        {label}
-                      </Text>
-                      {selected ? (
-                        <Ionicons name="checkmark-circle" size={16} color="#6C5CE7" />
-                      ) : null}
-                    </Pressable>
-                  );
-                })
-              )}
-            </ScrollView>
-            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', gap: 12, marginTop: 8 }}>
-              <TouchableOpacity
-                style={styles.assignPickerSecondaryBtn}
-                onPress={() => !assignSaving && setShowAssignPicker(false)}
-                disabled={assignSaving}
-              >
-                <Text style={styles.assignPickerSecondaryText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.assignPickerDoneBtn}
-                onPress={handleAssignPickerDone}
-                disabled={assignSaving}
-                activeOpacity={0.7}
-              >
-                {assignSaving ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.assignPickerDoneText}>Done</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      )}
     </View>
   );
 }
@@ -2289,91 +2160,4 @@ const styles = StyleSheet.create({
   inviteHistoryCellTextRight: {
     textAlign: 'right',
   },
-  // Assign 负责人浮层（与 TaxFilingTodosView deps picker 一致）
-  assignPickerOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    justifyContent: 'center',
-    alignItems: 'center',
-    zIndex: 20,
-  },
-  assignPickerBackdrop: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.08)',
-  },
-  assignPickerCard: {
-    maxWidth: 420,
-    width: '85%',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  assignPickerTitle: {
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#2D3436',
-    marginTop: 4,
-    marginBottom: 10,
-    lineHeight: 22,
-  },
-  assignPickerSubtitle: {
-    fontSize: 12,
-    color: '#95A5A6',
-    fontWeight: '400',
-    marginBottom: 14,
-  },
-  assignPickerList: { maxHeight: 460, marginBottom: 12 },
-  assignPickerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: 'transparent',
-    backgroundColor: '#F8F9FA',
-    marginBottom: 2,
-  },
-  assignPickerNoneRow: { marginTop: 2, marginBottom: 4 },
-  assignPickerRowActive: {
-    borderColor: '#6C5CE7',
-    backgroundColor: 'rgba(108,92,231,0.08)',
-  },
-  assignPickerRowText: {
-    fontSize: 13,
-    lineHeight: 18,
-    color: '#636E72',
-    fontWeight: '500',
-    flex: 1,
-  },
-  assignPickerRowTextActive: { color: '#6C5CE7' },
-  assignPickerDoneBtn: {
-    alignSelf: 'flex-end',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    backgroundColor: '#6C5CE7',
-    borderRadius: 8,
-  },
-  assignPickerDoneText: { fontSize: 13, color: '#FFF', fontWeight: '600' },
-  assignPickerSecondaryBtn: {
-    alignSelf: 'flex-end',
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    backgroundColor: '#F1F3F5',
-  },
-  assignPickerSecondaryText: { fontSize: 13, color: '#636E72', fontWeight: '500' },
 });

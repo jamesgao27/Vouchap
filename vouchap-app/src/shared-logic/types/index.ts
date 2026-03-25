@@ -470,7 +470,7 @@ export interface FirmClient {
   inviteeContactName?: string | null;
   /** 自定义标签（文本数组）；仅在客户详情页编辑 */
   labels?: string[];
-  /** Optional; list UI resolves assignee from firm.order_managers on that client’s orders */
+  /** Derived: primary order manager user id from visible engagements (not a DB column on firm.clients). */
   assignedUserId?: string | null;
   /** 最近跟进时间 */
   lastFollowUpAt?: string | null;

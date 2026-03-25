@@ -852,7 +852,7 @@ export interface FirmClientWithDetails extends FirmClient {
   serviceStartAt: string | null;
   /** 自动计算的状态标签（见 docs/CRM-CLIENT-STATUS.md） */
   displayStatus: ClientDisplayStatus;
-  /** 服务负责人姓名（来自 order_managers，多人时拼接） */
+  /** 服务负责人：来自当前用户 RLS 可见订单上的 order_managers（多人时拼接） */
   assigneeName: string | null;
   /** 服务负责人 email（多人时取第一个） */
   assigneeEmail: string | null;
@@ -988,7 +988,9 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
   const inviteeAssigneeIds = Object.values(inviteeToAssigneeId);
   const contactUserIds = [...new Set(Object.values(spaceToUserId))];
   const assigneeUserIds = [...new Set(Object.values(orderIdToManagerId))];
-  const allUserIds = [...new Set([...contactUserIds, ...assigneeUserIds, ...inviteeAssigneeIds])];
+  const allUserIds = [
+    ...new Set([...contactUserIds, ...assigneeUserIds, ...inviteeAssigneeIds]),
+  ];
   let userMap: Record<string, { name: string | null; email: string }> = {};
   if (allUserIds.length > 0) {
     const usersRes = await supabase.from('users').select('id, name, email').in('id', allUserIds);
@@ -1002,7 +1004,8 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     const space = spaceMap[c.clientSpaceId];
     const contactUserId = spaceToUserId[c.clientSpaceId];
     const contactUser = contactUserId ? userMap[contactUserId] : null;
-    const assigneeIds = clientSpaceToUserIds[c.clientSpaceId] || [];
+    const assigneeIdsFromOrders = clientSpaceToUserIds[c.clientSpaceId] || [];
+    const assigneeIds = assigneeIdsFromOrders;
     const assigneeNames = assigneeIds.map((id) => userMap[id]?.name).filter(Boolean) as string[];
     const assigneeName = assigneeNames.length > 0 ? assigneeNames.join('、') : null;
     const assigneeEmailVal = assigneeIds[0] ? (userMap[assigneeIds[0]]?.email ?? null) : null;
@@ -1012,7 +1015,7 @@ export async function getFirmClientsWithDetails(firmSpaceId: string): Promise<Fi
     const contactEmail = contactUser?.email ?? null;
     return {
       ...c,
-      assignedUserId: assigneeIds[0] ?? null,
+      assignedUserId: c.assignedUserId ?? assigneeIdsFromOrders[0] ?? null,
       lastFollowUpAt: clientSpaceToLastFollowUp[c.clientSpaceId] ?? null,
       name,
       contactName,
@@ -3005,7 +3008,7 @@ export async function isFirmSpaceAdmin(firmSpaceId: string): Promise<boolean> {
   return (data as { is_admin: boolean }).is_admin === true;
 }
 
-/** Firm 空间成员（用于 Assign 选单）：id=user_id, name/email 来自 public.users */
+/** Firm 空间成员（例如 Engagements 选 order manager）：id=user_id, name/email 来自 public.users */
 export type FirmSpaceMember = { id: string; name: string | null; email: string | null };
 
 /** 获取 Firm 空间下所有成员（user_spaces + users），用于负责人选单 */
@@ -3026,89 +3029,6 @@ export async function getFirmSpaceMembers(firmSpaceId: string): Promise<FirmSpac
     name: u.name ?? null,
     email: u.email ?? null,
   }));
-}
-
-/** Sets the same manager on all orders for a client (claimed or pending) via firm.order_managers. */
-async function setOrderManagersForOrders(
-  firmSpaceId: string,
-  orderIds: string[],
-  managerUserId: string | null
-): Promise<{ error: Error | null }> {
-  if (orderIds.length === 0) return { error: null };
-  if (managerUserId) {
-    const rows = orderIds.map((orderId) => ({
-      firm_space_id: firmSpaceId,
-      order_id: orderId,
-      manager_user_id: managerUserId,
-      created_at: new Date().toISOString(),
-    }));
-    const { error } = await supabase.schema('firm').from('order_managers').upsert(rows, { onConflict: 'order_id' });
-    return { error: error ? new Error(error.message) : null };
-  }
-  const { error } = await supabase.schema('firm').from('order_managers').delete().in('order_id', orderIds);
-  return { error: error ? new Error(error.message) : null };
-}
-
-/** 更新客户/Invitee 负责人：同步到该客户下全部订单的 order_managers。clientId 为 firm.clients.id 或 "orphan-{client_space_id}"（无 clients 行时） */
-export async function updateFirmClientAssignee(
-  clientId: string,
-  assignedUserId: string | null,
-  firmSpaceId?: string
-): Promise<{ error: Error | null }> {
-  if (clientId.startsWith('orphan-') && firmSpaceId) {
-    const csId = clientId.slice(7);
-    const { data: orderRows, error: oErr } = await supabase
-      .schema('firm')
-      .from('orders')
-      .select('id')
-      .eq('firm_space_id', firmSpaceId)
-      .eq('client_space_id', csId);
-    if (oErr) return { error: new Error(oErr.message) };
-    const orderIds = (orderRows || []).map((r: { id: string }) => r.id);
-    return setOrderManagersForOrders(firmSpaceId, orderIds, assignedUserId);
-  }
-
-  const { data: clientRow, error: clientErr } = await supabase
-    .schema('firm')
-    .from('clients')
-    .select('id, firm_space_id, client_space_id')
-    .eq('id', clientId)
-    .maybeSingle();
-
-  if (clientErr || !clientRow) {
-    return { error: clientErr ? new Error(clientErr.message) : new Error('Client not found') };
-  }
-
-  const targetFirmSpaceId = (clientRow as { firm_space_id: string }).firm_space_id;
-  if (firmSpaceId && targetFirmSpaceId !== firmSpaceId) {
-    return { error: new Error('Client not found') };
-  }
-
-  const csId = (clientRow as { client_space_id: string | null }).client_space_id;
-  let orderIds: string[] = [];
-
-  if (csId) {
-    const { data: orderRows, error: oErr } = await supabase
-      .schema('firm')
-      .from('orders')
-      .select('id')
-      .eq('firm_space_id', targetFirmSpaceId)
-      .eq('client_space_id', csId);
-    if (oErr) return { error: new Error(oErr.message) };
-    orderIds = (orderRows || []).map((r: { id: string }) => r.id);
-  } else {
-    const pk = (clientRow as { id: string }).id;
-    const { data: orderRows, error: oErr } = await supabase
-      .schema('firm')
-      .from('orders')
-      .select('id')
-      .eq('firm_space_id', targetFirmSpaceId)
-      .eq('client_id', pk);
-    if (oErr) return { error: new Error(oErr.message) };
-    orderIds = (orderRows || []).map((r: { id: string }) => r.id);
-  }
-
-  return setOrderManagersForOrders(targetFirmSpaceId, orderIds, assignedUserId);
 }
 
 /** 批量删除客户（firm.clients） */
