@@ -1492,6 +1492,12 @@ export async function confirmOrderAndCreateProjectTodos(
     return { error: orderErr ? new Error(orderErr.message) : new Error('Order not found') };
   }
 
+  // Idempotency guard: only onboarding orders should trigger sku->project_todos materialization.
+  // If already moved beyond onboarding, skip todo generation to prevent duplicate sets.
+  if ((order as any).status !== 'onboarding') {
+    return { error: null };
+  }
+
   const { data: sku, error: skuErr } = await supabase
     .schema('firm')
     .from('skus')
@@ -1543,6 +1549,21 @@ export async function confirmOrderAndCreateProjectTodos(
     }
   }
   if (!projectId) return { error: new Error('Project not created') };
+
+  // Idempotency guard: project may already have todos from a previous successful/partial run.
+  // In that case, do NOT re-insert from sku_items; only ensure order status transition.
+  const { data: existingTodoRows, error: existingTodoErr } = await supabase
+    .from('project_todos')
+    .select('id')
+    .eq('project_id', projectId)
+    .limit(1);
+  if (existingTodoErr) {
+    return { error: new Error(existingTodoErr.message) };
+  }
+  if ((existingTodoRows?.length ?? 0) > 0) {
+    const { error: updateErr } = await updateOrderStatus(orderId, 'processing');
+    return { error: updateErr };
+  }
 
   const { data: items, error: itemsErr } = await supabase
     .schema('firm')
