@@ -454,7 +454,7 @@ export const CLIENT_DISPLAY_STATUS_LABELS: Record<ClientDisplayStatus, string> =
   new: 'New',
   to_follow_up: 'To Follow Up',
   in_service: 'In Service',
-  to_revisit: 'To Revisit',
+  to_revisit: 'Pre Season',
   churned: 'Churned',
 };
 

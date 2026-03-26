@@ -792,7 +792,7 @@ export default function FirmClientsScreen() {
           renderItem={({ item: c }) => {
             const orderCount = c.isPendingClaim
               ? (orderCountByPendingClient[c.id] ?? 0)
-              : (orderCountByClient[c.clientSpaceId] ?? 0);
+              : (orderCountByClient[c.id] ?? 0);
             const firstTag = c.labels?.[0];
             const statusLabel =
               firstTag ??
@@ -932,7 +932,7 @@ export default function FirmClientsScreen() {
           <View style={styles.bulkBar}>
             <Text style={styles.bulkText}>{selectedClientIds.length} selected</Text>
             <TouchableOpacity
-              style={[styles.bulkBtn, bulkDeleting && styles.bulkBtnDisabled]}
+              style={[styles.bulkBtn, styles.bulkBtnDanger, bulkDeleting && styles.bulkBtnDisabled]}
               onPress={handleBulkDelete}
               disabled={bulkDeleting}
               activeOpacity={0.7}
@@ -949,7 +949,7 @@ export default function FirmClientsScreen() {
               onPress={() => setSelectedClientIds([])}
               activeOpacity={0.7}
             >
-              <Text style={styles.bulkBtnClearText}>Clear</Text>
+              <Text style={styles.bulkBtnClearText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -1723,6 +1723,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#6C5CE7',
     borderRadius: 8,
   },
+  bulkBtnDanger: { backgroundColor: '#E74C3C' },
   bulkBtnDisabled: { opacity: 0.6 },
   bulkBtnText: { fontSize: 14, color: '#fff', fontWeight: '600' },
   bulkBtnClear: { paddingVertical: 8, paddingHorizontal: 12 },

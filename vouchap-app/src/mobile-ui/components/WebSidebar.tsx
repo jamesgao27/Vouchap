@@ -186,7 +186,7 @@ export default function WebSidebar() {
               onPress={() => router.push('/firm/engagements')}
               activeOpacity={0.7}
             >
-              <Ionicons name="checkbox-outline" size={22} color={pathname.startsWith('/firm/engagements') ? '#6C5CE7' : '#2D3436'} />
+              <Ionicons name="briefcase-outline" size={22} color={pathname.startsWith('/firm/engagements') ? '#6C5CE7' : '#2D3436'} />
               <Text style={[styles.navText, pathname.startsWith('/firm/engagements') && styles.navTextActive]}>Engagements</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -194,7 +194,7 @@ export default function WebSidebar() {
               onPress={() => router.push('/firm/service-catalog')}
               activeOpacity={0.7}
             >
-              <Ionicons name="document-attach-outline" size={22} color={pathname.startsWith('/firm/service-catalog') ? '#6C5CE7' : '#2D3436'} />
+              <Ionicons name="library-outline" size={22} color={pathname.startsWith('/firm/service-catalog') ? '#6C5CE7' : '#2D3436'} />
               <Text style={[styles.navText, pathname.startsWith('/firm/service-catalog') && styles.navTextActive]}>Service Catalog</Text>
             </TouchableOpacity>
           </>

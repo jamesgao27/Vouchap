@@ -1114,19 +1114,6 @@ export default function FirmEngagementsScreen() {
         <View style={styles.header}>
           <View style={styles.headerRow}>
             <TouchableOpacity
-              style={[styles.inviteButton, { marginRight: 8 }]}
-              onPress={handleOpenNewEngagementModal}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name="add-circle-outline"
-                size={18}
-                color="#6C5CE7"
-                style={{ marginRight: 4 }}
-              />
-              <Text style={styles.inviteButtonText}>Add engagement</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
               style={styles.sortButton}
               onPress={() => {
                 setShowFilterMenu(false);
@@ -1258,6 +1245,7 @@ export default function FirmEngagementsScreen() {
           <Text style={styles.emptyText}>Loading...</Text>
         </View>
       ) : (
+        <>
         <SectionList
           sections={engagementSections}
           keyExtractor={(o) => o.id}
@@ -1347,6 +1335,17 @@ export default function FirmEngagementsScreen() {
             </View>
           }
         />
+        <View style={styles.mobileBottomBar}>
+          <TouchableOpacity
+            style={styles.mobileBottomPrimaryButton}
+            onPress={handleOpenNewEngagementModal}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add-circle-outline" size={20} color="#6C5CE7" />
+            <Text style={styles.mobileBottomPrimaryText}>Add engagement</Text>
+          </TouchableOpacity>
+        </View>
+        </>
       )}
     </View>
   );
@@ -1635,7 +1634,7 @@ export default function FirmEngagementsScreen() {
               {selectedOrderIds.length} selected
             </Text>
             <TouchableOpacity
-              style={[styles.bulkBtn, bulkCancelling && styles.bulkBtnDisabled]}
+              style={[styles.bulkBtn, styles.bulkBtnDanger, bulkCancelling && styles.bulkBtnDisabled]}
               onPress={handleBulkCancel}
               disabled={bulkCancelling}
               activeOpacity={0.7}
@@ -1660,7 +1659,7 @@ export default function FirmEngagementsScreen() {
               onPress={() => setSelectedOrderIds([])}
               activeOpacity={0.7}
             >
-              <Text style={styles.bulkBtnClearText}>Clear</Text>
+              <Text style={styles.bulkBtnClearText}>Cancel</Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -2656,6 +2655,39 @@ const styles = StyleSheet.create({
   },
   listContent: { paddingHorizontal: 4, paddingTop: 0, paddingBottom: 100 },
   emptyList: { flexGrow: 1 },
+  mobileBottomBar: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    paddingTop: 8,
+    backgroundColor: 'transparent',
+    flexDirection: 'row',
+  },
+  mobileBottomPrimaryButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EAEAFF',
+    borderRadius: 12,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    ...(Platform.OS === 'android'
+      ? { elevation: 0, borderWidth: 1, borderColor: 'rgba(0,0,0,0.12)' }
+      : { elevation: 4 }),
+  },
+  mobileBottomPrimaryText: {
+    marginLeft: 8,
+    fontSize: 16,
+    color: '#6C5CE7',
+    fontWeight: '600',
+  },
   sectionHeader: {
     backgroundColor: '#E9ECEF',
     paddingVertical: 8,
@@ -2690,6 +2722,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#6C5CE7',
     borderRadius: 8,
   },
+  bulkBtnDanger: { backgroundColor: '#E74C3C' },
   bulkBtnDisabled: { opacity: 0.6 },
   bulkBtnText: { fontSize: 14, color: '#fff', fontWeight: '600' },
   bulkBtnSecondary: {

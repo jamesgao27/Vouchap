@@ -886,7 +886,7 @@ export default function HomeScreen() {
               onPress={() => router.push('/firm/service-catalog')}
               accessibilityLabel="Service Catalog"
             >
-              <Ionicons name="grid-outline" size={26} color="#6C5CE7" />
+              <Ionicons name="library-outline" size={26} color="#6C5CE7" />
             </TouchableOpacity>
           </View>
         </View>

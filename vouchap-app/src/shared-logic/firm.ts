@@ -193,21 +193,37 @@ type OrderForStatus = {
 /** 根据订单子集与报税季上下文计算展示状态（client 或 invitee 共用同一逻辑） */
 function computeDisplayStatusFromOrders(
   orders: OrderForStatus[],
-  ctx: { currentYear: number; lastYear: number; taxSeasonStarted: boolean; taxSeasonEnded: boolean }
+  ctx: { currentYear: number; lastYear: number; taxSeasonStarted: boolean; taxSeasonEnded: boolean },
+  latestFollowUpAt?: string | null
 ): ClientDisplayStatus {
   const hasAnyOrder = orders.length > 0;
-  const currentYearOrders = orders.filter((o) => getOrderYear(o) === ctx.currentYear);
-  const lastYearOrders = orders.filter((o) => getOrderYear(o) === ctx.lastYear);
-  const hasCurrentYearInProgress = currentYearOrders.some((o) =>
-    o.status === 'onboarding' || o.status === 'processing'
-  );
-  const hasLastYearCompleted = lastYearOrders.some((o) => o.status === 'completed');
-
   if (!hasAnyOrder) return 'new';
-  if (ctx.taxSeasonEnded && !hasCurrentYearInProgress) return 'churned';
-  if (hasCurrentYearInProgress) return 'in_service';
-  if (ctx.taxSeasonStarted && !hasCurrentYearInProgress) return 'to_follow_up';
-  if (hasLastYearCompleted) return 'to_revisit';
+
+  const hasProcessing = orders.some((o) => o.status === 'processing');
+  if (hasProcessing) return 'in_service';
+
+  const hasNonOnboardingOrder = orders.some((o) => o.status !== 'onboarding');
+  if (!hasNonOnboardingOrder) return 'new';
+
+  const hasCompletedHistory = orders.some((o) => o.status === 'completed');
+  const hasCurrentYearOrder = orders.some((o) => getOrderYear(o) === ctx.currentYear);
+  if (hasCompletedHistory && ctx.taxSeasonEnded && !hasCurrentYearOrder) return 'churned';
+
+  const allClosed = orders.every((o) => o.status === 'completed' || o.status === 'cancelled');
+  if (allClosed) {
+    const latestOrderAt = orders.reduce<string | null>((acc, o) => {
+      const t = o.updatedAt || o.createdAt || null;
+      if (!t) return acc;
+      if (!acc) return t;
+      return new Date(t) > new Date(acc) ? t : acc;
+    }, null);
+    if (latestOrderAt && latestFollowUpAt && new Date(latestFollowUpAt) > new Date(latestOrderAt)) {
+      // keep status code as to_revisit for compatibility; UI label maps to "Pre Season"
+      return 'to_revisit';
+    }
+    return 'to_follow_up';
+  }
+
   return 'to_follow_up';
 }
 
@@ -217,20 +233,46 @@ function computeDisplayStatusFromOrders(
 function computeClientDisplayStatus(
   clientSpaceId: string,
   orders: OrderForStatus[],
-  ctx: { currentYear: number; lastYear: number; taxSeasonStarted: boolean; taxSeasonEnded: boolean }
+  ctx: { currentYear: number; lastYear: number; taxSeasonStarted: boolean; taxSeasonEnded: boolean },
+  latestFollowUpAt?: string | null
 ): ClientDisplayStatus {
   const clientOrders = orders.filter((o) => o.clientSpaceId === clientSpaceId);
-  return computeDisplayStatusFromOrders(clientOrders, ctx);
+  return computeDisplayStatusFromOrders(clientOrders, ctx, latestFollowUpAt);
 }
 
 /** Pending firm.clients row display status: orders linked by orders.client_id */
 function computeInviteeDisplayStatus(
   pendingClientId: string,
   orders: OrderForStatus[],
-  ctx: { currentYear: number; lastYear: number; taxSeasonStarted: boolean; taxSeasonEnded: boolean }
+  ctx: { currentYear: number; lastYear: number; taxSeasonStarted: boolean; taxSeasonEnded: boolean },
+  latestFollowUpAt?: string | null
 ): ClientDisplayStatus {
   const inviteeOrders = orders.filter((o) => o.clientId === pendingClientId);
-  return computeDisplayStatusFromOrders(inviteeOrders, ctx);
+  return computeDisplayStatusFromOrders(inviteeOrders, ctx, latestFollowUpAt);
+}
+
+/** Unified client display status: all clients use firm.orders.client_id -> firm.clients.id */
+function computeClientDisplayStatusByClientId(
+  clientId: string,
+  orders: OrderForStatus[],
+  ctx: { currentYear: number; lastYear: number; taxSeasonStarted: boolean; taxSeasonEnded: boolean },
+  latestFollowUpAt?: string | null
+): ClientDisplayStatus {
+  const clientOrders = orders.filter((o) => o.clientId === clientId);
+  return computeDisplayStatusFromOrders(clientOrders, ctx, latestFollowUpAt);
+}
+
+/** Backward-compatible matcher:
+ * prefer client_id; fallback to client_space_id for legacy engagements without client_id.
+ */
+function filterOrdersForClient(
+  client: Pick<FirmClient, 'id' | 'clientSpaceId'>,
+  orders: OrderForStatus[]
+): OrderForStatus[] {
+  return orders.filter((o) => {
+    if (o.clientId) return o.clientId === client.id;
+    return !!client.clientSpaceId && o.clientSpaceId === client.clientSpaceId;
+  });
 }
 
 /** 客户端空间：获取推送给本空间的待办（订单阶段为 onboarding / processing 即有 project 的） */
@@ -871,6 +913,7 @@ const FIRM_ORDER_LIST_SELECT =
 /** Single fetch: client rows + order count maps (replaces parallel getFirmOrders for Clients / Insights). */
 export type FirmClientsListBundle = {
   clients: FirmClientWithDetails[];
+  /** key: firm.clients.id (client_id in firm.orders) */
   orderCountByClient: Record<string, number>;
   orderCountByPendingClient: Record<string, number>;
   orderCountByStatus: Record<string, number>;
@@ -891,10 +934,9 @@ async function buildFirmClientsListBundle(firmSpaceId: string): Promise<FirmClie
   const orderCountByPendingClient: Record<string, number> = {};
   const orderCountByStatus: Record<string, number> = {};
   ordersData.forEach((o: any) => {
-    if (o.client_space_id) {
-      orderCountByClient[o.client_space_id] = (orderCountByClient[o.client_space_id] ?? 0) + 1;
-    }
-    if (!o.client_space_id && o.client_id) {
+    if (o.client_id) {
+      orderCountByClient[o.client_id] = (orderCountByClient[o.client_id] ?? 0) + 1;
+      // keep compatibility: pending map now follows the same client_id keying
       orderCountByPendingClient[o.client_id] = (orderCountByPendingClient[o.client_id] ?? 0) + 1;
     }
     const st = (o.status ?? 'unknown') as string;
@@ -907,11 +949,7 @@ async function buildFirmClientsListBundle(firmSpaceId: string): Promise<FirmClie
   });
   const pendingInvitees = clients.filter((c) => !c.clientSpaceId && pendingInviteeIds.has(c.id));
 
-  const orderClientSpaceIds = new Set((ordersData as any[]).map((o: any) => o.client_space_id).filter(Boolean));
-  const clientSpaceIdsFromClients = new Set(clients.map((c) => c.clientSpaceId));
-  const orphanClientSpaceIds = [...orderClientSpaceIds].filter((id) => !clientSpaceIdsFromClients.has(id));
-
-  if (clients.length === 0 && pendingInvitees.length === 0 && orphanClientSpaceIds.length === 0) {
+  if (clients.length === 0 && pendingInvitees.length === 0) {
     return {
       clients: [],
       orderCountByClient,
@@ -922,7 +960,7 @@ async function buildFirmClientsListBundle(firmSpaceId: string): Promise<FirmClie
 
   // Pending rows use clientSpaceId ''; never pass '' into spaces / user_spaces .in('id', ...) or lookups break and names fall back to UUID.
   const spaceIds = [
-    ...new Set([...clients.map((c) => c.clientSpaceId), ...orphanClientSpaceIds].filter(Boolean)),
+    ...new Set(clients.map((c) => c.clientSpaceId).filter(Boolean)),
   ];
   const ctx = getTaxSeasonContext();
 
@@ -937,7 +975,6 @@ async function buildFirmClientsListBundle(firmSpaceId: string): Promise<FirmClie
       .eq('firm_space_id', firmSpaceId),
   ]);
 
-  const inviteeToAssigneeId: Record<string, string> = {};
   const orderIdToManagerId: Record<string, string> = {};
   (orderManagersRes.data || []).forEach((row: any) => {
     if (row.order_id && row.manager_user_id) orderIdToManagerId[row.order_id] = row.manager_user_id;
@@ -983,19 +1020,24 @@ async function buildFirmClientsListBundle(firmSpaceId: string): Promise<FirmClie
     if (!prev || new Date(at) > new Date(prev)) inviteeToLastOrderActivity[invId] = at;
   });
 
-  const clientSpaceToUserIds: Record<string, string[]> = {};
-  orders.forEach((o: any) => {
-    const managerId = orderIdToManagerId[o.id];
-    if (!managerId) return;
-    if (o.clientSpaceId) {
-      if (!clientSpaceToUserIds[o.clientSpaceId]) clientSpaceToUserIds[o.clientSpaceId] = [];
-      if (!clientSpaceToUserIds[o.clientSpaceId].includes(managerId)) {
-        clientSpaceToUserIds[o.clientSpaceId].push(managerId);
-      }
+  const clientToLatestManagerId: Record<string, string> = {};
+  const clientToLatestOrderAt: Record<string, string> = {};
+  const updateLatestManager = (clientKey: string | null, managerId: string | null, orderAt: string) => {
+    if (!clientKey || !managerId) return;
+    const prevAt = clientToLatestOrderAt[clientKey];
+    if (!prevAt || new Date(orderAt) > new Date(prevAt)) {
+      clientToLatestOrderAt[clientKey] = orderAt;
+      clientToLatestManagerId[clientKey] = managerId;
     }
-    const pendingKey = o.clientSpaceId ? null : o.clientId ?? null;
-    if (pendingKey && !inviteeToAssigneeId[pendingKey]) {
-      inviteeToAssigneeId[pendingKey] = managerId;
+  };
+  orders.forEach((o: any) => {
+    const managerId = orderIdToManagerId[o.id] ?? null;
+    const orderAt = o.updatedAt || o.createdAt || '';
+    // primary key: client_id
+    updateLatestManager(o.clientId ?? null, managerId, orderAt);
+    // legacy fallback key: client_space_id (for rows without client_id)
+    if (!o.clientId && o.clientSpaceId) {
+      updateLatestManager(`space:${o.clientSpaceId}`, managerId, orderAt);
     }
   });
 
@@ -1017,7 +1059,7 @@ async function buildFirmClientsListBundle(firmSpaceId: string): Promise<FirmClie
     }
   });
 
-  const inviteeAssigneeIds = Object.values(inviteeToAssigneeId);
+  const inviteeAssigneeIds = Object.values(clientToLatestManagerId);
   const contactUserIds = [...new Set(Object.values(spaceToUserId))];
   const assigneeUserIds = [...new Set(Object.values(orderIdToManagerId))];
   const allUserIds = [
@@ -1036,18 +1078,21 @@ async function buildFirmClientsListBundle(firmSpaceId: string): Promise<FirmClie
     const space = spaceMap[c.clientSpaceId];
     const contactUserId = spaceToUserId[c.clientSpaceId];
     const contactUser = contactUserId ? userMap[contactUserId] : null;
-    const assigneeIdsFromOrders = clientSpaceToUserIds[c.clientSpaceId] || [];
-    const assigneeIds = assigneeIdsFromOrders;
-    const assigneeNames = assigneeIds.map((id) => userMap[id]?.name).filter(Boolean) as string[];
-    const assigneeName = assigneeNames.length > 0 ? assigneeNames.join('、') : null;
-    const assigneeEmailVal = assigneeIds[0] ? (userMap[assigneeIds[0]]?.email ?? null) : null;
-    const displayStatus = computeClientDisplayStatus(c.clientSpaceId, orders, ctx);
+    const assigneeId = clientToLatestManagerId[c.id] ?? clientToLatestManagerId[`space:${c.clientSpaceId}`] ?? null;
+    const assigneeUser = assigneeId ? userMap[assigneeId] : null;
+    const assigneeName = assigneeUser?.name ?? null;
+    const assigneeEmailVal = assigneeUser?.email ?? null;
+    const displayStatus = computeDisplayStatusFromOrders(
+      filterOrdersForClient(c, orders),
+      ctx,
+      clientSpaceToLastFollowUp[c.clientSpaceId] ?? null
+    );
     const name = space?.name?.trim() || contactUser?.name || c.clientSpaceId;
     const contactName = contactUser?.name ?? null;
     const contactEmail = contactUser?.email ?? null;
     return {
       ...c,
-      assignedUserId: c.assignedUserId ?? assigneeIdsFromOrders[0] ?? null,
+      assignedUserId: c.assignedUserId ?? assigneeId ?? null,
       lastFollowUpAt: clientSpaceToLastFollowUp[c.clientSpaceId] ?? null,
       name,
       contactName,
@@ -1062,11 +1107,16 @@ async function buildFirmClientsListBundle(firmSpaceId: string): Promise<FirmClie
 
   const pendingRows: FirmClientWithDetails[] = pendingInvitees.map((inv) => {
     const name = inv.inviteeClientName || inv.inviteeContactName || inv.inviteeEmail || 'Pending';
-    const assigneeId = inviteeToAssigneeId[inv.id] ?? null;
+    const assigneeId = clientToLatestManagerId[inv.id] ?? null;
     const assigneeUser = assigneeId ? userMap[assigneeId] : null;
     const assigneeName = assigneeUser?.name ?? null;
     const assigneeEmail = assigneeUser?.email ?? null;
-    const displayStatus = computeInviteeDisplayStatus(inv.id, orders, ctx);
+    const displayStatus = computeInviteeDisplayStatus(
+      inv.id,
+      orders,
+      ctx,
+      inviteeToLastFollowUp[inv.id] ?? null
+    );
     const lastFollowUpAt = inviteeToLastFollowUp[inv.id] ?? inviteeToLastOrderActivity[inv.id] ?? null;
     return {
       id: inv.id,
@@ -1088,41 +1138,11 @@ async function buildFirmClientsListBundle(firmSpaceId: string): Promise<FirmClie
     };
   });
 
-  const orphanRows: FirmClientWithDetails[] = orphanClientSpaceIds.map((csId) => {
-    const space = spaceMap[csId];
-    const contactUserId = spaceToUserId[csId];
-    const contactUser = contactUserId ? userMap[contactUserId] : null;
-    const assigneeIds = clientSpaceToUserIds[csId] || [];
-    const assigneeNames = assigneeIds.map((id) => userMap[id]?.name).filter(Boolean) as string[];
-    const assigneeName = assigneeNames.length > 0 ? assigneeNames.join('、') : null;
-    const assigneeEmailVal = assigneeIds[0] ? (userMap[assigneeIds[0]]?.email ?? null) : null;
-    const name = space?.name?.trim() || contactUser?.name || csId;
-    const displayStatus = computeClientDisplayStatus(csId, orders, ctx);
-    return {
-      id: 'orphan-' + csId,
-      firmSpaceId,
-      clientSpaceId: csId,
-      labels: [],
-      assignedUserId: assigneeIds[0] ?? null,
-      lastFollowUpAt: clientSpaceToLastFollowUp[csId] ?? null,
-      createdAt: undefined,
-      updatedAt: undefined,
-      name,
-      contactName: contactUser?.name ?? null,
-      contactEmail: contactUser?.email ?? null,
-      serviceStartAt: null,
-      displayStatus,
-      assigneeName,
-      assigneeEmail: assigneeEmailVal,
-      isPendingClaim: false,
-    };
-  });
-
   // Visibility: rely on RLS (firm.clients → can_access_client, firm.orders → can_access_order).
   // Do not filter by firm.order_managers here — permission-role users may see engagements without being
   // listed as manager; a client-side assignee-only filter would hide those rows while orders still appear.
   return {
-    clients: [...detailedClients, ...orphanRows, ...pendingRows],
+    clients: [...detailedClients, ...pendingRows],
     orderCountByClient,
     orderCountByPendingClient,
     orderCountByStatus,

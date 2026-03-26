@@ -50,13 +50,13 @@ const CLIENT_STATUS_CHART_COLORS: Record<string, string> = {
   'New': '#6C5CE7',
   'To follow up': '#E67E22',
   'In service': '#0298D1',
-  'To revisit': '#00B894',
+  'Pre Season': '#00B894',
   'Churned': '#636E72',
 };
 
 /** 与列表/详情标签一致的 order 状态色（按 ORDER_STATUS_LABELS 的 label 取色） */
 const ORDER_STATUS_CHART_COLORS: Record<string, string> = {
-  'Onboarding': '#6C5CE7',
+  'Onboarding': '#E67E22',
   'Processing': '#29B6F6',
   'Completed': '#00875A',
   'Cancelled': '#636E72',
@@ -66,7 +66,7 @@ const CLIENT_STATUS_LABELS: Record<ClientDisplayStatus, string> = {
   new: 'New',
   to_follow_up: 'To follow up',
   in_service: 'In service',
-  to_revisit: 'To revisit',
+  to_revisit: 'Pre Season',
   churned: 'Churned',
 };
 
