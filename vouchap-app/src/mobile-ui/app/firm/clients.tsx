@@ -203,6 +203,7 @@ export default function FirmClientsScreen() {
   const [orderCountByClient, setOrderCountByClient] = useState<Record<string, number>>({});
   const [orderCountByPendingClient, setOrderCountByPendingClient] = useState<Record<string, number>>({});
   const [groupPopoverRect, setGroupPopoverRect] = useState<{ left: number; top: number } | null>(null);
+  const [filterPopoverRect, setFilterPopoverRect] = useState<{ left: number; top: number } | null>(null);
   const [sortKey, setSortKey] = useState<string | null>('name');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc');
   const [selectedClientIds, setSelectedClientIds] = useState<string[]>([]);
@@ -250,6 +251,28 @@ export default function FirmClientsScreen() {
     setGroupPopoverRect(null);
   }, [showGroupMenu]);
 
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (showFilterMenu) {
+      const measure = () => {
+        const el = document.getElementById('firm-clients-filter-button');
+        if (el) {
+          const r = el.getBoundingClientRect();
+          setFilterPopoverRect({ left: r.left, top: r.bottom + 6 });
+        } else {
+          setFilterPopoverRect(null);
+        }
+      };
+      measure();
+      const t = requestAnimationFrame(measure);
+      return () => {
+        cancelAnimationFrame(t);
+        setFilterPopoverRect(null);
+      };
+    }
+    setFilterPopoverRect(null);
+  }, [showFilterMenu]);
+
   // Web: 点击浮窗外关闭（仅分组下拉；邀请使用 CenterModal 自带遮罩）
   useEffect(() => {
     if (Platform.OS !== 'web') return;
@@ -257,6 +280,8 @@ export default function FirmClientsScreen() {
       const target = e.target as Node;
       const groupBtn = document.getElementById('firm-clients-group-button');
       const groupPopover = document.getElementById('firm-clients-group-popover');
+      const filterBtn = document.getElementById('firm-clients-filter-button');
+      const filterPopover = document.getElementById('firm-clients-filter-popover');
       if (
         showGroupMenu &&
         groupBtn &&
@@ -266,10 +291,19 @@ export default function FirmClientsScreen() {
       ) {
         setShowGroupMenu(false);
       }
+      if (
+        showFilterMenu &&
+        filterBtn &&
+        !filterBtn.contains(target) &&
+        filterPopover &&
+        !filterPopover.contains(target)
+      ) {
+        setShowFilterMenu(false);
+      }
     };
     document.addEventListener('pointerdown', handler);
     return () => document.removeEventListener('pointerdown', handler);
-  }, [showGroupMenu]);
+  }, [showGroupMenu, showFilterMenu]);
 
   const loadData = useCallback(async (forceRefresh = false) => {
     const space = await getCurrentSpace(forceRefresh);
@@ -888,7 +922,12 @@ export default function FirmClientsScreen() {
   const hasSelection = selectedClientIds.length > 0;
   return (
     <View style={styles.webContainer}>
-      <View style={styles.toolbarSlot}>
+      <View
+        style={[
+          styles.toolbarSlot,
+          (showGroupMenu || showFilterMenu) && styles.toolbarSlotDropdownOpen,
+        ]}
+      >
         {hasSelection ? (
           <View style={styles.bulkBar}>
             <Text style={styles.bulkText}>{selectedClientIds.length} selected</Text>
@@ -950,7 +989,10 @@ export default function FirmClientsScreen() {
               >
                 <TouchableOpacity
                   style={styles.sortButton}
-                  onPress={() => setShowGroupMenu(true)}
+                  onPress={() => {
+                    setShowFilterMenu(false);
+                    setShowGroupMenu(true);
+                  }}
                   activeOpacity={0.7}
                 >
                   {groupBy === 'none' && (
@@ -964,6 +1006,14 @@ export default function FirmClientsScreen() {
                   {groupBy === 'byName' && (
                     <Ionicons
                       name="albums-outline"
+                      size={18}
+                      color="#6C5CE7"
+                      style={{ marginRight: 4 }}
+                    />
+                  )}
+                  {groupBy === 'byStatus' && (
+                    <Ionicons
+                      name="flag-outline"
                       size={18}
                       color="#6C5CE7"
                       style={{ marginRight: 4 }}
@@ -1014,6 +1064,28 @@ export default function FirmClientsScreen() {
                     </TouchableOpacity>
                   </View>
                 )}
+              </View>
+              <View
+                style={styles.groupWrap}
+                {...(Platform.OS === 'web' ? { nativeID: 'firm-clients-filter-button' } : {})}
+              >
+                <TouchableOpacity
+                  style={styles.filterButton}
+                  onPress={() => {
+                    setShowGroupMenu(false);
+                    setShowFilterMenu(true);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="filter-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
+                  <Text style={styles.filterText}>
+                    Filter
+                    {filterStatus !== 'all' && (
+                      <Text style={styles.filterBadge}> (1)</Text>
+                    )}
+                  </Text>
+                  <Ionicons name="chevron-down" size={16} color="#636E72" />
+                </TouchableOpacity>
               </View>
               <View style={styles.searchContainer}>
                 <Ionicons
@@ -1328,6 +1400,7 @@ export default function FirmClientsScreen() {
               {[
                 { key: 'none' as GroupByType, label: 'None', icon: 'list-outline' as const },
                 { key: 'byName' as GroupByType, label: 'By name', icon: 'albums-outline' as const },
+                { key: 'byStatus' as GroupByType, label: 'By status', icon: 'flag-outline' as const },
               ].map(({ key, label, icon }) => (
                 <TouchableOpacity
                   key={key}
@@ -1337,27 +1410,84 @@ export default function FirmClientsScreen() {
                   }}
                   style={WEB_POPOVER.optionRow}
                 >
-                  <Ionicons
-                    name={icon}
-                    size={18}
-                    color={groupBy === key ? '#6C5CE7' : '#636E72'}
-                    style={{ marginRight: 8 }}
-                  />
-                  <Text
-                    style={
-                      groupBy === key
-                        ? { ...WEB_POPOVER.optionText, ...WEB_POPOVER.optionTextSelected }
-                        : WEB_POPOVER.optionText
-                    }
-                  >
-                    {label}
-                  </Text>
-                  {groupBy === key && (
-                    <Ionicons name="checkmark" size={18} color="#6C5CE7" style={{ marginLeft: 4 }} />
-                  )}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+                    <Ionicons
+                      name={icon}
+                      size={18}
+                      color={groupBy === key ? '#6C5CE7' : '#636E72'}
+                      style={{ marginRight: 8 }}
+                    />
+                    <Text
+                      style={
+                        groupBy === key
+                          ? { ...WEB_POPOVER.optionText, ...WEB_POPOVER.optionTextSelected }
+                          : WEB_POPOVER.optionText
+                      }
+                      numberOfLines={1}
+                    >
+                      {label}
+                    </Text>
+                  </View>
+                  {groupBy === key ? (
+                    <Ionicons name="checkmark" size={18} color="#6C5CE7" />
+                  ) : null}
                 </TouchableOpacity>
               ))}
             </View>
+          </div>,
+          document.body
+        )}
+      {Platform.OS === 'web' &&
+        showFilterMenu &&
+        filterPopoverRect &&
+        typeof document !== 'undefined' &&
+        document.body &&
+        createPortal(
+          <div
+            id="firm-clients-filter-popover"
+            style={{
+              ...WEB_POPOVER.container,
+              ...WEB_POPOVER.containerWide,
+              left: filterPopoverRect.left,
+              top: filterPopoverRect.top,
+            }}
+          >
+            <View style={{ marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={[WEB_POPOVER.title, { marginBottom: 0 }]}>Status</Text>
+              {filterStatus !== 'all' && (
+                <TouchableOpacity onPress={() => setFilterStatus('all')} style={{ padding: 4 }}>
+                  <Text style={{ fontSize: 13, color: '#6C5CE7' }}>Clear</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            <ScrollView style={{ maxHeight: 360 }} showsVerticalScrollIndicator={false}>
+              {(['all', 'new', 'to_follow_up', 'in_service', 'to_revisit', 'churned'] as FilterStatus[]).map((key) => (
+                <TouchableOpacity
+                  key={key}
+                  onPress={() => {
+                    setFilterStatus(key);
+                    setShowFilterMenu(false);
+                  }}
+                  style={WEB_POPOVER.optionRow}
+                >
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text
+                      style={
+                        filterStatus === key
+                          ? { ...WEB_POPOVER.optionText, ...WEB_POPOVER.optionTextSelected }
+                          : WEB_POPOVER.optionText
+                      }
+                      numberOfLines={1}
+                    >
+                      {key === 'all' ? 'All' : CLIENT_DISPLAY_STATUS_LABELS[key as keyof typeof CLIENT_DISPLAY_STATUS_LABELS]}
+                    </Text>
+                  </View>
+                  {filterStatus === key ? (
+                    <Ionicons name="checkmark" size={18} color="#6C5CE7" />
+                  ) : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </div>,
           document.body
         )}

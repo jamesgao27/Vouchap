@@ -42,6 +42,23 @@ import SkuPreview from '../../components/SkuPreview';
 import type { FirmSku } from '@/types';
 import { createPendingOrderForInvitee } from '@/lib/firm-clients';
 import { showToast } from '@/lib/toast';
+import {
+  CLASSIFICATION_DIMENSIONS,
+  CLASSIFICATION_DIMENSION_LABEL,
+  type ClassificationDimension,
+  type ClassificationDimFilter,
+  SCOPE_ALL_LIT_BG,
+  SCOPE_ALL_LIT_FG,
+  SCOPE_CHIP_MUTED_FG,
+  SCOPE_CHIP_UNLIT_BG,
+  collectClassificationOptionsForDim,
+  classificationFilterConstraintCount,
+  customClassificationGroupKey,
+  emptyClassificationDimFilters,
+  getClassificationChipColors,
+  getTaxSeasonYearForClassification,
+  orderMatchesClassificationDimFilters,
+} from '@/lib/firm-classification-dimensions';
 
 const STATUS_LABEL: Record<string, string> = {
   onboarding: 'Onboarding',
@@ -167,18 +184,105 @@ function serviceItemLabel(row: FirmOrderWithDetails): string {
   return row.skuName || '—';
 }
 
-/** 税季年份：优先显式 taxSeasonYear，其次 dueAt/createdAt 推断 */
-// 税季年份：优先使用 project 上下发的 taxSeasonYear；
-// onboarding（尚无 project）时则根据订单的 dueAt / createdAt 推算年份。
+/** Same as column / pill: infer tax season year for display */
 function getTaxSeasonYear(row: FirmOrderWithDetails): number | null {
-  if (row.taxSeasonYear != null) return row.taxSeasonYear;
-  const d = row.dueAt || row.createdAt || null;
-  if (!d) return null;
-  try {
-    return new Date(d).getFullYear();
-  } catch {
-    return null;
-  }
+  return getTaxSeasonYearForClassification(row);
+}
+
+/** Permission scope–style lit/unlit chips for four classification dimensions */
+function EngagementClassificationFilterChips(props: {
+  optionsByDim: Record<ClassificationDimension, string[]>;
+  classFilterByDim: Record<ClassificationDimension, ClassificationDimFilter>;
+  onToggleValue: (d: ClassificationDimension, value: string) => void;
+  onSelectAll: (d: ClassificationDimension) => void;
+  chipStyles: {
+    dimGroupsWrap: object;
+    dimBlock: object;
+    dimTitleRow: object;
+    dimTitle: object;
+    dimEmpty: object;
+    scopeChipsWrap: object;
+    metaTag: object;
+    scopeLabelChip: object;
+    scopeLabelChipMin: object;
+    scopeLabelChipText: object;
+  };
+}) {
+  const { optionsByDim, classFilterByDim, onToggleValue, onSelectAll, chipStyles: s } = props;
+  return (
+    <View style={s.dimGroupsWrap}>
+      {CLASSIFICATION_DIMENSIONS.map((d) => {
+        const labels = optionsByDim[d];
+        const f = classFilterByDim[d];
+        const allLit = f.mode === 'all';
+        return (
+          <View key={d} style={s.dimBlock}>
+            <View style={s.dimTitleRow}>
+              <Text style={s.dimTitle}>{CLASSIFICATION_DIMENSION_LABEL[d]}</Text>
+            </View>
+            {labels.length === 0 ? (
+              <Text style={s.dimEmpty}>No values in current list</Text>
+            ) : (
+              <View style={s.scopeChipsWrap}>
+                <TouchableOpacity onPress={() => onSelectAll(d)} activeOpacity={0.85}>
+                  <View
+                    style={[
+                      s.metaTag,
+                      s.scopeLabelChip,
+                      s.scopeLabelChipMin,
+                      { backgroundColor: allLit ? SCOPE_ALL_LIT_BG : SCOPE_CHIP_UNLIT_BG },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        s.scopeLabelChipText,
+                        {
+                          color: allLit ? SCOPE_ALL_LIT_FG : SCOPE_CHIP_MUTED_FG,
+                          fontWeight: allLit ? '700' : '500',
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      ALL
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+                {labels.map((lab) => {
+                  const lit = f.mode === 'include' && f.values.has(lab);
+                  const [bg, fg] = getClassificationChipColors(lab);
+                  return (
+                    <TouchableOpacity key={`${d}-${lab}`} onPress={() => onToggleValue(d, lab)} activeOpacity={0.85}>
+                      <View
+                        style={[
+                          s.metaTag,
+                          s.scopeLabelChip,
+                          s.scopeLabelChipMin,
+                          { backgroundColor: lit ? bg : SCOPE_CHIP_UNLIT_BG },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            s.scopeLabelChipText,
+                            {
+                              color: lit ? fg : SCOPE_CHIP_MUTED_FG,
+                              fontWeight: lit ? '600' : '500',
+                            },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {lab}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+        );
+      })}
+    </View>
+  );
 }
 
 function matchQuery(q: string, row: FirmOrderWithDetails): boolean {
@@ -200,8 +304,16 @@ function matchQuery(q: string, row: FirmOrderWithDetails): boolean {
   );
 }
 
-type GroupByType = 'none' | 'byClient' | 'byStatus';
+type GroupByType =
+  | 'none'
+  | 'byClient'
+  | 'byStatus'
+  | 'bySeason'
+  | 'byCountry'
+  | 'byScenario'
+  | 'byCustom';
 type FilterStatus = 'all' | 'onboarding' | 'processing' | 'completed' | 'cancelled';
+type EngagementFilterSubMenu = 'main' | 'status' | 'classification';
 
 const cellText = { fontSize: 14, color: '#2D3436' };
 
@@ -381,6 +493,14 @@ export default function FirmEngagementsScreen() {
   const [filterStatus, setFilterStatus] = useState<FilterStatus>('all');
   const [showGroupMenu, setShowGroupMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
+  const [filterSubMenu, setFilterSubMenu] = useState<EngagementFilterSubMenu>('main');
+  const [classFilterByDim, setClassFilterByDim] = useState(() => emptyClassificationDimFilters());
+  const classOptionsRef = useRef<Record<ClassificationDimension, string[]>>({
+    season: [],
+    country: [],
+    scenario: [],
+    custom: [],
+  });
   const [sortKey, setSortKey] = useState<string | null>('createdAt');
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([]);
@@ -467,6 +587,7 @@ export default function FirmEngagementsScreen() {
         !filterPopover.contains(target)
       ) {
         setShowFilterMenu(false);
+        setFilterSubMenu('main');
       }
 
       // Create engagement dropdowns: close when clicking outside anchors + menus
@@ -713,9 +834,80 @@ export default function FirmEngagementsScreen() {
     return orders.filter((o) => o.status === filterStatus);
   }, [orders, filterStatus]);
 
+  const classificationOptionsByDim = useMemo(() => {
+    const out: Record<ClassificationDimension, string[]> = {
+      season: [],
+      country: [],
+      scenario: [],
+      custom: [],
+    };
+    for (const d of CLASSIFICATION_DIMENSIONS) {
+      out[d] = collectClassificationOptionsForDim(filteredByStatus, d);
+    }
+    return out;
+  }, [filteredByStatus]);
+
+  useEffect(() => {
+    classOptionsRef.current = classificationOptionsByDim;
+  }, [classificationOptionsByDim]);
+
+  const filteredByClassification = useMemo(
+    () =>
+      filteredByStatus.filter((o) =>
+        orderMatchesClassificationDimFilters(o, classFilterByDim, classificationOptionsByDim)
+      ),
+    [filteredByStatus, classFilterByDim, classificationOptionsByDim]
+  );
+
+  const classificationConstraintCount = useMemo(
+    () => classificationFilterConstraintCount(classFilterByDim, classificationOptionsByDim),
+    [classFilterByDim, classificationOptionsByDim]
+  );
+
+  const engagementActiveFilterCount = useMemo(() => {
+    let n = 0;
+    if (filterStatus !== 'all') n += 1;
+    n += classificationConstraintCount;
+    return n;
+  }, [filterStatus, classificationConstraintCount]);
+
+  const toggleClassificationDimValue = useCallback((d: ClassificationDimension, value: string) => {
+    const allVals = classOptionsRef.current[d];
+    if (allVals.length === 0) return;
+    setClassFilterByDim((prev) => {
+      const cur = prev[d];
+      if (cur.mode === 'all') {
+        return { ...prev, [d]: { mode: 'include', values: new Set([value]) } };
+      }
+      const set = new Set(cur.values);
+      if (set.has(value)) set.delete(value);
+      else set.add(value);
+      const nextList = allVals.filter((x) => set.has(x));
+      if (nextList.length === 0) {
+        return { ...prev, [d]: { mode: 'all' } };
+      }
+      if (nextList.length === allVals.length) {
+        return { ...prev, [d]: { mode: 'all' } };
+      }
+      return { ...prev, [d]: { mode: 'include', values: new Set(nextList) } };
+    });
+  }, []);
+
+  const selectClassificationDimAll = useCallback((d: ClassificationDimension) => {
+    const allVals = classOptionsRef.current[d];
+    if (allVals.length === 0) return;
+    setClassFilterByDim((prev) => {
+      const cur = prev[d];
+      if (cur.mode === 'all') {
+        return { ...prev, [d]: { mode: 'include', values: new Set(allVals) } };
+      }
+      return { ...prev, [d]: { mode: 'all' } };
+    });
+  }, []);
+
   const searchedOrders = useMemo(
-    () => filteredByStatus.filter((o) => matchQuery(searchQuery, o)),
-    [filteredByStatus, searchQuery]
+    () => filteredByClassification.filter((o) => matchQuery(searchQuery, o)),
+    [filteredByClassification, searchQuery]
   );
 
   const sortRowsByColumn = useCallback(
@@ -764,6 +956,51 @@ export default function FirmEngagementsScreen() {
         data: byStatus[k] ?? [],
       }));
     }
+    if (groupBy === 'bySeason') {
+      const byKey: Record<string, FirmOrderWithDetails[]> = {};
+      searchedOrders.forEach((o) => {
+        const y = getTaxSeasonYearForClassification(o);
+        const k = y != null ? String(y) : 'Unclassified';
+        if (!byKey[k]) byKey[k] = [];
+        byKey[k].push(o);
+      });
+      const keys = Object.keys(byKey).sort((a, b) => {
+        if (a === 'Unclassified') return 1;
+        if (b === 'Unclassified') return -1;
+        return b.localeCompare(a, undefined, { numeric: true });
+      });
+      return keys.map((k) => ({ title: k, data: byKey[k] }));
+    }
+    if (groupBy === 'byCountry') {
+      const byKey: Record<string, FirmOrderWithDetails[]> = {};
+      searchedOrders.forEach((o) => {
+        const k = o.taxCountry?.trim() || 'Unclassified';
+        if (!byKey[k]) byKey[k] = [];
+        byKey[k].push(o);
+      });
+      const keys = Object.keys(byKey).sort((a, b) => a.localeCompare(b));
+      return keys.map((k) => ({ title: k, data: byKey[k] }));
+    }
+    if (groupBy === 'byScenario') {
+      const byKey: Record<string, FirmOrderWithDetails[]> = {};
+      searchedOrders.forEach((o) => {
+        const k = o.taxScenario?.trim() || 'Unclassified';
+        if (!byKey[k]) byKey[k] = [];
+        byKey[k].push(o);
+      });
+      const keys = Object.keys(byKey).sort((a, b) => a.localeCompare(b));
+      return keys.map((k) => ({ title: k, data: byKey[k] }));
+    }
+    if (groupBy === 'byCustom') {
+      const byKey: Record<string, FirmOrderWithDetails[]> = {};
+      searchedOrders.forEach((o) => {
+        const k = customClassificationGroupKey(o);
+        if (!byKey[k]) byKey[k] = [];
+        byKey[k].push(o);
+      });
+      const keys = Object.keys(byKey).sort((a, b) => a.localeCompare(b));
+      return keys.map((k) => ({ title: k, data: byKey[k] }));
+    }
     return [{ title: 'All', data: searchedOrders }];
   }, [groupBy, searchedOrders]);
 
@@ -788,12 +1025,24 @@ export default function FirmEngagementsScreen() {
     if (loading && orders.length === 0) return 'Loading...';
     if (orders.length === 0)
       return 'No engagements yet. Create from Service Catalog for clients.';
-    if (searchedOrders.length === 0)
-      return searchQuery.trim()
-        ? `No results for "${searchQuery}"`
-        : `No engagements match status "${filterStatus === 'all' ? 'all' : STATUS_LABEL[filterStatus] ?? filterStatus}".`;
+    if (searchedOrders.length === 0) {
+      if (searchQuery.trim()) return `No results for "${searchQuery}"`;
+      if (classificationFilterConstraintCount(classFilterByDim, classificationOptionsByDim) > 0)
+        return 'No engagements match the selected classification filters.';
+      if (filterStatus !== 'all')
+        return `No engagements match status "${STATUS_LABEL[filterStatus] ?? filterStatus}".`;
+      return 'No data';
+    }
     return 'No data';
-  }, [loading, orders.length, searchedOrders.length, searchQuery, filterStatus]);
+  }, [
+    loading,
+    orders.length,
+    searchedOrders.length,
+    searchQuery,
+    filterStatus,
+    classFilterByDim,
+    classificationOptionsByDim,
+  ]);
 
   const handleBulkCancel = useCallback(async () => {
     if (selectedOrderIds.length === 0) return;
@@ -877,17 +1126,35 @@ export default function FirmEngagementsScreen() {
               />
               <Text style={styles.inviteButtonText}>Add engagement</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.sortButton} onPress={() => setShowGroupMenu(!showGroupMenu)}>
+            <TouchableOpacity
+              style={styles.sortButton}
+              onPress={() => {
+                setShowFilterMenu(false);
+                setShowGroupMenu(!showGroupMenu);
+              }}
+            >
               {groupBy === 'none' && <Ionicons name="list-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
               {groupBy === 'byClient' && <Ionicons name="people-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
               {groupBy === 'byStatus' && <Ionicons name="flag-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+              {groupBy === 'bySeason' && <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+              {groupBy === 'byCountry' && <Ionicons name="earth-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+              {groupBy === 'byScenario' && <Ionicons name="reader-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
+              {groupBy === 'byCustom' && <Ionicons name="pricetags-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
               <Text style={styles.sortText}>Group</Text>
               <Ionicons name="chevron-down" size={16} color="#636E72" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.filterButton} onPress={() => setShowFilterMenu(!showFilterMenu)}>
+            <TouchableOpacity
+              style={styles.filterButton}
+              onPress={() => {
+                setShowGroupMenu(false);
+                setShowFilterMenu(!showFilterMenu);
+              }}
+            >
               <Text style={styles.filterText}>
                 Filter
-                {filterStatus !== 'all' && <Text style={styles.filterBadge}> (1)</Text>}
+                {engagementActiveFilterCount > 0 && (
+                  <Text style={styles.filterBadge}> ({engagementActiveFilterCount})</Text>
+                )}
               </Text>
               <Ionicons name="chevron-down" size={16} color="#636E72" />
             </TouchableOpacity>
@@ -903,25 +1170,85 @@ export default function FirmEngagementsScreen() {
           </View>
         </View>
         {showGroupMenu && (
-          <View style={styles.groupDropdown}>
-            <TouchableOpacity style={[styles.groupOption, groupBy === 'none' && styles.groupOptionSelected]} onPress={() => { setGroupBy('none'); setShowGroupMenu(false); }}>
-              <Text style={[styles.groupOptionText, groupBy === 'none' && styles.groupOptionTextSelected]}>None</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.groupOption, groupBy === 'byClient' && styles.groupOptionSelected]} onPress={() => { setGroupBy('byClient'); setShowGroupMenu(false); }}>
-              <Text style={[styles.groupOptionText, groupBy === 'byClient' && styles.groupOptionTextSelected]}>By client</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={[styles.groupOption, groupBy === 'byStatus' && styles.groupOptionSelected]} onPress={() => { setGroupBy('byStatus'); setShowGroupMenu(false); }}>
-              <Text style={[styles.groupOptionText, groupBy === 'byStatus' && styles.groupOptionTextSelected]}>By status</Text>
-            </TouchableOpacity>
+          <View style={[styles.groupDropdown, styles.engagementGroupDropdownScroll]}>
+            <ScrollView nestedScrollEnabled keyboardShouldPersistTaps="handled" style={styles.engagementGroupMenuScroll}>
+              {(
+                [
+                  ['none', 'None'],
+                  ['byClient', 'By client'],
+                  ['byStatus', 'By status'],
+                  ['bySeason', 'By tax season'],
+                  ['byCountry', 'By jurisdiction'],
+                  ['byScenario', 'By tax scenario'],
+                  ['byCustom', 'By custom label'],
+                ] as const
+              ).map(([key, label]) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.filterPopoverRow, groupBy === key && styles.filterPopoverRowSelected]}
+                  onPress={() => {
+                    setGroupBy(key);
+                    setShowGroupMenu(false);
+                  }}
+                >
+                  <Text style={[styles.filterPopoverRowText, groupBy === key && styles.filterPopoverRowTextSelected]} numberOfLines={1}>
+                    {label}
+                  </Text>
+                  {groupBy === key ? <Ionicons name="checkmark" size={18} color="#6C5CE7" /> : null}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
           </View>
         )}
         {showFilterMenu && (
-          <View style={styles.groupDropdown}>
-            {(['all', 'onboarding', 'processing', 'completed', 'cancelled'] as FilterStatus[]).map((key) => (
-              <TouchableOpacity key={key} style={[styles.groupOption, filterStatus === key && styles.groupOptionSelected]} onPress={() => { setFilterStatus(key); setShowFilterMenu(false); }}>
-                <Text style={[styles.groupOptionText, filterStatus === key && styles.groupOptionTextSelected]}>{key === 'all' ? 'All' : STATUS_LABEL[key] ?? key}</Text>
+          <View style={[styles.groupDropdown, styles.engagementFilterDropdown]}>
+            <ScrollView nestedScrollEnabled style={styles.engagementFilterScroll} keyboardShouldPersistTaps="handled">
+              <Text style={styles.engagementFilterSectionLabel}>Status</Text>
+              {(['all', 'onboarding', 'processing', 'completed', 'cancelled'] as FilterStatus[]).map((key) => (
+                <TouchableOpacity
+                  key={key}
+                  style={[styles.filterPopoverRow, filterStatus === key && styles.filterPopoverRowSelected]}
+                  onPress={() => {
+                    setFilterStatus(key);
+                  }}
+                >
+                  <Text style={[styles.filterPopoverRowText, filterStatus === key && styles.filterPopoverRowTextSelected]} numberOfLines={1}>
+                    {key === 'all' ? 'All' : STATUS_LABEL[key] ?? key}
+                  </Text>
+                  {filterStatus === key ? <Ionicons name="checkmark" size={18} color="#6C5CE7" /> : null}
+                </TouchableOpacity>
+              ))}
+              <Text style={[styles.engagementFilterSectionLabel, { marginTop: 10 }]}>Classification</Text>
+              <EngagementClassificationFilterChips
+                optionsByDim={classificationOptionsByDim}
+                classFilterByDim={classFilterByDim}
+                onToggleValue={toggleClassificationDimValue}
+                onSelectAll={selectClassificationDimAll}
+                chipStyles={{
+                  dimGroupsWrap: styles.dimGroupsWrap,
+                  dimBlock: styles.dimBlock,
+                  dimTitleRow: styles.dimTitleRow,
+                  dimTitle: styles.dimTitle,
+                  dimEmpty: styles.dimEmpty,
+                  scopeChipsWrap: styles.scopeChipsWrap,
+                  metaTag: styles.scopeChipMeta,
+                  scopeLabelChip: styles.scopeLabelChip,
+                  scopeLabelChipMin: styles.scopeLabelChipMin,
+                  scopeLabelChipText: styles.scopeLabelChipText,
+                }}
+              />
+              {classificationFilterConstraintCount(classFilterByDim, classificationOptionsByDim) > 0 && (
+                <TouchableOpacity
+                  style={styles.engagementFilterClearTags}
+                  onPress={() => setClassFilterByDim(emptyClassificationDimFilters())}
+                >
+                  <Text style={styles.engagementFilterClearTagsText}>Reset classification filters</Text>
+                </TouchableOpacity>
+              )}
+              <TouchableOpacity style={styles.engagementFilterDoneRow} onPress={() => { setShowFilterMenu(false); }}>
+                <Text style={styles.engagementFilterDoneText}>Done</Text>
               </TouchableOpacity>
-            ))}
+            </ScrollView>
           </View>
         )}
       </View>
@@ -1353,7 +1680,11 @@ export default function FirmEngagementsScreen() {
               >
                 <TouchableOpacity
                   style={styles.sortButton}
-                  onPress={() => setShowGroupMenu(true)}
+                  onPress={() => {
+                    setShowFilterMenu(false);
+                    setFilterSubMenu('main');
+                    setShowGroupMenu(true);
+                  }}
                   activeOpacity={0.7}
                 >
                   {groupBy === 'none' && (
@@ -1380,70 +1711,21 @@ export default function FirmEngagementsScreen() {
                       style={{ marginRight: 4 }}
                     />
                   )}
+                  {groupBy === 'bySeason' && (
+                    <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
+                  )}
+                  {groupBy === 'byCountry' && (
+                    <Ionicons name="earth-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
+                  )}
+                  {groupBy === 'byScenario' && (
+                    <Ionicons name="reader-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
+                  )}
+                  {groupBy === 'byCustom' && (
+                    <Ionicons name="pricetags-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
+                  )}
                   <Text style={styles.sortText}>Group</Text>
                   <Ionicons name="chevron-down" size={16} color="#636E72" />
                 </TouchableOpacity>
-                {showGroupMenu && Platform.OS !== 'web' && (
-                  <View style={styles.groupDropdown}>
-                    <TouchableOpacity
-                      style={[
-                        styles.groupOption,
-                        groupBy === 'none' && styles.groupOptionSelected,
-                      ]}
-                      onPress={() => {
-                        setGroupBy('none');
-                        setShowGroupMenu(false);
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.groupOptionText,
-                          groupBy === 'none' && styles.groupOptionTextSelected,
-                        ]}
-                      >
-                        None
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.groupOption,
-                        groupBy === 'byClient' && styles.groupOptionSelected,
-                      ]}
-                      onPress={() => {
-                        setGroupBy('byClient');
-                        setShowGroupMenu(false);
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.groupOptionText,
-                          groupBy === 'byClient' && styles.groupOptionTextSelected,
-                        ]}
-                      >
-                        By client
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.groupOption,
-                        groupBy === 'byStatus' && styles.groupOptionSelected,
-                      ]}
-                      onPress={() => {
-                        setGroupBy('byStatus');
-                        setShowGroupMenu(false);
-                      }}
-                    >
-                      <Text
-                        style={[
-                          styles.groupOptionText,
-                          groupBy === 'byStatus' && styles.groupOptionTextSelected,
-                        ]}
-                      >
-                        By status
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
               </View>
               <View
                 style={styles.groupWrap}
@@ -1451,7 +1733,11 @@ export default function FirmEngagementsScreen() {
               >
                 <TouchableOpacity
                   style={styles.sortButton}
-                  onPress={() => setShowFilterMenu(true)}
+                  onPress={() => {
+                    setShowGroupMenu(false);
+                    setFilterSubMenu('main');
+                    setShowFilterMenu(true);
+                  }}
                   activeOpacity={0.7}
                 >
                   <Ionicons
@@ -1460,47 +1746,12 @@ export default function FirmEngagementsScreen() {
                     color="#6C5CE7"
                     style={{ marginRight: 4 }}
                   />
-                  <Text style={styles.sortText}>
-                    {filterStatus === 'all'
-                      ? 'Status: All'
-                      : `Status: ${STATUS_LABEL[filterStatus] ?? filterStatus}`}
-                  </Text>
+                  <Text style={styles.sortText}>Filter</Text>
+                  {engagementActiveFilterCount > 0 && (
+                    <Text style={styles.filterBadge}> ({engagementActiveFilterCount})</Text>
+                  )}
                   <Ionicons name="chevron-down" size={16} color="#636E72" />
                 </TouchableOpacity>
-                {showFilterMenu && Platform.OS !== 'web' && (
-                  <View style={styles.groupDropdown}>
-                    {(
-                      [
-                        ['all', 'All'],
-                        ['onboarding', 'Onboarding'],
-                        ['processing', 'Processing'],
-                        ['completed', 'Completed'],
-                        ['cancelled', 'Cancelled'],
-                      ] as const
-                    ).map(([value, label]) => (
-                      <TouchableOpacity
-                        key={value}
-                        style={[
-                          styles.groupOption,
-                          filterStatus === value && styles.groupOptionSelected,
-                        ]}
-                        onPress={() => {
-                          setFilterStatus(value);
-                          setShowFilterMenu(false);
-                        }}
-                      >
-                        <Text
-                          style={[
-                            styles.groupOptionText,
-                            filterStatus === value && styles.groupOptionTextSelected,
-                          ]}
-                        >
-                          {label}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
               </View>
               <View style={styles.searchContainer}>
                 <Ionicons
@@ -1990,15 +2241,26 @@ export default function FirmEngagementsScreen() {
         createPortal(
           <div
             id="firm-engagements-group-popover"
-            style={{ ...WEB_POPOVER.container, left: groupPopoverRect.left, top: groupPopoverRect.top }}
+            style={{
+              ...WEB_POPOVER.container,
+              ...WEB_POPOVER.containerWide,
+              left: groupPopoverRect.left,
+              top: groupPopoverRect.top,
+            }}
           >
             <Text style={WEB_POPOVER.title}>Group</Text>
-            <View>
-              {[
-                { key: 'none' as GroupByType, label: 'No group', icon: 'list-outline' as const },
-                { key: 'byClient' as GroupByType, label: 'By client', icon: 'people-outline' as const },
-                { key: 'byStatus' as GroupByType, label: 'By status', icon: 'flag-outline' as const },
-              ].map(({ key, label, icon }) => (
+            <ScrollView style={{ maxHeight: 340 }} showsVerticalScrollIndicator={false}>
+              {(
+                [
+                  { key: 'none' as GroupByType, label: 'No group', icon: 'list-outline' as const },
+                  { key: 'byClient' as GroupByType, label: 'By client', icon: 'people-outline' as const },
+                  { key: 'byStatus' as GroupByType, label: 'By status', icon: 'flag-outline' as const },
+                  { key: 'bySeason' as GroupByType, label: 'By tax season', icon: 'calendar-outline' as const },
+                  { key: 'byCountry' as GroupByType, label: 'By jurisdiction', icon: 'earth-outline' as const },
+                  { key: 'byScenario' as GroupByType, label: 'By tax scenario', icon: 'reader-outline' as const },
+                  { key: 'byCustom' as GroupByType, label: 'By custom label', icon: 'pricetags-outline' as const },
+                ] as const
+              ).map(({ key, label, icon }) => (
                 <TouchableOpacity
                   key={key}
                   onPress={() => {
@@ -2007,27 +2269,23 @@ export default function FirmEngagementsScreen() {
                   }}
                   style={WEB_POPOVER.optionRow}
                 >
-                  <Ionicons
-                    name={icon}
-                    size={18}
-                    color={groupBy === key ? '#6C5CE7' : '#636E72'}
-                    style={{ marginRight: 8 }}
-                  />
-                  <Text
-                    style={
-                      groupBy === key
-                        ? { ...WEB_POPOVER.optionText, ...WEB_POPOVER.optionTextSelected }
-                        : WEB_POPOVER.optionText
-                    }
-                  >
-                    {label}
-                  </Text>
-                  {groupBy === key && (
-                    <Ionicons name="checkmark" size={18} color="#6C5CE7" style={{ marginLeft: 4 }} />
-                  )}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, gap: 8 }}>
+                    <Ionicons name={icon} size={18} color={groupBy === key ? '#6C5CE7' : '#636E72'} />
+                    <Text
+                      style={
+                        groupBy === key
+                          ? { ...WEB_POPOVER.optionText, ...WEB_POPOVER.optionTextSelected }
+                          : WEB_POPOVER.optionText
+                      }
+                      numberOfLines={1}
+                    >
+                      {label}
+                    </Text>
+                  </View>
+                  {groupBy === key ? <Ionicons name="checkmark" size={18} color="#6C5CE7" /> : null}
                 </TouchableOpacity>
               ))}
-            </View>
+            </ScrollView>
           </div>,
           document.body
         )}
@@ -2047,40 +2305,142 @@ export default function FirmEngagementsScreen() {
               top: filterPopoverRect.top,
             }}
           >
-            <Text style={WEB_POPOVER.title}>Status</Text>
-            <View>
-              {(
-                [
-                  ['all', 'All'],
-                  ['onboarding', 'Onboarding'],
-                  ['processing', 'Processing'],
-                  ['completed', 'Completed'],
-                  ['cancelled', 'Cancelled'],
-                ] as const
-              ).map(([value, label]) => (
-                <TouchableOpacity
-                  key={value}
-                  onPress={() => {
-                    setFilterStatus(value as FilterStatus);
-                    setShowFilterMenu(false);
-                  }}
-                  style={WEB_POPOVER.optionRow}
-                >
-                  <Text
-                    style={
-                      filterStatus === value
-                        ? { ...WEB_POPOVER.optionText, ...WEB_POPOVER.optionTextSelected }
-                        : WEB_POPOVER.optionText
-                    }
+            <View style={{ marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              {filterSubMenu !== 'main' ? (
+                <>
+                  <TouchableOpacity
+                    onPress={() => setFilterSubMenu('main')}
+                    style={{ padding: 4 }}
                   >
-                    {label}
+                    <Ionicons name="chevron-back" size={20} color="#6C5CE7" />
+                  </TouchableOpacity>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: '#495057' }}>
+                    {filterSubMenu === 'status' ? 'Status' : 'Classification'}
                   </Text>
-                  {filterStatus === value && (
-                    <Ionicons name="checkmark" size={18} color="#6C5CE7" style={{ marginLeft: 4 }} />
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowFilterMenu(false);
+                      setFilterSubMenu('main');
+                    }}
+                    style={{ padding: 4 }}
+                  >
+                    <Text style={{ fontSize: 13, color: '#6C5CE7' }}>Done</Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <>
+                  <Text style={{ fontSize: 13, fontWeight: '600', color: '#495057' }}>Filter</Text>
+                  {engagementActiveFilterCount > 0 && (
+                    <TouchableOpacity
+                      onPress={() => {
+                        setFilterStatus('all');
+                        setClassFilterByDim(emptyClassificationDimFilters());
+                      }}
+                      style={{ padding: 4 }}
+                    >
+                      <Text style={{ fontSize: 13, color: '#6C5CE7' }}>Clear</Text>
+                    </TouchableOpacity>
                   )}
-                </TouchableOpacity>
-              ))}
+                </>
+              )}
             </View>
+            <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
+              {filterSubMenu === 'main' ? (
+                <>
+                  <TouchableOpacity style={WEB_POPOVER.optionRow} onPress={() => setFilterSubMenu('status')}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, gap: 8 }}>
+                      <Ionicons name="flag-outline" size={18} color="#636E72" />
+                      <Text style={WEB_POPOVER.optionText} numberOfLines={1}>
+                        Status
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {filterStatus !== 'all' ? (
+                        <Text style={styles.filterCountBadgeCompact}>1</Text>
+                      ) : null}
+                      <Ionicons name="chevron-forward" size={18} color="#95A5A6" />
+                    </View>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={WEB_POPOVER.optionRow} onPress={() => setFilterSubMenu('classification')}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0, gap: 8 }}>
+                      <Ionicons name="pricetags-outline" size={18} color="#636E72" />
+                      <Text style={WEB_POPOVER.optionText} numberOfLines={1}>
+                        Classification
+                      </Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      {classificationConstraintCount > 0 ? (
+                        <Text style={styles.filterCountBadgeCompact}>{classificationConstraintCount}</Text>
+                      ) : null}
+                      <Ionicons name="chevron-forward" size={18} color="#95A5A6" />
+                    </View>
+                  </TouchableOpacity>
+                </>
+              ) : filterSubMenu === 'status' ? (
+                <>
+                  {(
+                    [
+                      ['all', 'All'],
+                      ['onboarding', 'Onboarding'],
+                      ['processing', 'Processing'],
+                      ['completed', 'Completed'],
+                      ['cancelled', 'Cancelled'],
+                    ] as const
+                  ).map(([value, label]) => (
+                    <TouchableOpacity
+                      key={value}
+                      onPress={() => setFilterStatus(value as FilterStatus)}
+                      style={WEB_POPOVER.optionRow}
+                    >
+                      <Text
+                        style={
+                          filterStatus === value
+                            ? { ...WEB_POPOVER.optionText, ...WEB_POPOVER.optionTextSelected }
+                            : WEB_POPOVER.optionText
+                        }
+                        numberOfLines={1}
+                      >
+                        {label}
+                      </Text>
+                      {filterStatus === value ? (
+                        <Ionicons name="checkmark" size={18} color="#6C5CE7" />
+                      ) : null}
+                    </TouchableOpacity>
+                  ))}
+                </>
+              ) : (
+                <>
+                  <EngagementClassificationFilterChips
+                    optionsByDim={classificationOptionsByDim}
+                    classFilterByDim={classFilterByDim}
+                    onToggleValue={toggleClassificationDimValue}
+                    onSelectAll={selectClassificationDimAll}
+                    chipStyles={{
+                      dimGroupsWrap: styles.dimGroupsWrap,
+                      dimBlock: styles.dimBlock,
+                      dimTitleRow: styles.dimTitleRow,
+                      dimTitle: styles.dimTitle,
+                      dimEmpty: styles.dimEmpty,
+                      scopeChipsWrap: styles.scopeChipsWrap,
+                      metaTag: styles.scopeChipMeta,
+                      scopeLabelChip: styles.scopeLabelChip,
+                      scopeLabelChipMin: styles.scopeLabelChipMin,
+                      scopeLabelChipText: styles.scopeLabelChipText,
+                    }}
+                  />
+                  {classificationConstraintCount > 0 && (
+                    <TouchableOpacity
+                      onPress={() => setClassFilterByDim(emptyClassificationDimFilters())}
+                      style={{ paddingVertical: 10, alignItems: 'flex-start' }}
+                    >
+                      <Text style={{ fontSize: 13, color: '#6C5CE7', fontWeight: '600' }}>
+                        Reset classification filters
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </>
+              )}
+            </ScrollView>
           </div>,
           document.body
         )}
@@ -2426,4 +2786,95 @@ const styles = StyleSheet.create({
   cardRow: { flexDirection: 'row', marginBottom: 6 },
   label: { fontSize: 13, color: '#636E72', width: 110 },
   value: { flex: 1, fontSize: 14, color: '#2D3436' },
+  engagementFilterDropdown: {
+    paddingVertical: 0,
+    minWidth: 260,
+    maxHeight: 420,
+  },
+  engagementFilterScroll: { maxHeight: 400 },
+  engagementFilterSectionLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#95A5A6',
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    paddingBottom: 4,
+    textTransform: 'uppercase',
+  },
+  engagementFilterHint: { fontSize: 13, color: '#95A5A6', paddingHorizontal: 14, paddingVertical: 8 },
+  engagementFilterClearTags: { paddingVertical: 12, paddingHorizontal: 14, marginTop: 4 },
+  engagementFilterClearTagsText: { fontSize: 14, color: '#6C5CE7', fontWeight: '600' },
+  engagementFilterDoneRow: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#E9ECEF',
+    marginTop: 4,
+    alignItems: 'center',
+  },
+  engagementFilterDoneText: { fontSize: 14, color: '#6C5CE7', fontWeight: '600' },
+  engagementGroupDropdownScroll: {
+    maxHeight: 360,
+    paddingVertical: 0,
+    minWidth: 220,
+  },
+  engagementGroupMenuScroll: { maxHeight: 340 },
+  /** Mobile filter / group: single-line rows matching WEB_POPOVER.optionRow */
+  filterPopoverRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    minHeight: 40,
+  },
+  filterPopoverRowSelected: { backgroundColor: 'rgba(108, 92, 231, 0.08)' },
+  filterPopoverRowText: { fontSize: 14, color: '#2D3436', fontWeight: '500', flex: 1 },
+  filterPopoverRowTextSelected: { color: '#6C5CE7', fontWeight: '600' },
+  filterCountBadgeCompact: {
+    fontSize: 12,
+    color: '#6C5CE7',
+    fontWeight: '600',
+    backgroundColor: '#E8F4FD',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  /** Permission scope–style classification chips (firm/permissions.tsx) */
+  dimGroupsWrap: { gap: 12, paddingHorizontal: 4, paddingBottom: 8 },
+  dimBlock: { gap: 6 },
+  dimTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dimTitle: { fontSize: 13, fontWeight: '600', color: '#2D3436' },
+  dimEmpty: { fontSize: 12, color: '#95A5A6', fontStyle: 'italic' },
+  scopeChipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  scopeChipMeta: {
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    maxWidth: '100%',
+    alignSelf: 'flex-start',
+    minHeight: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scopeLabelChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    minHeight: 26,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  scopeLabelChipMin: { minWidth: 74 },
+  scopeLabelChipText: {
+    fontSize: 12,
+    fontWeight: '500',
+    textAlign: 'center',
+    minWidth: 35,
+    ...Platform.select({
+      android: { textAlignVertical: 'center' as const, includeFontPadding: false },
+      default: {},
+    }),
+  },
 });
