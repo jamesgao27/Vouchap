@@ -412,7 +412,6 @@ function TaxFilingMobileScreen() {
   const renderSectionHeader = useCallback(({ section }: { section: SectionData }) => {
     if (!section.title) return null;
     if (section.monthKey === 'hidden') {
-      const count = section.count ?? section.data.length;
       return (
         <TouchableOpacity
           style={styles.sectionHeader}
@@ -421,14 +420,11 @@ function TaxFilingMobileScreen() {
         >
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
             <Text style={styles.sectionTitle}>{section.title}</Text>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Text style={styles.sectionCount}>{count} orders</Text>
-              <Ionicons
-                name={hiddenCollapsed ? 'chevron-down' : 'chevron-up'}
-                size={18}
-                color="#636E72"
-              />
-            </View>
+            <Ionicons
+              name={hiddenCollapsed ? 'chevron-down' : 'chevron-up'}
+              size={18}
+              color="#636E72"
+            />
           </View>
         </TouchableOpacity>
       );
@@ -1060,7 +1056,7 @@ function TaxFilingWebScreen() {
                 activeOpacity={0.85}
               >
                 <View style={stylesWeb.recycleBinHeaderRow}>
-                  <Text style={stylesWeb.hiddenSectionTitle}>Recycle bin ({hiddenOrders.length})</Text>
+                  <Text style={stylesWeb.hiddenSectionTitle}>Recycle bin</Text>
                   <Ionicons
                     name={hiddenCollapsedWeb ? 'chevron-down' : 'chevron-up'}
                     size={18}
