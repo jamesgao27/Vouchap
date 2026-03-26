@@ -23,13 +23,13 @@ export default {
       supportsTablet: true,
       bundleIdentifier: "com.vouchap.app",
       // EAS Build 使用 appVersionSource: remote + autoIncrement，构建时由服务端注入，此处仅作参考
-      buildNumber: "31",
+      buildNumber: "25",
       associatedDomains: ["applinks:vouchap.com"]
     },
     android: {
       package: "com.vouchap.app",
       // EAS Build 使用 appVersionSource: remote + autoIncrement，构建时由服务端注入，此处仅作参考
-      versionCode: 31,
+      versionCode: 25,
       // 使用系统照片选择器，不再声明 READ_MEDIA_IMAGES，符合 Google Play 照片权限政策
       permissions: [
         "CAMERA",
