@@ -45,6 +45,7 @@ import { uploadTaxFilingFile } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import { getTaxSeasonColor } from '@/lib/tax-season-colors';
 import * as ImagePicker from 'expo-image-picker';
+import EngagementConsentModal from '@/components/EngagementConsentModal';
 
 /** 将 sku_items 转成 TaxFilingTodosView 需要的 ProjectTodoNode 树结构（与 firm 侧预览一致） */
 function skuItemsToProjectTodoTree(items: FirmSkuItem[]): ProjectTodoNode[] {
@@ -482,6 +483,7 @@ export default function OrderTodosScreen() {
 
   const [rejecting, setRejecting] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const [consentVisible, setConsentVisible] = useState(false);
   const handleRejectOrder = useCallback(async () => {
     if (!orderId) return;
     if (Platform.OS === 'web' && !window.confirm('Reject this order? You can\'t undo this.')) return;
@@ -505,7 +507,7 @@ export default function OrderTodosScreen() {
       router.back();
     }
   }, [orderId, router]);
-  const handleAcceptOrder = useCallback(async () => {
+  const performAcceptOrder = useCallback(async () => {
     if (!orderId) return;
     setAccepting(true);
     const { error } = await confirmOrderAndCreateProjectTodos(orderId);
@@ -522,6 +524,11 @@ export default function OrderTodosScreen() {
       load();
     }
   }, [orderId, router, load]);
+
+  const handleAcceptOrder = useCallback(() => {
+    if (accepting) return;
+    setConsentVisible(true);
+  }, [accepting]);
 
   const [selectedAttachmentId, setSelectedAttachmentId] = useState<string | null>(null);
   const [attachmentDetailForModal, setAttachmentDetailForModal] = useState<FileDetailModalFile | null>(null);
@@ -731,6 +738,17 @@ export default function OrderTodosScreen() {
 
   return (
     <View style={styles.container}>
+      <EngagementConsentModal
+        visible={consentVisible}
+        loading={accepting}
+        onClose={() => {
+          if (!accepting) setConsentVisible(false);
+        }}
+        onConfirm={() => {
+          setConsentVisible(false);
+          void performAcceptOrder();
+        }}
+      />
       {attachmentDetailForModal ? (
         <FileDetailModal
           file={attachmentDetailForModal}

@@ -35,6 +35,7 @@ import { resolveSkuForPreview } from '../../../shared-logic/firm';
 import type { UserSpace, FirmSku } from '@/types';
 import { showToast } from '@/lib/toast';
 import SkuPreview from '../../components/SkuPreview';
+import EngagementConsentModal from '@/components/EngagementConsentModal';
 
 type Status = 'checking' | 'need_login' | 'loading' | 'ready' | 'submitting' | 'success' | 'error';
 
@@ -74,6 +75,7 @@ export default function ClientSetupScreen() {
   const [newSpaceName, setNewSpaceName] = useState<string>('');
   const [isNarrowWeb, setIsNarrowWeb] = useState<boolean>(false);
   const [spaceListContentHeight, setSpaceListContentHeight] = useState(0);
+  const [consentVisible, setConsentVisible] = useState(false);
   const isWeb = Platform.OS === 'web';
   const { height: windowHeight } = useWindowDimensions();
   const mobileSpaceListMaxHeight = Math.max(120, windowHeight - MOBILE_FIXED_HEIGHT_EXCLUDING_LIST);
@@ -308,7 +310,7 @@ export default function ClientSetupScreen() {
 
   // 未登录时展示落地页，由用户点击 "Sign in" 再跳转
 
-  const handleConfirm = async () => {
+  const performConfirmAction = useCallback(async () => {
     if (!inviteInfo || !selectedSpaceId) return;
     if (!claimMode && !token) return;
 
@@ -374,6 +376,20 @@ export default function ClientSetupScreen() {
       setStatus('ready');
       showToast('Could not complete. Try again.', 'error');
     }
+  }, [
+    inviteInfo,
+    selectedSpaceId,
+    claimMode,
+    token,
+    newSpaceName,
+    claimFirmClientId,
+    router,
+  ]);
+
+  const handleConfirm = () => {
+    if (!inviteInfo || !selectedSpaceId) return;
+    if (!claimMode && !token) return;
+    setConsentVisible(true);
   };
 
   const handleCreateSpace = () => {
@@ -878,6 +894,20 @@ export default function ClientSetupScreen() {
     </View>
   );
 
+  const consentModalNode = (
+    <EngagementConsentModal
+      visible={consentVisible}
+      loading={status === 'submitting'}
+      onClose={() => {
+        if (status !== 'submitting') setConsentVisible(false);
+      }}
+      onConfirm={() => {
+        setConsentVisible(false);
+        void performConfirmAction();
+      }}
+    />
+  );
+
   if (!isWeb) {
     return (
       <KeyboardAvoidingView
@@ -964,6 +994,7 @@ export default function ClientSetupScreen() {
             </View>
           </View>
         </View>
+        {consentModalNode}
       </KeyboardAvoidingView>
     );
   }
@@ -1036,6 +1067,7 @@ export default function ClientSetupScreen() {
           </View>
         )}
       </ScrollView>
+      {consentModalNode}
     </View>
   );
 }

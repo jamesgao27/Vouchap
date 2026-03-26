@@ -19,6 +19,7 @@ import Constants from 'expo-constants';
 import { Ionicons } from '@expo/vector-icons';
 import { showTaxFiling } from '@/lib/feature-flags';
 import { getCurrentSpace } from '@/lib/auth';
+import EngagementConsentModal from '@/components/EngagementConsentModal';
 import {
   getClientOrdersForClientSpace,
   confirmOrderAndCreateProjectTodos,
@@ -111,6 +112,8 @@ function TaxFilingMobileScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [orders, setOrders] = useState<FirmOrderForClient[]>([]);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [consentVisible, setConsentVisible] = useState(false);
+  const [pendingConfirmOrder, setPendingConfirmOrder] = useState<FirmOrderForClient | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [pinnedOrderIds, setPinnedOrderIds] = useState<string[]>([]);
   const [hidingId, setHidingId] = useState<string | null>(null);
@@ -185,13 +188,19 @@ function TaxFilingMobileScreen() {
     });
   }, []);
 
-  const handleConfirmOrder = async (order: FirmOrderForClient) => {
+  const performConfirmOrder = async (order: FirmOrderForClient) => {
     setConfirmingId(order.id);
     const { error } = await confirmOrderAndCreateProjectTodos(order.id);
     setConfirmingId(null);
     if (error) return;
     setOrders(await loadOrders());
     router.push(`/firm/engagement/${order.id}`);
+  };
+
+  const handleConfirmOrder = (order: FirmOrderForClient) => {
+    if (confirmingId) return;
+    setPendingConfirmOrder(order);
+    setConsentVisible(true);
   };
 
   const handleRejectOrder = useCallback((order: FirmOrderForClient) => {
@@ -406,6 +415,23 @@ function TaxFilingMobileScreen() {
 
   return (
     <View style={styles.container}>
+      <EngagementConsentModal
+        visible={consentVisible}
+        loading={Boolean(confirmingId)}
+        onClose={() => {
+          if (!confirmingId) {
+            setConsentVisible(false);
+            setPendingConfirmOrder(null);
+          }
+        }}
+        onConfirm={() => {
+          if (!pendingConfirmOrder) return;
+          setConsentVisible(false);
+          void performConfirmOrder(pendingConfirmOrder).finally(() => {
+            setPendingConfirmOrder(null);
+          });
+        }}
+      />
       <SectionList<FirmOrderForClient, SectionData>
         sections={sections}
         keyExtractor={(item) => item.id}
@@ -767,6 +793,8 @@ function TaxFilingWebScreen() {
   const [orders, setOrders] = useState<FirmOrderForClient[]>([]);
   const [viewMode, setViewMode] = useState<ViewModeWeb>('grid');
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [consentVisible, setConsentVisible] = useState(false);
+  const [pendingConfirmOrder, setPendingConfirmOrder] = useState<FirmOrderForClient | null>(null);
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [pinnedOrderIds, setPinnedOrderIds] = useState<string[]>([]);
   const [hidingId, setHidingId] = useState<string | null>(null);
@@ -827,13 +855,19 @@ function TaxFilingWebScreen() {
     });
   }, []);
 
-  const handleConfirmOrder = async (order: FirmOrderForClient) => {
+  const performConfirmOrder = async (order: FirmOrderForClient) => {
     setConfirmingId(order.id);
     const { error } = await confirmOrderAndCreateProjectTodos(order.id);
     setConfirmingId(null);
     if (error) return;
     setOrders(await loadOrders());
     router.push(`/firm/engagement/${order.id}`);
+  };
+
+  const handleConfirmOrder = (order: FirmOrderForClient) => {
+    if (confirmingId) return;
+    setPendingConfirmOrder(order);
+    setConsentVisible(true);
   };
 
   const handleRejectOrder = useCallback((order: FirmOrderForClient) => {
@@ -895,6 +929,23 @@ function TaxFilingWebScreen() {
 
   return (
     <ScrollView style={stylesWeb.container} contentContainerStyle={stylesWeb.content}>
+      <EngagementConsentModal
+        visible={consentVisible}
+        loading={Boolean(confirmingId)}
+        onClose={() => {
+          if (!confirmingId) {
+            setConsentVisible(false);
+            setPendingConfirmOrder(null);
+          }
+        }}
+        onConfirm={() => {
+          if (!pendingConfirmOrder) return;
+          setConsentVisible(false);
+          void performConfirmOrder(pendingConfirmOrder).finally(() => {
+            setPendingConfirmOrder(null);
+          });
+        }}
+      />
       {loading ? (
         <ActivityIndicator size="large" color="#6C5CE7" style={stylesWeb.loader} />
       ) : (

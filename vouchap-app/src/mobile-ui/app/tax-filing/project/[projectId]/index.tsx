@@ -34,6 +34,7 @@ import { ProjectInfoTab, type ProjectInfoTabHandle } from './info';
 import type { FirmSkuItem } from '@/types';
 import type { ProjectSkuInfo } from '@/components/ProjectSkuDetail';
 import { ProjectDetailView, type ProjectDetailHeader, ORDER_STATUS_CONFIG } from '@/components/ProjectDetailView';
+import EngagementConsentModal from '@/components/EngagementConsentModal';
 
 export default function ProjectTodosScreen() {
   const { projectId, tab, edit } = useLocalSearchParams<{
@@ -128,6 +129,7 @@ export default function ProjectTodosScreen() {
   const [infoEditing, setInfoEditing] = useState(false);
   const [rejectLoading, setRejectLoading] = useState(false);
   const [acceptLoading, setAcceptLoading] = useState(false);
+  const [consentVisible, setConsentVisible] = useState(false);
   const [abortLoading, setAbortLoading] = useState(false);
   const [restartLoading, setRestartLoading] = useState(false);
   const infoTabRef = useRef<ProjectInfoTabHandle>(null);
@@ -156,7 +158,7 @@ export default function ProjectTodosScreen() {
     }
   }, [orderId, router]);
 
-  const handleAcceptAndStart = useCallback(async () => {
+  const performAcceptAndStart = useCallback(async () => {
     if (!orderId) return;
     setAcceptLoading(true);
     const { error } = await confirmOrderAndCreateProjectTodos(orderId);
@@ -168,6 +170,11 @@ export default function ProjectTodosScreen() {
     showToast('Order accepted', 'success');
     load();
   }, [orderId, load]);
+
+  const handleAcceptAndStart = useCallback(() => {
+    if (acceptLoading) return;
+    setConsentVisible(true);
+  }, [acceptLoading]);
 
   const handleAbort = useCallback(async () => {
     if (!orderId) return;
@@ -267,6 +274,17 @@ export default function ProjectTodosScreen() {
 
   return (
     <View style={{ flex: 1 }}>
+      <EngagementConsentModal
+        visible={consentVisible}
+        loading={acceptLoading}
+        onClose={() => {
+          if (!acceptLoading) setConsentVisible(false);
+        }}
+        onConfirm={() => {
+          setConsentVisible(false);
+          void performAcceptAndStart();
+        }}
+      />
       <ProjectDetailView
         viewerRole="client"
         header={detailHeader}

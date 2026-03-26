@@ -27,6 +27,7 @@ import {
 } from '@/lib/firm';
 import { supabase, uploadProjectCover } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
+import EngagementConsentModal from '@/components/EngagementConsentModal';
 
 const STAGE_LABEL: Record<string, string> = {
   onboarding: 'Onboarding',
@@ -52,6 +53,7 @@ export default function OrderInfoScreen() {
   const [uploadingCover, setUploadingCover] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const [consentVisible, setConsentVisible] = useState(false);
 
   const isOnboarding = order?.status === 'onboarding';
 
@@ -116,7 +118,7 @@ export default function OrderInfoScreen() {
     }
   }, [orderId, router]);
 
-  const handleAcceptOrder = useCallback(async () => {
+  const performAcceptOrder = useCallback(async () => {
     if (!orderId) return;
     setAccepting(true);
     const { error } = await confirmOrderAndCreateProjectTodos(orderId);
@@ -133,6 +135,11 @@ export default function OrderInfoScreen() {
       load();
     }
   }, [orderId, router, load]);
+
+  const handleAcceptOrder = useCallback(() => {
+    if (accepting) return;
+    setConsentVisible(true);
+  }, [accepting]);
 
   const handlePickImage = useCallback(async () => {
     try {
@@ -210,6 +217,17 @@ export default function OrderInfoScreen() {
 
   return (
     <View style={styles.container}>
+      <EngagementConsentModal
+        visible={consentVisible}
+        loading={accepting}
+        onClose={() => {
+          if (!accepting) setConsentVisible(false);
+        }}
+        onConfirm={() => {
+          setConsentVisible(false);
+          void performAcceptOrder();
+        }}
+      />
       <View style={styles.header}>
         <TouchableOpacity style={styles.headerBack} onPress={() => router.back()} activeOpacity={0.7}>
           <Ionicons name="arrow-back" size={24} color="#2D3436" />

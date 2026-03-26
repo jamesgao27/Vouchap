@@ -44,6 +44,7 @@ import { ProjectDetailView, type ProjectDetailHeader } from '@/components/Projec
 import { ProjectInfoTab, type ProjectInfoTabHandle } from '../../tax-filing/project/[projectId]/info';
 import { useChatPanel } from '../../../contexts/ChatPanelContext';
 import { showToast } from '@/lib/toast';
+import EngagementConsentModal from '@/components/EngagementConsentModal';
 
 // ── 订单状态：与 firm.orders.status（4 态）及类型 FirmOrderStatus 一致；深底色 + 白字色 ──
 const ORDER_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -93,6 +94,7 @@ export default function FirmEngagementDetailScreen() {
   const [completeLoading, setCompleteLoading] = useState(false);
   const [restartLoading, setRestartLoading] = useState(false);
   const [showTinaFab, setShowTinaFab]   = useState(false);
+  const [showConsentModal, setShowConsentModal] = useState(false);
 
   const loadData = useCallback(async () => {
     if (!orderId) return;
@@ -172,7 +174,7 @@ export default function FirmEngagementDetailScreen() {
     }
   }, [orderId, loadData]);
 
-  const handleStart = useCallback(async () => {
+  const doStart = useCallback(async () => {
     if (!orderId) return;
     setAcceptLoading(true);
     try {
@@ -184,6 +186,14 @@ export default function FirmEngagementDetailScreen() {
       setAcceptLoading(false);
     }
   }, [orderId, viewerRole, loadData]);
+
+  const handleStart = useCallback(async () => {
+    if (viewerRole === 'client') {
+      setShowConsentModal(true);
+      return;
+    }
+    await doStart();
+  }, [viewerRole, doStart]);
 
   const handleClientReject = useCallback(() => {
     if (!orderId) return;
@@ -435,6 +445,17 @@ export default function FirmEngagementDetailScreen() {
             ? (todoId, title) => updateProjectTodo(todoId, { title })
             : undefined
         }
+      />
+      <EngagementConsentModal
+        visible={showConsentModal}
+        loading={acceptLoading}
+        onClose={() => {
+          if (!acceptLoading) setShowConsentModal(false);
+        }}
+        onConfirm={() => {
+          setShowConsentModal(false);
+          void doStart();
+        }}
       />
       {showTinaFab && (
         <TouchableOpacity
