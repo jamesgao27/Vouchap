@@ -26,6 +26,7 @@ import {
 import { useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { format } from 'date-fns';
 import {
   getOrderById,
   getProjectById,
@@ -51,7 +52,9 @@ const COVER_SIZE = 176;
 
 function formatDate(iso?: string | null) {
   if (!iso) return '—';
-  return new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return format(d, 'MMM dd, yyyy');
 }
 
 const TAG_PALETTE: [string, string][] = [
@@ -876,7 +879,7 @@ export default function ProjectInfoScreen() {
 // ─────────────────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   scroll: { flex: 1 },
-  scrollContent: { padding: 12, paddingBottom: 8, gap: 6 },
+  scrollContent: { padding: 10, paddingBottom: 4, gap: 4 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 32 },
   errorText: { fontSize: 15, color: '#636E72', textAlign: 'center' },
 
@@ -889,8 +892,8 @@ const s = StyleSheet.create({
     overflow: 'hidden',
     paddingHorizontal: 10,
     paddingTop: 6,
-    paddingBottom: 4,
-    marginBottom: 4,
+    paddingBottom: 2,
+    marginBottom: 2,
     position: 'relative',
   },
   cardEditIcon: {

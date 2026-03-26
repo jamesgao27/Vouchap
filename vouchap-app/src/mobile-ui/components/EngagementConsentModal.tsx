@@ -4,11 +4,12 @@ import {
   Linking,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
-  TouchableWithoutFeedback,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -29,9 +30,11 @@ export default function EngagementConsentModal({
   onClose,
   onConfirm,
 }: Props) {
+  const { width: windowWidth } = useWindowDimensions();
   const [agreeProject, setAgreeProject] = useState(false);
   const [agreePlatformBoundary, setAgreePlatformBoundary] = useState(false);
   const [agreePullRecords, setAgreePullRecords] = useState(false);
+  const useGoldenButtonRatio = windowWidth >= 420;
 
   useEffect(() => {
     if (!visible) {
@@ -57,25 +60,31 @@ export default function EngagementConsentModal({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <TouchableWithoutFeedback onPress={loading ? undefined : onClose}>
-        <View style={styles.overlay}>
-          <TouchableWithoutFeedback>
-            <View style={styles.card}>
-              <View style={styles.header}>
-                <Text style={styles.title}>Engagement Consent & Data Authorization</Text>
-                <TouchableOpacity onPress={onClose} disabled={loading} hitSlop={10}>
-                  <Ionicons name="close" size={20} color="#636E72" />
-                </TouchableOpacity>
-              </View>
+      <View style={styles.overlay}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={loading ? undefined : onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close consent modal"
+        />
+        <View style={styles.card}>
+          <View style={styles.header}>
+            <Text style={styles.title}>Engagement Consent & Data Authorization</Text>
+            <TouchableOpacity onPress={onClose} disabled={loading} hitSlop={10}>
+              <Ionicons name="close" size={20} color="#636E72" />
+            </TouchableOpacity>
+          </View>
 
-              <ScrollView
-                style={styles.body}
-                contentContainerStyle={styles.bodyContent}
-                showsVerticalScrollIndicator={Platform.OS === 'web'}
-              >
-                <Text style={styles.intro}>
-                  Before starting this engagement, please review and confirm the following terms.
-                </Text>
+          <ScrollView
+            style={styles.body}
+            contentContainerStyle={styles.bodyContent}
+            showsVerticalScrollIndicator={Platform.OS === 'web'}
+            keyboardShouldPersistTaps="handled"
+            nestedScrollEnabled
+          >
+            <Text style={styles.intro}>
+              Before starting this engagement, please review and confirm the following terms.
+            </Text>
 
                 <View style={styles.section}>
                   <Text style={styles.sectionTitle}>1) Engagement Activation & Project Governance</Text>
@@ -158,45 +167,49 @@ export default function EngagementConsentModal({
                   />
                 </View>
 
-              </ScrollView>
+          </ScrollView>
 
-              <View style={styles.footer}>
-                <Text style={styles.footerText}>
-                  By continuing, you acknowledge and agree to the{' '}
-                  <Text style={styles.link} onPress={() => openUrl(TERMS_URL)}>Vouchap Terms</Text>
-                  {' '}and{' '}
-                  <Text style={styles.link} onPress={() => openUrl(PRIVACY_URL)}>Privacy Policy</Text>.
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>
+              By continuing, you acknowledge and agree to the{' '}
+              <Text style={styles.link} onPress={() => openUrl(TERMS_URL)}>Vouchap Terms</Text>
+              {' '}and{' '}
+              <Text style={styles.link} onPress={() => openUrl(PRIVACY_URL)}>Privacy Policy</Text>.
+            </Text>
+            <Text style={styles.authorityText}>
+              By clicking, you confirm you have the authority to share these tax materials.
+            </Text>
+            <View style={styles.footerActions}>
+              <TouchableOpacity
+                style={[styles.cancelBtn, useGoldenButtonRatio && styles.cancelBtnGolden]}
+                onPress={onClose}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.cancelBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.confirmBtn,
+                  useGoldenButtonRatio && styles.confirmBtnGolden,
+                  !canConfirm && styles.btnDisabled,
+                ]}
+                onPress={() => onConfirm({ allowPullRecords: agreePullRecords })}
+                disabled={!canConfirm}
+                activeOpacity={0.85}
+              >
+                {loading ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                <Text style={styles.confirmBtnText} numberOfLines={1}>
+                  Agree and Start Project
                 </Text>
-                <Text style={styles.authorityText}>
-                  By clicking, you confirm you have the authority to share these tax materials.
-                </Text>
-                <View style={styles.footerActions}>
-                  <TouchableOpacity
-                    style={styles.cancelBtn}
-                    onPress={onClose}
-                    disabled={loading}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.cancelBtnText}>Cancel</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.confirmBtn, !canConfirm && styles.btnDisabled]}
-                    onPress={() => onConfirm({ allowPullRecords: agreePullRecords })}
-                    disabled={!canConfirm}
-                    activeOpacity={0.85}
-                  >
-                    {loading ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <Text style={styles.confirmBtnText}>Agree and Start Project</Text>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
+                )}
+              </TouchableOpacity>
             </View>
-          </TouchableWithoutFeedback>
+          </View>
         </View>
-      </TouchableWithoutFeedback>
+      </View>
     </Modal>
   );
 }
@@ -234,7 +247,8 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 760,
-    maxHeight: '92%',
+    height: Platform.OS === 'web' ? '92%' : '88%',
+    maxHeight: Platform.OS === 'web' ? '92%' : '88%',
     backgroundColor: '#FFFFFF',
     borderRadius: 14,
     borderWidth: 1,
@@ -257,8 +271,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#2D3436',
   },
-  body: { flexGrow: 0 },
-  bodyContent: { padding: 16, gap: 12 },
+  body: { flex: 1, minHeight: 0 },
+  bodyContent: { padding: 16, gap: 12, paddingBottom: 20 },
   intro: { fontSize: 13, color: '#636E72', lineHeight: 19 },
   section: { gap: 6 },
   sectionTitle: { fontSize: 13, fontWeight: '700', color: '#2D3436' },
@@ -291,9 +305,11 @@ const styles = StyleSheet.create({
   footerActions: {
     flexDirection: 'row',
     gap: 10,
+    flexWrap: 'nowrap',
+    alignItems: 'stretch',
   },
   cancelBtn: {
-    flex: 0.382,
+    minWidth: 96,
     minHeight: 42,
     borderRadius: 10,
     borderWidth: 1,
@@ -305,7 +321,8 @@ const styles = StyleSheet.create({
   },
   cancelBtnText: { fontSize: 14, fontWeight: '600', color: '#636E72' },
   confirmBtn: {
-    flex: 0.618,
+    flex: 1,
+    minWidth: 140,
     minHeight: 42,
     borderRadius: 10,
     backgroundColor: '#6C5CE7',
@@ -313,6 +330,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  confirmBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
+  confirmBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF', textAlign: 'center' },
+  cancelBtnGolden: { flex: 0.382, minWidth: 0 },
+  confirmBtnGolden: { flex: 0.618, minWidth: 0 },
   btnDisabled: { opacity: 0.5 },
 });

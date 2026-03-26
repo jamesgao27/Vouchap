@@ -2,7 +2,7 @@
  * 项目/订单详情统一界面：client 的 project 详情与 firm 的 order 详情共用。
  * 同一套布局与样式，仅根据 viewerRole 做少量差异（header 副标题/状态 pill、操作栏右侧按钮、onboarding 内容）。
  */
-import { useCallback, useLayoutEffect } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import {
   View,
   Text,
@@ -15,9 +15,10 @@ import {
 } from 'react-native';
 import { useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { format } from 'date-fns';
 import { TaxFilingTodosView } from '@/components/TaxFilingTodosView';
 import { ProjectInfoTab, type ProjectInfoTabHandle } from '../app/tax-filing/project/[projectId]/info';
-import type { ProjectTodoNode } from '@/lib/firm';
+import { getOrderById, type ProjectTodoNode } from '@/lib/firm';
 import type { FirmSkuItem } from '@/types';
 import type { ProjectSkuInfo, TodoRow } from '@/components/ProjectSkuDetail';
 import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors';
@@ -182,6 +183,13 @@ function SkuWbsPreview({ todos }: { todos: TodoRow[] }) {
   );
 }
 
+function formatDateForOrderCard(iso?: string | null) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return format(d, 'MMM dd, yyyy');
+}
+
 export interface ProjectDetailViewProps {
   viewerRole: 'client' | 'firm';
   header: ProjectDetailHeader;
@@ -274,6 +282,7 @@ export function ProjectDetailView({
 
   const isWeb = Platform.OS === 'web';
   const isMobile = !isWeb;
+  const [onboardingOrderInfo, setOnboardingOrderInfo] = useState<Awaited<ReturnType<typeof getOrderById>>>(null);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -288,9 +297,122 @@ export function ProjectDetailView({
     });
   }, [navigation, header.title, header.subtitle, header.taxSeasonYear, header.status?.label, isWeb]);
 
+  useEffect(() => {
+    if (!isOnboarding || activeTab !== 'info' || projectId || !orderId) return;
+    let cancelled = false;
+    getOrderById(orderId)
+      .then((ord) => {
+        if (!cancelled) setOnboardingOrderInfo(ord);
+      })
+      .catch(() => {
+        if (!cancelled) setOnboardingOrderInfo(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOnboarding, activeTab, projectId, orderId]);
+
   const showOnboardingActions = Boolean(isOnboarding && onAcceptAndStart && (viewerRole === 'client' || viewerRole === 'firm'));
   /** Detail content (Todos + Info) is read-only when onboarding, cancelled, or completed — same as onboarding. */
   const isDetailReadOnly = isOnboarding || orderStatus === 'cancelled' || orderStatus === 'completed';
+  const firmNameFromHeader = (() => {
+    const sub = (header.subtitle ?? '').trim();
+    if (!sub) return '';
+    return sub.toLowerCase().startsWith('by ') ? sub.slice(3).trim() : sub;
+  })();
+  const mobileFooterActions = isMobile ? (
+    showOnboardingActions && onAcceptAndStart ? (
+      <View style={sharedStyles.bottomActionBar}>
+        <View style={sharedStyles.bottomActionRow}>
+          {onReject ? (
+            <TouchableOpacity
+              onPress={onReject}
+              disabled={rejectLoading || acceptAndStartLoading}
+              style={sharedStyles.bottomRejectBtn}
+              activeOpacity={0.85}
+            >
+              {rejectLoading ? (
+                <ActivityIndicator size="small" color="#C0392B" />
+              ) : (
+                <Text style={sharedStyles.bottomRejectBtnText}>{headerRejectLabel}</Text>
+              )}
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity
+            onPress={onAcceptAndStart}
+            disabled={acceptAndStartLoading || rejectLoading}
+            style={sharedStyles.bottomAcceptBtn}
+            activeOpacity={0.85}
+          >
+            {acceptAndStartLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                <Text style={sharedStyles.bottomAcceptBtnText}>{headerAcceptLabel}</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    ) : orderStatus === 'processing' && (onAbort || onComplete) ? (
+      <View style={sharedStyles.bottomActionBar}>
+        <View style={sharedStyles.bottomActionRow}>
+          {onAbort ? (
+            <TouchableOpacity
+              onPress={onAbort}
+              disabled={abortLoading || completeLoading}
+              style={sharedStyles.bottomAbortBtn}
+              activeOpacity={0.85}
+            >
+              {abortLoading ? (
+                <ActivityIndicator size="small" color="#C0392B" />
+              ) : (
+                <Text style={sharedStyles.bottomAbortBtnText}>Terminate</Text>
+              )}
+            </TouchableOpacity>
+          ) : null}
+          {onComplete ? (
+            <TouchableOpacity
+              onPress={onComplete}
+              disabled={completeLoading || abortLoading}
+              style={sharedStyles.bottomCompleteBtn}
+              activeOpacity={0.85}
+            >
+              {completeLoading ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-circle" size={18} color="#fff" />
+                  <Text style={sharedStyles.bottomCompleteBtnText}>Complete</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ) : null}
+        </View>
+      </View>
+    ) : orderStatus === 'cancelled' && onRestart ? (
+      <View style={sharedStyles.bottomActionBar}>
+        <View style={sharedStyles.bottomActionRow}>
+          <TouchableOpacity
+            onPress={onRestart}
+            disabled={restartLoading}
+            style={sharedStyles.bottomRestartBtn}
+            activeOpacity={0.85}
+          >
+            {restartLoading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <>
+                <Ionicons name="play-circle" size={18} color="#fff" />
+                <Text style={sharedStyles.bottomRestartBtnText}>Restart</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    ) : null
+  ) : null;
 
   return (
     <View style={sharedStyles.container}>
@@ -436,6 +558,13 @@ export function ProjectDetailView({
               <SkuWbsPreview todos={skuTodos} />
             </ScrollView>
           )
+        ) : projectId ? (
+          <ProjectInfoTab
+            ref={infoTabRef}
+            projectId={projectId}
+            mode={viewerRole === 'firm' ? 'firm' : undefined}
+            footer={mobileFooterActions}
+          />
         ) : (
           <ScrollView style={sharedStyles.scroll} contentContainerStyle={sharedStyles.scrollContent}>
             {skuInfo && (
@@ -461,6 +590,37 @@ export function ProjectDetailView({
             )}
             <View style={sharedStyles.skuInfoCard}>
               <Text style={sharedStyles.skuInfoCardTitle}>Classification</Text>
+              <View style={sharedStyles.skuInfoCfRow}>
+                <View style={sharedStyles.skuInfoCfTagCol}><Text style={sharedStyles.skuInfoCfLabel}>Tax season</Text></View>
+                <View style={sharedStyles.skuInfoCfValueCol}>
+                  {((onboardingOrderInfo?.taxSeasonYear ?? header.taxSeasonYear) != null) ? (
+                    <View
+                      style={[
+                        sharedStyles.skuInfoTaxSeasonPill,
+                        {
+                          backgroundColor: getTaxSeasonBgColor(
+                            onboardingOrderInfo?.taxSeasonYear ?? (header.taxSeasonYear as number),
+                          ),
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          sharedStyles.skuInfoTaxSeasonPillText,
+                          {
+                            color: getTaxSeasonColor(
+                              onboardingOrderInfo?.taxSeasonYear ?? (header.taxSeasonYear as number),
+                            ),
+                          },
+                        ]}
+                      >
+                        {String(onboardingOrderInfo?.taxSeasonYear ?? header.taxSeasonYear)}
+                      </Text>
+                    </View>
+                  ) : <Text style={sharedStyles.skuInfoCfEmpty}>—</Text>}
+                </View>
+              </View>
+              <View style={sharedStyles.skuInfoDivider} />
               <View style={sharedStyles.skuInfoCfRow}>
                 <View style={sharedStyles.skuInfoCfTagCol}><Text style={sharedStyles.skuInfoCfLabel}>Jurisdiction</Text></View>
                 <View style={sharedStyles.skuInfoCfValueCol}>
@@ -493,6 +653,55 @@ export function ProjectDetailView({
                 </View>
               </View>
             </View>
+            {onboardingOrderInfo ? (
+              <View style={sharedStyles.skuInfoCard}>
+                <Text style={sharedStyles.skuInfoCardTitle}>Order</Text>
+                <View style={sharedStyles.orderTableRow}>
+                  <View style={sharedStyles.orderTableCellFull}>
+                    <Text style={sharedStyles.orderTableLabel}>Firm</Text>
+                    <Text style={sharedStyles.orderTableValue}>{firmNameFromHeader || '—'}</Text>
+                  </View>
+                </View>
+                <View style={sharedStyles.orderTableRowBorder} />
+                <View style={sharedStyles.orderTableRow}>
+                  <View style={sharedStyles.orderTableCell}>
+                    <Text style={sharedStyles.orderTableLabel}>No.</Text>
+                    <Text style={sharedStyles.orderTableValueMono} numberOfLines={1}>
+                      {onboardingOrderInfo.id.slice(0, 8).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={[sharedStyles.orderTableCell, sharedStyles.orderTableCellBorderLeft]}>
+                    <Text style={sharedStyles.orderTableLabel}>Status</Text>
+                    <View style={[sharedStyles.orderStatusBadge, { backgroundColor: header.status?.bg ?? '#F0F2F5' }]}>
+                      <Text style={[sharedStyles.orderStatusBadgeText, { color: header.status?.color ?? '#636E72' }]}>
+                        {header.status?.label ?? onboardingOrderInfo.status}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+                <View style={[sharedStyles.orderTableRow, sharedStyles.orderTableRowBorder]}>
+                  <View style={sharedStyles.orderTableCell}>
+                    <Text style={sharedStyles.orderTableLabel}>Created</Text>
+                    <Text style={sharedStyles.orderTableValue}>
+                      {formatDateForOrderCard(onboardingOrderInfo.createdAt)}
+                    </Text>
+                  </View>
+                  <View style={[sharedStyles.orderTableCell, sharedStyles.orderTableCellBorderLeft]}>
+                    <Text style={sharedStyles.orderTableLabel}>Last updated</Text>
+                    <Text style={sharedStyles.orderTableValue}>
+                      {formatDateForOrderCard(onboardingOrderInfo.updatedAt)}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[sharedStyles.orderTableRow, sharedStyles.orderTableRowBorder]}>
+                  <View style={sharedStyles.orderTableCellFull}>
+                    <Text style={sharedStyles.orderTableLabel}>Manager</Text>
+                    <Text style={sharedStyles.orderTableValue}>{onboardingOrderInfo.managerName ?? '—'}</Text>
+                  </View>
+                </View>
+              </View>
+            ) : null}
+            {mobileFooterActions ? <View style={{ marginTop: 12 }}>{mobileFooterActions}</View> : null}
           </ScrollView>
         )
       ) : activeTab === 'info' ? (
@@ -501,101 +710,7 @@ export function ProjectDetailView({
             ref={infoTabRef}
             projectId={projectId}
             mode={viewerRole === 'firm' ? 'firm' : undefined}
-            footer={
-              isMobile ? (
-                showOnboardingActions && onAcceptAndStart ? (
-                  <View style={sharedStyles.bottomActionBar}>
-                    <View style={sharedStyles.bottomActionRow}>
-                      {onReject ? (
-                        <TouchableOpacity
-                          onPress={onReject}
-                          disabled={rejectLoading || acceptAndStartLoading}
-                          style={sharedStyles.bottomRejectBtn}
-                          activeOpacity={0.85}
-                        >
-                          {rejectLoading ? (
-                            <ActivityIndicator size="small" color="#C0392B" />
-                          ) : (
-                            <Text style={sharedStyles.bottomRejectBtnText}>{headerRejectLabel}</Text>
-                          )}
-                        </TouchableOpacity>
-                      ) : null}
-                      <TouchableOpacity
-                        onPress={onAcceptAndStart}
-                        disabled={acceptAndStartLoading || rejectLoading}
-                        style={sharedStyles.bottomAcceptBtn}
-                        activeOpacity={0.85}
-                      >
-                        {acceptAndStartLoading ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : (
-                          <>
-                            <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                            <Text style={sharedStyles.bottomAcceptBtnText}>{headerAcceptLabel}</Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ) : orderStatus === 'processing' && (onAbort || onComplete) ? (
-                  <View style={sharedStyles.bottomActionBar}>
-                    <View style={sharedStyles.bottomActionRow}>
-                      {onAbort ? (
-                        <TouchableOpacity
-                          onPress={onAbort}
-                          disabled={abortLoading || completeLoading}
-                          style={sharedStyles.bottomAbortBtn}
-                          activeOpacity={0.85}
-                        >
-                          {abortLoading ? (
-                            <ActivityIndicator size="small" color="#C0392B" />
-                          ) : (
-                            <Text style={sharedStyles.bottomAbortBtnText}>Terminate</Text>
-                          )}
-                        </TouchableOpacity>
-                      ) : null}
-                      {onComplete ? (
-                        <TouchableOpacity
-                          onPress={onComplete}
-                          disabled={completeLoading || abortLoading}
-                          style={sharedStyles.bottomCompleteBtn}
-                          activeOpacity={0.85}
-                        >
-                          {completeLoading ? (
-                            <ActivityIndicator size="small" color="#fff" />
-                          ) : (
-                            <>
-                              <Ionicons name="checkmark-circle" size={18} color="#fff" />
-                              <Text style={sharedStyles.bottomCompleteBtnText}>Complete</Text>
-                            </>
-                          )}
-                        </TouchableOpacity>
-                      ) : null}
-                    </View>
-                  </View>
-                ) : orderStatus === 'cancelled' && onRestart ? (
-                  <View style={sharedStyles.bottomActionBar}>
-                    <View style={sharedStyles.bottomActionRow}>
-                      <TouchableOpacity
-                        onPress={onRestart}
-                        disabled={restartLoading}
-                        style={sharedStyles.bottomRestartBtn}
-                        activeOpacity={0.85}
-                      >
-                        {restartLoading ? (
-                          <ActivityIndicator size="small" color="#fff" />
-                        ) : (
-                          <>
-                            <Ionicons name="play-circle" size={18} color="#fff" />
-                            <Text style={sharedStyles.bottomRestartBtnText}>Restart</Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ) : null
-              ) : null
-            }
+            footer={mobileFooterActions}
           />
         ) : (
           <View style={sharedStyles.centered}>
@@ -800,14 +915,16 @@ const sharedStyles = StyleSheet.create({
   opBtnDisabled: { opacity: 0.6 },
 
   scroll: { flex: 1 },
-  scrollContent: { padding: 16, paddingBottom: 40 },
+  scrollContent: { padding: 10, paddingBottom: 8 },
   skuInfoCard: {
     backgroundColor: '#fff',
     borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E9ECEF',
-    padding: 16,
-    marginBottom: 20,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
+    marginBottom: 8,
   },
   skuInfoName: { fontSize: 18, fontWeight: '700', color: '#2D3436', marginBottom: 6 },
   skuInfoDesc: { fontSize: 14, color: '#636E72', lineHeight: 20 },
@@ -821,10 +938,54 @@ const sharedStyles = StyleSheet.create({
   skuInfoCfTagCol: { width: 90, alignItems: 'flex-end', justifyContent: 'center', flexShrink: 0 },
   skuInfoCfLabel: { fontSize: 13, fontWeight: '500', color: '#636E72' },
   skuInfoCfValueCol: { flex: 1, alignItems: 'flex-start', justifyContent: 'center' },
+  skuInfoTaxSeasonPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 10,
+  },
+  skuInfoTaxSeasonPillText: { fontSize: 12, fontWeight: '700' },
   skuInfoValuePill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   skuInfoValuePillText: { fontSize: 12, fontWeight: '600' },
   skuInfoCfEmpty: { fontSize: 13, color: '#B2BEC3' },
   skuInfoDivider: { height: StyleSheet.hairlineWidth, backgroundColor: '#E9ECEF' },
+  orderTableRow: {
+    flexDirection: 'row',
+    paddingVertical: 10,
+  },
+  orderTableRowBorder: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#E9ECEF',
+  },
+  orderTableCell: {
+    flex: 1,
+    gap: 4,
+    paddingRight: 8,
+  },
+  orderTableCellBorderLeft: {
+    paddingRight: 0,
+    paddingLeft: 12,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: '#E9ECEF',
+  },
+  orderTableCellFull: { flex: 1, paddingRight: 0, gap: 4 },
+  orderTableLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#95A5A6',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  orderTableValue: { fontSize: 13, fontWeight: '600', color: '#2D3436', lineHeight: 18 },
+  orderTableValueMono: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#2D3436',
+    lineHeight: 18,
+    letterSpacing: 0.8,
+    fontVariant: ['tabular-nums'],
+  },
+  orderStatusBadge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, alignSelf: 'flex-start' },
+  orderStatusBadgeText: { fontSize: 12, fontWeight: '700' },
   sectionTitle: { fontSize: 14, fontWeight: '600', color: '#636E72', marginBottom: 10 },
   skuTable: {
     backgroundColor: '#fff',
@@ -860,7 +1021,7 @@ const sharedStyles = StyleSheet.create({
   /** 移动端 Info 页底部按钮区域（固定在内容之后，而非悬浮覆盖） */
   bottomActionBar: {
     paddingHorizontal: 0,
-    paddingVertical: 12,
+    paddingVertical: 4,
   },
   bottomActionRow: {
     flexDirection: 'row',
