@@ -79,7 +79,7 @@ import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors'
 
 /** 税季标签颜色（与报税项目 Info、订单详情、WEB 列表一致） */
 
-type SectionData = { title: string; monthKey: string; data: FirmOrderForClient[] };
+type SectionData = { title: string; monthKey: string; data: FirmOrderForClient[]; count?: number };
 
 function getTaxSeasonYear(order: FirmOrderForClient): number | null {
   // 优先使用项目上的显式 taxSeasonYear（来自 shared-logic/firm.ts 的 project.tax_season_year）
@@ -118,6 +118,7 @@ function TaxFilingMobileScreen() {
   const [pinnedOrderIds, setPinnedOrderIds] = useState<string[]>([]);
   const [hidingId, setHidingId] = useState<string | null>(null);
   const [unhidingId, setUnhidingId] = useState<string | null>(null);
+  const [hiddenCollapsed, setHiddenCollapsed] = useState(true);
 
   const loadOrders = useCallback(async () => {
     const space = await getCurrentSpace(true);
@@ -169,7 +170,12 @@ function TaxFilingMobileScreen() {
   const sections = useMemo((): SectionData[] => {
     const out: SectionData[] = [{ title: 'Active', monthKey: 'active', data: sortedOrders }];
     if (hiddenOrders.length > 0) {
-      out.push({ title: `Hidden (${hiddenOrders.length})`, monthKey: 'hidden', data: hiddenOrders });
+      out.push({
+        title: 'Recycle bin',
+        monthKey: 'hidden',
+        data: hiddenOrders,
+        count: hiddenOrders.length,
+      });
     }
     return out;
   }, [sortedOrders, hiddenOrders]);
@@ -251,6 +257,7 @@ function TaxFilingMobileScreen() {
   const renderItem = useCallback(
     ({ item: order, section }: { item: FirmOrderForClient; section: SectionData }) => {
       const isHiddenSection = section.monthKey === 'hidden';
+      if (isHiddenSection && hiddenCollapsed) return null;
       const isOnboarding = order.status === 'onboarding';
       const isCancelled = order.status === 'cancelled';
       const displayName = getOrderDisplayName(order, isOnboarding);
@@ -393,6 +400,7 @@ function TaxFilingMobileScreen() {
       rejectingId,
       hidingId,
       unhidingId,
+      hiddenCollapsed,
       handleConfirmOrder,
       handleRejectOrder,
       handleTogglePin,
@@ -403,13 +411,35 @@ function TaxFilingMobileScreen() {
 
   const renderSectionHeader = useCallback(({ section }: { section: SectionData }) => {
     if (!section.title) return null;
+    if (section.monthKey === 'hidden') {
+      const count = section.count ?? section.data.length;
+      return (
+        <TouchableOpacity
+          style={styles.sectionHeader}
+          onPress={() => setHiddenCollapsed((v) => !v)}
+          activeOpacity={0.8}
+        >
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={styles.sectionTitle}>{section.title}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Text style={styles.sectionCount}>{count} orders</Text>
+              <Ionicons
+                name={hiddenCollapsed ? 'chevron-down' : 'chevron-up'}
+                size={18}
+                color="#636E72"
+              />
+            </View>
+          </View>
+        </TouchableOpacity>
+      );
+    }
     return (
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>{section.title}</Text>
         <Text style={styles.sectionCount}>{section.data.length} orders</Text>
       </View>
     );
-  }, []);
+  }, [hiddenCollapsed]);
 
   if (!showTaxFiling) return null;
 
@@ -799,6 +829,7 @@ function TaxFilingWebScreen() {
   const [pinnedOrderIds, setPinnedOrderIds] = useState<string[]>([]);
   const [hidingId, setHidingId] = useState<string | null>(null);
   const [unhidingId, setUnhidingId] = useState<string | null>(null);
+  const [hiddenCollapsedWeb, setHiddenCollapsedWeb] = useState(true);
 
   const loadOrders = useCallback(async () => {
     const space = await getCurrentSpace(true);
@@ -1023,16 +1054,49 @@ function TaxFilingWebScreen() {
           )}
           {hiddenOrders.length > 0 ? (
             <View style={stylesWeb.hiddenSection}>
-              <Text style={stylesWeb.hiddenSectionTitle}>Hidden ({hiddenOrders.length})</Text>
-              {viewMode === 'list' ? (
-                <View style={stylesWeb.listWrapper}>
-                  <View style={projectListStylesWeb.list}>
+              <TouchableOpacity
+                style={stylesWeb.recycleBinHeader}
+                onPress={() => setHiddenCollapsedWeb((v) => !v)}
+                activeOpacity={0.85}
+              >
+                <View style={stylesWeb.recycleBinHeaderRow}>
+                  <Text style={stylesWeb.hiddenSectionTitle}>Recycle bin ({hiddenOrders.length})</Text>
+                  <Ionicons
+                    name={hiddenCollapsedWeb ? 'chevron-down' : 'chevron-up'}
+                    size={18}
+                    color="#636E72"
+                  />
+                </View>
+              </TouchableOpacity>
+
+              {!hiddenCollapsedWeb ? (
+                viewMode === 'list' ? (
+                  <View style={stylesWeb.listWrapper}>
+                    <View style={projectListStylesWeb.list}>
+                      {hiddenOrders.map((o) => {
+                        const item = orderToItemWeb(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
+                        return (
+                          <ProjectListRow
+                            key={o.id}
+                            item={item}
+                            isPinned={pinnedOrderIds.includes(o.id)}
+                            onTogglePin={() => handleTogglePin(o.id)}
+                            onPress={() => goToTodos(o)}
+                            onSettings={() => unhideOrderForClient(o.id)}
+                          />
+                        );
+                      })}
+                    </View>
+                  </View>
+                ) : (
+                  <View style={stylesWeb.grid}>
                     {hiddenOrders.map((o) => {
                       const item = orderToItemWeb(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
                       return (
-                        <ProjectListRow
+                        <ProjectListCard
                           key={o.id}
                           item={item}
+                          cardWidth={cardWidth}
                           isPinned={pinnedOrderIds.includes(o.id)}
                           onTogglePin={() => handleTogglePin(o.id)}
                           onPress={() => goToTodos(o)}
@@ -1041,25 +1105,8 @@ function TaxFilingWebScreen() {
                       );
                     })}
                   </View>
-                </View>
-              ) : (
-                <View style={stylesWeb.grid}>
-                  {hiddenOrders.map((o) => {
-                    const item = orderToItemWeb(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
-                    return (
-                      <ProjectListCard
-                        key={o.id}
-                        item={item}
-                        cardWidth={cardWidth}
-                        isPinned={pinnedOrderIds.includes(o.id)}
-                        onTogglePin={() => handleTogglePin(o.id)}
-                        onPress={() => goToTodos(o)}
-                        onSettings={() => unhideOrderForClient(o.id)}
-                      />
-                    );
-                  })}
-                </View>
-              )}
+                )
+              ) : null}
             </View>
           ) : null}
         </>
@@ -1135,6 +1182,8 @@ const stylesWeb = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP_WEB },
   hiddenSection: { marginTop: 24 },
   hiddenSectionTitle: { fontSize: 14, fontWeight: '600', color: '#636E72', marginBottom: 12 },
+  recycleBinHeader: { width: '100%' },
+  recycleBinHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   listWrapper: {
     borderRadius: 12,
     borderColor: '#E5E7EB',
