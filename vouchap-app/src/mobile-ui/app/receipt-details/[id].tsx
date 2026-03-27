@@ -1508,7 +1508,7 @@ export default function ReceiptDetailsScreen() {
                 style={styles.pickerManageButton}
                 onPress={() => {
                   setShowCategoryPicker(null);
-                  router.push('/categories-manage');
+                  router.push('/expense-settings');
                 }}
               >
                 <Ionicons name="settings-outline" size={20} color="#6C5CE7" />
@@ -1578,7 +1578,7 @@ export default function ReceiptDetailsScreen() {
                 style={styles.pickerManageButton}
                 onPress={() => {
                   setShowPurposePicker(null);
-                  router.push('/purposes-manage');
+                  router.push('/expense-settings');
                 }}
               >
                 <Ionicons name="settings-outline" size={20} color="#6C5CE7" />

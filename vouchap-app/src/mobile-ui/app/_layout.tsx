@@ -356,7 +356,7 @@ function LayoutContent() {
         <Stack.Screen 
           name="categories-manage" 
           options={{ 
-            title: 'Manage Categories',
+            title: 'Categories',
             headerBackTitle: 'Back',
             headerBackButtonVisible: true,
           }} 
@@ -364,10 +364,26 @@ function LayoutContent() {
         <Stack.Screen 
           name="purposes-manage" 
           options={{ 
-            title: 'Manage Purposes',
+            title: 'Attributions',
             headerBackTitle: 'Back',
             headerBackButtonVisible: true,
           }} 
+        />
+        <Stack.Screen
+          name="expense-settings"
+          options={{
+            title: 'Expense Settings',
+            headerBackTitle: 'Back',
+            headerBackButtonVisible: true,
+          }}
+        />
+        <Stack.Screen
+          name="income-settings"
+          options={{
+            title: 'Income Settings',
+            headerBackTitle: 'Back',
+            headerBackButtonVisible: true,
+          }}
         />
         <Stack.Screen 
           name="accounts-manage" 
