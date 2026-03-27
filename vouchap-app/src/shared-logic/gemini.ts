@@ -1,6 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import { getCategories } from './categories';
-import { getPurposes } from './purposes';
+import { getAttributions } from './attributions';
 import {
   DEFAULT_EXPENSE_CATEGORIES,
   DEFAULT_EXPENSE_PURPOSES,
@@ -200,7 +200,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
 
   let purposeNames: string[] = [];
   try {
-    const purposes = await getPurposes('expense');
+    const purposes = await getAttributions('expense');
     purposeNames = purposes.map(p => p.name);
   } catch (error) {
     console.warn('Failed to fetch expense purposes, using default list:', error);
@@ -566,7 +566,7 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
 
   let purposeNames: string[] = [];
   try {
-    const purposes = await getPurposes('expense');
+    const purposes = await getAttributions('expense');
     purposeNames = purposes.map(p => p.name);
   } catch (_) { purposeNames = [...DEFAULT_EXPENSE_PURPOSES]; }
   if (purposeNames.length === 0) purposeNames = [...DEFAULT_EXPENSE_PURPOSES];
@@ -885,7 +885,7 @@ export async function recognizeReceiptFromText(text: string): Promise<GeminiRece
 
   let purposeNames: string[] = [];
   try {
-    const purposes = await getPurposes('expense');
+    const purposes = await getAttributions('expense');
     purposeNames = purposes.map(p => p.name);
   } catch (error) {
     console.warn('Failed to fetch expense purposes, using default list:', error);
@@ -1148,7 +1148,7 @@ export async function recognizeReceiptFromAudio(audioUri: string): Promise<Gemin
 
   let purposeNames: string[] = [];
   try {
-    const purposes = await getPurposes('expense');
+    const purposes = await getAttributions('expense');
     purposeNames = purposes.map(p => p.name);
   } catch (error) {
     console.warn('Failed to fetch expense purposes, using default list:', error);
@@ -1350,7 +1350,7 @@ async function recognizeInvoiceFromText(text: string): Promise<GeminiVoucherResu
 
   let purposeNames: string[] = [];
   try {
-    const purposes = await getPurposes('income');
+    const purposes = await getAttributions('income');
     purposeNames = purposes.map(p => p.name);
   } catch {
     purposeNames = [...DEFAULT_INCOME_PURPOSES];
@@ -1457,7 +1457,7 @@ export async function recognizeInvoiceFromDocument(fileUrl: string, mimeHint?: s
   if (categoryNames.length === 0) categoryNames = [...DEFAULT_INCOME_CATEGORIES];
   let purposeNames: string[] = [];
   try {
-    const purposes = await getPurposes('income');
+    const purposes = await getAttributions('income');
     purposeNames = purposes.map(p => p.name);
   } catch {
     purposeNames = [...DEFAULT_INCOME_PURPOSES];
@@ -1571,7 +1571,7 @@ async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVouche
   if (categoryNames.length === 0) categoryNames = [...DEFAULT_INCOME_CATEGORIES];
   let purposeNames: string[] = [];
   try {
-    const purposes = await getPurposes('income');
+    const purposes = await getAttributions('income');
     purposeNames = purposes.map(p => p.name);
   } catch {
     purposeNames = [...DEFAULT_INCOME_PURPOSES];

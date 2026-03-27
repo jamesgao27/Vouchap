@@ -12,12 +12,12 @@ import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import {
-  getPurposes,
-  createPurpose,
-  updatePurpose,
-  deletePurpose,
-  Purpose,
-} from '@/lib/purposes';
+  getAttributions,
+  createAttribution,
+  updateAttribution,
+  deleteAttribution,
+  Attribution,
+} from '@/lib/attributions';
 import type { ExpenseIncomeScope } from '@/types';
 import { GradientText } from '@/lib/GradientText';
 import { showToast } from '@/lib/toast';
@@ -26,10 +26,10 @@ import { TAG_COLOR_LIBRARY } from '@/lib/category-purpose-presets';
 
 const COLOR_OPTIONS = [...TAG_COLOR_LIBRARY];
 
-export default function PurposesManageScreen() {
+export default function AttributionsManageScreen() {
   const router = useRouter();
-  const [expensePurposes, setExpensePurposes] = useState<Purpose[]>([]);
-  const [incomePurposes, setIncomePurposes] = useState<Purpose[]>([]);
+  const [expensePurposes, setExpensePurposes] = useState<Attribution[]>([]);
+  const [incomePurposes, setIncomePurposes] = useState<Attribution[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState('');
@@ -47,8 +47,8 @@ export default function PurposesManageScreen() {
     try {
       setLoading(true);
       const [expense, income] = await Promise.all([
-        getPurposes('expense'),
-        getPurposes('income'),
+        getAttributions('expense'),
+        getAttributions('income'),
       ]);
       setExpensePurposes(expense);
       setIncomePurposes(income);
@@ -67,7 +67,7 @@ export default function PurposesManageScreen() {
     }
 
     try {
-      const newPurpose = await createPurpose(newName.trim(), newColor, addScope);
+      const newPurpose = await createAttribution(newName.trim(), newColor, addScope);
       if (addScope === 'expense') {
         setExpensePurposes(prev => [...prev, newPurpose]);
       } else {
@@ -76,10 +76,10 @@ export default function PurposesManageScreen() {
       setNewName('');
       setNewColor('#95A5A6');
       setShowAddForm(false);
-      showToast('Purpose created', 'success');
+      showToast('Attribution created', 'success');
     } catch (error: any) {
-      console.error('Error creating purpose:', error);
-      showToast(error.message || 'Failed to create purpose', 'error');
+      console.error('Error creating attribution:', error);
+      showToast(error.message || 'Failed to create attribution', 'error');
       loadPurposes();
     }
   };
@@ -91,7 +91,7 @@ export default function PurposesManageScreen() {
     }
 
     try {
-      await updatePurpose(purposeId, {
+      await updateAttribution(purposeId, {
         name: editName.trim(),
         color: editColor,
       });
@@ -104,29 +104,29 @@ export default function PurposesManageScreen() {
       setEditColor('#95A5A6');
       // 移除成功提示对话框
     } catch (error: any) {
-      console.error('Error updating purpose:', error);
-      showToast(error.message || 'Failed to update purpose', 'error');
+      console.error('Error updating attribution:', error);
+      showToast(error.message || 'Failed to update attribution', 'error');
       // 如果失败，重新加载以确保数据一致
       loadPurposes();
     }
   };
 
-  const handleDeletePurpose = async (purpose: Purpose) => {
-    confirmDestructive('Delete Purpose', `Are you sure you want to delete "${purpose.name}"?`, async () => {
+  const handleDeletePurpose = async (purpose: Attribution) => {
+    confirmDestructive('Delete Attribution', `Are you sure you want to delete "${purpose.name}"?`, async () => {
       try {
-        await deletePurpose(purpose.id);
+        await deleteAttribution(purpose.id);
         setExpensePurposes(prev => prev.filter(p => p.id !== purpose.id));
         setIncomePurposes(prev => prev.filter(p => p.id !== purpose.id));
-        showToast('Purpose deleted', 'success');
+        showToast('Attribution deleted', 'success');
       } catch (error: any) {
-        console.error('Error deleting purpose:', error);
-        showToast(error.message || 'Failed to delete purpose', 'error');
+        console.error('Error deleting attribution:', error);
+        showToast(error.message || 'Failed to delete attribution', 'error');
         loadPurposes();
       }
     }, { confirmLabel: 'Delete' });
   };
 
-  const startEdit = (purpose: Purpose) => {
+  const startEdit = (purpose: Attribution) => {
     setEditingId(purpose.id);
     setEditName(purpose.name);
     setEditColor(purpose.color);
@@ -177,7 +177,7 @@ export default function PurposesManageScreen() {
                     style={styles.editInputInline}
                     value={editName}
                     onChangeText={setEditName}
-                    placeholder="Purpose name"
+                    placeholder="Attribution name"
                     placeholderTextColor="#95A5A6"
                   />
                   {/* 第二行：颜色 */}
@@ -252,7 +252,7 @@ export default function PurposesManageScreen() {
                 style={styles.editInputInline}
                 value={newName}
                 onChangeText={setNewName}
-                placeholder="Purpose name"
+                placeholder="Attribution name"
                 placeholderTextColor="#95A5A6"
               />
               <View style={styles.editColorPickerInline}>
@@ -299,7 +299,7 @@ export default function PurposesManageScreen() {
             >
               <View style={styles.addPurposeRow}>
                 <Ionicons name="add-circle" size={20} color="#6C5CE7" />
-                <Text style={styles.addPurposeText}>Add Expense Purpose</Text>
+                <Text style={styles.addPurposeText}>Add Expense Attribution</Text>
               </View>
             </TouchableOpacity>
           )}
@@ -313,7 +313,7 @@ export default function PurposesManageScreen() {
                     style={styles.editInputInline}
                     value={editName}
                     onChangeText={setEditName}
-                    placeholder="Purpose name"
+                    placeholder="Attribution name"
                     placeholderTextColor="#95A5A6"
                   />
                   <View style={styles.editColorPickerInline}>
@@ -385,7 +385,7 @@ export default function PurposesManageScreen() {
                 style={styles.editInputInline}
                 value={newName}
                 onChangeText={setNewName}
-                placeholder="Purpose name"
+                placeholder="Attribution name"
                 placeholderTextColor="#95A5A6"
               />
               <View style={styles.editColorPickerInline}>

@@ -21,14 +21,14 @@ import { getInvoiceById, saveInvoice, updateInvoiceItem } from '@/lib/invoices';
 import { supabase, uploadInvoiceImage } from '@/lib/supabase';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getCategories } from '@/lib/categories';
-import { getPurposes } from '@/lib/purposes';
+import { getAttributions } from '@/lib/attributions';
 import { getAccounts, mergeAccount } from '@/lib/accounts';
 import { getCustomerOptions } from '@/lib/customer-supplier-list';
 import { normalizeNameForCompare } from '@/lib/name-utils';
 import { mergeEntity } from '@/lib/entities';
 import { getChatLogsPaginated } from '@/lib/chat-logs';
 import { playAudio, stopPlayback } from '@/lib/audio';
-import { Invoice, InvoiceItem, Category, Purpose, VoucherStatus, Account } from '@/types';
+import { Invoice, InvoiceItem, Category, Attribution, VoucherStatus, Account } from '@/types';
 import { format } from 'date-fns';
 import { getLocalDateString } from '@/lib/date-utils';
 import { showToast } from '@/lib/toast';
@@ -45,7 +45,7 @@ export default function InvoiceDetailsScreen() {
   const [editedInvoice, setEditedInvoice] = useState<Invoice | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [purposes, setPurposes] = useState<Purpose[]>([]);
+  const [purposes, setPurposes] = useState<Attribution[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [showCategoryPicker, setShowCategoryPicker] = useState<number | null>(null);
   const [showPurposePicker, setShowPurposePicker] = useState<number | null>(null);
@@ -124,7 +124,7 @@ export default function InvoiceDetailsScreen() {
 
   const loadPurposes = async () => {
     try {
-      const purps = await getPurposes('income');
+      const purps = await getAttributions('income');
       setPurposes(purps);
     } catch (error) {
       console.error('Error loading purposes:', error);

@@ -264,6 +264,7 @@ export async function getCurrentSpace(forceRefresh: boolean = false): Promise<Sp
       address: data.address,
       logoUrl: (data as any).logo_url ?? null,
       kind: (data.kind as 'client' | 'firm') || 'client',
+      clientProfileType: (data as any).client_profile_type ?? 'household',
       firmStatus,
       createdAt: data.created_at,
       updatedAt: data.updated_at,
@@ -338,6 +339,7 @@ export async function getUserSpaces(): Promise<UserSpace[]> {
         address: row.spaces.address,
         logoUrl: (row.spaces as any).logo_url ?? null,
         kind: (row.spaces.kind as 'client' | 'firm') || 'client',
+        clientProfileType: (row.spaces as any).client_profile_type ?? 'household',
         firmStatus: row.spaces.kind === 'firm' ? (firmStatusBySpaceId[row.spaces.id] ?? undefined) : undefined,
         createdAt: row.spaces.created_at,
         updatedAt: row.spaces.updated_at,
@@ -441,6 +443,7 @@ export async function setCurrentSpace(spaceId: string): Promise<{ error: Error |
 /** 创建空间选项：kind=firm 时需传 verificationAttachmentUrl（验证机构附件 URL） */
 export type CreateSpaceOptions = {
   kind?: 'client' | 'firm';
+  clientProfileType?: 'household' | 'business';
   verificationAttachmentUrl?: string;
 };
 
@@ -452,6 +455,7 @@ export async function createSpace(
 ): Promise<{ space: Space | null; error: Error | null }> {
   try {
     const kind = options?.kind ?? 'client';
+    const clientProfileType = options?.clientProfileType ?? 'household';
     if (kind === 'firm') {
       const url = options?.verificationAttachmentUrl?.trim();
       if (!url) {
@@ -558,7 +562,11 @@ export async function createSpace(
       name: string;
       address?: string;
       kind?: 'client' | 'firm';
+      client_profile_type?: 'household' | 'business';
     } = { name, kind };
+    if (kind === 'client') {
+      insertData.client_profile_type = clientProfileType;
+    }
     if (address && address.trim()) {
       insertData.address = address.trim();
     }
@@ -639,6 +647,7 @@ export async function createSpace(
       p_space_address: insertData.address || null,
       p_user_id: currentUser.id,
       p_kind: insertData.kind ?? 'client',
+      p_client_profile_type: kind === 'client' ? clientProfileType : 'household',
       p_firm_verification_url: verificationUrl ?? null,
     });
 
@@ -847,7 +856,10 @@ export async function createSpace(
     // 创建默认分类和账户（仅 client 空间需要，firm 不创建）
     if (spaceData.kind !== 'firm') {
       try {
-        await createDefaultCategoriesAndAccounts(spaceData.id);
+        await createDefaultCategoriesAndAccounts(
+          spaceData.id,
+          ((spaceData as any).client_profile_type ?? clientProfileType ?? 'household') as 'household' | 'business'
+        );
       } catch (error) {
         console.warn('Failed to create default categories and accounts:', error);
         // 不阻止流程，用户可以稍后手动创建
@@ -865,6 +877,7 @@ export async function createSpace(
       name: spaceData.name,
       address: spaceData.address,
       kind: (spaceData.kind as 'client' | 'firm') || 'client',
+      clientProfileType: (spaceData as any).client_profile_type ?? 'household',
       firmStatus,
       createdAt: spaceData.created_at,
       updatedAt: spaceData.updated_at,

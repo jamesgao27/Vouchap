@@ -4,8 +4,8 @@ export type ReceiptStatus = 'pending' | 'processing' | 'confirmed' | 'needs_reta
 // 收支范围：支出 / 收入，分类与用途可分别维护
 export type ExpenseIncomeScope = 'expense' | 'income';
 
-// 商品用途（用途主数据表 purposes）
-export interface Purpose {
+// 商品属性（主数据表 attributions）
+export interface Attribution {
   id: string;
   spaceId: string;
   name: string;
@@ -16,6 +16,9 @@ export interface Purpose {
   createdAt?: string;
   updatedAt?: string;
 }
+
+/** @deprecated Use Attribution */
+export type Purpose = Attribution;
 
 // 消费分类
 export interface Category {
@@ -88,8 +91,8 @@ export interface ReceiptItem {
   name: string;
   categoryId: string;
   category?: Category; // 关联的分类对象
-  purposeId: string | null; // 引用 purposes 表
-  purpose?: Purpose | null; // 关联的用途对象
+  purposeId: string | null; // 引用 attributions 表
+  purpose?: Attribution | null; // 关联的属性对象
   price: number;
   isAsset: boolean;
   confidence?: number; // AI识别置信度
@@ -162,6 +165,8 @@ export interface Space {
   logoUrl?: string | null;
   /** 空间类型，缺省为 client */
   kind?: SpaceKind;
+  /** 仅 kind=client 时有效：household 家庭，business 商业 */
+  clientProfileType?: 'household' | 'business';
   /** 仅 kind=firm 时有效：pending 待审核，approved 已开通 */
   firmStatus?: FirmStatus | null;
   createdAt?: string;

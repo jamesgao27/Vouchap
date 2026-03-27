@@ -21,7 +21,7 @@ import { getReceiptById, updateReceipt, updateReceiptItem } from '@/lib/database
 import { supabase, uploadReceiptImage } from '@/lib/supabase';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getCategories } from '@/lib/categories';
-import { getPurposes } from '@/lib/purposes';
+import { getAttributions } from '@/lib/attributions';
 import { getAccounts, mergeAccount } from '@/lib/accounts';
 import { getSupplierOptions } from '@/lib/customer-supplier-list';
 import { normalizeNameForCompare } from '@/lib/name-utils';
@@ -29,7 +29,7 @@ import { mergeEntity } from '@/lib/entities';
 import { getChatLogsByReceiptId } from '@/lib/chat-logs';
 import { getLocalDateString } from '@/lib/date-utils';
 import { playAudio, stopPlayback } from '@/lib/audio';
-import { Receipt, ReceiptItem, Category, Purpose, ReceiptStatus, Account } from '@/types';
+import { Receipt, ReceiptItem, Category, Attribution, ReceiptStatus, Account } from '@/types';
 import { format } from 'date-fns';
 import { showToast } from '@/lib/toast';
 import { showChoiceDialog } from '@/lib/confirmDialog';
@@ -45,7 +45,7 @@ export default function ReceiptDetailsScreen() {
   const [editedReceipt, setEditedReceipt] = useState<Receipt | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [purposes, setPurposes] = useState<Purpose[]>([]);
+  const [purposes, setPurposes] = useState<Attribution[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [showCategoryPicker, setShowCategoryPicker] = useState<number | null>(null);
   const [showPurposePicker, setShowPurposePicker] = useState<number | null>(null);
@@ -126,7 +126,7 @@ export default function ReceiptDetailsScreen() {
 
   const loadPurposes = async () => {
     try {
-      const purps = await getPurposes('expense');
+      const purps = await getAttributions('expense');
       setPurposes(purps);
     } catch (error) {
       console.error('Error loading purposes:', error);
@@ -1573,7 +1573,7 @@ export default function ReceiptDetailsScreen() {
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
             <View style={styles.pickerHandle} />
             <View style={styles.pickerHeader}>
-              <Text style={styles.pickerTitle}>Select Purpose</Text>
+              <Text style={styles.pickerTitle}>Select Attribution</Text>
               <TouchableOpacity
                 style={styles.pickerManageButton}
                 onPress={() => {

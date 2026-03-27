@@ -37,6 +37,7 @@ export default function SetupHouseholdScreen() {
   const [newSpaceName, setNewSpaceName] = useState('');
   const [newSpaceAddress, setNewSpaceAddress] = useState('');
   const [spaceKind, setSpaceKind] = useState<'client' | 'firm'>('client');
+  const [clientProfileType, setClientProfileType] = useState<'household' | 'business'>('household');
   const [verificationFileUri, setVerificationFileUri] = useState<string | null>(null);
   const [mode, setMode] = useState<'invite' | 'create'>('invite'); // 'invite' 显示邀请，'create' 显示创建表单
 
@@ -243,7 +244,9 @@ export default function SetupHouseholdScreen() {
       const { space, error } = await createSpace(
         newSpaceName.trim(),
         newSpaceAddress.trim() || undefined,
-        spaceKind === 'firm' ? { kind: 'firm', verificationAttachmentUrl: verificationUrl } : undefined
+        spaceKind === 'firm'
+          ? { kind: 'firm', verificationAttachmentUrl: verificationUrl }
+          : { kind: 'client', clientProfileType }
       );
 
       if (error) {
@@ -391,6 +394,27 @@ export default function SetupHouseholdScreen() {
                     <Text style={[stylesWeb.spaceKindText, spaceKind === 'firm' && stylesWeb.spaceKindTextSelected]}>Firm</Text>
                   </TouchableOpacity>
                 </View>
+                {spaceKind === 'client' && (
+                  <View style={stylesWeb.clientProfileSection}>
+                    <Text style={stylesWeb.verificationLabel}>Client profile</Text>
+                    <View style={stylesWeb.spaceKindRow}>
+                      <TouchableOpacity
+                        style={[stylesWeb.spaceKindOption, clientProfileType === 'household' && stylesWeb.spaceKindOptionSelected]}
+                        onPress={() => setClientProfileType('household')}
+                      >
+                        <Ionicons name={clientProfileType === 'household' ? 'radio-button-on' : 'radio-button-off'} size={20} color={clientProfileType === 'household' ? '#6C5CE7' : '#BDC3C7'} />
+                        <Text style={[stylesWeb.spaceKindText, clientProfileType === 'household' && stylesWeb.spaceKindTextSelected]}>Household</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[stylesWeb.spaceKindOption, clientProfileType === 'business' && stylesWeb.spaceKindOptionSelected]}
+                        onPress={() => setClientProfileType('business')}
+                      >
+                        <Ionicons name={clientProfileType === 'business' ? 'radio-button-on' : 'radio-button-off'} size={20} color={clientProfileType === 'business' ? '#6C5CE7' : '#BDC3C7'} />
+                        <Text style={[stylesWeb.spaceKindText, clientProfileType === 'business' && stylesWeb.spaceKindTextSelected]}>Business</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
                 {spaceKind === 'firm' && (
                   <View style={stylesWeb.verificationSection}>
                     <Text style={stylesWeb.verificationLabel}>Verification document * (e.g. practice certificate)</Text>
@@ -516,6 +540,27 @@ export default function SetupHouseholdScreen() {
                 <Text style={[styles.spaceKindText, spaceKind === 'firm' && styles.spaceKindTextSelected]}>Firm</Text>
               </TouchableOpacity>
             </View>
+            {spaceKind === 'client' && (
+              <View style={styles.clientProfileSection}>
+                <Text style={styles.verificationLabel}>Client profile</Text>
+                <View style={styles.spaceKindRow}>
+                  <TouchableOpacity
+                    style={[styles.spaceKindOption, clientProfileType === 'household' && styles.spaceKindOptionSelected]}
+                    onPress={() => setClientProfileType('household')}
+                  >
+                    <Ionicons name={clientProfileType === 'household' ? 'radio-button-on' : 'radio-button-off'} size={20} color={clientProfileType === 'household' ? '#6C5CE7' : '#BDC3C7'} />
+                    <Text style={[styles.spaceKindText, clientProfileType === 'household' && styles.spaceKindTextSelected]}>Household</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.spaceKindOption, clientProfileType === 'business' && styles.spaceKindOptionSelected]}
+                    onPress={() => setClientProfileType('business')}
+                  >
+                    <Ionicons name={clientProfileType === 'business' ? 'radio-button-on' : 'radio-button-off'} size={20} color={clientProfileType === 'business' ? '#6C5CE7' : '#BDC3C7'} />
+                    <Text style={[styles.spaceKindText, clientProfileType === 'business' && styles.spaceKindTextSelected]}>Business</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
             {spaceKind === 'firm' && (
               <View style={styles.verificationSection}>
                 <Text style={styles.verificationLabel}>Verification document * (e.g. practice certificate, for review)</Text>
@@ -621,6 +666,7 @@ const stylesWeb = StyleSheet.create({
   spaceKindText: { fontSize: 15, color: '#636E72' },
   spaceKindTextSelected: { color: '#6C5CE7', fontWeight: '600' },
   verificationSection: { marginTop: 4 },
+  clientProfileSection: { marginTop: 4, gap: 8 },
   verificationLabel: { fontSize: 13, fontWeight: '600', color: '#636E72', marginBottom: 4 },
   verificationHint: { fontSize: 12, color: '#95A5A6', marginBottom: 8 },
   verificationButton: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 14, paddingHorizontal: 16, borderRadius: 16, borderWidth: 1, borderColor: '#E9ECEF', backgroundColor: '#F8F9FA', borderStyle: 'dashed' },
@@ -813,6 +859,10 @@ const styles = StyleSheet.create({
   },
   verificationSection: {
     marginBottom: 16,
+  },
+  clientProfileSection: {
+    marginBottom: 16,
+    gap: 8,
   },
   verificationLabel: {
     fontSize: 13,

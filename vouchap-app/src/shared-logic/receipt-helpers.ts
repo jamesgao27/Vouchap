@@ -1,7 +1,7 @@
 import { GeminiReceiptResult, GeminiVoucherResult, GeminiInboundOutboundResult, Receipt, ReceiptStatus, Invoice, InvoiceItem, Inbound, InboundItem, Outbound, OutboundItem, VoucherStatus } from '@/types';
 import { getCurrentUser } from './auth';
 import { findCategoryByName, getCategories } from './categories';
-import { findPurposeByName, getPurposes } from './purposes';
+import { findAttributionByName, getAttributions } from './attributions';
 import { findOrCreateAccount } from './accounts';
 import { findOrCreateEntity } from './entities';
 import { findOrCreateWarehouseByName, findOrCreateLocationByName } from './warehouse';
@@ -14,7 +14,7 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
 
   // 支出：获取支出分类与用途
   const categories = await getCategories('expense');
-  const purposes = await getPurposes('expense');
+  const attributions = await getAttributions('expense');
 
   // 处理关联方 Payee（排除无效名称）
   let entityId: string | undefined;
@@ -111,17 +111,17 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
       let purposeId: string | null = null;
       const purposeName = item.purposeName ?? (item as { purpose?: string }).purpose;
       if (purposeName) {
-        const purpose = purposes.find(p => p.name.toLowerCase() === purposeName.toLowerCase())
-          || await findPurposeByName(purposeName, 'expense');
+        const purpose = attributions.find(p => p.name.toLowerCase() === purposeName.toLowerCase())
+          || await findAttributionByName(purposeName, 'expense');
         if (purpose) {
           purposeId = purpose.id;
         }
       }
       
       // 如果找不到匹配的用途，使用默认用途
-      if (!purposeId && purposes.length > 0) {
+      if (!purposeId && attributions.length > 0) {
         // 优先使用默认用途，否则使用第一个用途
-        const defaultPurpose = purposes.find(p => p.isDefault) || purposes[0];
+        const defaultPurpose = attributions.find(p => p.isDefault) || attributions[0];
         if (defaultPurpose) {
           purposeId = defaultPurpose.id;
           console.warn(`用途 "${purposeName}" 未找到，使用默认用途: ${defaultPurpose.name}`);
@@ -260,7 +260,7 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
   if (!user) throw new Error('Not logged in');
 
   const categories = await getCategories('income');
-  const purposes = await getPurposes('income');
+  const attributions = await getAttributions('income');
 
   let accountId: string | undefined;
   if (result.paymentAccountName) {
@@ -293,11 +293,11 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
       let purposeId: string | null = null;
       const purposeName = item.purposeName || (item as any).purpose;
       if (purposeName) {
-        const purpose = purposes.find((p) => p.name.toLowerCase() === purposeName.toLowerCase()) || await findPurposeByName(purposeName, 'income');
+        const purpose = attributions.find((p) => p.name.toLowerCase() === purposeName.toLowerCase()) || await findAttributionByName(purposeName, 'income');
         if (purpose) purposeId = purpose.id;
       }
-      if (!purposeId && purposes.length > 0) {
-        purposeId = (purposes.find((p) => p.isDefault) || purposes[0]).id;
+      if (!purposeId && attributions.length > 0) {
+        purposeId = (attributions.find((p) => p.isDefault) || attributions[0]).id;
       }
 
       const itemName = item.name ?? (item as { description?: string }).description ?? 'Unknown Item';
@@ -307,7 +307,7 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
         categoryId: category.id,
         category,
         purposeId,
-        purpose: purposes.find((p) => p.id === purposeId) || undefined,
+        purpose: attributions.find((p) => p.id === purposeId) || undefined,
         price: itemPrice,
         isAsset: item.isAsset ?? false,
         confidence: item.confidence,

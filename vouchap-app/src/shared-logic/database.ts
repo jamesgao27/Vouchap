@@ -644,7 +644,7 @@ export async function getAllReceipts(): Promise<Receipt[]> {
         receipt_items (
           *,
           categories (*),
-          purposes (*)
+          attributions (*)
         )
       `)
       .eq('space_id', spaceId)
@@ -773,14 +773,14 @@ export async function getAllReceipts(): Promise<Receipt[]> {
             updatedAt: item.categories.updated_at,
           } : undefined,
           purposeId: item.purpose_id ?? null,
-          purpose: item.purposes ? {
-            id: item.purposes.id,
-            spaceId: item.purposes.space_id,
-            name: item.purposes.name,
-            color: item.purposes.color,
-            isDefault: item.purposes.is_default,
-            createdAt: item.purposes.created_at,
-            updatedAt: item.purposes.updated_at,
+          purpose: item.attributions ? {
+            id: item.attributions.id,
+            spaceId: item.attributions.space_id,
+            name: item.attributions.name,
+            color: item.attributions.color,
+            isDefault: item.attributions.is_default,
+            createdAt: item.attributions.created_at,
+            updatedAt: item.attributions.updated_at,
           } : undefined,
           price: item.price,
           isAsset: item.is_asset,
@@ -895,28 +895,40 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
-    const { data, error } = await supabase
-      .from('receipts')
-      .select(`
-        *,
-        entities (*),
-        accounts (*),
-        created_by_user:users!created_by (
-          id,
-          email,
-          name,
-          current_space_id
-        ),
-        receipt_items (
+    const queryByRelation = async (relation: 'attributions' | 'purposes') => {
+      return supabase
+        .from('receipts')
+        .select(`
           *,
-          categories (*),
-          purposes (*)
-        )
-      `)
-      .eq('id', receiptId)
-      .eq('space_id', spaceId)
-      .order('created_at', { foreignTable: 'receipt_items', ascending: true })
-      .single();
+          entities (*),
+          accounts (*),
+          created_by_user:users!created_by (
+            id,
+            email,
+            name,
+            current_space_id
+          ),
+          receipt_items (
+            *,
+            categories (*),
+            ${relation} (*)
+          )
+        `)
+        .eq('id', receiptId)
+        .eq('space_id', spaceId)
+        .order('created_at', { foreignTable: 'receipt_items', ascending: true })
+        .single();
+    };
+
+    // Prefer new relation name; fallback to legacy relation for compatibility.
+    let relationUsed: 'attributions' | 'purposes' = 'attributions';
+    let { data, error } = await queryByRelation('attributions');
+    if (error && (error.message?.includes('attributions') || error.details?.includes('attributions'))) {
+      relationUsed = 'purposes';
+      const fallback = await queryByRelation('purposes');
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) {
       if (error.code === 'PGRST116') return null; // Not found
@@ -1004,14 +1016,14 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
           updatedAt: item.categories.updated_at,
         } : undefined,
         purposeId: item.purpose_id ?? null,
-        purpose: item.purposes ? {
-          id: item.purposes.id,
-          spaceId: item.purposes.space_id,
-          name: item.purposes.name,
-          color: item.purposes.color,
-          isDefault: item.purposes.is_default,
-          createdAt: item.purposes.created_at,
-          updatedAt: item.purposes.updated_at,
+        purpose: item[relationUsed] ? {
+          id: item[relationUsed].id,
+          spaceId: item[relationUsed].space_id,
+          name: item[relationUsed].name,
+          color: item[relationUsed].color,
+          isDefault: item[relationUsed].is_default,
+          createdAt: item[relationUsed].created_at,
+          updatedAt: item[relationUsed].updated_at,
         } : undefined,
         price: item.price,
         isAsset: item.is_asset,

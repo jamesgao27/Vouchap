@@ -9,11 +9,15 @@ import {
 } from './category-purpose-presets';
 
 // 创建默认分类与用途（支出+收入，带 scope 与预设颜色）+ 默认支付账户
-export async function createDefaultCategoriesAndAccounts(spaceId: string): Promise<void> {
+export async function createDefaultCategoriesAndAccounts(
+  spaceId: string,
+  spaceType: 'household' | 'business' = 'household'
+): Promise<void> {
   // 优先调用 Supabase 种子函数（与迁移脚本一致：支出/收入分类+用途，颜色 #95A5A6）
   console.log('Seeding default categories and purposes for new space');
   const { error: seedError } = await supabase.rpc('seed_default_categories_purposes_for_space', {
     p_space_id: spaceId,
+    p_space_type: spaceType,
   });
 
   if (seedError) {
@@ -54,7 +58,7 @@ export async function createDefaultCategoriesAndAccounts(spaceId: string): Promi
     ];
     const { error: catErr } = await supabase.from('categories').insert(categoryRows);
     if (catErr) console.warn('应用层回退创建分类失败:', catErr.message);
-    const { error: purErr } = await supabase.from('purposes').insert(purposeRows);
+    const { error: purErr } = await supabase.from('attributions').insert(purposeRows);
     if (purErr) console.warn('应用层回退创建用途失败:', purErr.message);
     if (!catErr && !purErr) console.log('默认分类与用途（含颜色）创建成功');
   } else {

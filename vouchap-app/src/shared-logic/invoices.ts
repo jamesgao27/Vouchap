@@ -371,7 +371,7 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
     .select(`
       *,
       categories (*),
-      purposes (*)
+      attributions (*)
     `)
     .eq('invoice_id', invoiceId)
     .order('id', { ascending: true });
@@ -391,14 +391,14 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
       updatedAt: r.categories.updated_at,
     } : undefined,
     purposeId: r.purpose_id ?? undefined,
-    purpose: r.purposes ? {
-      id: r.purposes.id,
-      spaceId: r.purposes.space_id,
-      name: r.purposes.name,
-      color: r.purposes.color,
-      isDefault: r.purposes.is_default,
-      createdAt: r.purposes.created_at,
-      updatedAt: r.purposes.updated_at,
+    purpose: r.attributions ? {
+      id: r.attributions.id,
+      spaceId: r.attributions.space_id,
+      name: r.attributions.name,
+      color: r.attributions.color,
+      isDefault: r.attributions.is_default,
+      createdAt: r.attributions.created_at,
+      updatedAt: r.attributions.updated_at,
     } : undefined,
     price: Number(r.price),
     isAsset: r.is_asset ?? false,

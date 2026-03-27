@@ -4,7 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { GradientText } from '@/lib/GradientText';
 import { getCategories, createCategory, updateCategory, deleteCategory } from '@/lib/categories';
-import { getPurposes, createPurpose, updatePurpose, deletePurpose, Purpose } from '@/lib/purposes';
+import { getAttributions, createAttribution, updateAttribution, deleteAttribution, Attribution } from '@/lib/attributions';
 import type { Category, ExpenseIncomeScope } from '@/types';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '@/lib/alertWeb';
@@ -23,7 +23,7 @@ export default function ScopeSettingsManager({
   title: string;
 }) {
   const [categories, setCategories] = useState<Category[]>([]);
-  const [attributions, setAttributions] = useState<Purpose[]>([]);
+  const [attributions, setAttributions] = useState<Attribution[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [editingKind, setEditingKind] = useState<EditingKind>(null);
@@ -42,7 +42,7 @@ export default function ScopeSettingsManager({
   const loadData = async () => {
     try {
       setLoading(true);
-      const [cs, ps] = await Promise.all([getCategories(scope), getPurposes(scope)]);
+      const [cs, ps] = await Promise.all([getCategories(scope), getAttributions(scope)]);
       setCategories(cs);
       setAttributions(ps);
     } catch (error) {
@@ -84,7 +84,7 @@ export default function ScopeSettingsManager({
         await updateCategory(editingId, { name: editName.trim(), color: editColor });
         setCategories((prev) => prev.map((c) => (c.id === editingId ? { ...c, name: editName.trim(), color: editColor } : c)));
       } else {
-        await updatePurpose(editingId, { name: editName.trim(), color: editColor });
+        await updateAttribution(editingId, { name: editName.trim(), color: editColor });
         setAttributions((prev) => prev.map((p) => (p.id === editingId ? { ...p, name: editName.trim(), color: editColor } : p)));
       }
       cancelEdit();
@@ -105,7 +105,7 @@ export default function ScopeSettingsManager({
             await deleteCategory(item.id);
             setCategories((prev) => prev.filter((c) => c.id !== item.id));
           } else {
-            await deletePurpose(item.id);
+            await deleteAttribution(item.id);
             setAttributions((prev) => prev.filter((p) => p.id !== item.id));
           }
           showToast('Deleted', 'success');
@@ -130,7 +130,7 @@ export default function ScopeSettingsManager({
         const created = await createCategory(newName.trim(), newColor, scope);
         setCategories((prev) => [...prev, created]);
       } else {
-        const created = await createPurpose(newName.trim(), newColor, scope);
+        const created = await createAttribution(newName.trim(), newColor, scope);
         setAttributions((prev) => [...prev, created]);
       }
       cancelAdd();
