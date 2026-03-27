@@ -216,31 +216,59 @@ export default function ReceiptDetailsScreen() {
             }
             await updateReceipt(id, { ...editedReceipt, status: 'confirmed' as ReceiptStatus });
           } else if (payload.code === 'ENTITY_NAME_EXISTS' && payload.targetId) {
-            const currentEntityId = receipt.entityId ?? receipt.entity?.id ?? null;
+            const currentEntityId =
+              editedReceipt.entityId ??
+              editedReceipt.entity?.id ??
+              editedReceipt.supplierId ??
+              editedReceipt.supplierCustomerId ??
+              receipt.entityId ??
+              receipt.entity?.id ??
+              receipt.supplierId ??
+              receipt.supplierCustomerId ??
+              null;
             if (currentEntityId && currentEntityId !== payload.targetId) {
               await mergeEntity([currentEntityId], payload.targetId);
             }
-            await updateReceipt(
-              id,
-              {
-                ...editedReceipt,
-                status: 'confirmed' as ReceiptStatus,
-                entityId: payload.targetId,
-                entity: { id: payload.targetId, name: payload.duplicateName, spaceId: '', isAiRecognized: false } as any,
-                supplierName: payload.duplicateName,
-                storeName: payload.duplicateName,
-              },
-              true
-            );
+            const mergedPayload: any = {
+              ...editedReceipt,
+              status: 'confirmed' as ReceiptStatus,
+              entityId: payload.targetId,
+              entity: { id: payload.targetId, name: payload.duplicateName, spaceId: '', isAiRecognized: false } as any,
+              supplierName: payload.duplicateName,
+              storeName: payload.duplicateName,
+            };
+            mergedPayload.supplierId = undefined;
+            mergedPayload.supplierCustomerId = undefined;
+            mergedPayload.supplier = undefined;
+            mergedPayload.supplierCustomer = undefined;
+            await updateReceipt(id, mergedPayload, true);
           } else {
-            const currentSource = receipt.supplierId ? ('supplier' as const) : receipt.supplierCustomerId ? ('customer' as const) : null;
-            const currentId = receipt.supplierId ?? receipt.supplierCustomerId ?? null;
+            // Dropdown「选已有 Payee」：`getSupplierOptions` 已是 entities id；旧逻辑只认 receipt.supplierId，entity-only 小票无法 merge
+            const mergeFromId =
+              receipt.entityId ??
+              receipt.entity?.id ??
+              receipt.supplierId ??
+              receipt.supplierCustomerId ??
+              null;
             const targetId = payload.targetId;
-            const targetSource = payload.targetSource;
-            if (currentId && targetId && currentSource && targetSource && currentId !== targetId && currentSource === targetSource) {
-              await mergeEntity([currentId], targetId);
+            if (mergeFromId && targetId && mergeFromId !== targetId) {
+              await mergeEntity([mergeFromId], targetId);
             }
-            await updateReceipt(id, { ...editedReceipt, status: 'confirmed' as ReceiptStatus });
+            const mergedPayload: any = {
+              ...editedReceipt,
+              status: 'confirmed' as ReceiptStatus,
+              entityId: targetId,
+              entity: targetId
+                ? ({ id: targetId, name: payload.duplicateName, spaceId: '', isAiRecognized: false } as any)
+                : editedReceipt.entity,
+              supplierName: payload.duplicateName,
+              storeName: payload.duplicateName,
+            };
+            mergedPayload.supplierId = undefined;
+            mergedPayload.supplierCustomerId = undefined;
+            mergedPayload.supplier = undefined;
+            mergedPayload.supplierCustomer = undefined;
+            await updateReceipt(id, mergedPayload, true);
           }
         } else {
           if (payload.code === 'ACCOUNT_NAME_EXISTS') {
@@ -348,13 +376,21 @@ export default function ReceiptDetailsScreen() {
           : prev
       );
     } else {
-      const origName = receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
+      const origName =
+        receipt.entity?.name ??
+        receipt.supplier?.name ??
+        receipt.supplierCustomer?.name ??
+        receipt.supplierName ??
+        receipt.storeName ??
+        '';
       setEditedReceipt((prev) =>
         prev
           ? {
               ...prev,
               supplierName: origName,
               storeName: origName,
+              entityId: receipt.entityId ?? receipt.entity?.id,
+              entity: receipt.entity,
               supplierId: receipt.supplierId,
               supplierCustomerId: receipt.supplierCustomerId,
               supplier: receipt.supplier,
@@ -519,6 +555,8 @@ export default function ReceiptDetailsScreen() {
         ...editedReceipt,
         supplierName: editedReceipt.supplierName ?? editedReceipt.storeName ?? '',
         storeName: editedReceipt.supplierName ?? editedReceipt.storeName ?? '',
+        entityId: undefined,
+        entity: undefined,
         supplierId: undefined,
         supplierCustomerId: undefined,
         supplier: undefined,
@@ -531,9 +569,11 @@ export default function ReceiptDetailsScreen() {
         ...editedReceipt,
         supplierName: option.name,
         storeName: option.name,
-        supplierId: option.id,
+        entityId: option.id,
+        entity: { id: option.id, name: option.name, spaceId: '', isAiRecognized: false } as any,
+        supplierId: undefined,
         supplierCustomerId: undefined,
-        supplier: { id: option.id, name: option.name } as any,
+        supplier: undefined,
         supplierCustomer: undefined,
       });
     } else {
@@ -541,10 +581,12 @@ export default function ReceiptDetailsScreen() {
         ...editedReceipt,
         supplierName: option.name,
         storeName: option.name,
+        entityId: option.id,
+        entity: { id: option.id, name: option.name, spaceId: '', isAiRecognized: false } as any,
         supplierId: undefined,
-        supplierCustomerId: option.id,
+        supplierCustomerId: undefined,
         supplier: undefined,
-        supplierCustomer: { id: option.id, name: option.name } as any,
+        supplierCustomer: undefined,
       });
     }
     // 从空改为选择时不弹三选项；仅当已有供应商/客户或关联方且换成另一个时弹窗（合并 entity 后 receipt 可能只有 entityId）
@@ -1400,11 +1442,26 @@ export default function ReceiptDetailsScreen() {
                   <Text style={styles.duplicateModalButtonReplaceText}>Replace only this</Text>
                 </TouchableOpacity>
                 {(() => {
+                  const targetId = duplicateNameModalPayload?.targetId;
+                  const payeeSource = editedReceipt ?? receipt;
+                  const draftPayeeId =
+                    payeeSource?.entityId ??
+                    payeeSource?.entity?.id ??
+                    payeeSource?.supplierId ??
+                    payeeSource?.supplierCustomerId ??
+                    null;
+                  /** 选单改 Payee 弹窗：合并「来源」应是保存前数据库侧的旧关联，不是草稿里已选中的新 entity */
+                  const originalPayeeId =
+                    receipt?.entityId ??
+                    receipt?.entity?.id ??
+                    receipt?.supplierId ??
+                    receipt?.supplierCustomerId ??
+                    null;
                   const hasLinkedForMerge = duplicateNameModalPayload?.code === 'ACCOUNT_NAME_EXISTS'
                     ? !!receipt?.accountId
                     : duplicateNameModalPayload?.code === 'ENTITY_NAME_EXISTS'
-                      ? !!(receipt?.entityId ?? receipt?.entity?.id) && (receipt?.entityId ?? receipt?.entity?.id) !== duplicateNameModalPayload?.targetId
-                      : !!(receipt?.supplierId ?? receipt?.supplierCustomerId);
+                      ? !!targetId && !!draftPayeeId && draftPayeeId !== targetId
+                      : !!(targetId && originalPayeeId && originalPayeeId !== targetId);
                   return (
                     <TouchableOpacity
                       style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge, !hasLinkedForMerge && { opacity: 0.5 }]}
@@ -1763,6 +1820,7 @@ export default function ReceiptDetailsScreen() {
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
               {supplierOptions.map((opt) => {
                 const isSelected =
+                  editedReceipt?.entityId === opt.id ||
                   (opt.source === 'supplier' && editedReceipt?.supplierId === opt.id) ||
                   (opt.source === 'customer' && editedReceipt?.supplierCustomerId === opt.id);
                 return (

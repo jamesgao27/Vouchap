@@ -13,6 +13,7 @@ import {
   Modal,
   ScrollView,
   Platform,
+  InteractionManager,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -44,6 +45,16 @@ import { getReceiptColumns } from '@/components/voucher-table-columns';
 // - createdBy: 按提交人分组
 // - supplier: 按 Payee 分组
 type GroupByType = 'none' | 'month' | 'recordDate' | 'paymentAccount' | 'createdBy' | 'supplier';
+
+function runAfterSuccessModalDismissed(action: () => void) {
+  InteractionManager.runAfterInteractions(() => {
+    if (Platform.OS === 'ios') {
+      setTimeout(action, 150);
+    } else {
+      action();
+    }
+  });
+}
 
 const statusColors: Record<ReceiptStatus, string> = {
   pending: '#FF9500',
@@ -1445,7 +1456,7 @@ export default function ReceiptsScreen() {
                 style={styles.successButton}
                 onPress={() => {
                   setShowSuccessModal(false);
-                  scanDocument();
+                  runAfterSuccessModalDismissed(() => scanDocument());
                 }}
               >
                 <Ionicons name="camera-outline" size={24} color="#6C5CE7" />

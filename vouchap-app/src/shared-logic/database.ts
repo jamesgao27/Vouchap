@@ -290,7 +290,21 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
           await updateEntity(targetId, { name: payeeName });
         } catch (e) {
           if (e instanceof Error && e.message === '关联方名称已存在') {
-            if (!autoResolveDuplicate) throw Object.assign(new Error(e.message), { code: 'ENTITY_NAME_EXISTS' as const, duplicateName: payeeName });
+            if (!autoResolveDuplicate) {
+              let resolvedTarget: string | undefined;
+              try {
+                const opts = await getEntityOptionsForDuplicateCheck();
+                const hit = opts.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(payeeName));
+                if (hit) resolvedTarget = await resolveEntityId(spaceId, hit.id);
+              } catch (_) {
+                /* best-effort: UI needs targetId for Replace all (Merge) */
+              }
+              throw Object.assign(new Error(e.message), {
+                code: 'ENTITY_NAME_EXISTS' as const,
+                duplicateName: payeeName,
+                ...(resolvedTarget ? { targetId: resolvedTarget } : {}),
+              });
+            }
           } else {
             console.warn('Failed to update entity name:', e);
           }

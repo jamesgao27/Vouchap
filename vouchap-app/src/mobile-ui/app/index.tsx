@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Modal, ActivityIndicator, ScrollView, TextInput, useWindowDimensions, Platform, Linking } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Modal, ActivityIndicator, ScrollView, TextInput, useWindowDimensions, Platform, Linking, InteractionManager } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,6 +40,17 @@ const FIRM_ORDER_STATUS_LABELS: Record<string, string> = {
   completed: 'Completed',
   cancelled: 'Cancelled',
 };
+
+/** iOS: dismiss RN Modal before presenting document scanner, or touches can stay dead on the home screen. */
+function runAfterSuccessModalDismissed(action: () => void) {
+  InteractionManager.runAfterInteractions(() => {
+    if (Platform.OS === 'ios') {
+      setTimeout(action, 150);
+    } else {
+      action();
+    }
+  });
+}
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -1060,8 +1071,9 @@ export default function HomeScreen() {
               <TouchableOpacity
                 style={styles.successButton}
                 onPress={() => {
+                  const type = voucherType;
                   setShowSuccessModal(false);
-                  handleCameraPress(voucherType);
+                  runAfterSuccessModalDismissed(() => handleCameraPress(type));
                 }}
               >
                 <Ionicons name="camera-outline" size={24} color="#6C5CE7" />
