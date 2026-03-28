@@ -111,7 +111,8 @@ async function extractDocxPlainText(arrayBuffer: ArrayBuffer): Promise<string> {
   if (!file) {
     throw new Error('missing word/document.xml');
   }
-  const xml = await file.async('string');
+  const raw = await file.async('uint8array');
+  const xml = new TextDecoder('utf-8', { fatal: false }).decode(raw);
   return paragraphsFromWordDocumentXml(xml);
 }
 

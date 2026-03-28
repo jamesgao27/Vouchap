@@ -3,6 +3,7 @@
  * .docx: JSZip + XML (RN-safe, no Node fs). Legacy .doc: placeholder PDF text only.
  */
 import { jsPDF } from 'jspdf';
+import { ensureJsPDFCjkFont } from './jspdf-cjk-font';
 import { extractWordPlainTextFromArrayBuffer } from './word-document-to-text';
 
 /** Filename / summary hints (e.g. mislabeled storage extension). */
@@ -35,6 +36,7 @@ export async function buildWordPreviewPdf(arrayBuffer: ArrayBuffer): Promise<Uin
   const raw = await extractWordPlainTextFromArrayBuffer(arrayBuffer);
   const normalized = raw.replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const cjkFontOk = await ensureJsPDFCjkFont(pdf);
   const pageH = pdf.internal.pageSize.getHeight();
   const pageW = pdf.internal.pageSize.getWidth();
   const margin = 14;
@@ -43,6 +45,9 @@ export async function buildWordPreviewPdf(arrayBuffer: ArrayBuffer): Promise<Uin
   const fontSize = 10;
   pdf.setFontSize(fontSize);
   pdf.setTextColor(33, 37, 41);
+  if (!cjkFontOk) {
+    pdf.setFont('helvetica', 'normal');
+  }
 
   let y = margin;
 

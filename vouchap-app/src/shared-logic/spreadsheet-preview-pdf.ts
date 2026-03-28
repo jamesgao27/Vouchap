@@ -5,6 +5,7 @@
 import * as XLSX from 'xlsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { ensureJsPDFCjkFont, JSPDF_CJK_FONT_ID } from './jspdf-cjk-font';
 
 /** Safety cap so pathological files cannot freeze the client; excess sheets get a notice page. */
 const MAX_SHEETS_CAP = 100;
@@ -51,8 +52,18 @@ function clipCell(v: unknown): string {
 }
 
 export async function buildSpreadsheetPreviewPdf(arrayBuffer: ArrayBuffer): Promise<Uint8Array> {
-  const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: true });
+  const wb = XLSX.read(arrayBuffer, {
+    type: 'array',
+    cellDates: true,
+    // Improve DBCS / legacy .xls string decoding when codepage metadata exists
+    codepage: 65001,
+  });
   const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+  const cjkFontOk = await ensureJsPDFCjkFont(doc);
+  const tableFont = cjkFontOk ? JSPDF_CJK_FONT_ID : 'helvetica';
+  if (!cjkFontOk) {
+    doc.setFont('helvetica', 'normal');
+  }
 
   const allNames = wb.SheetNames ?? [];
   const sheetNames = allNames.slice(0, MAX_SHEETS_CAP);
@@ -61,6 +72,7 @@ export async function buildSpreadsheetPreviewPdf(arrayBuffer: ArrayBuffer): Prom
   if (sheetNames.length === 0) {
     doc.setFontSize(11);
     doc.setTextColor(80);
+    doc.setFont(tableFont, 'normal');
     doc.text('(Empty workbook)', 10, 20);
     return new Uint8Array(doc.output('arraybuffer'));
   }
@@ -80,6 +92,7 @@ export async function buildSpreadsheetPreviewPdf(arrayBuffer: ArrayBuffer): Prom
     if (!sheet) {
       doc.setFontSize(10);
       doc.setTextColor(120, 120, 120);
+      doc.setFont(tableFont, 'normal');
       doc.text(`Sheet ${si + 1}/${sheetNames.length}: (unavailable)`, margin.left, 14);
       continue;
     }
@@ -93,6 +106,7 @@ export async function buildSpreadsheetPreviewPdf(arrayBuffer: ArrayBuffer): Prom
     if (raw.length === 0) {
       doc.setFontSize(10);
       doc.setTextColor(44, 62, 80);
+      doc.setFont(tableFont, 'normal');
       doc.text(`Sheet ${si + 1}/${sheetNames.length}: ${String(sheetName).slice(0, 100)}`, margin.left, 14);
       doc.setFontSize(9);
       doc.setTextColor(100, 100, 100);
@@ -110,6 +124,8 @@ export async function buildSpreadsheetPreviewPdf(arrayBuffer: ArrayBuffer): Prom
       body: rows,
       margin,
       styles: {
+        font: tableFont,
+        fontStyle: 'normal',
         fontSize: wide ? 5 : 6,
         cellPadding: 0.85,
         overflow: 'linebreak',
@@ -123,6 +139,7 @@ export async function buildSpreadsheetPreviewPdf(arrayBuffer: ArrayBuffer): Prom
       horizontalPageBreakBehaviour: 'immediately',
       willDrawPage: (data) => {
         const d = data.doc;
+        d.setFont(tableFont, 'normal');
         d.setFontSize(8);
         d.setTextColor(44, 62, 80);
         const label = `Sheet ${si + 1}/${sheetNames.length}: ${String(sheetName).slice(0, 85)}`;
@@ -135,6 +152,7 @@ export async function buildSpreadsheetPreviewPdf(arrayBuffer: ArrayBuffer): Prom
     doc.addPage();
     doc.setFontSize(10);
     doc.setTextColor(100, 100, 100);
+    doc.setFont(tableFont, 'normal');
     doc.text(
       `${omittedSheets} more sheet(s) not included (preview limit: ${MAX_SHEETS_CAP} sheets).`,
       margin.left,
