@@ -8,20 +8,28 @@ import { getAttributions, createAttribution, updateAttribution, deleteAttributio
 import type { Category, ExpenseIncomeScope } from '@/types';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '@/lib/alertWeb';
-import { TAG_COLOR_LIBRARY } from '@/lib/category-purpose-presets';
+import { TAG_COLOR_LIBRARY } from '@/lib/category-attribution-presets';
 
 const COLOR_OPTIONS = [...TAG_COLOR_LIBRARY];
+
+const SCOPE_HEADER_INTRO: Record<
+  ExpenseIncomeScope,
+  { line1: string; line2: string }
+> = {
+  expense: {
+    line1: 'Two dimensions for expenses',
+    line2: 'Fine-grained tax matching',
+  },
+  income: {
+    line1: 'Two dimensions for income',
+    line2: 'Fine-grained tax matching',
+  },
+};
 
 type EditingKind = 'category' | 'attribution' | null;
 type AddKind = 'category' | 'attribution' | null;
 
-export default function ScopeSettingsManager({
-  scope,
-  title,
-}: {
-  scope: ExpenseIncomeScope;
-  title: string;
-}) {
+export default function ScopeSettingsManager({ scope }: { scope: ExpenseIncomeScope }) {
   const [categories, setCategories] = useState<Category[]>([]);
   const [attributions, setAttributions] = useState<Attribution[]>([]);
   const [loading, setLoading] = useState(true);
@@ -219,7 +227,11 @@ export default function ScopeSettingsManager({
       <StatusBar style="dark" />
       <View style={styles.header}>
         <View style={styles.headerTitleContainer}>
-          <GradientText text={title} style={styles.headerTitle} containerStyle={styles.gradientTextContainer} />
+          <GradientText
+            text={`${SCOPE_HEADER_INTRO[scope].line1}\n${SCOPE_HEADER_INTRO[scope].line2}`}
+            style={styles.headerTitle}
+            containerStyle={styles.gradientTextContainer}
+          />
         </View>
       </View>
       {loading ? (

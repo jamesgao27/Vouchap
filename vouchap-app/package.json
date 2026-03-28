@@ -1,7 +1,7 @@
 {
   "name": "vouchap-app",
   "version": "2.5.5",
-  "main": "expo-router/entry",
+  "main": "index.js",
   "scripts": {
     "start": "expo start --dev-client",
     "start:go": "expo start --go --lan",
@@ -30,6 +30,8 @@
     "@react-native-community/datetimepicker": "8.4.4",
     "@react-native-community/masked-view": "^0.1.11",
     "@supabase/supabase-js": "^2.39.0",
+    "@xmldom/xmldom": "^0.8.11",
+    "buffer": "^6.0.3",
     "date-fns": "^3.0.0",
     "expo": "~54.0.31",
     "expo-av": "^16.0.8",
@@ -46,6 +48,9 @@
     "expo-router": "~6.0.22",
     "expo-secure-store": "~15.0.8",
     "expo-status-bar": "~3.0.9",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.7",
+    "jszip": "^3.10.1",
     "react": "19.1.0",
     "react-dom": "19.1.0",
     "react-native": "0.81.5",

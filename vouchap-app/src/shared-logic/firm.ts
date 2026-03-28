@@ -3,7 +3,25 @@
  * 数据表在 Supabase schema "firm" 下。
  * 客户展示状态见 docs/CRM-CLIENT-STATUS.md；订单/SKU/项目见 docs/CRM-ORDERS-SKU-PROJECTS.md。
  */
-import { supabase } from './supabase';
+import {
+  supabase,
+  getTaxFilingViewUrl,
+  uploadTaxFilingFileBytes,
+  parseTaxFilingStoragePath,
+} from './supabase';
+import {
+  isSpreadsheetAttachmentUrl,
+  buildSpreadsheetPreviewPdf,
+  summarySuggestsSpreadsheet,
+} from './spreadsheet-preview-pdf';
+import {
+  isWordAttachmentUrl,
+  buildWordPreviewPdf,
+  summarySuggestsWord,
+} from './word-preview-pdf';
+
+export { isSpreadsheetAttachmentUrl, summarySuggestsSpreadsheet } from './spreadsheet-preview-pdf';
+export { isWordAttachmentUrl, summarySuggestsWord } from './word-preview-pdf';
 import type {
   FirmClient,
   FirmClientStatus,
@@ -2308,6 +2326,8 @@ export interface ProjectTodoReceiptSummary {
   createdAt?: string | null;
   /** 上传者姓名（纯文本，表 uploader_name），用于行内展示 */
   uploaderName?: string | null;
+  /** tax-filing：xlsx/xls 行内预览 PDF 的 Storage 公网 URL（若已生成） */
+  previewPdfUrl?: string | null;
 }
 
 export function buildExtractedPreview(extracted_data: unknown): AttachmentPreviewField[] {
@@ -2344,7 +2364,7 @@ export function buildExtractedPreview(extracted_data: unknown): AttachmentPrevie
 export async function getAttachmentsByProjectTodoId(projectTodoId: string): Promise<ProjectTodoReceiptSummary[]> {
   const { data: rows, error } = await supabase
     .from('project_todo_attachments')
-    .select('id, attachment_url, summary, status, doc_type, extracted_data, created_at, uploader_name, recognition_fail_count')
+    .select('id, attachment_url, preview_pdf_url, summary, status, doc_type, extracted_data, created_at, uploader_name, recognition_fail_count')
     .eq('project_todo_id', projectTodoId)
     .order('created_at', { ascending: true });
   if (error || !rows?.length) return [];
@@ -2375,6 +2395,7 @@ export async function getAttachmentsByProjectTodoId(projectTodoId: string): Prom
       extractedPreview: buildExtractedPreview(r.extracted_data),
       createdAt: r.created_at ?? null,
       uploaderName: r.uploader_name ?? null,
+      previewPdfUrl: r.preview_pdf_url ?? null,
     };
   });
 }
@@ -2386,7 +2407,7 @@ export async function getAttachmentsByProjectTodoIds(
   if (projectTodoIds.length === 0) return {};
   const { data: rows, error } = await supabase
     .from('project_todo_attachments')
-    .select('id, project_todo_id, attachment_url, summary, status, doc_type, extracted_data, created_at, uploader_name, recognition_fail_count')
+    .select('id, project_todo_id, attachment_url, preview_pdf_url, summary, status, doc_type, extracted_data, created_at, uploader_name, recognition_fail_count')
     .in('project_todo_id', projectTodoIds)
     .order('created_at', { ascending: true });
   if (error || !rows?.length) return {};
@@ -2421,6 +2442,7 @@ export async function getAttachmentsByProjectTodoIds(
       extractedPreview: buildExtractedPreview(r.extracted_data),
       createdAt: r.created_at ?? null,
       uploaderName: r.uploader_name ?? null,
+      previewPdfUrl: r.preview_pdf_url ?? null,
     });
   });
   return out;
@@ -2468,6 +2490,7 @@ export async function updateProjectTodoAttachment(
     status?: ProjectTodoAttachmentStatus;
     project_todo_id?: string;
     recognition_fail_count?: number;
+    preview_pdf_url?: string | null;
   }
 ): Promise<{ ok: true } | { error: Error }> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -2477,6 +2500,7 @@ export async function updateProjectTodoAttachment(
   if (updates.status !== undefined) payload.status = updates.status;
   if (updates.project_todo_id !== undefined) payload.project_todo_id = updates.project_todo_id;
   if (updates.recognition_fail_count !== undefined) payload.recognition_fail_count = updates.recognition_fail_count;
+  if (updates.preview_pdf_url !== undefined) payload.preview_pdf_url = updates.preview_pdf_url;
   const { error } = await supabase
     .from('project_todo_attachments')
     .update(payload)
@@ -2511,10 +2535,11 @@ export async function getProjectTodoAttachmentById(
   status: string;
   extracted_data: unknown;
   recognition_fail_count?: number;
+  preview_pdf_url?: string | null;
 } | null> {
   const { data, error } = await supabase
     .from('project_todo_attachments')
-    .select('id, attachment_url, summary, doc_type, status, extracted_data, recognition_fail_count')
+    .select('id, attachment_url, preview_pdf_url, summary, doc_type, status, extracted_data, recognition_fail_count')
     .eq('id', attachmentId)
     .maybeSingle();
   if (error || !data) return null;
@@ -2527,7 +2552,95 @@ export async function getProjectTodoAttachmentById(
     status: r.status ?? 'PENDING_AI',
     extracted_data: r.extracted_data ?? null,
     recognition_fail_count: r.recognition_fail_count ?? 0,
+    preview_pdf_url: r.preview_pdf_url ?? null,
   };
+}
+
+/**
+ * 若为 tax-filing 下的 xlsx/xls 或 doc/docx，生成（或复用）PDF 预览并返回可用于 iframe/WebView 的签名 URL。
+ * 非上述类型或无权限时返回 documentPreviewSignedUrl: null。
+ */
+export async function ensureProjectTodoAttachmentPreviewPdf(attachmentId: string): Promise<{
+  documentPreviewSignedUrl: string | null;
+  error?: Error;
+}> {
+  const { data, error: qErr } = await supabase
+    .from('project_todo_attachments')
+    .select('id, attachment_url, preview_pdf_url, doc_type, summary')
+    .eq('id', attachmentId)
+    .maybeSingle();
+  if (qErr || !data) {
+    return { documentPreviewSignedUrl: null, error: qErr ? new Error(qErr.message) : undefined };
+  }
+  const row = data as { attachment_url: string; doc_type?: string | null; summary?: string | null };
+  const attachmentUrl = row.attachment_url;
+  if (!attachmentUrl) {
+    return { documentPreviewSignedUrl: null };
+  }
+  const pathExt =
+    attachmentUrl
+      .split(/[#?]/)[0]
+      .split('.')
+      .pop()
+      ?.toLowerCase() ?? '';
+  let treatAsSpreadsheet = false;
+  let treatAsWord = false;
+  if (pathExt === 'doc' || pathExt === 'docx') {
+    treatAsWord = true;
+  } else if (pathExt === 'xlsx' || pathExt === 'xls' || pathExt === 'csv') {
+    treatAsSpreadsheet = true;
+  } else {
+    treatAsSpreadsheet =
+      isSpreadsheetAttachmentUrl(attachmentUrl, row.doc_type ?? null) ||
+      summarySuggestsSpreadsheet(row.summary);
+    treatAsWord =
+      isWordAttachmentUrl(attachmentUrl, row.doc_type ?? null) || summarySuggestsWord(row.summary);
+    if (treatAsSpreadsheet && treatAsWord) treatAsWord = false;
+  }
+  if (!treatAsSpreadsheet && !treatAsWord) {
+    return { documentPreviewSignedUrl: null };
+  }
+  const existingPreview = (data as { preview_pdf_url?: string | null }).preview_pdf_url;
+  if (existingPreview && String(existingPreview).trim()) {
+    const signed = await getTaxFilingViewUrl(String(existingPreview).trim());
+    return { documentPreviewSignedUrl: signed };
+  }
+  try {
+    const srcSigned = await getTaxFilingViewUrl(attachmentUrl);
+    const res = await fetch(srcSigned);
+    if (!res.ok) {
+      return {
+        documentPreviewSignedUrl: null,
+        error: new Error(`Failed to download attachment: ${res.status}`),
+      };
+    }
+    const buf = await res.arrayBuffer();
+    const pdfBytes = treatAsSpreadsheet
+      ? await buildSpreadsheetPreviewPdf(buf)
+      : await buildWordPreviewPdf(buf);
+    const storagePath = parseTaxFilingStoragePath(attachmentUrl);
+    if (!storagePath) {
+      return { documentPreviewSignedUrl: null, error: new Error('Could not parse tax-filing storage path') };
+    }
+    const clientFolder = storagePath.split('/')[0];
+    if (!clientFolder) {
+      return { documentPreviewSignedUrl: null, error: new Error('Missing client folder in storage path') };
+    }
+    const publicPdfUrl = await uploadTaxFilingFileBytes(
+      clientFolder,
+      `preview_${attachmentId}.pdf`,
+      pdfBytes,
+      'application/pdf',
+    );
+    const upd = await updateProjectTodoAttachment(attachmentId, { preview_pdf_url: publicPdfUrl });
+    if ('error' in upd) {
+      return { documentPreviewSignedUrl: null, error: upd.error };
+    }
+    const signed = await getTaxFilingViewUrl(publicPdfUrl);
+    return { documentPreviewSignedUrl: signed };
+  } catch (e) {
+    return { documentPreviewSignedUrl: null, error: e instanceof Error ? e : new Error(String(e)) };
+  }
 }
 
 /** 获取附件及其项目/任务上下文，供历史 PENDING_AI 识别：用 project 的 tax_country/tax_scenario + todo 的 phase/section/task 构建提示词后调用 updateProjectTodoAttachment */

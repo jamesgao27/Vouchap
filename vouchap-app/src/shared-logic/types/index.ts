@@ -17,9 +17,6 @@ export interface Attribution {
   updatedAt?: string;
 }
 
-/** @deprecated Use Attribution */
-export type Purpose = Attribution;
-
 // 消费分类
 export interface Category {
   id: string;
@@ -91,8 +88,9 @@ export interface ReceiptItem {
   name: string;
   categoryId: string;
   category?: Category; // 关联的分类对象
-  purposeId: string | null; // 引用 attributions 表
-  purpose?: Attribution | null; // 关联的属性对象
+  /** 对应 DB receipt_items.purpose_id → attributions.id */
+  attributionId: string | null;
+  attribution?: Attribution | null;
   price: number;
   isAsset: boolean;
   confidence?: number; // AI识别置信度
@@ -240,8 +238,9 @@ export interface InvoiceItem {
   name: string;
   categoryId?: string | null;
   category?: Category;
-  purposeId?: string | null;
-  purpose?: Purpose | null;
+  /** 对应 DB invoice_items.purpose_id → attributions.id */
+  attributionId?: string | null;
+  attribution?: Attribution | null;
   price: number;
   isAsset?: boolean;
   confidence?: number;
@@ -399,7 +398,7 @@ export interface GeminiReceiptResult {
     name: string;
     categoryName: string; // 分类名称，从[食品,外餐, 居家, 交通, 购物, 医疗, 教育]中选择
     price: number;
-    purposeName?: string; // 用途名称，将映射到 purposes.name
+    attributionName?: string; // 映射到 attributions.name（模型若仍返回 purposeName，解析层会兼容）
     isAsset?: boolean; // 可选
     confidence?: number; // 可选
   }>;
@@ -671,7 +670,7 @@ export interface GeminiVoucherResult {
     name: string;
     categoryName: string;
     price: number;
-    purposeName?: string;
+    attributionName?: string;
     isAsset?: boolean;
     confidence?: number;
   }>;

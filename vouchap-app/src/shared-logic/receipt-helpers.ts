@@ -107,24 +107,28 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
         }
       }
 
-      // 匹配用途（兼容 API 返回 purpose 或 purposeName）
-      let purposeId: string | null = null;
-      const purposeName = item.purposeName ?? (item as { purpose?: string }).purpose;
-      if (purposeName) {
-        const purpose = attributions.find(p => p.name.toLowerCase() === purposeName.toLowerCase())
-          || await findAttributionByName(purposeName, 'expense');
-        if (purpose) {
-          purposeId = purpose.id;
-        }
+      // Match attribution (accept attributionName; legacy purpose / purposeName)
+      let attributionId: string | null = null;
+      let matchedAttribution: (typeof attributions)[0] | undefined;
+      const nameFromModel =
+        item.attributionName
+        ?? item.purposeName
+        ?? (item as { purpose?: string }).purpose;
+      if (nameFromModel) {
+        matchedAttribution =
+          attributions.find(p => p.name.toLowerCase() === nameFromModel.toLowerCase())
+          || await findAttributionByName(nameFromModel, 'expense');
+        if (matchedAttribution) attributionId = matchedAttribution.id;
       }
-      
-      // 如果找不到匹配的用途，使用默认用途
-      if (!purposeId && attributions.length > 0) {
-        // 优先使用默认用途，否则使用第一个用途
-        const defaultPurpose = attributions.find(p => p.isDefault) || attributions[0];
-        if (defaultPurpose) {
-          purposeId = defaultPurpose.id;
-          console.warn(`用途 "${purposeName}" 未找到，使用默认用途: ${defaultPurpose.name}`);
+
+      if (!attributionId && attributions.length > 0) {
+        const fallback = attributions.find(p => p.isDefault) || attributions[0];
+        if (fallback) {
+          attributionId = fallback.id;
+          matchedAttribution = fallback;
+          if (nameFromModel) {
+            console.warn(`Attribution "${nameFromModel}" not found; using default: ${fallback.name}`);
+          }
         }
       }
 
@@ -136,9 +140,12 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
         name: itemName,
         categoryId: category.id,
         category: category,
-        purposeId,
+        attributionId,
+        attribution: attributionId
+          ? (matchedAttribution ?? attributions.find((p) => p.id === attributionId) ?? null)
+          : null,
         price: itemPrice,
-        isAsset: item.isAsset || false, // 默认值为 false
+        isAsset: item.isAsset || false,
         confidence: item.confidence,
       };
     })
@@ -290,14 +297,17 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
         throw new Error('No category available. Please create at least one category.');
       }
 
-      let purposeId: string | null = null;
-      const purposeName = item.purposeName || (item as any).purpose;
-      if (purposeName) {
-        const purpose = attributions.find((p) => p.name.toLowerCase() === purposeName.toLowerCase()) || await findAttributionByName(purposeName, 'income');
-        if (purpose) purposeId = purpose.id;
+      let attributionId: string | null = null;
+      const nameFromModel =
+        item.attributionName
+        ?? item.purposeName
+        ?? (item as any).purpose;
+      if (nameFromModel) {
+        const found = attributions.find((p) => p.name.toLowerCase() === nameFromModel.toLowerCase()) || await findAttributionByName(nameFromModel, 'income');
+        if (found) attributionId = found.id;
       }
-      if (!purposeId && attributions.length > 0) {
-        purposeId = (attributions.find((p) => p.isDefault) || attributions[0]).id;
+      if (!attributionId && attributions.length > 0) {
+        attributionId = (attributions.find((p) => p.isDefault) || attributions[0]).id;
       }
 
       const itemName = item.name ?? (item as { description?: string }).description ?? 'Unknown Item';
@@ -306,8 +316,8 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
         name: itemName,
         categoryId: category.id,
         category,
-        purposeId,
-        purpose: attributions.find((p) => p.id === purposeId) || undefined,
+        attributionId,
+        attribution: attributions.find((p) => p.id === attributionId) || undefined,
         price: itemPrice,
         isAsset: item.isAsset ?? false,
         confidence: item.confidence,

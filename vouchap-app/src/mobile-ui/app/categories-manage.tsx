@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,13 +16,12 @@ import {
   createCategory,
   updateCategory,
   deleteCategory,
-} from '@/lib/categories';
-import { Category } from '@/types';
-import type { ExpenseIncomeScope } from '@/types';
-import { GradientText } from '@/lib/GradientText';
-import { showToast } from '@/lib/toast';
-import { confirmDestructive } from '@/lib/alertWeb';
-import { TAG_COLOR_LIBRARY } from '@/lib/category-purpose-presets';
+} from '../../shared-logic/categories';
+import type { Category, ExpenseIncomeScope } from '../../shared-logic/types';
+import { GradientText } from '../../shared-logic/GradientText';
+import { showToast } from '../../shared-logic/toast';
+import { confirmDestructive } from '../../shared-logic/alertWeb';
+import { TAG_COLOR_LIBRARY } from '../../shared-logic/category-attribution-presets';
 
 const COLOR_OPTIONS = [...TAG_COLOR_LIBRARY];
 

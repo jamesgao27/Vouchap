@@ -2,19 +2,18 @@ import { supabase } from './supabase';
 import {
   DEFAULT_EXPENSE_CATEGORIES,
   DEFAULT_INCOME_CATEGORIES,
-  DEFAULT_EXPENSE_PURPOSES,
-  DEFAULT_INCOME_PURPOSES,
+  DEFAULT_EXPENSE_ATTRIBUTIONS,
+  DEFAULT_INCOME_ATTRIBUTIONS,
   DEFAULT_CATEGORY_COLOR,
-  DEFAULT_PURPOSE_COLOR,
-} from './category-purpose-presets';
+  DEFAULT_ATTRIBUTION_COLOR,
+} from './category-attribution-presets';
 
-// 创建默认分类与用途（支出+收入，带 scope 与预设颜色）+ 默认支付账户
+// 创建默认分类与 attributions（支出+收入，带 scope 与预设颜色）+ 默认支付账户
 export async function createDefaultCategoriesAndAccounts(
   spaceId: string,
   spaceType: 'household' | 'business' = 'household'
 ): Promise<void> {
-  // 优先调用 Supabase 种子函数（与迁移脚本一致：支出/收入分类+用途，颜色 #95A5A6）
-  console.log('Seeding default categories and purposes for new space');
+  console.log('Seeding default categories and attributions for new space');
   const { error: seedError } = await supabase.rpc('seed_default_categories_purposes_for_space', {
     p_space_id: spaceId,
     p_space_type: spaceType,
@@ -23,7 +22,7 @@ export async function createDefaultCategoriesAndAccounts(
   if (seedError) {
     console.warn('RPC 种子预设失败，使用应用层预设回退:', seedError.message);
     const colorCat = DEFAULT_CATEGORY_COLOR;
-    const colorPur = DEFAULT_PURPOSE_COLOR;
+    const colorAttr = DEFAULT_ATTRIBUTION_COLOR;
     const categoryRows = [
       ...DEFAULT_EXPENSE_CATEGORIES.map((name) => ({
         space_id: spaceId,
@@ -40,29 +39,29 @@ export async function createDefaultCategoriesAndAccounts(
         scope: 'income',
       })),
     ];
-    const purposeRows = [
-      ...DEFAULT_EXPENSE_PURPOSES.map((name) => ({
+    const attributionRows = [
+      ...DEFAULT_EXPENSE_ATTRIBUTIONS.map((name) => ({
         space_id: spaceId,
         name,
-        color: colorPur,
+        color: colorAttr,
         is_default: false,
         scope: 'expense',
       })),
-      ...DEFAULT_INCOME_PURPOSES.map((name) => ({
+      ...DEFAULT_INCOME_ATTRIBUTIONS.map((name) => ({
         space_id: spaceId,
         name,
-        color: colorPur,
+        color: colorAttr,
         is_default: false,
         scope: 'income',
       })),
     ];
     const { error: catErr } = await supabase.from('categories').insert(categoryRows);
     if (catErr) console.warn('应用层回退创建分类失败:', catErr.message);
-    const { error: purErr } = await supabase.from('attributions').insert(purposeRows);
-    if (purErr) console.warn('应用层回退创建用途失败:', purErr.message);
-    if (!catErr && !purErr) console.log('默认分类与用途（含颜色）创建成功');
+    const { error: attrErr } = await supabase.from('attributions').insert(attributionRows);
+    if (attrErr) console.warn('应用层回退创建 attributions 失败:', attrErr.message);
+    if (!catErr && !attrErr) console.log('默认分类与 attributions（含颜色）创建成功');
   } else {
-    console.log('默认分类与用途已通过 RPC 写入');
+    console.log('默认分类与 attributions 已通过 RPC 写入');
   }
 
   // 创建默认账户（只创建 Cash）

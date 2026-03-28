@@ -95,32 +95,102 @@ function getImageExtAndMime(fileUri: string): { ext: string; mimeType: string } 
   return { ext: normalized === 'jpg' ? 'jpg' : normalized, mimeType };
 }
 
-/** 文档扩展名与 MIME 映射（tax-filing 附件支持 PDF、DOC 等） */
+/** 文档扩展名与 MIME 映射（tax-filing 附件支持 PDF、DOC、Excel 等） */
 const DOC_MIME_TO_EXT: Record<string, string> = {
   'application/pdf': 'pdf',
   'application/msword': 'doc',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/vnd.ms-excel': 'xls',
+  'text/csv': 'csv',
+  'application/csv': 'csv',
 };
-const DOC_EXT_REG = /\.(pdf|docx?)$/i;
+const DOC_EXT_REG = /\.(pdf|docx?|xlsx?|csv)$/i;
+
+function mimeTypeForDocExtension(ext: string): string {
+  switch (ext.toLowerCase()) {
+    case 'pdf':
+      return 'application/pdf';
+    case 'docx':
+      return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    case 'doc':
+      return 'application/msword';
+    case 'xlsx':
+      return 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    case 'xls':
+      return 'application/vnd.ms-excel';
+    case 'csv':
+      return 'text/csv';
+    default:
+      return 'application/octet-stream';
+  }
+}
 
 /**
- * 解析文件扩展名与 MIME，支持图片（jpg/png/gif/webp）与文档（pdf/doc/docx）。
+ * Heuristic: browser / picker sometimes gives image/* while bytes are an Open XML xlsx (ZIP with xl/).
+ * Avoid storing spreadsheets as .jpg (breaks preview + recognition).
+ */
+export function sniffOpenXmlSpreadsheetPrefix(bytes: ArrayBuffer): boolean {
+  const u = new Uint8Array(bytes);
+  if (u.length < 32 || u[0] !== 0x50 || u[1] !== 0x4b || u[2] !== 0x03 || u[3] !== 0x04) return false;
+  const limit = Math.min(u.length, 16000);
+  for (let i = 0; i <= limit - 3; i++) {
+    if (u[i] === 0x78 && u[i + 1] === 0x6c && u[i + 2] === 0x2f) return true;
+  }
+  return false;
+}
+
+/** Heuristic: bytes are a .docx (ZIP) with word/document.xml — avoid storing as .jpg. */
+export function sniffOpenXmlWordPrefix(bytes: ArrayBuffer): boolean {
+  const u = new Uint8Array(bytes);
+  if (u.length < 32 || u[0] !== 0x50 || u[1] !== 0x4b || u[2] !== 0x03 || u[3] !== 0x04) return false;
+  const needle = new Uint8Array([
+    0x77, 0x6f, 0x72, 0x64, 0x2f, 0x64, 0x6f, 0x63, 0x75, 0x6d, 0x65, 0x6e, 0x74,
+  ]);
+  const limit = Math.min(u.length, 64000);
+  outer: for (let i = 0; i <= limit - needle.length; i++) {
+    for (let j = 0; j < needle.length; j++) {
+      if (u[i + j] !== needle[j]) continue outer;
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
+ * 解析文件扩展名与 MIME，支持图片（jpg/png/gif/webp）与文档（pdf/doc/docx/xlsx/xls/csv）。
  * 当 opts 传入 fileName 或 mimeType 时优先使用（如 DocumentPicker 结果）。
  */
 export function getFileExtAndMime(
   fileUri: string,
   opts?: { fileName?: string; mimeType?: string }
 ): { ext: string; mimeType: string } {
-  if (opts?.mimeType && DOC_MIME_TO_EXT[opts.mimeType]) {
-    const ext = DOC_MIME_TO_EXT[opts.mimeType];
-    return { ext, mimeType: opts.mimeType };
+  if (opts?.mimeType) {
+    const rawMime = opts.mimeType.trim();
+    const mapped = DOC_MIME_TO_EXT[rawMime];
+    if (mapped) return { ext: mapped, mimeType: rawMime };
+    const m = rawMime.toLowerCase();
+    if (m.includes('spreadsheetml.sheet')) {
+      return {
+        ext: 'xlsx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      };
+    }
+    if (m.includes('wordprocessingml.document')) {
+      return {
+        ext: 'docx',
+        mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      };
+    }
+    if (m.includes('ms-excel') && !m.includes('spreadsheetml')) {
+      return { ext: 'xls', mimeType: rawMime };
+    }
   }
   const name = opts?.fileName ?? (fileUri.includes('/') ? fileUri.split('/').pop()?.split('?')[0] ?? '' : fileUri.split('?')[0] ?? '');
   const docMatch = name.match(DOC_EXT_REG);
   if (docMatch) {
     const ext = docMatch[1].toLowerCase();
-    const mimeType = ext === 'pdf' ? 'application/pdf' : ext === 'docx' ? 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' : 'application/msword';
-    return { ext, mimeType };
+    return { ext, mimeType: mimeTypeForDocExtension(ext) };
   }
   return getImageExtAndMime(fileUri);
 }
@@ -327,7 +397,31 @@ export async function uploadTaxFilingFile(
       arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
     }
 
-    const { ext: fileExt, mimeType } = getFileExtAndMime(fileUri, fileOpts);
+    let { ext: fileExt, mimeType } = getFileExtAndMime(fileUri, fileOpts);
+    const rawBytes = (
+      arrayBuffer instanceof ArrayBuffer
+        ? arrayBuffer
+        : (arrayBuffer as Uint8Array).buffer.slice(
+            (arrayBuffer as Uint8Array).byteOffset,
+            (arrayBuffer as Uint8Array).byteOffset + (arrayBuffer as Uint8Array).byteLength,
+          )
+    ) as ArrayBuffer;
+    const sniffSheet = sniffOpenXmlSpreadsheetPrefix(rawBytes);
+    const sniffWord = sniffOpenXmlWordPrefix(rawBytes);
+    if (
+      sniffSheet &&
+      ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt.toLowerCase())
+    ) {
+      fileExt = 'xlsx';
+      mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    } else if (
+      sniffWord &&
+      !sniffSheet &&
+      ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(fileExt.toLowerCase())
+    ) {
+      fileExt = 'docx';
+      mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    }
     const fileName = `${tempFileName}.${fileExt}`;
     const folder = clientSpaceId && clientSpaceId.trim() ? clientSpaceId.trim() : 'unknown';
     const filePath = `${folder}/${fileName}`;
@@ -359,8 +453,33 @@ export async function uploadTaxFilingFile(
   }
 }
 
+/** 上传任意字节到 tax-filing bucket；路径为 {clientSpaceId}/{fileName}，返回公网 URL（与附件 URL 格式一致） */
+export async function uploadTaxFilingFileBytes(
+  clientSpaceId: string,
+  fileName: string,
+  bytes: ArrayBuffer | Uint8Array,
+  contentType: string
+): Promise<string> {
+  const folder = clientSpaceId && clientSpaceId.trim() ? clientSpaceId.trim() : 'unknown';
+  const safeName = fileName.replace(/^\/+/, '');
+  const filePath = `${folder}/${safeName}`;
+  const payload = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const { error } = await supabase.storage.from(TAX_FILING_BUCKET).upload(filePath, payload, {
+    contentType,
+    upsert: true,
+  });
+  if (error) {
+    console.error('[uploadTaxFilingFileBytes]', error);
+    throw error;
+  }
+  const {
+    data: { publicUrl },
+  } = supabase.storage.from(TAX_FILING_BUCKET).getPublicUrl(filePath);
+  return publicUrl;
+}
+
 /** 从 tax-filing 的 storage URL 中解析出 bucket 内路径（即 createSignedUrl 需要的 path） */
-function parseTaxFilingStoragePath(attachmentUrl: string): string | null {
+export function parseTaxFilingStoragePath(attachmentUrl: string): string | null {
   if (!attachmentUrl || typeof attachmentUrl !== 'string') return null;
   try {
     // 支持格式: .../storage/v1/object/public/tax-filing/spaceId/file.ext 或 .../tax-filing/spaceId/file.ext

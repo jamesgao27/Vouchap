@@ -45,10 +45,10 @@ export default function InvoiceDetailsScreen() {
   const [editedInvoice, setEditedInvoice] = useState<Invoice | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [purposes, setPurposes] = useState<Attribution[]>([]);
+  const [attributions, setAttributions] = useState<Attribution[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [showCategoryPicker, setShowCategoryPicker] = useState<number | null>(null);
-  const [showPurposePicker, setShowPurposePicker] = useState<number | null>(null);
+  const [showAttributionPicker, setShowAttributionPicker] = useState<number | null>(null);
   const [showAccountPicker, setShowAccountPicker] = useState<boolean>(false);
   const [showCustomerPicker, setShowCustomerPicker] = useState<boolean>(false);
   const [customerOptions, setCustomerOptions] = useState<{ id: string; name: string; source: 'customer' | 'supplier' }[]>([]);
@@ -79,7 +79,7 @@ export default function InvoiceDetailsScreen() {
     const task = InteractionManager.runAfterInteractions(() => {
       loadInvoice();
       loadCategories();
-      loadPurposes();
+      loadAttributions();
       loadAccounts();
     });
     return () => task.cancel();
@@ -108,7 +108,7 @@ export default function InvoiceDetailsScreen() {
   useFocusEffect(
     useCallback(() => {
       loadCategories();
-      loadPurposes();
+      loadAttributions();
       loadAccounts();
     }, [])
   );
@@ -122,12 +122,12 @@ export default function InvoiceDetailsScreen() {
     }
   };
 
-  const loadPurposes = async () => {
+  const loadAttributions = async () => {
     try {
       const purps = await getAttributions('income');
-      setPurposes(purps);
+      setAttributions(purps);
     } catch (error) {
-      console.error('Error loading purposes:', error);
+      console.error('Error loading attributions:', error);
     }
   };
 
@@ -545,14 +545,14 @@ export default function InvoiceDetailsScreen() {
         updatedItem.categoryId = value;
         updatedItem.category = selectedCategory;
       }
-    } else if (field === 'purposeId') {
-      const selectedPurpose = purposes.find(p => p.id === value);
-      if (selectedPurpose) {
-        updatedItem.purposeId = value;
-        updatedItem.purpose = selectedPurpose;
+    } else if (field === 'attributionId') {
+      const selectedAttribution = attributions.find(p => p.id === value);
+      if (selectedAttribution) {
+        updatedItem.attributionId = value;
+        updatedItem.attribution = selectedAttribution;
       } else {
-        updatedItem.purposeId = value as string | null;
-        updatedItem.purpose = undefined;
+        updatedItem.attributionId = value as string | null;
+        updatedItem.attribution = undefined;
       }
     } else {
       (updatedItem as any)[field] = value;
@@ -650,7 +650,7 @@ export default function InvoiceDetailsScreen() {
 
   const handleItemChangeDirect = async (
     index: number,
-    field: 'categoryId' | 'purposeId' | 'isAsset',
+    field: 'categoryId' | 'attributionId' | 'isAsset',
     value: any
   ) => {
     if (!id || !currentInvoice) return;
@@ -665,14 +665,14 @@ export default function InvoiceDetailsScreen() {
           updatedItem.categoryId = value;
           updatedItem.category = selectedCategory;
         }
-      } else if (field === 'purposeId') {
-        const selectedPurpose = purposes.find(p => p.id === value);
-        if (selectedPurpose) {
-          updatedItem.purposeId = value;
-          updatedItem.purpose = selectedPurpose;
+      } else if (field === 'attributionId') {
+        const selectedAttribution = attributions.find(p => p.id === value);
+        if (selectedAttribution) {
+          updatedItem.attributionId = value;
+          updatedItem.attribution = selectedAttribution;
         } else {
-          updatedItem.purposeId = value as string | null;
-          updatedItem.purpose = undefined;
+          updatedItem.attributionId = value as string | null;
+          updatedItem.attribution = undefined;
         }
       } else if (field === 'isAsset') {
         updatedItem.isAsset = value;
@@ -690,13 +690,13 @@ export default function InvoiceDetailsScreen() {
   const handleAddItem = () => {
     if (!editedInvoice) return;
     const defaultCategory = categories.find(cat => cat.name === 'Sales') || categories[0];
-    const defaultPurpose = purposes.length > 0 ? purposes[0] : null;
+    const defaultAttribution = attributions.length > 0 ? attributions[0] : null;
     const newItem: InvoiceItem = {
       name: '',
       categoryId: defaultCategory?.id ?? null,
       category: defaultCategory,
-      purposeId: defaultPurpose?.id || null,
-      purpose: defaultPurpose,
+      attributionId: defaultAttribution?.id || null,
+      attribution: defaultAttribution,
       price: 0,
       isAsset: false,
     };
@@ -1088,9 +1088,9 @@ export default function InvoiceDetailsScreen() {
                   </TouchableOpacity>
                 </View>
                 <View style={styles.tagGroupCenter}>
-                  <TouchableOpacity style={styles.tagTouchable} onPress={() => setShowPurposePicker(index)}>
-                    <View style={[styles.tag, { backgroundColor: item.purpose?.color || purposes.find(p => p.id === item.purposeId)?.color || '#95A5A6' }]}>
-                      <Text style={styles.tagText} numberOfLines={1} ellipsizeMode="tail">{item.purpose?.name || purposes.find(p => p.id === item.purposeId)?.name || 'Source'}</Text>
+                  <TouchableOpacity style={styles.tagTouchable} onPress={() => setShowAttributionPicker(index)}>
+                    <View style={[styles.tag, { backgroundColor: item.attribution?.color || attributions.find(p => p.id === item.attributionId)?.color || '#95A5A6' }]}>
+                      <Text style={styles.tagText} numberOfLines={1} ellipsizeMode="tail">{item.attribution?.name || attributions.find(p => p.id === item.attributionId)?.name || 'Source'}</Text>
                       <Ionicons name="chevron-down" size={12} color="#fff" style={styles.tagIcon} />
                     </View>
                   </TouchableOpacity>
@@ -1265,34 +1265,34 @@ export default function InvoiceDetailsScreen() {
         </TouchableOpacity>
       </Modal>
 
-      <Modal visible={showPurposePicker !== null} transparent animationType="slide" onRequestClose={() => setShowPurposePicker(null)}>
-        <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowPurposePicker(null)}>
+      <Modal visible={showAttributionPicker !== null} transparent animationType="slide" onRequestClose={() => setShowAttributionPicker(null)}>
+        <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowAttributionPicker(null)}>
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
             <View style={styles.pickerHandle} />
             <View style={styles.pickerHeader}>
               <Text style={styles.pickerTitle}>Select Source</Text>
-              <TouchableOpacity style={styles.pickerManageButton} onPress={() => { setShowPurposePicker(null); router.push('/income-settings'); }}>
+              <TouchableOpacity style={styles.pickerManageButton} onPress={() => { setShowAttributionPicker(null); router.push('/income-settings'); }}>
                 <Ionicons name="settings-outline" size={20} color="#6C5CE7" />
                 <Text style={styles.pickerManageText}>Manage</Text>
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
-              {purposes.map((purpose) => {
-                const itemIndex = showPurposePicker;
+              {attributions.map((attrRow) => {
+                const itemIndex = showAttributionPicker;
                 if (itemIndex === null) return null;
                 const item = currentInvoice.items[itemIndex];
-                const isSelected = item.purposeId === purpose.id;
+                const isSelected = item.attributionId === attrRow.id;
                 return (
                   <TouchableOpacity
-                    key={purpose.id}
+                    key={attrRow.id}
                     style={[styles.pickerOption, isSelected && styles.pickerOptionSelected]}
                     onPress={async () => {
-                      setShowPurposePicker(null);
-                      await handleItemChangeDirect(itemIndex, 'purposeId', purpose.id);
+                      setShowAttributionPicker(null);
+                      await handleItemChangeDirect(itemIndex, 'attributionId', attrRow.id);
                     }}
                   >
-                    <View style={[styles.pickerColorIndicator, { backgroundColor: purpose.color }]} />
-                    <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected]}>{purpose.name}</Text>
+                    <View style={[styles.pickerColorIndicator, { backgroundColor: attrRow.color }]} />
+                    <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected]}>{attrRow.name}</Text>
                     {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
                   </TouchableOpacity>
                 );

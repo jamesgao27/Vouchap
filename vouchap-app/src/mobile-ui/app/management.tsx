@@ -623,8 +623,8 @@ export default function ManagementScreen() {
     { id: 'members', title: 'Members', icon: 'people-outline', route: '/space-members', description: 'Manage members & invitations' },
     { id: 'permissions', title: 'Permissions', icon: 'shield-checkmark-outline', route: '/firm/permissions', description: 'Roles and permission scopes settings' },
     { id: 'claim', title: 'Claim engagement', icon: 'link-outline', route: '/auth/claim', description: 'Link your space with a pending engagement from a firm' },
-    { id: 'expense-settings', title: 'Expense Settings', icon: 'card-outline', route: '/expense-settings', description: 'Categories and attributions for expenses' },
-    { id: 'income-settings', title: 'Income Settings', icon: 'cash-outline', route: '/income-settings', description: 'Categories and attributions for income' },
+    { id: 'expense-settings', title: 'Expense Settings', icon: 'card-outline', route: '/expense-settings', description: 'Categories and attributions' },
+    { id: 'income-settings', title: 'Income Settings', icon: 'cash-outline', route: '/income-settings', description: 'Categories and attributions' },
     { id: 'accounts', title: 'Accounts', icon: 'wallet-outline', route: '/accounts-manage', description: 'Manage and merge accounts' },
     { id: 'entities', title: 'Entities', icon: 'storefront-outline', route: '/entities-manage', description: 'Payee/Payer/Sender/Receiver' },
   ];

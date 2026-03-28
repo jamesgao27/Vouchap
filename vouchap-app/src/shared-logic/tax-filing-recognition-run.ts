@@ -19,17 +19,29 @@ import {
   type TaxFilingTaskListItem,
 } from './tax-filing-recognition-prompt';
 import { isSpreadsheetMime, spreadsheetBase64ToPlainText } from './spreadsheet-to-text';
+import { isWordDocumentMime, wordDocumentBase64ToPlainText } from './word-document-to-text';
 
 /** 下载图片或 PDF/文档为 base64，支持报税附件为文档时走同一套识别 prompt */
 async function downloadFileToBase64(fileUrl: string, mimeHint?: string): Promise<{ base64: string; mimeType: string }> {
+  const pathPart = fileUrl.split(/[#?]/)[0];
   let mimeType = mimeHint ?? 'image/jpeg';
   if (!mimeHint) {
-    if (fileUrl.includes('.pdf')) mimeType = 'application/pdf';
-    else if (fileUrl.includes('.png')) mimeType = 'image/png';
-    else if (fileUrl.includes('.gif')) mimeType = 'image/gif';
-    else if (fileUrl.includes('.webp')) mimeType = 'image/webp';
+    if (pathPart.includes('.pdf')) mimeType = 'application/pdf';
+    else if (pathPart.includes('.png')) mimeType = 'image/png';
+    else if (pathPart.includes('.gif')) mimeType = 'image/gif';
+    else if (pathPart.includes('.webp')) mimeType = 'image/webp';
+    else if (/\.docx$/i.test(pathPart)) {
+      mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+    } else if (/\.doc$/i.test(pathPart)) {
+      mimeType = 'application/msword';
+    }
   }
-  const ext = mimeType === 'application/pdf' ? 'pdf' : 'jpg';
+  const ext =
+    mimeType === 'application/pdf'
+      ? 'pdf'
+      : mimeType.includes('wordprocessingml.document') || mimeType === 'application/msword'
+        ? 'docx'
+        : 'jpg';
 
   if (Platform.OS === 'web') {
     const res = await fetch(fileUrl, { mode: 'cors' });
@@ -94,10 +106,16 @@ export async function runTaxFilingRecognition(
   const prompt = buildTaxFilingRecognitionPrompt({ projectContext, todoContext, taskList, userInstructions });
   const { base64, mimeType } = await downloadFileToBase64(imageUrl, mimeHint);
   const isSheet = isSpreadsheetMime(mimeType, imageUrl);
+  const isWord = isWordDocumentMime(mimeType, imageUrl);
   const spreadsheetText = isSheet ? spreadsheetBase64ToPlainText(base64, mimeType, imageUrl) : '';
-  const promptForGemini = isSheet
-    ? `${prompt}\n\n---\nSpreadsheet content (extracted as text):\n${spreadsheetText}`
-    : prompt;
+  const wordText = isWord ? await wordDocumentBase64ToPlainText(base64) : '';
+  const useTextOnly = isSheet || isWord;
+  const extractedBlock = isSheet
+    ? `Spreadsheet content (extracted as text):\n${spreadsheetText}`
+    : isWord
+      ? `Word document content (extracted as plain text; layout may differ from original):\n${wordText}`
+      : '';
+  const promptForGemini = useTextOnly ? `${prompt}\n\n---\n${extractedBlock}` : prompt;
   const genAI = new GoogleGenerativeAI(currentApiKey);
   let availableModel: string | null = null;
   try {
@@ -106,8 +124,8 @@ export async function runTaxFilingRecognition(
   const modelsToTry = mergeGeminiModelsWithAvailable(availableModel, buildGeminiModelOrder({
     preferProAfterFlash: inferComplexGeminiContent({
       promptTextLength: promptForGemini.length,
-      inlineBase64Length: isSheet ? 0 : base64.length,
-      mimeType: isSheet ? undefined : mimeType,
+      inlineBase64Length: useTextOnly ? 0 : base64.length,
+      mimeType: useTextOnly ? undefined : mimeType,
     }),
   }));
   const validTaskIds = taskList ? new Set(taskList.map((t) => t.id)) : undefined;
@@ -116,7 +134,7 @@ export async function runTaxFilingRecognition(
   for (const modelName of modelsToTry) {
     try {
       const model = genAI.getGenerativeModel({ model: modelName });
-      const result = isSheet
+      const result = useTextOnly
         ? await model.generateContent(promptForGemini)
         : await model.generateContent([prompt, { inlineData: { data: base64, mimeType } }]);
       const text = result.response.text();

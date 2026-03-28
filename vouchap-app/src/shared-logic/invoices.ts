@@ -5,6 +5,8 @@ import { findOrCreateEntity, updateEntity, getEntityMergeMap, getEntityById, res
 import { getAccountMergeMap, getAccountById, getAccountOptionsForDuplicateCheck, resolveAccountId, normalizeAccountName } from './accounts';
 import { getEntityOptions, getEntityOptionsForDuplicateCheck } from './entity-list';
 import { normalizeNameForCompare } from './name-utils';
+import { isMissingNestedAttributionEmbedError } from './postgrest-embed-errors';
+import { fetchAttributionRowsMapForSpace } from './database';
 
 function mapEntityRow(e: any): Invoice['entity'] {
   if (!e) return undefined;
@@ -321,7 +323,7 @@ export async function getAllInvoices(): Promise<Invoice[]> {
   });
 }
 
-/** 根据 ID 获取发票（含明细、account、createdByUser、customer、items 的 category/purpose）；合并指向的客户/供应商会解析为最终目标展示 */
+/** 根据 ID 获取发票（含明细、account、createdByUser、customer、items 的 category/attribution）；合并指向的客户/供应商会解析为最终目标展示 */
 export async function getInvoiceById(invoiceId: string): Promise<Invoice | null> {
   const { data: inv, error: invError } = await supabase
     .from('invoices')
@@ -366,18 +368,45 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
     inv.accounts = accountRow;
   }
 
-  const { data: itemRows, error: itemsError } = await supabase
-    .from('invoice_items')
-    .select(`
+  const queryItemsWithAttribution = () =>
+    supabase
+      .from('invoice_items')
+      .select(`
       *,
       categories (*),
       attributions (*)
     `)
-    .eq('invoice_id', invoiceId)
-    .order('id', { ascending: true });
+      .eq('invoice_id', invoiceId)
+      .order('id', { ascending: true });
+
+  const queryItemsPlain = () =>
+    supabase
+      .from('invoice_items')
+      .select(`
+      *,
+      categories (*)
+    `)
+      .eq('invoice_id', invoiceId)
+      .order('id', { ascending: true });
+
+  let { data: itemRows, error: itemsError } = await queryItemsWithAttribution();
+  const invoiceSpaceId = spaceId ?? inv.space_id;
+  let attributionLookup: Map<string, any> | null = null;
+  if (itemsError && isMissingNestedAttributionEmbedError(itemsError, 'invoice_items')) {
+    const plain = await queryItemsPlain();
+    itemRows = plain.data;
+    itemsError = plain.error;
+    if (!itemsError && itemRows?.length && invoiceSpaceId) {
+      const pids = [...new Set((itemRows as any[]).map((r) => r.purpose_id).filter(Boolean).map(String))];
+      attributionLookup = await fetchAttributionRowsMapForSpace(invoiceSpaceId, pids);
+    }
+  }
   if (itemsError) return rowToInvoice(inv, []);
 
-  const items: InvoiceItem[] = (itemRows || []).map((r: any) => ({
+  const items: InvoiceItem[] = (itemRows || []).map((r: any) => {
+    const attributionRow =
+      r.attributions ?? (r.purpose_id && attributionLookup?.get(String(r.purpose_id)));
+    return {
     id: r.id,
     name: r.name,
     categoryId: r.category_id ?? undefined,
@@ -390,20 +419,21 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
       createdAt: r.categories.created_at,
       updatedAt: r.categories.updated_at,
     } : undefined,
-    purposeId: r.purpose_id ?? undefined,
-    purpose: r.attributions ? {
-      id: r.attributions.id,
-      spaceId: r.attributions.space_id,
-      name: r.attributions.name,
-      color: r.attributions.color,
-      isDefault: r.attributions.is_default,
-      createdAt: r.attributions.created_at,
-      updatedAt: r.attributions.updated_at,
+    attributionId: r.purpose_id ?? undefined,
+    attribution: attributionRow ? {
+      id: attributionRow.id,
+      spaceId: attributionRow.space_id,
+      name: attributionRow.name,
+      color: attributionRow.color,
+      isDefault: attributionRow.is_default,
+      createdAt: attributionRow.created_at,
+      updatedAt: attributionRow.updated_at,
     } : undefined,
     price: Number(r.price),
     isAsset: r.is_asset ?? false,
     confidence: r.confidence != null ? Number(r.confidence) : undefined,
-  }));
+  };
+  });
   return rowToInvoice(inv, items);
 }
 
@@ -528,7 +558,7 @@ export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolea
           invoice_id: invoice.id,
           name: it.name,
           category_id: it.categoryId ?? null,
-          purpose_id: it.purposeId ?? null,
+          purpose_id: it.attributionId ?? null,
           price: it.price,
           is_asset: it.isAsset ?? false,
           confidence: it.confidence ?? null,
@@ -565,7 +595,7 @@ export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolea
         invoice_id: id,
         name: it.name,
         category_id: it.categoryId ?? null,
-        purpose_id: it.purposeId ?? null,
+        purpose_id: it.attributionId ?? null,
         price: it.price,
         is_asset: it.isAsset ?? false,
         confidence: it.confidence ?? null,
@@ -585,10 +615,10 @@ export async function deleteInvoice(invoiceId: string): Promise<void> {
 export async function updateInvoiceItem(
   invoiceId: string,
   itemId: string,
-  field: 'categoryId' | 'purposeId' | 'isAsset',
+  field: 'categoryId' | 'attributionId' | 'isAsset',
   value: any
 ): Promise<void> {
-  const col = field === 'categoryId' ? 'category_id' : field === 'purposeId' ? 'purpose_id' : 'is_asset';
+  const col = field === 'categoryId' ? 'category_id' : field === 'attributionId' ? 'purpose_id' : 'is_asset';
   const { error } = await supabase
     .from('invoice_items')
     .update({ [col]: value })

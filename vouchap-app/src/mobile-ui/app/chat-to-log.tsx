@@ -1316,15 +1316,26 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             scrollToBottom();
           };
           try {
-            const isImage = !file.mimeType || file.mimeType.startsWith('image/');
+            const nameLooksLikeSpreadsheetOrWord = /\.(xlsx|xls|csv|docx?)$/i.test(file.name ?? '');
+            const isImage =
+              !nameLooksLikeSpreadsheetOrWord && (!file.mimeType || file.mimeType.startsWith('image/'));
             if (voucherType === 'tax-filing') {
               const projectId = effectiveProjectId!;
               const project = await getProjectById(projectId);
               const projectContext = { taxCountry: project?.taxCountry ?? null, taxScenario: project?.taxScenario ?? null };
+              const taxFilingUploadOpts =
+                file.name || file.mimeType
+                  ? { fileName: file.name ?? undefined, mimeType: file.mimeType ?? undefined }
+                  : undefined;
               let fileUrl: string;
               let todoId: string;
               if (isImage) {
-                fileUrl = await uploadTaxFilingFile(file.uri, `chat-attach-${Date.now()}-${i}`, clientSpaceId);
+                fileUrl = await uploadTaxFilingFile(
+                  file.uri,
+                  `chat-attach-${Date.now()}-${i}`,
+                  clientSpaceId,
+                  taxFilingUploadOpts,
+                );
                 try {
                   const classified = await classifyTaxDocumentAndPickTask(fileUrl, projectContext, attachmentTaskOptions);
                   todoId = classified.taskId;
@@ -1332,7 +1343,12 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   todoId = getFallbackTaskId(attachmentTaskOptions);
                 }
               } else {
-                fileUrl = await uploadTaxFilingFile(file.uri, `chat-attach-${Date.now()}-${i}`, clientSpaceId, { fileName: file.name, mimeType: file.mimeType });
+                fileUrl = await uploadTaxFilingFile(
+                  file.uri,
+                  `chat-attach-${Date.now()}-${i}`,
+                  clientSpaceId,
+                  taxFilingUploadOpts,
+                );
                 todoId = getFallbackTaskId(attachmentTaskOptions);
               }
               const createResult = await createProjectTodoAttachment(todoId, fileUrl, { status: 'PENDING_AI' });

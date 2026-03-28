@@ -4,6 +4,7 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
+      "@/lib/categories": ["./src/shared-logic/categories.ts"],
       "@/lib/*": ["./src/shared-logic/*"],
       "@/components/*": ["./src/mobile-ui/components/*"],
       "@/types": ["./src/shared-logic/types/index.ts"],

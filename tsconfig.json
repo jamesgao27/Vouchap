@@ -4,11 +4,12 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./*"],
+      "@/lib/categories": ["./vouchap-app/src/shared-logic/categories.ts"],
       "@/lib/*": ["./vouchap-app/src/shared-logic/*"],
       "@/components/*": ["./vouchap-app/src/mobile-ui/components/*"],
       "@/types": ["./vouchap-app/src/shared-logic/types/index.ts"],
-      "@/types/*": ["./vouchap-app/src/shared-logic/types/*"]
+      "@/types/*": ["./vouchap-app/src/shared-logic/types/*"],
+      "@/*": ["./*"]
     }
   },
   "include": [

@@ -6,6 +6,37 @@ import { findOrCreateAccount, getAccountMergeMap, getAccountById } from './accou
 import { updateEntity, getEntityMergeMap, getEntityById, resolveEntityId, findOrCreateEntity } from './entities';
 import { getEntityOptionsForDuplicateCheck } from './entity-list';
 import { normalizeNameForCompare } from './name-utils';
+import { isMissingNestedAttributionEmbedError } from './postgrest-embed-errors';
+
+const ATTRIBUTION_LOOKUP_CHUNK = 120;
+
+function collectAttributionIdsFromReceiptRows(rows: any[]): string[] {
+  const s = new Set<string>();
+  for (const row of rows) {
+    for (const item of row.receipt_items || []) {
+      if (item.purpose_id) s.add(String(item.purpose_id));
+    }
+  }
+  return [...s];
+}
+
+/** PostgREST 未注册 purpose_id→attributions 外键时嵌套会失败；按 id 仅从 attributions 拉取。 */
+export async function fetchAttributionRowsMapForSpace(spaceId: string, ids: string[]): Promise<Map<string, any>> {
+  const map = new Map<string, any>();
+  const unique = [...new Set(ids.filter(Boolean))];
+  if (unique.length === 0) return map;
+
+  for (let i = 0; i < unique.length; i += ATTRIBUTION_LOOKUP_CHUNK) {
+    const chunk = unique.slice(i, i + ATTRIBUTION_LOOKUP_CHUNK);
+    const { data: rows, error } = await supabase
+      .from('attributions')
+      .select('id, space_id, name, color, is_default, created_at, updated_at')
+      .eq('space_id', spaceId)
+      .in('id', chunk);
+    if (!error && rows) for (const r of rows) map.set(r.id, r);
+  }
+  return map;
+}
 
 // 将日期数据转换为 YYYY-MM-DD 格式的字符串，完全忠实于票面日期，不做任何时区转换
 function normalizeDate(dateValue: any): string {
@@ -208,7 +239,7 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
           receipt_id: receiptId,
           name: item.name,
           category_id: categoryId,
-          purpose_id: item.purposeId ?? null,
+          purpose_id: item.attributionId ?? null,
           price: item.price,
           is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
           confidence: item.confidence,
@@ -362,7 +393,7 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
             receipt_id: receiptId,
             name: item.name,
             category_id: categoryId,
-            purpose_id: item.purposeId ?? null,
+            purpose_id: item.attributionId ?? null,
             price: item.price,
             is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
             confidence: item.confidence,
@@ -629,9 +660,15 @@ export async function getAllReceipts(): Promise<Receipt[]> {
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
-    const { data, error } = await supabase
-      .from('receipts')
-      .select(`
+    const receiptItemsWithCategoriesOnly = `
+        receipt_items (
+          *,
+          categories (*)
+        )`;
+    const queryReceiptsWithItems = () =>
+      supabase
+        .from('receipts')
+        .select(`
         *,
         entities (*),
         accounts (*),
@@ -647,9 +684,39 @@ export async function getAllReceipts(): Promise<Receipt[]> {
           attributions (*)
         )
       `)
-      .eq('space_id', spaceId)
-      .order('created_at', { ascending: false })
-      .order('created_at', { foreignTable: 'receipt_items', ascending: true });
+        .eq('space_id', spaceId)
+        .order('created_at', { ascending: false })
+        .order('created_at', { foreignTable: 'receipt_items', ascending: true });
+
+    const queryReceiptsItemsNoAttributionEmbed = () =>
+      supabase
+        .from('receipts')
+        .select(`
+        *,
+        entities (*),
+        accounts (*),
+        created_by_user:users!created_by (
+          id,
+          email,
+          name,
+          current_space_id
+        ),
+        ${receiptItemsWithCategoriesOnly}
+      `)
+        .eq('space_id', spaceId)
+        .order('created_at', { ascending: false })
+        .order('created_at', { foreignTable: 'receipt_items', ascending: true });
+
+    let { data, error } = await queryReceiptsWithItems();
+    let attributionLookup: Map<string, any> | null = null;
+    if (error && isMissingNestedAttributionEmbedError(error, 'receipt_items')) {
+      const plain = await queryReceiptsItemsNoAttributionEmbed();
+      data = plain.data;
+      error = plain.error;
+      if (!error && data?.length) {
+        attributionLookup = await fetchAttributionRowsMapForSpace(spaceId, collectAttributionIdsFromReceiptRows(data));
+      }
+    }
 
     if (error) throw error;
 
@@ -759,7 +826,11 @@ export async function getAllReceipts(): Promise<Receipt[]> {
           name: row.created_by_user.name,
           spaceId: row.created_by_user.current_space_id,
         } : undefined,
-        items: (row.receipt_items || []).map((item: any) => ({
+        items: (row.receipt_items || []).map((item: any) => {
+          const attributionRow =
+            item.attributions ??
+            (item.purpose_id && attributionLookup?.get(String(item.purpose_id)));
+          return {
           id: item.id,
           name: item.name,
           categoryId: item.category_id,
@@ -772,20 +843,21 @@ export async function getAllReceipts(): Promise<Receipt[]> {
             createdAt: item.categories.created_at,
             updatedAt: item.categories.updated_at,
           } : undefined,
-          purposeId: item.purpose_id ?? null,
-          purpose: item.attributions ? {
-            id: item.attributions.id,
-            spaceId: item.attributions.space_id,
-            name: item.attributions.name,
-            color: item.attributions.color,
-            isDefault: item.attributions.is_default,
-            createdAt: item.attributions.created_at,
-            updatedAt: item.attributions.updated_at,
+          attributionId: item.purpose_id ?? null,
+          attribution: attributionRow ? {
+            id: attributionRow.id,
+            spaceId: attributionRow.space_id,
+            name: attributionRow.name,
+            color: attributionRow.color,
+            isDefault: attributionRow.is_default,
+            createdAt: attributionRow.created_at,
+            updatedAt: attributionRow.updated_at,
           } : undefined,
           price: item.price,
           isAsset: item.is_asset,
           confidence: item.confidence,
-        })),
+        };
+        }),
       };
     });
     
@@ -801,7 +873,7 @@ export async function getAllReceipts(): Promise<Receipt[]> {
 export async function updateReceiptItem(
   receiptId: string,
   itemId: string,
-  field: 'categoryId' | 'purposeId' | 'isAsset',
+  field: 'categoryId' | 'attributionId' | 'isAsset',
   value: any
 ): Promise<void> {
   try {
@@ -812,7 +884,7 @@ export async function updateReceiptItem(
     const updateData: any = {};
     if (field === 'categoryId') {
       updateData.category_id = value;
-    } else if (field === 'purposeId') {
+    } else if (field === 'attributionId') {
       updateData.purpose_id = value;
     } else if (field === 'isAsset') {
       updateData.is_asset = value;
@@ -895,8 +967,8 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
     const spaceId = user.currentSpaceId || user.spaceId;
     if (!spaceId) throw new Error('No space selected');
 
-    const queryByRelation = async (relation: 'attributions' | 'purposes') => {
-      return supabase
+    const queryWithAttributionEmbed = () =>
+      supabase
         .from('receipts')
         .select(`
           *,
@@ -911,23 +983,46 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
           receipt_items (
             *,
             categories (*),
-            ${relation} (*)
+            attributions (*)
           )
         `)
         .eq('id', receiptId)
         .eq('space_id', spaceId)
         .order('created_at', { foreignTable: 'receipt_items', ascending: true })
         .single();
-    };
 
-    // Prefer new relation name; fallback to legacy relation for compatibility.
-    let relationUsed: 'attributions' | 'purposes' = 'attributions';
-    let { data, error } = await queryByRelation('attributions');
-    if (error && (error.message?.includes('attributions') || error.details?.includes('attributions'))) {
-      relationUsed = 'purposes';
-      const fallback = await queryByRelation('purposes');
-      data = fallback.data;
-      error = fallback.error;
+    const queryPlainSingle = () =>
+      supabase
+        .from('receipts')
+        .select(`
+          *,
+          entities (*),
+          accounts (*),
+          created_by_user:users!created_by (
+            id,
+            email,
+            name,
+            current_space_id
+          ),
+          receipt_items (
+            *,
+            categories (*)
+          )
+        `)
+        .eq('id', receiptId)
+        .eq('space_id', spaceId)
+        .order('created_at', { foreignTable: 'receipt_items', ascending: true })
+        .single();
+
+    let { data, error } = await queryWithAttributionEmbed();
+    let attributionLookupById: Map<string, any> | null = null;
+    if (error && isMissingNestedAttributionEmbedError(error, 'receipt_items')) {
+      const plain = await queryPlainSingle();
+      data = plain.data;
+      error = plain.error;
+      if (!error && data) {
+        attributionLookupById = await fetchAttributionRowsMapForSpace(spaceId, collectAttributionIdsFromReceiptRows([data]));
+      }
     }
 
     if (error) {
@@ -1002,7 +1097,11 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
         name: data.created_by_user.name,
         spaceId: data.created_by_user.current_space_id,
       } : undefined,
-      items: (data.receipt_items || []).map((item: any) => ({
+      items: (data.receipt_items || []).map((item: any) => {
+        const attributionRow =
+          item.attributions ??
+          (item.purpose_id && attributionLookupById?.get(String(item.purpose_id)));
+        return {
         id: item.id,
         name: item.name,
         categoryId: item.category_id,
@@ -1015,20 +1114,21 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
           createdAt: item.categories.created_at,
           updatedAt: item.categories.updated_at,
         } : undefined,
-        purposeId: item.purpose_id ?? null,
-        purpose: item[relationUsed] ? {
-          id: item[relationUsed].id,
-          spaceId: item[relationUsed].space_id,
-          name: item[relationUsed].name,
-          color: item[relationUsed].color,
-          isDefault: item[relationUsed].is_default,
-          createdAt: item[relationUsed].created_at,
-          updatedAt: item[relationUsed].updated_at,
+        attributionId: item.purpose_id ?? null,
+        attribution: attributionRow ? {
+          id: attributionRow.id,
+          spaceId: attributionRow.space_id,
+          name: attributionRow.name,
+          color: attributionRow.color,
+          isDefault: attributionRow.is_default,
+          createdAt: attributionRow.created_at,
+          updatedAt: attributionRow.updated_at,
         } : undefined,
         price: item.price,
         isAsset: item.is_asset,
         confidence: item.confidence,
-      })),
+      };
+      }),
     };
   } catch (error) {
     console.error('Error fetching receipt:', error);
