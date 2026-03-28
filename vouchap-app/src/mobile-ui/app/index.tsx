@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Image, Modal, ActivityIndicator, ScrollView, TextInput, useWindowDimensions, Platform, Linking, InteractionManager } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -188,7 +188,12 @@ export default function HomeScreen() {
   };
 
   const checkAuth = async () => {
-    const authenticated = await isAuthenticated();
+    let authenticated = await isAuthenticated();
+    // Session may not be readable on the same tick as navigation from /login (in-memory storage / bridge timing).
+    if (!authenticated) {
+      await new Promise((r) => setTimeout(r, 150));
+      authenticated = await isAuthenticated();
+    }
     if (!authenticated) {
       router.replace('/login');
       return;
@@ -339,74 +344,70 @@ export default function HomeScreen() {
     }
   };
 
-  useEffect(() => {
-    if (isLoggedIn) {
-      loadSpace();
-      // checkPendingInvitations 已在 loadSpace 中调用
-    } else {
-      setPendingInvitationsCount(0);
+  /** 合并原 useEffect + 两个 useFocusEffect，避免 isLoggedIn 变 true 时重复 getUserSpaces / loadSpace */
+  const homeSessionRefreshRef = useRef<Promise<void> | null>(null);
+
+  const runHomeSessionRefresh = useCallback(() => {
+    if (isLoggedIn !== true) {
+      if (isLoggedIn === false) setPendingInvitationsCount(0);
+      return Promise.resolve();
     }
-  }, [isLoggedIn]);
-
-  // 使用 useFocusEffect 在页面获得焦点时检查 pending invitations、待认领 engagement 和重新加载空间信息（用于从其他页面返回时刷新）
-  useFocusEffect(
-    useCallback(() => {
-      if (isLoggedIn) {
-        // 重新加载空间信息（用于从管理页切换空间后返回时更新）
-        loadSpace();
-        checkPendingInvitations();
-        // 刷新待认领 engagement 数量（从 /auth/claim 返回后横幅会更新或消失）
-        (async () => {
-          const user = await getCurrentUser();
-          if (user?.email) {
-            const { list } = await getPendingInviteesForEmail(user.email);
-            setPendingClaimCount(list.length);
-          }
-        })();
-      }
-    }, [isLoggedIn])
-  );
-
-  // 添加路由守卫：每次页面获得焦点时检查用户是否有空间（防止通过回退路径进入）
-  useFocusEffect(
-    useCallback(() => {
-      const checkUserSpace = async () => {
-        // 如果还没有完成登录检查，跳过
-        if (isLoggedIn === null) {
+    if (homeSessionRefreshRef.current) {
+      return homeSessionRefreshRef.current;
+    }
+    const job = (async () => {
+      try {
+        const user = await getCurrentUser(true);
+        if (!user) {
+          router.replace('/setup-space');
           return;
         }
-        
-        // 如果已登录，检查用户是否有空间
-        if (isLoggedIn) {
+        const spaces = await getUserSpaces();
+        if (spaces.length === 0) {
+          router.replace('/setup-space');
+          return;
+        }
+        if (!user.currentSpaceId && !user.spaceId) {
+          router.replace('/setup-space');
+          return;
+        }
+        const space = await getCurrentSpace(true);
+        setCurrentSpaceState(space);
+        try {
+          const invitations = await getPendingInvitationsForUser();
+          setPendingInvitationsCount(invitations.length);
+        } catch (e) {
+          console.error('Error checking pending invitations:', e);
+          setPendingInvitationsCount(0);
+        }
+        if (user.email) {
           try {
-            const user = await getCurrentUser(true);
-            if (!user) {
-              router.replace('/setup-space');
-              return;
-            }
-            
-            // 检查用户是否有空间
-            const spaces = await getUserSpaces();
-            if (spaces.length === 0) {
-              // 没有空间，重定向到 setup-space
-              router.replace('/setup-space');
-              return;
-            }
-            
-            // 如果有空间但没有当前空间，也重定向到 setup-space
-            if (!user.currentSpaceId && !user.spaceId) {
-              router.replace('/setup-space');
-              return;
-            }
-          } catch (error) {
-            console.error('Error checking user space in focus effect:', error);
-            router.replace('/setup-space');
+            const { list } = await getPendingInviteesForEmail(user.email);
+            setPendingClaimCount(list.length);
+          } catch (e) {
+            console.error('Error loading pending claim count:', e);
           }
         }
-      };
-      
-      checkUserSpace();
-    }, [isLoggedIn, router])
+      } catch (error) {
+        console.error('Error refreshing home session:', error);
+        router.replace('/setup-space');
+      }
+    })();
+    homeSessionRefreshRef.current = job;
+    job.finally(() => {
+      if (homeSessionRefreshRef.current === job) homeSessionRefreshRef.current = null;
+    });
+    return job;
+  }, [isLoggedIn, router]);
+
+  useEffect(() => {
+    void runHomeSessionRefresh();
+  }, [runHomeSessionRefresh]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void runHomeSessionRefresh();
+    }, [runHomeSessionRefresh]),
   );
 
   const loadSpace = async () => {

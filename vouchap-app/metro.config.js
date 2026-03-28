@@ -5,6 +5,12 @@ const fs = require('fs');
 /** @type {import('expo/metro-config').MetroConfig} */
 const config = getDefaultConfig(__dirname);
 
+// macOS: when Watchman hits FSEventStreamStart / FSEvents errors, Metro can crash.
+// Node crawler avoids fb-watchman; set METRO_USE_WATCHMAN=1 to re-enable if Watchman is healthy.
+if (process.env.METRO_USE_WATCHMAN !== '1') {
+  config.resolver.useWatchman = false;
+}
+
 const projectRoot = __dirname;
 const originalResolveRequest = config.resolver.resolveRequest;
 const webShimPath = path.resolve(projectRoot, 'react-native-web-shim.js');

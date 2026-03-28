@@ -81,6 +81,15 @@ export default function LoginScreen() {
       showToast(error.message, 'error');
       return;
     }
+    try {
+      const { getCurrentUser, getCurrentSpace } = await import('@/lib/auth');
+      const { initializeAuthCache } = await import('@/lib/auth-cache');
+      const u = await getCurrentUser(true);
+      const s = u ? await getCurrentSpace(true) : null;
+      await initializeAuthCache(u, s);
+    } catch (_) {
+      // Non-blocking; index will refresh auth state.
+    }
     if (params.redirect === '/auth/setup') {
       const t = (params.token ?? '').trim();
       const f = (params.firmClientId ?? '').trim();
