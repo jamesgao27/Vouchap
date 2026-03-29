@@ -1,8 +1,8 @@
 /**
- * 文件详情大浮窗：左侧预览（图/PDF/其他），右侧识别内容（docType、summary、extractedPreview）。
+ * 文件详情大浮窗：左侧预览（图/PDF/Office），右侧识别内容（docType、summary、extractedPreview）。
  * 供 TaxFilingTodosView 与 chat-to-log 识别后卡片共用。
  */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -23,7 +23,6 @@ import * as FileSystem from 'expo-file-system/legacy';
 import { Ionicons } from '@expo/vector-icons';
 import {
   buildExtractedPreview,
-  ensureProjectTodoAttachmentPreviewPdf,
   isSpreadsheetAttachmentUrl,
   isWordAttachmentUrl,
   summarySuggestsSpreadsheet,
@@ -31,27 +30,30 @@ import {
   type AttachmentPreviewField,
 } from '@/lib/firm';
 import { getTaxFilingViewUrl } from '@/lib/supabase';
+import {
+  fetchTaxFilingAttachmentArrayBuffer,
+  workbookArrayBufferToPreviewHtml,
+  renderDocxIntoContainer,
+  isLegacyWordDocBytes,
+  writeNativeDocxPreviewHtmlPage,
+  iosWebViewAllowingReadAccessUrlForFileUri,
+} from '@/lib/office-inline-preview';
 
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'];
 
-/** project_todo_attachments.id UUID — avoid running preview ensure for receipt-doc-* 等临时 id */
-function isProjectTodoAttachmentRowId(id: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-}
+type PreviewPaneKind = 'image' | 'pdf' | 'office-sheet' | 'office-word';
 
-function getPreviewType(
+function getPreviewPaneKind(
   url: string | null | undefined,
   docType: string | null | undefined,
   summaryName?: string | null
-): 'image' | 'pdf' {
-  // 曾被误存为 .jpg 的 Excel 仍应按文档预览（避免用 Image 加载二进制表格）
-  if (url && isSpreadsheetAttachmentUrl(url, docType)) return 'pdf';
-  if (url && isWordAttachmentUrl(url, docType)) return 'pdf';
-  if (summarySuggestsSpreadsheet(summaryName)) return 'pdf';
-  if (summarySuggestsWord(summaryName)) return 'pdf';
+): PreviewPaneKind {
+  if (url && isSpreadsheetAttachmentUrl(url, docType)) return 'office-sheet';
+  if (url && isWordAttachmentUrl(url, docType)) return 'office-word';
+  if (summarySuggestsSpreadsheet(summaryName)) return 'office-sheet';
+  if (summarySuggestsWord(summaryName)) return 'office-word';
   const ext = (url ? url.split(/[#?]/)[0].split('.').pop()?.toLowerCase() : '') ?? '';
   if (IMAGE_EXTENSIONS.includes(ext)) return 'image';
-  // 其余一律尝试按文档(PDF)预览，无法内嵌时再回退到 "Open in new tab"
   return 'pdf';
 }
 
@@ -101,8 +103,6 @@ export interface FileDetailModalFile {
    * 供 expenses / income / chat 提交气泡等场景使用。
    */
   hideRightPanel?: boolean;
-  /** Resolved embeddable document URL (e.g. signed PDF). Takes precedence over imageUrl for non-image preview. */
-  documentPreviewUrl?: string | null;
 }
 
 export interface FileDetailModalProps {
@@ -117,6 +117,99 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
   const extractedPreview =
     file.extractedPreview ?? (file.extracted_data ? buildExtractedPreview(file.extracted_data) : []);
   const showRightPanel = !file.hideRightPanel;
+
+  const paneKind = useMemo(
+    () => getPreviewPaneKind(file.imageUrl, file.docType, file.name),
+    [file.imageUrl, file.docType, file.name]
+  );
+
+  const [officeSheetState, setOfficeSheetState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [officeWordState, setOfficeWordState] = useState<'idle' | 'loading' | 'legacy' | 'ready' | 'error'>('idle');
+  const [sheetHtml, setSheetHtml] = useState<string | null>(null);
+  const [wordBuffer, setWordBuffer] = useState<ArrayBuffer | null>(null);
+  const [nativeDocxUri, setNativeDocxUri] = useState<string | null>(null);
+  const docxWebRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    setOfficeSheetState('idle');
+    setOfficeWordState('idle');
+    setSheetHtml(null);
+    setWordBuffer(null);
+    setNativeDocxUri(null);
+  }, [file.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!file.imageUrl || paneKind !== 'office-sheet') {
+      setOfficeSheetState('idle');
+      return;
+    }
+    setOfficeSheetState('loading');
+    fetchTaxFilingAttachmentArrayBuffer(file.imageUrl)
+      .then((ab) => {
+        if (cancelled) return;
+        setSheetHtml(workbookArrayBufferToPreviewHtml(ab));
+        setOfficeSheetState('ready');
+      })
+      .catch(() => {
+        if (!cancelled) setOfficeSheetState('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [file.imageUrl, paneKind, file.id]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!file.imageUrl || paneKind !== 'office-word') {
+      setOfficeWordState('idle');
+      return;
+    }
+    setOfficeWordState('loading');
+    fetchTaxFilingAttachmentArrayBuffer(file.imageUrl)
+      .then(async (ab) => {
+        if (cancelled) return;
+        if (isLegacyWordDocBytes(ab)) {
+          setOfficeWordState('legacy');
+          return;
+        }
+        if (Platform.OS === 'web') {
+          setWordBuffer(ab);
+          setOfficeWordState('ready');
+          return;
+        }
+        try {
+          const uri = await writeNativeDocxPreviewHtmlPage(ab, file.id);
+          if (cancelled) return;
+          setNativeDocxUri(uri);
+          setOfficeWordState('ready');
+        } catch {
+          if (!cancelled) setOfficeWordState('error');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setOfficeWordState('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [file.imageUrl, paneKind, file.id]);
+
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web' || paneKind !== 'office-word' || officeWordState !== 'ready' || !wordBuffer) {
+      return;
+    }
+    const el = docxWebRef.current;
+    if (!el) return;
+    let cancelled = false;
+    renderDocxIntoContainer(el, wordBuffer).catch(() => {
+      if (!cancelled) setOfficeWordState('error');
+    });
+    return () => {
+      cancelled = true;
+      el.innerHTML = '';
+    };
+  }, [paneKind, officeWordState, wordBuffer]);
 
   const [downloadBusy, setDownloadBusy] = useState(false);
   const downloadInFlightRef = useRef(false);
@@ -158,13 +251,13 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
     } catch (e) {
       console.error('[FileDetailModal] download original:', e);
       try {
+        if (!file.imageUrl) return;
         const fallback = await getTaxFilingViewUrl(file.imageUrl);
         await callNativeSafe('FileDetailModal.downloadFallback', () => Linking.openURL(fallback));
       } catch {
         if (Platform.OS === 'web' && typeof window !== 'undefined') {
           window.alert('Could not download this file. Try again or open the link from your browser.');
-        }
-        else Alert.alert('Download failed', 'Could not save this file. Please try opening it in a browser instead.');
+        } else Alert.alert('Download failed', 'Could not save this file. Please try opening it in a browser instead.');
       }
     } finally {
       downloadInFlightRef.current = false;
@@ -172,86 +265,36 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
     }
   }, [file.imageUrl, file.name, file.id]);
 
-  const [resolvedSpreadsheetPreviewUrl, setResolvedSpreadsheetPreviewUrl] = useState<string | null>(null);
-  const [spreadsheetPreviewLoading, setSpreadsheetPreviewLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setResolvedSpreadsheetPreviewUrl(null);
-    const needResolve =
-      !file.documentPreviewUrl &&
-      !!file.imageUrl &&
-      isProjectTodoAttachmentRowId(file.id) &&
-      (isSpreadsheetAttachmentUrl(file.imageUrl, file.docType) ||
-        isWordAttachmentUrl(file.imageUrl, file.docType) ||
-        summarySuggestsSpreadsheet(file.name) ||
-        summarySuggestsWord(file.name));
-    if (!needResolve) {
-      setSpreadsheetPreviewLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
-    setSpreadsheetPreviewLoading(true);
-    ensureProjectTodoAttachmentPreviewPdf(file.id)
-      .then(({ documentPreviewSignedUrl }) => {
-        if (cancelled) return;
-        setSpreadsheetPreviewLoading(false);
-        if (documentPreviewSignedUrl) setResolvedSpreadsheetPreviewUrl(documentPreviewSignedUrl);
-      })
-      .catch(() => {
-        if (!cancelled) setSpreadsheetPreviewLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [file.id, file.imageUrl, file.documentPreviewUrl, file.docType, file.name]);
-
-  const docEmbedUrl = file.documentPreviewUrl ?? resolvedSpreadsheetPreviewUrl ?? null;
-  const urlLooksSheetOrWord = !!(
-    file.imageUrl &&
-    (isSpreadsheetAttachmentUrl(file.imageUrl, file.docType) || isWordAttachmentUrl(file.imageUrl, file.docType))
-  );
-  const sheetOrSummaryHint =
-    urlLooksSheetOrWord || summarySuggestsSpreadsheet(file.name) || summarySuggestsWord(file.name);
-  const waitForLazySheetPdf =
-    sheetOrSummaryHint && isProjectTodoAttachmentRowId(file.id) && !file.documentPreviewUrl;
-
-  /** Web：部分浏览器对跨域 Storage PDF 的 iframe 渲染异常，拉成 blob: 后再嵌套更稳定 */
+  /** Web：签名 URL 供 `<object>`；blob: 供部分浏览器内嵌更稳定（仅 PDF） */
   const [webPdfBlobUrl, setWebPdfBlobUrl] = useState<string | null>(null);
+  const [pdfSignedUrl, setPdfSignedUrl] = useState<string | null>(null);
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
 
-    const isImage = !!(file.imageUrl && getPreviewType(file.imageUrl, file.docType, file.name) === 'image');
-    if (isImage || !file.imageUrl) {
+    if (paneKind !== 'pdf' || !file.imageUrl) {
       setWebPdfBlobUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
         return null;
       });
+      setPdfSignedUrl(null);
       return;
     }
 
-    const remoteForEmbed = waitForLazySheetPdf ? docEmbedUrl : (docEmbedUrl ?? file.imageUrl);
-    if (!remoteForEmbed || (waitForLazySheetPdf && !docEmbedUrl)) {
-      setWebPdfBlobUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
-      return;
-    }
-
+    const src = file.imageUrl;
     let cancelled = false;
 
     (async () => {
       try {
-        const res = await fetch(remoteForEmbed, { mode: 'cors', credentials: 'omit' });
+        const signed = await getTaxFilingViewUrl(src);
+        if (cancelled) return;
+        setPdfSignedUrl(signed);
+        const res = await fetch(signed, { mode: 'cors', credentials: 'omit' });
         if (!res.ok || cancelled) return;
         const blob = await res.blob();
         if (cancelled) return;
         const ct = blob.type || '';
         const pathLooksPdf =
-          remoteForEmbed.toLowerCase().includes('.pdf') ||
-          /\/preview_[^/]+\.pdf/i.test(remoteForEmbed);
+          (file.imageUrl ?? '').toLowerCase().includes('.pdf') || /\/[^/]+\.pdf/i.test(file.imageUrl ?? '');
         if (!ct.includes('pdf') && !pathLooksPdf) {
           if (!cancelled) {
             setWebPdfBlobUrl((prev) => {
@@ -286,22 +329,11 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
         if (prev) URL.revokeObjectURL(prev);
         return null;
       });
+      setPdfSignedUrl(null);
     };
-  }, [
-    file.imageUrl,
-    file.docType,
-    file.name,
-    file.id,
-    file.documentPreviewUrl,
-    docEmbedUrl,
-    waitForLazySheetPdf,
-  ]);
+  }, [paneKind, file.imageUrl, file.id]);
 
-  const webIframeSrc =
-    Platform.OS === 'web' ? (webPdfBlobUrl ?? docEmbedUrl ?? file.imageUrl) : (docEmbedUrl ?? file.imageUrl);
-  const mayLazyPdf = waitForLazySheetPdf;
-  const waitingSpreadsheetPdf = mayLazyPdf && spreadsheetPreviewLoading;
-  const spreadsheetPreviewMiss = mayLazyPdf && !spreadsheetPreviewLoading && !docEmbedUrl;
+  const webPdfEmbedSrc = Platform.OS === 'web' ? webPdfBlobUrl ?? pdfSignedUrl ?? file.imageUrl : file.imageUrl;
 
   // Android：拦截硬件返回键，优先关闭预览浮窗而不是直接退出页面
   useEffect(() => {
@@ -326,6 +358,216 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
     return () => targets.forEach((el) => el.removeEventListener('wheel', onWheel));
   }, []);
 
+  const renderLeftPreview = () => {
+    if (!file.imageUrl) {
+      return (
+        <View style={[styles.thumb, styles.thumbPlaceholder]}>
+          <Ionicons name="document-outline" size={48} color="#BDC3C7" />
+        </View>
+      );
+    }
+
+    if (paneKind === 'image') {
+      return <Image source={{ uri: file.imageUrl as string }} style={styles.thumb} resizeMode="contain" />;
+    }
+
+    if (paneKind === 'office-sheet') {
+      if (officeSheetState === 'loading' || officeSheetState === 'idle') {
+        return (
+          <View style={[styles.thumb, styles.thumbPlaceholder]}>
+            <ActivityIndicator size="large" color="#6C5CE7" />
+            <Text style={styles.openInNewHint}>Loading preview…</Text>
+          </View>
+        );
+      }
+      if (officeSheetState === 'error' || !sheetHtml) {
+        return (
+          <View style={[styles.thumb, styles.thumbPlaceholder]}>
+            <Ionicons name="document-text-outline" size={40} color="#BDC3C7" />
+            <Text style={styles.openInNewHint}>Preview not available</Text>
+            <TouchableOpacity
+              style={styles.openInNewBtn}
+              onPress={() => callNativeSafe('FileDetailModal.openURL', () => Linking.openURL(file.imageUrl!))}
+            >
+              <Text style={styles.openInNewBtnText}>Open in new tab</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      }
+      if (Platform.OS === 'web') {
+        return (
+          <View style={[styles.thumb, styles.thumbWebIframeHost]}>
+            {React.createElement('iframe', {
+              srcDoc: sheetHtml,
+              style: {
+                width: '100%',
+                height: '100%',
+                minHeight: 420,
+                border: 'none',
+                borderRadius: 10,
+                display: 'block',
+                backgroundColor: '#fff',
+              } as object,
+              title: 'Spreadsheet preview',
+              sandbox: 'allow-scripts allow-same-origin',
+            })}
+          </View>
+        );
+      }
+      if (WebView) {
+        return (
+          <WebView
+            source={{ html: sheetHtml }}
+            style={styles.thumb}
+            originWhitelist={['*']}
+            scalesPageToFit
+          />
+        );
+      }
+      return (
+        <View style={[styles.thumb, styles.thumbPlaceholder]}>
+          <Text style={styles.openInNewHint}>Preview not supported</Text>
+        </View>
+      );
+    }
+
+    if (paneKind === 'office-word') {
+      if (officeWordState === 'loading' || officeWordState === 'idle') {
+        return (
+          <View style={[styles.thumb, styles.thumbPlaceholder]}>
+            <ActivityIndicator size="large" color="#6C5CE7" />
+            <Text style={styles.openInNewHint}>Loading preview…</Text>
+          </View>
+        );
+      }
+      if (officeWordState === 'legacy') {
+        return (
+          <View style={[styles.thumb, styles.thumbPlaceholder]}>
+            <Ionicons name="document-text-outline" size={40} color="#BDC3C7" />
+            <Text style={styles.openInNewHint}>
+              Legacy .doc format cannot be previewed here. Download the file and open it in Word or convert to .docx.
+            </Text>
+            <TouchableOpacity
+              style={styles.openInNewBtn}
+              onPress={() => callNativeSafe('FileDetailModal.openURL', () => Linking.openURL(file.imageUrl!))}
+            >
+              <Text style={styles.openInNewBtnText}>Open in new tab</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      }
+      if (officeWordState === 'error') {
+        return (
+          <View style={[styles.thumb, styles.thumbPlaceholder]}>
+            <Ionicons name="document-text-outline" size={40} color="#BDC3C7" />
+            <Text style={styles.openInNewHint}>Preview not available</Text>
+            <TouchableOpacity
+              style={styles.openInNewBtn}
+              onPress={() => callNativeSafe('FileDetailModal.openURL', () => Linking.openURL(file.imageUrl!))}
+            >
+              <Text style={styles.openInNewBtnText}>Open in new tab</Text>
+            </TouchableOpacity>
+          </View>
+        );
+      }
+      if (Platform.OS === 'web' && wordBuffer) {
+        return (
+          <ScrollView style={styles.officeScroll} contentContainerStyle={styles.officeScrollContent}>
+            {React.createElement('div', {
+              ref: docxWebRef,
+              style: {
+                minHeight: 360,
+                width: '100%',
+                backgroundColor: '#fff',
+              },
+            })}
+          </ScrollView>
+        );
+      }
+      if (Platform.OS !== 'web' && nativeDocxUri && WebView) {
+        const readUrl = iosWebViewAllowingReadAccessUrlForFileUri(nativeDocxUri);
+        return (
+          <WebView
+            source={{ uri: nativeDocxUri }}
+            style={styles.thumb}
+            originWhitelist={['*']}
+            scalesPageToFit
+            allowFileAccess
+            allowFileAccessFromFileURLs
+            allowUniversalAccessFromFileURLs
+            {...(Platform.OS === 'ios' ? { allowingReadAccessToURL: readUrl } : {})}
+          />
+        );
+      }
+      return (
+        <View style={[styles.thumb, styles.thumbPlaceholder]}>
+          <Text style={styles.openInNewHint}>Preview not supported</Text>
+        </View>
+      );
+    }
+
+    // pdf
+    if (Platform.OS === 'web' && WebView) {
+      return (
+        <WebView
+          source={{ uri: (webPdfEmbedSrc || '') as string }}
+          style={styles.thumb}
+          originWhitelist={['*']}
+          scalesPageToFit
+        />
+      );
+    }
+    if (Platform.OS === 'web' && file.imageUrl) {
+      return (
+        <View style={[styles.thumb, styles.thumbWebIframeHost]}>
+          {React.createElement(
+            'object',
+            {
+              data: webPdfEmbedSrc as string,
+              type: 'application/pdf',
+              style: {
+                width: '100%',
+                height: '100%',
+                minHeight: 420,
+                border: 'none',
+                borderRadius: 10,
+                display: 'block',
+              } as any,
+              'aria-label': 'Document preview',
+            },
+            React.createElement(
+              'p',
+              { style: { padding: 16, color: '#636E72', fontSize: 14 } },
+              'Embedded preview is not available in this browser. Use “Open in new tab” below.',
+            ),
+          )}
+        </View>
+      );
+    }
+    if (WebView) {
+      return (
+        <WebView
+          source={{ uri: file.imageUrl! }}
+          style={styles.thumb}
+          originWhitelist={['*']}
+          scalesPageToFit
+        />
+      );
+    }
+    return (
+      <View style={[styles.thumb, styles.thumbPlaceholder]}>
+        <Ionicons name="document-text-outline" size={40} color="#BDC3C7" />
+        <Text style={styles.openInNewHint}>Preview not supported</Text>
+        <TouchableOpacity
+          style={styles.openInNewBtn}
+          onPress={() => callNativeSafe('FileDetailModal.openURL', () => Linking.openURL(file.imageUrl!))}
+        >
+          <Text style={styles.openInNewBtnText}>Open in new tab</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
   return (
     <View style={styles.overlay} pointerEvents="box-none">
       <Pressable style={styles.backdrop} onPress={onClose} />
@@ -342,86 +584,7 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
               !showRightPanel && styles.leftSolo,
             ]}
           >
-            {!file.imageUrl ? (
-              <View style={[styles.thumb, styles.thumbPlaceholder]}>
-                <Ionicons name="document-outline" size={48} color="#BDC3C7" />
-              </View>
-            ) : getPreviewType(file.imageUrl, file.docType, file.name) === 'image' ? (
-              <Image source={{ uri: file.imageUrl }} style={styles.thumb} resizeMode="contain" />
-            ) : waitingSpreadsheetPdf ? (
-              <View style={[styles.thumb, styles.thumbPlaceholder]}>
-                <ActivityIndicator size="large" color="#6C5CE7" />
-                <Text style={styles.openInNewHint}>Preparing preview…</Text>
-              </View>
-            ) : spreadsheetPreviewMiss ? (
-              <View style={[styles.thumb, styles.thumbPlaceholder]}>
-                <Ionicons name="document-text-outline" size={40} color="#BDC3C7" />
-                <Text style={styles.openInNewHint}>Preview not available</Text>
-                {file.imageUrl ? (
-                  <TouchableOpacity
-                    style={styles.openInNewBtn}
-                    onPress={() =>
-                      callNativeSafe('FileDetailModal.openURL', () => Linking.openURL(file.imageUrl!))
-                    }
-                  >
-                    <Text style={styles.openInNewBtnText}>Open in new tab</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            ) : Platform.OS === 'web' && WebView ? (
-              <WebView
-                source={{ uri: (webIframeSrc || '') as string }}
-                style={styles.thumb}
-                originWhitelist={['*']}
-                scalesPageToFit
-              />
-            ) : Platform.OS === 'web' && file.imageUrl ? (
-              <View style={[styles.thumb, styles.thumbWebIframeHost]}>
-                {React.createElement(
-                  'object',
-                  {
-                    data: webIframeSrc as string,
-                    type: 'application/pdf',
-                    style: {
-                      width: '100%',
-                      height: '100%',
-                      minHeight: 420,
-                      border: 'none',
-                      borderRadius: 10,
-                      display: 'block',
-                    } as any,
-                    'aria-label': 'Document preview',
-                  },
-                  React.createElement(
-                    'p',
-                    { style: { padding: 16, color: '#636E72', fontSize: 14 } },
-                    'Embedded preview is not available in this browser. Use “Open in new tab” below.',
-                  ),
-                )}
-              </View>
-            ) : WebView ? (
-              <WebView
-                source={{ uri: (webIframeSrc || file.imageUrl)! }}
-                style={styles.thumb}
-                originWhitelist={['*']}
-                scalesPageToFit
-              />
-            ) : (
-              <View style={[styles.thumb, styles.thumbPlaceholder]}>
-                <Ionicons name="document-text-outline" size={40} color="#BDC3C7" />
-                <Text style={styles.openInNewHint}>Preview not supported</Text>
-                {file.imageUrl ? (
-                  <TouchableOpacity
-                    style={styles.openInNewBtn}
-                    onPress={() =>
-                      callNativeSafe('FileDetailModal.openURL', () => Linking.openURL(file.imageUrl!))
-                    }
-                  >
-                    <Text style={styles.openInNewBtnText}>Open in new tab</Text>
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            )}
+            {renderLeftPreview()}
           </View>
           {showRightPanel && (
             <ScrollView
@@ -494,9 +657,8 @@ const styles = StyleSheet.create({
   },
   cardWeb: {
     overscrollBehavior: 'contain',
-  } as const,
+  } as any,
   closeBtn: { position: 'absolute', top: 10, right: 10, zIndex: 2, padding: 6 },
-  // Web 保持左右并排（约 0.618:0.382）；原生端改为上下布局，避免窄屏右侧溢出
   body: {
     flexDirection: Platform.OS === 'web' ? 'row' : 'column',
     flex: 1,
@@ -510,7 +672,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
-    // Web 端：左右布局，用固定长宽比；原生端：占用上半部分高度
     aspectRatio: Platform.OS === 'web' ? 440 / 600 : undefined,
     alignSelf: 'stretch',
     width: Platform.OS === 'web' ? '61.8%' : '100%',
@@ -528,9 +689,8 @@ const styles = StyleSheet.create({
   },
   leftWeb: {
     overscrollBehavior: 'contain',
-  } as const,
+  } as any,
   thumb: { width: '100%', height: '100%', borderRadius: 10, backgroundColor: '#FFF' },
-  /** Web：RN Web 下 iframe 父级若没有 minHeight，height:100% 常计算为 0 */
   thumbWebIframeHost:
     Platform.OS === 'web'
       ? {
@@ -541,8 +701,17 @@ const styles = StyleSheet.create({
           overflow: 'hidden',
         }
       : {},
+  officeScroll: {
+    width: '100%',
+    flex: 1,
+    minHeight: 420,
+  },
+  officeScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 8,
+  },
   thumbPlaceholder: { justifyContent: 'center', alignItems: 'center' },
-  openInNewHint: { fontSize: 12, color: '#95A5A6', marginTop: 8, textAlign: 'center' },
+  openInNewHint: { fontSize: 12, color: '#95A5A6', marginTop: 8, textAlign: 'center', paddingHorizontal: 12 },
   openInNewBtn: { marginTop: 12, paddingVertical: 8, paddingHorizontal: 16, backgroundColor: '#6C5CE7', borderRadius: 8 },
   openInNewBtnText: { fontSize: 13, color: '#FFF', fontWeight: '600' },
   right: {
@@ -553,7 +722,6 @@ const styles = StyleSheet.create({
     width: Platform.OS === 'web' ? '38.2%' : '100%',
     flexShrink: 0,
   },
-  /** Web：明确高度链，保证 ScrollView 有可视区域 */
   rightWeb: {
     height: '100%',
     maxHeight: '100%',

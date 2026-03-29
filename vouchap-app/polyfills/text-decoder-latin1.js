@@ -1,6 +1,6 @@
 /**
  * Hermes (React Native): TextDecoder does not support encoding "latin1".
- * jspdf → fast-png instantiates `new TextDecoder('latin1')` at module load — must patch before any jspdf import.
+ * Some image/PDF-related deps instantiate `new TextDecoder('latin1')` at module load — patch early on Hermes.
  */
 (function installLatin1TextDecoder() {
   const g = typeof globalThis !== 'undefined' ? globalThis : global;
