@@ -64,13 +64,13 @@ import {
   getStatusColor,
 } from '@/lib/constants/project-todo-status';
 import { supabase, uploadTaxFilingFile } from '@/lib/supabase';
-import { getCurrentUser } from '@/lib/auth';
 import * as ImagePicker from 'expo-image-picker';
 import { FileDetailModal } from '@/components/FileDetailModal';
 import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
 import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition-retry';
 import { processTaxFilingAttachmentAfterCreate } from '@/lib/tax-filing-attachment-followup';
+import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
 
 // ──────────────────────────────────────────────────
 // 常量 & 工具函数
@@ -2186,10 +2186,14 @@ function TodoTree({
                               </View>
                             </View>
                             {isWeb && (
-                              <>
-                                <Text style={ts.fileColTime} numberOfLines={1}>{formatFileDate(f.createdAt)}</Text>
-                                <Text style={ts.fileColUploader} numberOfLines={1}>{f.uploaderName ?? '—'}</Text>
-                              </>
+                              <View style={ts.fileRowMeta}>
+                                <Text style={ts.fileColTime} numberOfLines={1}>
+                                  {formatFileDate(f.createdAt)}
+                                </Text>
+                                <Text style={ts.fileColUploader} numberOfLines={1} ellipsizeMode="tail">
+                                  {f.uploaderName?.trim() ? f.uploaderName.trim() : '—'}
+                                </Text>
+                              </View>
                             )}
                             {!hideDepsEditor && (
                               <View style={ts.fileRowActions}>
@@ -2668,9 +2672,9 @@ export function TaxFilingTodosView({
     getAttachmentsByProjectTodoIds(taskIds).then(setTaskFilesMap).catch(() => {});
   }, [tree, catalogMode]);
 
-  // Supabase Realtime：project_todos / project_todo_attachments 变更时局部自动刷新（catalog 模式不订阅）
+  // Supabase Realtime：project_todos / project_todo_attachments 变更时局部自动刷新（catalog 模式不订阅；含 Web）
   useEffect(() => {
-    if (catalogMode || Platform.OS === 'web' || !orderId) return;
+    if (catalogMode || !orderId) return;
     let todosChannel: ReturnType<typeof supabase.channel> | null = null;
     let attachmentsChannel: ReturnType<typeof supabase.channel> | null = null;
     let refreshTreeTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -3234,23 +3238,7 @@ export function TaxFilingTodosView({
         const imageUri = result.assets[0].uri;
         const imageUrl = await uploadTaxFilingFile(imageUri, `order-task-${Date.now()}`, clientSpaceId);
 
-        let uploaderName: string | null = null;
-        const user = await getCurrentUser();
-        if (user?.name?.trim()) {
-          uploaderName = user.name.trim();
-        } else {
-          const {
-            data: { user: authUser },
-          } = await supabase.auth.getUser();
-          if (authUser) {
-            const fromMeta = (
-              authUser.user_metadata?.name ?? authUser.email?.split('@')[0] ?? ''
-            )
-              .toString()
-              .trim();
-            if (fromMeta) uploaderName = fromMeta;
-          }
-        }
+        const uploaderName = await resolveUploaderNameForTaxFilingAttachment();
 
         const createResult = await createProjectTodoAttachment(todoId, imageUrl, {
           status: 'PENDING_AI',
@@ -4401,8 +4389,30 @@ const ts = StyleSheet.create({
   // 文件名称弱化：字号略小、颜色略灰、权重降低
   fileRowName: { fontSize: 12, fontWeight: '500', color: '#636E72' },
   fileRowDesc: { fontSize: 11, color: '#636E72', marginTop: 2 },
-  fileColTime: { fontSize: 11, color: '#636E72', width: 64, textAlign: 'right', marginRight: 6 },
-  fileColUploader: { fontSize: 11, color: '#636E72', width: 52, textAlign: 'right', marginRight: 4 },
+  /** Date + uploader sit in a non-shrinking group so the filename column flexes first */
+  fileRowMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
+    gap: 10,
+    marginLeft: 4,
+  },
+  fileColTime: {
+    fontSize: 11,
+    color: '#636E72',
+    minWidth: 112,
+    maxWidth: 124,
+    flexShrink: 0,
+    textAlign: 'right',
+  },
+  fileColUploader: {
+    fontSize: 11,
+    color: '#636E72',
+    minWidth: 88,
+    maxWidth: 200,
+    flexShrink: 0,
+    textAlign: 'right',
+  },
   fileRowActions: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   fileRowActionBtn: { padding: 4, justifyContent: 'center', alignItems: 'center' },
   fileRowLast: { borderBottomWidth: 0 },

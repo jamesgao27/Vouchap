@@ -41,6 +41,9 @@ const FIRM_ORDER_STATUS_LABELS: Record<string, string> = {
   cancelled: 'Cancelled',
 };
 
+/** Document scan / gallery multi-select: max pages per batch (Android scanner uses maxNumDocuments). */
+const MAX_CAPTURE_BATCH = 20;
+
 /** iOS: dismiss RN Modal before presenting document scanner, or touches can stay dead on the home screen. */
 function runAfterSuccessModalDismissed(action: () => void) {
   InteractionManager.runAfterInteractions(() => {
@@ -579,15 +582,19 @@ export default function HomeScreen() {
         throw new Error('DocumentScanner module not loaded correctly');
       }
 
-      const { scannedImages } = await DocumentScanner.scanDocument({
-        maxNumDocuments: 1,
+      const scanOptions: Record<string, unknown> = {
         croppedImageQuality: 90,
-        letUserAdjustCrop: false,  // 自动裁剪，无需手动调整
-      } as any);
+        letUserAdjustCrop: false,
+      };
+      if (Platform.OS === 'android') {
+        scanOptions.maxNumDocuments = MAX_CAPTURE_BATCH;
+      }
+
+      const { scannedImages } = await DocumentScanner.scanDocument(scanOptions as any);
 
       if (scannedImages && scannedImages.length > 0) {
-        // 自动裁剪后直接处理，实现 Snap 即拍即传
-        processCapturedImage(scannedImages[0], false, false, type);
+        // iOS VisionKit / Android：支持一次会话内多页；依次识别、逐条入库
+        void processCapturedImages(scannedImages, false, false, type);
       }
     } catch (error) {
       console.error('Document scan error:', error);
@@ -609,14 +616,22 @@ export default function HomeScreen() {
 
   const pickImage = async (type: 'receipt' | 'invoice' = 'receipt') => {
     try {
+      const allowMulti = Platform.OS !== 'web';
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: true,
+        allowsMultipleSelection: allowMulti,
+        ...(allowMulti ? { selectionLimit: MAX_CAPTURE_BATCH } : {}),
+        allowsEditing: !allowMulti,
         quality: 0.9,
       });
 
-      if (!result.canceled && result.assets[0]) {
-        processCapturedImage(result.assets[0].uri, true, false, type);
+      if (!result.canceled && result.assets?.length) {
+        void processCapturedImages(
+          result.assets.map((a) => a.uri),
+          true,
+          false,
+          type
+        );
       }
     } catch (error) {
       console.error('Image picker error:', error);
@@ -625,65 +640,68 @@ export default function HomeScreen() {
   };
 
   // fromGallery：true=相册/选择不裁剪不增强；false=实时拍摄/扫描。autoCrop：仅非相册时有效（扫描传 false）
-  const processCapturedImage = async (imageUri: string, fromGallery: boolean, autoCrop: boolean, type: 'receipt' | 'invoice' = 'receipt') => {
+  const processCapturedImages = async (
+    imageUris: string[],
+    fromGallery: boolean,
+    autoCrop: boolean,
+    type: 'receipt' | 'invoice' = 'receipt'
+  ) => {
+    const uris = imageUris.filter(Boolean);
+    if (uris.length === 0) return;
+
     setShowSuccessModal(true);
     setVoucherType(type);
     setLastReceiptId(null);
     setLastInvoiceId(null);
 
-    (async () => {
+    let hadError = false;
+    for (let i = 0; i < uris.length; i++) {
+      const imageUri = uris[i];
       try {
-        console.log(`Processing captured image (${type}):`, imageUri, 'fromGallery:', fromGallery);
+        console.log(`Processing captured image ${i + 1}/${uris.length} (${type}):`, imageUri, 'fromGallery:', fromGallery);
 
         let uriToUpload = imageUri;
         if (!fromGallery) {
           uriToUpload = await processImageForUpload(imageUri, { autoCrop, quality: 0.85 });
-          console.log('Image processed:', uriToUpload);
         }
 
-        const tempFileName = `temp-${Date.now()}`;
+        const tempFileName = `temp-${Date.now()}-${i}-${Math.random().toString(36).slice(2, 9)}`;
         const spaceId = currentSpace?.id ?? '';
         const imageUrl = await uploadReceiptImageTempWithSpace(uriToUpload, tempFileName, spaceId);
-        console.log('Image uploaded:', imageUrl);
 
         if (type === 'invoice') {
-          // 处理发票（收入）
           const today = getLocalDateString();
-          const invoiceId = await saveInvoice({
-            spaceId: '',
-            customerName: 'Processing...',
-            totalAmount: 0,
-            date: today,
-            status: 'pending',
-            items: [],
-            imageUrl: imageUrl,
-            inputType: fromGallery ? 'image' : 'camera',
-          }, true); // autoResolveDuplicate = true
-          console.log('Invoice record created:', invoiceId);
+          const invoiceId = await saveInvoice(
+            {
+              spaceId: '',
+              customerName: 'Processing...',
+              totalAmount: 0,
+              date: today,
+              status: 'pending',
+              items: [],
+              imageUrl,
+              inputType: fromGallery ? 'image' : 'camera',
+            },
+            true
+          );
           setLastInvoiceId(invoiceId);
 
-          // 后台识别处理
-          (async () => {
-            try {
-              const ret = await runWithRecognitionRetry(() => recognizeReceipt(imageUrl), { maxAttempts: 5, delayMs: 2000 });
-              if (ret.success) {
-                const invoice = await convertGeminiResultToInvoice(ret.result);
-                await saveInvoice({
-                  ...invoice,
-                  id: invoiceId,
-                  imageUrl: imageUrl,
-                  confidence: ret.result.confidence,
-                }, true);
-                console.log('Invoice processing completed');
-              } else {
-                console.warn('Invoice recognition failed:', ret.error.message);
-              }
-            } catch (error) {
-              console.error('Invoice processing error:', error);
-            }
-          })();
+          const ret = await runWithRecognitionRetry(() => recognizeReceipt(imageUrl), { maxAttempts: 5, delayMs: 2000 });
+          if (ret.success) {
+            const invoice = await convertGeminiResultToInvoice(ret.result);
+            await saveInvoice(
+              {
+                ...invoice,
+                id: invoiceId,
+                imageUrl,
+                confidence: ret.result.confidence,
+              },
+              true
+            );
+          } else {
+            console.warn('Invoice recognition failed:', ret.error.message);
+          }
         } else {
-          // 处理小票（支出）
           const today = getLocalDateString();
           const receiptId = await saveReceipt({
             spaceId: '',
@@ -692,24 +710,39 @@ export default function HomeScreen() {
             date: today,
             status: 'processing',
             items: [],
-            imageUrl: imageUrl,
+            imageUrl,
             inputType: fromGallery ? 'image' : 'camera',
           });
-          console.log('Receipt record created:', receiptId);
           setLastReceiptId(receiptId);
-
-          // 4. Background processing with Gemini (async, don't block UI)
-          processReceiptInBackground(imageUrl, receiptId, uriToUpload)
-            .then(() => console.log('Background processing started'))
-            .catch(err => console.error('Background processing failed:', err));
+          await processReceiptInBackground(imageUrl, receiptId, uriToUpload);
         }
-
       } catch (error) {
         console.error('Processing error:', error);
-        showToast(`Failed to process ${type === 'invoice' ? 'income' : 'expense'}.`, 'error');
-        setShowSuccessModal(false);
+        hadError = true;
+        showToast(
+          uris.length > 1
+            ? `Failed to process ${type === 'invoice' ? 'income' : 'expense'} (image ${i + 1} of ${uris.length}).`
+            : `Failed to process ${type === 'invoice' ? 'income' : 'expense'}.`,
+          'error'
+        );
+        if (uris.length === 1) {
+          setShowSuccessModal(false);
+        }
       }
-    })();
+    }
+
+    if (hadError && uris.length > 1) {
+      showToast('Some images could not be processed. Check the list for saved items.', 'info');
+    }
+  };
+
+  const processCapturedImage = (
+    imageUri: string,
+    fromGallery: boolean,
+    autoCrop: boolean,
+    type: 'receipt' | 'invoice' = 'receipt'
+  ) => {
+    void processCapturedImages([imageUri], fromGallery, autoCrop, type);
   };
 
   const handleCameraPress = (type: 'receipt' | 'invoice' = 'receipt') => {

@@ -46,6 +46,7 @@ import {
 } from '@/lib/firm';
 import { classifyTaxDocumentAndPickTask, getFallbackTaskId } from '@/lib/tax-filing-task-matcher';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
+import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
 import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound, ExtractedClient, ClientRecognitionResult } from '@/types';
 import { convertGeminiResultToReceipt, convertGeminiResultToInvoice, convertGeminiResultToInbound, convertGeminiResultToOutbound } from '@/lib/receipt-helpers';
 import { format } from 'date-fns';
@@ -1351,7 +1352,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 );
                 todoId = getFallbackTaskId(attachmentTaskOptions);
               }
-              const createResult = await createProjectTodoAttachment(todoId, fileUrl, { status: 'PENDING_AI' });
+              const uploaderName = await resolveUploaderNameForTaxFilingAttachment();
+              const createResult = await createProjectTodoAttachment(todoId, fileUrl, {
+                status: 'PENDING_AI',
+                uploader_name: uploaderName,
+              });
               if ('error' in createResult) {
                 showToast(`Upload failed: ${createResult.error.message}`, 'error');
                 removeFromStaged();

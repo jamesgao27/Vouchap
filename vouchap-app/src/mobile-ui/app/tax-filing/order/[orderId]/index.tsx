@@ -41,8 +41,9 @@ import type { FirmSkuItem } from '@/types';
 import type { ProjectSkuInfo } from '@/components/ProjectSkuDetail';
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 import { TODO_STATUS_LABEL, TODO_STATUS_COLOR } from '@/lib/constants/project-todo-status';
-import { uploadTaxFilingFile } from '@/lib/supabase';
+import { supabase, uploadTaxFilingFile } from '@/lib/supabase';
 import { processTaxFilingAttachmentAfterCreate } from '@/lib/tax-filing-attachment-followup';
+import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
 import { showToast } from '@/lib/toast';
 import { getTaxSeasonColor } from '@/lib/tax-season-colors';
 import * as ImagePicker from 'expo-image-picker';
@@ -220,6 +221,12 @@ export default function OrderTodosScreen() {
   const infoTabRef = useRef<any>(null);
   const [showTinaFab, setShowTinaFab] = useState(false);
 
+  /** 供 Realtime 回调读取最新树，避免闭包陈旧 */
+  const treeRef = useRef<ProjectTodoNode[]>([]);
+  useEffect(() => {
+    treeRef.current = tree;
+  }, [tree]);
+
   const load = useCallback(async () => {
     if (!orderId) return;
     setLoading(true);
@@ -264,6 +271,52 @@ export default function OrderTodosScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Realtime：他人或他端上传/删除附件时刷新任务文件计数（与 TaxFilingTodosView 一致，订单页独立维护 taskFilesMap）
+  useEffect(() => {
+    if (!orderId || order?.status === 'onboarding') return;
+    let attachmentsChannel: ReturnType<typeof supabase.channel> | null = null;
+    let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    const setup = async () => {
+      try {
+        const project = await getProjectByOrderId(orderId);
+        if (!project) return;
+        const projectId = project.id;
+
+        const debouncedRefreshFiles = () => {
+          if (refreshTimeout) clearTimeout(refreshTimeout);
+          refreshTimeout = setTimeout(() => {
+            const currentTree = treeRef.current;
+            const taskIds = collectTaskIds(currentTree);
+            if (taskIds.length === 0) {
+              setTaskFilesMap({});
+              return;
+            }
+            getAttachmentsByProjectTodoIds(taskIds).then(setTaskFilesMap).catch(() => {});
+          }, 300);
+        };
+
+        attachmentsChannel = supabase
+          .channel(`order-screen-todo-attachments-${projectId}`)
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'project_todo_attachments' },
+            () => debouncedRefreshFiles()
+          )
+          .subscribe();
+      } catch (e) {
+        console.warn('Order todos attachment realtime setup failed', e);
+      }
+    };
+
+    setup();
+
+    return () => {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      if (attachmentsChannel) supabase.removeChannel(attachmentsChannel);
+    };
+  }, [orderId, order?.status]);
 
   const nodeStats = useNodeStats(tree);
 
@@ -458,7 +511,11 @@ export default function OrderTodosScreen() {
         const displayName = (asset as { fileName?: string | null }).fileName?.trim() || `Photo-${Date.now()}.jpg`;
         const tempFileName = `order-task-${Date.now()}`;
         const imageUrl = await uploadTaxFilingFile(imageUri, tempFileName, clientSpaceId);
-        const createResult = await createProjectTodoAttachment(todoId, imageUrl, { status: 'PENDING_AI' });
+        const uploaderName = await resolveUploaderNameForTaxFilingAttachment();
+        const createResult = await createProjectTodoAttachment(todoId, imageUrl, {
+          status: 'PENDING_AI',
+          uploader_name: uploaderName,
+        });
         if ('error' in createResult) {
           const errMsg = createResult.error instanceof Error ? createResult.error.message : String(createResult.error);
           if (Platform.OS === 'web') window.alert('Link failed: ' + errMsg);
