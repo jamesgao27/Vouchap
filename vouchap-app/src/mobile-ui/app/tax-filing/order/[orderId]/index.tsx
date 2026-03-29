@@ -42,6 +42,7 @@ import type { ProjectSkuInfo } from '@/components/ProjectSkuDetail';
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 import { TODO_STATUS_LABEL, TODO_STATUS_COLOR } from '@/lib/constants/project-todo-status';
 import { uploadTaxFilingFile } from '@/lib/supabase';
+import { processTaxFilingAttachmentAfterCreate } from '@/lib/tax-filing-attachment-followup';
 import { showToast } from '@/lib/toast';
 import { getTaxSeasonColor } from '@/lib/tax-season-colors';
 import * as ImagePicker from 'expo-image-picker';
@@ -452,7 +453,9 @@ export default function OrderTodosScreen() {
           quality: 0.9,
         });
         if (result.canceled || !result.assets?.[0]?.uri) return;
-        const imageUri = result.assets[0].uri;
+        const asset = result.assets[0];
+        const imageUri = asset.uri;
+        const displayName = (asset as { fileName?: string | null }).fileName?.trim() || `Photo-${Date.now()}.jpg`;
         const tempFileName = `order-task-${Date.now()}`;
         const imageUrl = await uploadTaxFilingFile(imageUri, tempFileName, clientSpaceId);
         const createResult = await createProjectTodoAttachment(todoId, imageUrl, { status: 'PENDING_AI' });
@@ -461,6 +464,17 @@ export default function OrderTodosScreen() {
           if (Platform.OS === 'web') window.alert('Link failed: ' + errMsg);
           else Alert.alert('Link failed', errMsg);
           return;
+        }
+        const follow = await processTaxFilingAttachmentAfterCreate({
+          orderId,
+          attachmentId: createResult.id,
+          todoId,
+          fileName: displayName,
+          isImage: true,
+        });
+        if (!follow.ok) {
+          if (Platform.OS === 'web') window.alert(follow.alertMessage);
+          else Alert.alert('Recognition failed', follow.alertMessage);
         }
         const todosTree = await getProjectTodosTree(orderId);
         setTree(todosTree);

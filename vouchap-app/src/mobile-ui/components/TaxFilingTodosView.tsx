@@ -70,6 +70,7 @@ import { FileDetailModal } from '@/components/FileDetailModal';
 import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
 import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition-retry';
+import { processTaxFilingAttachmentAfterCreate } from '@/lib/tax-filing-attachment-followup';
 
 // ──────────────────────────────────────────────────
 // 常量 & 工具函数
@@ -3266,71 +3267,20 @@ export function TaxFilingTodosView({
         }
 
         const attachmentId = createResult.id;
+        const displayName =
+          (result.assets[0] as { fileName?: string | null }).fileName?.trim() ||
+          `Photo-${Date.now()}.jpg`;
 
-        // 先标记为处理中，避免长时间停留在 PENDING_AI
-        await updateProjectTodoAttachment(attachmentId, { status: 'PROCESSING', recognition_fail_count: 0 });
-
-        // 拉取上下文，构造识别所需的 project / task 信息
-        const ctx = await getProjectTodoAttachmentWithContext(attachmentId);
-        if (!ctx) {
-          // 若上下文加载失败，只保留「处理中」状态，不再继续重试
-          await refreshTodosPreservingScroll();
-          setTaskFilesExpanded((prev) => new Set(prev).add(todoId));
-          return;
-        }
-
-        const { attachment, project, todoContext } = ctx;
-        const projectContext = {
-          country: (project.taxCountry === 'USA' ? 'USA' : 'CANADA') as 'CANADA' | 'USA',
-          taxScenario: project.taxScenario ?? '',
-        };
-
-        const recognizeFn = () =>
-          runTaxFilingRecognition(attachment.attachment_url, projectContext, todoContext);
-
-        const recognitionResult = await runWithRecognitionRetry(recognizeFn, {
-          maxAttempts: 3,
-          delayMs: 1500,
+        const follow = await processTaxFilingAttachmentAfterCreate({
+          orderId,
+          attachmentId,
+          todoId,
+          fileName: displayName,
+          isImage: true,
         });
-
-        if (!recognitionResult.success) {
-          const latest = await getProjectTodoAttachmentById(attachmentId);
-          const currentFailCount =
-            latest?.recognition_fail_count != null ? Number(latest.recognition_fail_count) || 0 : 0;
-          const nextFailCount = Math.min(currentFailCount + 1, 3);
-          const nextStatus =
-            nextFailCount >= 3
-              ? 'FAILED_FINAL'
-              : nextFailCount === 2
-              ? 'FAILED_TWICE'
-              : 'FAILED_ONCE';
-
-          await updateProjectTodoAttachment(attachmentId, {
-            status: nextStatus,
-            recognition_fail_count: nextFailCount,
-          });
-
-          const errText = recognitionResult.isContentQuality
-            ? 'Content unclear or not recognized. Please resubmit.'
-            : getUserFacingMessage(recognitionResult);
-          if (Platform.OS === 'web') window.alert(`Recognition failed: ${errText}`);
-          else Alert.alert('Recognition failed', errText);
-        } else {
-          const recognition = recognitionResult.result as Awaited<
-            ReturnType<typeof runTaxFilingRecognition>
-          >;
-          const result = await updateProjectTodoAttachment(attachmentId, {
-            summary: recognition.summary,
-            doc_type: recognition.doc_type,
-            extracted_data: recognition.extracted_data,
-            status: 'PROCESSED',
-            recognition_fail_count: 0,
-          });
-          if ('error' in result) {
-            const msg = result.error.message ?? 'Could not update attachment.';
-            if (Platform.OS === 'web') window.alert('Recognition save failed: ' + msg);
-            else Alert.alert('Recognition save failed', msg);
-          }
+        if (!follow.ok) {
+          if (Platform.OS === 'web') window.alert(follow.alertMessage);
+          else Alert.alert('Recognition failed', follow.alertMessage);
         }
 
         // 刷新树与文件列表：确保文件计数 / 状态行内即时更新
@@ -3342,7 +3292,7 @@ export function TaxFilingTodosView({
         else Alert.alert('Upload failed', msg);
       }
     },
-    [clientSpaceId, refreshTodosPreservingScroll]
+    [clientSpaceId, refreshTodosPreservingScroll, orderId]
   );
 
   const onRemoveFile = useCallback(async (todoId: string, attachmentId: string) => {
