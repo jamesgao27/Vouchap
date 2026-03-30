@@ -345,7 +345,7 @@ const styles = StyleSheet.create({
     color: '#6C5CE7',
     textAlign: 'center',
     alignSelf: 'stretch',
-    ...(Platform.OS === 'web' ? { fontFamily: 'Poppins_700Bold' } : {}),
+    ...(Platform.OS === 'web' ? { fontFamily: 'Poppins' } : {}),
   },
   mainNavSection: {
     marginTop: 4,

@@ -2,7 +2,6 @@ import { Stack, usePathname } from 'expo-router';
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, Platform, Text } from 'react-native';
 import * as Font from 'expo-font';
-import { Poppins_700Bold } from '@expo-google-fonts/poppins';
 import { validateSupabaseConfig } from '@/lib/supabase';
 import { getCurrentSpace } from '@/lib/auth';
 import { ToastHost } from '@/components/ToastHost';
@@ -47,6 +46,37 @@ function chatTypeFromPathname(pathname: string | null): ChatPanelType | null {
 // Web 部署后 bundled 字体 URL 易 404，用 CDN 预加载保证图标显示（与 @expo/vector-icons 同源字体）
 const IONICONS_FONT_URL =
   'https://cdn.jsdelivr.net/npm/@expo/vector-icons@15.0.3/build/vendor/react-native-vector-icons/Fonts/Ionicons.ttf';
+
+/** Web：侧栏品牌字用 Google Fonts（与 Ionicons CDN 一致）；bundled TTF + loadAsync 在 dev 下常因字体 URL 失效回退系统字体 */
+const POPPINS_WEB_CSS =
+  'https://fonts.googleapis.com/css2?family=Poppins:wght@700&display=swap';
+
+async function ensurePoppinsWebFontLoaded(): Promise<void> {
+  if (typeof document === 'undefined') return;
+  const id = 'vouchap-google-font-poppins';
+  let link = document.getElementById(id) as HTMLLinkElement | null;
+  if (!link) {
+    link = document.createElement('link');
+    link.id = id;
+    link.rel = 'stylesheet';
+    link.href = POPPINS_WEB_CSS;
+    document.head.appendChild(link);
+  }
+  await new Promise<void>((resolve) => {
+    if (link!.sheet) {
+      resolve();
+      return;
+    }
+    const done = () => resolve();
+    link!.addEventListener('load', done, { once: true });
+    link!.addEventListener('error', done, { once: true });
+  });
+  try {
+    await document.fonts.load('700 16px Poppins');
+  } catch {
+    /* ignore */
+  }
+}
 
 /**
  * iOS Release/TestFlight: react-native-screens 在过渡/冻结或快照阶段可能触发原生断言，
@@ -131,22 +161,23 @@ function LayoutContent() {
     if (type) setChatType(type);
   }, [pathname, setChatType]);
 
-  // Web：Ionicons（CDN）+ Poppins（品牌侧栏）加载完成后再渲染主界面
+  // Web：Google Fonts（Poppins 700）+ Ionicons（CDN）就绪后再渲染主界面
   const [webFontReady, setWebFontReady] = React.useState(() => Platform.OS !== 'web');
   useEffect(() => {
     if (Platform.OS !== 'web') {
       setWebFontReady(true);
       return;
     }
-    Font.loadAsync({
-      ionicons: IONICONS_FONT_URL,
-      Poppins_700Bold,
-    })
-      .then(() => setWebFontReady(true))
-      .catch((e) => {
+    (async () => {
+      try {
+        await ensurePoppinsWebFontLoaded();
+        await Font.loadAsync({ ionicons: IONICONS_FONT_URL });
+      } catch (e) {
         console.warn('Web font load (Ionicons / Poppins) failed:', e);
+      } finally {
         setWebFontReady(true);
-      });
+      }
+    })();
   }, []);
 
   useEffect(() => {
