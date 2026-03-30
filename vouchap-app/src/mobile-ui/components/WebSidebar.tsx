@@ -127,7 +127,7 @@ export default function WebSidebar() {
 
   return (
     <View style={styles.sidebar}>
-      {/* 品牌：项目 logo + 名称 */}
+      {/* 品牌：大屏 logo 居中 + 下方 Poppins 字标 */}
       <View style={styles.brand}>
         <Image
           source={require('../../../assets/icon.png')}
@@ -137,6 +137,8 @@ export default function WebSidebar() {
         <Text style={styles.brandText}>Vouchap</Text>
       </View>
 
+      {/* 空间与主导航整体下移，为品牌区留出视觉空间 */}
+      <View style={styles.mainNavSection}>
       {/* 空间名称：点击进入管理页（与底部个人信息一致） */}
       <TouchableOpacity
         style={styles.spaceButton}
@@ -247,6 +249,7 @@ export default function WebSidebar() {
           </>
         )}
       </View>
+      </View>
 
       {/* 用户信息卡片：member 邀请 + engagement claim 两个 icon+角标（不同颜色）浮在卡片右上角 */}
       <View style={styles.userCardWrap}>
@@ -323,21 +326,32 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   brand: {
-    flexDirection: 'row',
+    width: '100%',
     alignItems: 'center',
-    marginBottom: 20,
     paddingHorizontal: 4,
+    marginBottom: 12,
+    paddingBottom: 2,
   },
   logoImage: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    marginRight: 10,
+    width: 144,
+    height: 144,
+    borderRadius: 72,
+    alignSelf: 'center',
   },
   brandText: {
-    fontSize: 18,
+    marginTop: 0,
+    fontSize: 26,
     fontWeight: '700',
-    color: '#2D3436',
+    color: '#6C5CE7',
+    textAlign: 'center',
+    alignSelf: 'stretch',
+    ...(Platform.OS === 'web' ? { fontFamily: 'Poppins_700Bold' } : {}),
+  },
+  mainNavSection: {
+    marginTop: 4,
+    flex: 1,
+    minHeight: 0,
+    flexDirection: 'column',
   },
   spaceButton: {
     flexDirection: 'row',
@@ -345,7 +359,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F9FA',
     borderRadius: 10,
     padding: 10,
-    marginBottom: 16,
+    marginBottom: 32,
     gap: 10,
     minHeight: 62,
   },
@@ -374,6 +388,7 @@ const styles = StyleSheet.create({
   nav: {
     flex: 1,
     gap: 2,
+    minHeight: 0,
   },
   navItem: {
     flexDirection: 'row',

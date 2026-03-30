@@ -2,6 +2,7 @@ import { Stack, usePathname } from 'expo-router';
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, Platform, Text } from 'react-native';
 import * as Font from 'expo-font';
+import { Poppins_700Bold } from '@expo-google-fonts/poppins';
 import { validateSupabaseConfig } from '@/lib/supabase';
 import { getCurrentSpace } from '@/lib/auth';
 import { ToastHost } from '@/components/ToastHost';
@@ -130,19 +131,20 @@ function LayoutContent() {
     if (type) setChatType(type);
   }, [pathname, setChatType]);
 
-  // Web：等 Ionicons 字体从 CDN 加载后再渲染，避免图标全缺
-  const [webFontReady, setWebFontReady] = React.useState(
-    () => Platform.OS !== 'web' || Font.isLoaded('ionicons')
-  );
+  // Web：Ionicons（CDN）+ Poppins（品牌侧栏）加载完成后再渲染主界面
+  const [webFontReady, setWebFontReady] = React.useState(() => Platform.OS !== 'web');
   useEffect(() => {
-    if (Platform.OS !== 'web' || Font.isLoaded('ionicons')) {
+    if (Platform.OS !== 'web') {
       setWebFontReady(true);
       return;
     }
-    Font.loadAsync({ ionicons: IONICONS_FONT_URL })
+    Font.loadAsync({
+      ionicons: IONICONS_FONT_URL,
+      Poppins_700Bold,
+    })
       .then(() => setWebFontReady(true))
       .catch((e) => {
-        console.warn('Ionicons font load (CDN) failed:', e);
+        console.warn('Web font load (Ionicons / Poppins) failed:', e);
         setWebFontReady(true);
       });
   }, []);

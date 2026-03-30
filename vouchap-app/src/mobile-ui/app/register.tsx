@@ -651,7 +651,7 @@ const stylesWeb = StyleSheet.create({
   header: { alignItems: 'center', marginBottom: 24 },
   logoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 20 },
   logoImg: { width: 64, height: 64 },
-  brandName: { fontSize: 32, fontWeight: '800', color: '#2D3436', letterSpacing: -0.5 },
+  brandName: { fontSize: 32, fontWeight: '800', color: '#6C5CE7', letterSpacing: -0.5 },
   title: { fontSize: 24, fontWeight: '800', color: '#2D3436', marginBottom: 8 },
   subtitle: { fontSize: 15, color: '#636E72', textAlign: 'center' },
   form: { gap: 20 },

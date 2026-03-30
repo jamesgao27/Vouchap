@@ -346,7 +346,7 @@ const styles = StyleSheet.create({
   brandName: {
     fontSize: 32,
     fontWeight: '800',
-    color: '#2D3436',
+    color: '#6C5CE7',
     letterSpacing: -0.5,
   },
   pageTitle: {

@@ -653,7 +653,7 @@ const stylesWeb = StyleSheet.create({
   header: { alignItems: 'center', marginBottom: 24 },
   logoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 16 },
   logoImg: { width: 48, height: 48 },
-  brandName: { fontSize: 24, fontWeight: '800', color: '#2D3436', letterSpacing: -0.5 },
+  brandName: { fontSize: 24, fontWeight: '800', color: '#6C5CE7', letterSpacing: -0.5 },
   iconContainer: { marginBottom: 12 },
   circle: { width: 88, height: 88, borderRadius: 44, backgroundColor: '#E9ECEF', justifyContent: 'center', alignItems: 'center', alignSelf: 'center' },
   title: { fontSize: 24, fontWeight: '800', color: '#2D3436', marginBottom: 8 },
