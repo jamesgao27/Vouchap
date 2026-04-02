@@ -24,12 +24,13 @@ import {
   clientCreateOnboardingOrderFromPublishedSku,
 } from '@/lib/firm';
 import { showToast } from '@/lib/toast';
-import { confirmThen } from '@/lib/alertWeb';
 import {
   ProjectListCard,
   ProjectListRow,
   projectListStyles,
 } from '@/components/ProjectListCardAndRow';
+import EngagementConsentModal from '@/components/EngagementConsentModal';
+import MarketplaceServiceSelectionModal from '@/components/MarketplaceServiceSelectionModal';
 import {
   SERVICE_CATALOG_CARD_MAX_WIDTH,
   firmSkuToProjectListItem,
@@ -39,7 +40,7 @@ import EngagementClassificationFilterChips from '@/components/EngagementClassifi
 import { WEB_POPOVER } from '@/components/DataTable';
 import type { FirmSku } from '@/types';
 import {
-  CLASSIFICATION_DIMENSIONS,
+  CLIENT_MARKETPLACE_CLASSIFICATION_DIMENSIONS,
   type ClassificationDimension,
   collectClassificationOptionsForSkuDim,
   classificationFilterConstraintCount,
@@ -100,6 +101,9 @@ export default function ClientServiceMarketplaceScreen() {
   const [skus, setSkus] = useState<FirmSku[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>(Platform.OS === 'web' ? 'grid' : 'list');
   const [startingSkuId, setStartingSkuId] = useState<string | null>(null);
+  const [pendingMarketplaceSku, setPendingMarketplaceSku] = useState<FirmSku | null>(null);
+  const [selectionModalVisible, setSelectionModalVisible] = useState(false);
+  const [consentVisible, setConsentVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [filterPopoverRect, setFilterPopoverRect] = useState<{ left: number; top: number } | null>(null);
@@ -171,7 +175,7 @@ export default function ClientServiceMarketplaceScreen() {
       scenario: [],
       custom: [],
     };
-    for (const d of CLASSIFICATION_DIMENSIONS) {
+    for (const d of CLIENT_MARKETPLACE_CLASSIFICATION_DIMENSIONS) {
       out[d] = collectClassificationOptionsForSkuDim(skus, d);
     }
     return out;
@@ -182,7 +186,12 @@ export default function ClientServiceMarketplaceScreen() {
   }, [classificationOptionsByDim]);
 
   const classificationConstraintCount = useMemo(
-    () => classificationFilterConstraintCount(classFilterByDim, classificationOptionsByDim),
+    () =>
+      classificationFilterConstraintCount(
+        classFilterByDim,
+        classificationOptionsByDim,
+        CLIENT_MARKETPLACE_CLASSIFICATION_DIMENSIONS,
+      ),
     [classFilterByDim, classificationOptionsByDim],
   );
 
@@ -221,7 +230,15 @@ export default function ClientServiceMarketplaceScreen() {
   }, []);
 
   const filteredByClassification = useMemo(
-    () => skus.filter((s) => skuMatchesClassificationDimFilters(s, classFilterByDim, classificationOptionsByDim)),
+    () =>
+      skus.filter((s) =>
+        skuMatchesClassificationDimFilters(
+          s,
+          classFilterByDim,
+          classificationOptionsByDim,
+          CLIENT_MARKETPLACE_CLASSIFICATION_DIMENSIONS,
+        ),
+      ),
     [skus, classFilterByDim, classificationOptionsByDim],
   );
 
@@ -306,29 +323,50 @@ export default function ClientServiceMarketplaceScreen() {
     return () => document.removeEventListener('pointerdown', handler, true);
   }, [showFilterMenu]);
 
-  const requestEngagement = useCallback(
-    (sku: FirmSku) => {
-      if (startingSkuId) return;
-      confirmThen(
-        'Start this engagement?',
-        `An onboarding order will be created with ${sku.name ?? 'this service'}. You can accept it from Tax Filing after creation.`,
-        async () => {
-          const space = await getCurrentSpace(true);
-          if (!space?.id || space.kind !== 'client') return;
-          setStartingSkuId(sku.id);
-          const { orderId, error } = await clientCreateOnboardingOrderFromPublishedSku(space.id, sku.id);
-          setStartingSkuId(null);
-          if (error || !orderId) {
-            showToast(error?.message ?? 'Could not start engagement', 'error');
-            return;
-          }
-          showToast('Engagement created', 'success');
-          router.replace(`/firm/engagement/${orderId}`);
-        },
-        { confirmText: 'Start' },
-      );
+  const openMarketplaceFlow = useCallback((sku: FirmSku) => {
+    if (startingSkuId) return;
+    setPendingMarketplaceSku(sku);
+    setSelectionModalVisible(true);
+  }, [startingSkuId]);
+
+  const closeSelectionModal = useCallback(() => {
+    setSelectionModalVisible(false);
+    setPendingMarketplaceSku(null);
+  }, []);
+
+  const proceedFromSelectionToConsent = useCallback(() => {
+    setSelectionModalVisible(false);
+    setConsentVisible(true);
+  }, []);
+
+  const closeConsentModal = useCallback(() => {
+    if (startingSkuId) return;
+    setConsentVisible(false);
+    setPendingMarketplaceSku(null);
+  }, [startingSkuId]);
+
+  const handleConsentConfirm = useCallback(
+    async (_payload: { allowPullRecords: boolean }) => {
+      const sku = pendingMarketplaceSku;
+      if (!sku || startingSkuId) return;
+      setStartingSkuId(sku.id);
+      const space = await getCurrentSpace(true);
+      if (!space?.id || space.kind !== 'client') {
+        setStartingSkuId(null);
+        return;
+      }
+      const { orderId, error } = await clientCreateOnboardingOrderFromPublishedSku(space.id, sku.id);
+      setStartingSkuId(null);
+      setConsentVisible(false);
+      setPendingMarketplaceSku(null);
+      if (error || !orderId) {
+        showToast(error?.message ?? 'Could not start engagement', 'error');
+        return;
+      }
+      showToast('Engagement created', 'success');
+      router.replace(`/firm/engagement/${orderId}`);
     },
-    [router, startingSkuId],
+    [pendingMarketplaceSku, startingSkuId, router],
   );
 
   const numColumns = Platform.select({
@@ -364,31 +402,28 @@ export default function ClientServiceMarketplaceScreen() {
 
   if (!showTaxFiling) return null;
 
+  const selectionFirmName =
+    pendingMarketplaceSku?.firmName?.trim() || 'Participating firm';
+  const selectionTemplateName = pendingMarketplaceSku?.name?.trim() || '—';
+
   return (
     <View style={styles.root}>
+      <MarketplaceServiceSelectionModal
+        visible={selectionModalVisible && pendingMarketplaceSku != null}
+        firmName={selectionFirmName}
+        templateName={selectionTemplateName}
+        onCancel={closeSelectionModal}
+        onContinue={proceedFromSelectionToConsent}
+      />
+      <EngagementConsentModal
+        visible={consentVisible && pendingMarketplaceSku != null}
+        loading={Boolean(startingSkuId)}
+        onClose={closeConsentModal}
+        onConfirm={handleConsentConfirm}
+      />
       <View style={styles.toolbarSlot}>
         <View style={styles.toolbarHeader}>
           <View style={styles.headerRow}>
-            <View style={styles.viewToggle}>
-              <TouchableOpacity
-                style={[styles.viewToggleBtn, viewMode === 'grid' && styles.viewToggleBtnActive]}
-                onPress={() => setViewMode('grid')}
-                activeOpacity={0.7}
-                accessibilityLabel="Grid view"
-                accessibilityState={{ selected: viewMode === 'grid' }}
-              >
-                <Ionicons name="grid-outline" size={20} color={viewMode === 'grid' ? '#6C5CE7' : '#636E72'} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[styles.viewToggleBtn, viewMode === 'list' && styles.viewToggleBtnActive]}
-                onPress={() => setViewMode('list')}
-                activeOpacity={0.7}
-                accessibilityLabel="List view"
-                accessibilityState={{ selected: viewMode === 'list' }}
-              >
-                <Ionicons name="list" size={22} color={viewMode === 'list' ? '#6C5CE7' : '#636E72'} />
-              </TouchableOpacity>
-            </View>
             <View
               ref={filterAnchorRef}
               collapsable={false}
@@ -412,6 +447,7 @@ export default function ClientServiceMarketplaceScreen() {
                   <ScrollView nestedScrollEnabled style={styles.marketplaceFilterScroll} keyboardShouldPersistTaps="handled">
                     <Text style={styles.engagementFilterSectionLabel}>Classification</Text>
                     <EngagementClassificationFilterChips
+                      dimensions={CLIENT_MARKETPLACE_CLASSIFICATION_DIMENSIONS}
                       optionsByDim={classificationOptionsByDim}
                       classFilterByDim={classFilterByDim}
                       onToggleValue={toggleClassificationDimValue}
@@ -456,6 +492,26 @@ export default function ClientServiceMarketplaceScreen() {
                 </TouchableOpacity>
               ) : null}
             </View>
+            <View style={styles.viewToggle}>
+              <TouchableOpacity
+                style={[styles.viewToggleBtn, viewMode === 'grid' && styles.viewToggleBtnActive]}
+                onPress={() => setViewMode('grid')}
+                activeOpacity={0.7}
+                accessibilityLabel="Grid view"
+                accessibilityState={{ selected: viewMode === 'grid' }}
+              >
+                <Ionicons name="grid-outline" size={20} color={viewMode === 'grid' ? '#6C5CE7' : '#636E72'} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.viewToggleBtn, viewMode === 'list' && styles.viewToggleBtnActive]}
+                onPress={() => setViewMode('list')}
+                activeOpacity={0.7}
+                accessibilityLabel="List view"
+                accessibilityState={{ selected: viewMode === 'list' }}
+              >
+                <Ionicons name="list" size={22} color={viewMode === 'list' ? '#6C5CE7' : '#636E72'} />
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </View>
@@ -485,6 +541,7 @@ export default function ClientServiceMarketplaceScreen() {
             </View>
             <ScrollView style={{ maxHeight: 400 }} showsVerticalScrollIndicator={false}>
               <EngagementClassificationFilterChips
+                dimensions={CLIENT_MARKETPLACE_CLASSIFICATION_DIMENSIONS}
                 optionsByDim={classificationOptionsByDim}
                 classFilterByDim={classFilterByDim}
                 onToggleValue={toggleClassificationDimValue}
@@ -518,7 +575,7 @@ export default function ClientServiceMarketplaceScreen() {
                     <ProjectListRow
                       key={s.id}
                       item={item}
-                      onPress={() => requestEngagement(s)}
+                      onPress={() => openMarketplaceFlow(s)}
                       isPinned={favoriteSkuIds.includes(s.id)}
                       onTogglePin={() => handleToggleFavoriteSku(s.id)}
                       pinAppearance="favorite"
@@ -535,7 +592,7 @@ export default function ClientServiceMarketplaceScreen() {
                       key={s.id}
                       item={item}
                       cardWidth={cardWidth}
-                      onPress={() => requestEngagement(s)}
+                      onPress={() => openMarketplaceFlow(s)}
                       isPinned={favoriteSkuIds.includes(s.id)}
                       onTogglePin={() => handleToggleFavoriteSku(s.id)}
                       pinAppearance="favorite"
@@ -685,7 +742,7 @@ const styles = StyleSheet.create({
   content: { padding: 20, paddingBottom: 40 },
   loader: { marginTop: 40 },
   emptyText: { fontSize: 15, color: '#636E72', marginTop: 24, textAlign: 'center' },
-  viewToggle: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  viewToggle: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 'auto' },
   viewToggleBtn: { padding: 8, borderRadius: 8 },
   viewToggleBtnActive: { backgroundColor: '#EDE9FE' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },

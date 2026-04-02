@@ -9,6 +9,13 @@ export type ClassificationDimension = 'season' | 'country' | 'scenario' | 'custo
 
 export const CLASSIFICATION_DIMENSIONS: ClassificationDimension[] = ['season', 'country', 'scenario', 'custom'];
 
+/** Client Service Marketplace: published SKUs have no tax season field; omit from filter UI. */
+export const CLIENT_MARKETPLACE_CLASSIFICATION_DIMENSIONS: ClassificationDimension[] = [
+  'country',
+  'scenario',
+  'custom',
+];
+
 export const CLASSIFICATION_DIMENSION_LABEL: Record<ClassificationDimension, string> = {
   season: 'Tax season',
   country: 'Jurisdiction',
@@ -152,9 +159,10 @@ export function collectClassificationOptionsForSkuDim(skus: FirmSku[], d: Classi
 export function skuMatchesClassificationDimFilters(
   sku: FirmSku,
   filters: Record<ClassificationDimension, ClassificationDimFilter>,
-  optionsByDim: Record<ClassificationDimension, string[]>
+  optionsByDim: Record<ClassificationDimension, string[]>,
+  dims: readonly ClassificationDimension[] = CLASSIFICATION_DIMENSIONS,
 ): boolean {
-  for (const d of CLASSIFICATION_DIMENSIONS) {
+  for (const d of dims) {
     const f = filters[d];
     if (f.mode === 'all') continue;
     const sel = f.values;
@@ -171,10 +179,11 @@ export function skuMatchesClassificationDimFilters(
 
 export function classificationFilterConstraintCount(
   filters: Record<ClassificationDimension, ClassificationDimFilter>,
-  optionsByDim: Record<ClassificationDimension, string[]>
+  optionsByDim: Record<ClassificationDimension, string[]>,
+  dims: readonly ClassificationDimension[] = CLASSIFICATION_DIMENSIONS,
 ): number {
   let n = 0;
-  for (const d of CLASSIFICATION_DIMENSIONS) {
+  for (const d of dims) {
     const f = filters[d];
     if (f.mode !== 'include') continue;
     const opts = optionsByDim[d];

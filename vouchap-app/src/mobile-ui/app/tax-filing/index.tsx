@@ -80,7 +80,14 @@ import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors'
 
 /** 税季标签颜色（与报税项目 Info、订单详情、WEB 列表一致） */
 
-type SectionData = { title: string; monthKey: string; data: FirmOrderForClient[]; count?: number };
+/** Appends Service Marketplace row after active engagements (mobile SectionList). */
+const TAX_FILING_MARKETPLACE_ROW_ID = '__tax_filing_service_marketplace__' as const;
+type TaxFilingSectionItem = FirmOrderForClient | { id: typeof TAX_FILING_MARKETPLACE_ROW_ID };
+type SectionData = { title: string; monthKey: string; data: TaxFilingSectionItem[]; count?: number };
+
+function isMarketplaceSectionRow(item: TaxFilingSectionItem): item is { id: typeof TAX_FILING_MARKETPLACE_ROW_ID } {
+  return item.id === TAX_FILING_MARKETPLACE_ROW_ID;
+}
 
 function getTaxSeasonYear(order: FirmOrderForClient): number | null {
   // 优先使用项目上的显式 taxSeasonYear（来自 shared-logic/firm.ts 的 project.tax_season_year）
@@ -169,7 +176,13 @@ function TaxFilingMobileScreen() {
   }, [orders]);
 
   const sections = useMemo((): SectionData[] => {
-    const out: SectionData[] = [{ title: 'Active', monthKey: 'active', data: sortedOrders }];
+    const activeData: TaxFilingSectionItem[] =
+      loading && sortedOrders.length === 0
+        ? []
+        : sortedOrders.length > 0
+          ? [...sortedOrders, { id: TAX_FILING_MARKETPLACE_ROW_ID }]
+          : [{ id: TAX_FILING_MARKETPLACE_ROW_ID }];
+    const out: SectionData[] = [{ title: 'Active', monthKey: 'active', data: activeData }];
     if (hiddenOrders.length > 0) {
       out.push({
         title: 'Recycle bin',
@@ -179,7 +192,7 @@ function TaxFilingMobileScreen() {
       });
     }
     return out;
-  }, [sortedOrders, hiddenOrders]);
+  }, [loading, sortedOrders, hiddenOrders]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -256,7 +269,21 @@ function TaxFilingMobileScreen() {
   };
 
   const renderItem = useCallback(
-    ({ item: order, section }: { item: FirmOrderForClient; section: SectionData }) => {
+    ({ item, section }: { item: TaxFilingSectionItem; section: SectionData }) => {
+      if (section.monthKey === 'active' && isMarketplaceSectionRow(item)) {
+        return (
+          <View style={{ paddingHorizontal: 12, marginBottom: 8 }}>
+            <View style={{ borderRadius: 12, overflow: 'hidden', backgroundColor: '#fff' }}>
+              <ServiceCatalogAddEntryTile
+                variant="list"
+                label="Service Marketplace"
+                onPress={() => router.push('/tax-filing/service-catalog')}
+              />
+            </View>
+          </View>
+        );
+      }
+      const order = item as FirmOrderForClient;
       const isHiddenSection = section.monthKey === 'hidden';
       if (isHiddenSection && hiddenCollapsed) return null;
       const isOnboarding = order.status === 'onboarding';
@@ -397,6 +424,7 @@ function TaxFilingMobileScreen() {
       );
     },
     [
+      router,
       confirmingId,
       rejectingId,
       hidingId,
@@ -430,10 +458,14 @@ function TaxFilingMobileScreen() {
         </TouchableOpacity>
       );
     }
+    const orderCount =
+      section.monthKey === 'active'
+        ? section.data.filter((x) => !isMarketplaceSectionRow(x)).length
+        : section.data.length;
     return (
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>{section.title}</Text>
-        <Text style={styles.sectionCount}>{section.data.length} orders</Text>
+        <Text style={styles.sectionCount}>{orderCount} orders</Text>
       </View>
     );
   }, [hiddenCollapsed]);
@@ -459,23 +491,12 @@ function TaxFilingMobileScreen() {
           });
         }}
       />
-      <SectionList<FirmOrderForClient, SectionData>
+      <SectionList<TaxFilingSectionItem, SectionData>
         sections={sections}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
         stickySectionHeadersEnabled={false}
-        ListHeaderComponent={
-          <View style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 8 }}>
-            <View style={{ borderRadius: 12, overflow: 'hidden', backgroundColor: '#fff' }}>
-              <ServiceCatalogAddEntryTile
-                variant="list"
-                label="Service Marketplace"
-                onPress={() => router.push('/tax-filing/service-catalog')}
-              />
-            </View>
-          </View>
-        }
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={
           sections.every((s) => s.data.length === 0) ? styles.emptyList : styles.listContent
@@ -1023,11 +1044,6 @@ function TaxFilingWebScreen() {
           ) : viewMode === 'list' ? (
             <View style={stylesWeb.listWrapper}>
               <View style={projectListStylesWeb.list}>
-                <ServiceCatalogAddEntryTile
-                  variant="list"
-                  label="Service Marketplace"
-                  onPress={() => router.push('/tax-filing/service-catalog')}
-                />
                 {sortedOrders.map((o) => {
                   const item = orderToItemWeb(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
                   return (
@@ -1047,16 +1063,15 @@ function TaxFilingWebScreen() {
                     />
                   );
                 })}
+                <ServiceCatalogAddEntryTile
+                  variant="list"
+                  label="Service Marketplace"
+                  onPress={() => router.push('/tax-filing/service-catalog')}
+                />
               </View>
             </View>
           ) : (
             <View style={stylesWeb.grid}>
-              <ServiceCatalogAddEntryTile
-                variant="grid"
-                label="Service Marketplace"
-                cardWidth={cardWidth}
-                onPress={() => router.push('/tax-filing/service-catalog')}
-              />
               {sortedOrders.map((o) => {
                 const item = orderToItemWeb(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
                 return (
@@ -1077,6 +1092,12 @@ function TaxFilingWebScreen() {
                   />
                 );
               })}
+              <ServiceCatalogAddEntryTile
+                variant="grid"
+                label="Service Marketplace"
+                cardWidth={cardWidth}
+                onPress={() => router.push('/tax-filing/service-catalog')}
+              />
             </View>
           )}
           {hiddenOrders.length > 0 ? (

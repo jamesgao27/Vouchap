@@ -1,5 +1,6 @@
 /**
- * Permission scope–style lit/unlit chips for four classification dimensions (firm engagements & client marketplace).
+ * Permission scope–style lit/unlit chips for classification dimensions (firm engagements & client marketplace).
+ * Pass `dimensions` to hide rows (e.g. marketplace omits tax season).
  */
 import { View, Text, TouchableOpacity } from 'react-native';
 import {
@@ -33,11 +34,20 @@ export default function EngagementClassificationFilterChips(props: {
   onToggleValue: (d: ClassificationDimension, value: string) => void;
   onSelectAll: (d: ClassificationDimension) => void;
   chipStyles: EngagementClassificationChipStyles;
+  /** Defaults to all dimensions (firm engagements). */
+  dimensions?: readonly ClassificationDimension[];
 }) {
-  const { optionsByDim, classFilterByDim, onToggleValue, onSelectAll, chipStyles: s } = props;
+  const {
+    optionsByDim,
+    classFilterByDim,
+    onToggleValue,
+    onSelectAll,
+    chipStyles: s,
+    dimensions = CLASSIFICATION_DIMENSIONS,
+  } = props;
   return (
     <View style={s.dimGroupsWrap}>
-      {CLASSIFICATION_DIMENSIONS.map((d) => {
+      {dimensions.map((d) => {
         const labels = optionsByDim[d];
         const f = classFilterByDim[d];
         const allLit = f.mode === 'all';

@@ -180,6 +180,27 @@ function LayoutContent() {
     })();
   }, []);
 
+  /** RN Web: remove default browser focus ring on all TextInput (input/textarea). */
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    const id = 'vouchap-rn-web-textinput-no-focus-ring';
+    if (document.getElementById(id)) return;
+    const style = document.createElement('style');
+    style.id = id;
+    style.textContent = `
+input:focus,
+input:focus-visible,
+input:focus-within,
+textarea:focus,
+textarea:focus-visible,
+textarea:focus-within {
+  outline: none !important;
+  box-shadow: none !important;
+}
+`.trim();
+    document.head.appendChild(style);
+  }, []);
+
   useEffect(() => {
     const config = validateSupabaseConfig();
     if (!config.valid) {

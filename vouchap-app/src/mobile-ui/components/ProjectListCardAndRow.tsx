@@ -337,6 +337,8 @@ export function ProjectListRow({
   isPinned,
   onTogglePin,
   pinAppearance = 'pin',
+  /** Native: place edit at row end (e.g. firm Service Templates). Web always uses trailing edit. */
+  listEditTrailing = false,
 }: {
   item: ProjectListCardItem;
   onPress: () => void;
@@ -344,6 +346,7 @@ export function ProjectListRow({
   isPinned?: boolean;
   onTogglePin?: () => void;
   pinAppearance?: 'pin' | 'favorite';
+  listEditTrailing?: boolean;
 }) {
   const [hover, setHover] = useState(false);
   const showEdit = Platform.OS === 'web' ? hover : true;
@@ -351,6 +354,40 @@ export function ProjectListRow({
     ? Math.round((item.progress.completed / item.progress.total) * 100)
     : 0;
   const hasRightContent = !!item.action || (!!item.progress && item.progress.total > 0);
+  /** Status pill slot is empty when corner badge or client Marketplace hides badge — don't reserve 92px. */
+  const showListStatusPill = !item.statusCorner && !item.hideStatusBadge;
+
+  const listEditControl =
+    onSettings != null ? (
+      <TouchableOpacity
+        onPress={(e) => {
+          e.stopPropagation();
+          onSettings();
+        }}
+        hitSlop={6}
+        activeOpacity={0.8}
+        style={s.listActionBtn}
+        {...(Platform.OS === 'web'
+          ? {
+              accessibilityElementsHidden: !showEdit,
+              importantForAccessibility: showEdit ? 'yes' : 'no-hide-descendants',
+            }
+          : {})}
+      >
+        <Ionicons
+          name={item.isMuted ? 'trash-outline' : 'create-outline'}
+          size={18}
+          color={CORNER_PIN_ORANGE}
+        />
+      </TouchableOpacity>
+    ) : null;
+
+  const showTrailingListEdit =
+    listEditControl != null && (Platform.OS === 'web' || listEditTrailing);
+  const showLeadingMobileEdit =
+    listEditControl != null && Platform.OS !== 'web' && !listEditTrailing;
+
+  const canLongPressPin = Platform.OS !== 'web' && onTogglePin != null && !item.isMuted;
 
   return (
     <View
@@ -362,7 +399,20 @@ export function ProjectListRow({
           } as any)
         : {})}
     >
-      <TouchableOpacity style={[s.listRow, item.isMuted && s.listRowMuted]} onPress={onPress} activeOpacity={0.7}>
+      <TouchableOpacity
+        style={[s.listRow, item.isMuted && s.listRowMuted]}
+        onPress={onPress}
+        onLongPress={canLongPressPin ? () => { onTogglePin!(); } : undefined}
+        delayLongPress={380}
+        activeOpacity={0.7}
+        accessibilityHint={
+          canLongPressPin
+            ? pinAppearance === 'favorite'
+              ? 'Long press to add or remove from favorites'
+              : 'Long press to pin or unpin this item'
+            : undefined
+        }
+      >
         {onTogglePin != null && !item.isMuted && (isPinned || hover) && (
           <View style={s.listRowCornerPinWrap} pointerEvents="box-none">
             <View
@@ -392,27 +442,14 @@ export function ProjectListRow({
                   color={isPinned ? '#FFF' : CORNER_FAVORITE_AMBER}
                 />
               ) : (
-                <PinToTopIcon size={18} color={isPinned ? '#FFF' : LIST_ACTION_GRAY} />
+                <PinToTopIcon size={18} color={isPinned ? '#FFF' : CORNER_PIN_ORANGE} />
               )}
             </TouchableOpacity>
           </View>
         )}
-        <View style={s.listEditWrap}>
-          {onSettings != null && showEdit ? (
-            <TouchableOpacity
-              onPress={(e) => { e.stopPropagation(); onSettings(); }}
-              hitSlop={6}
-              activeOpacity={0.8}
-              style={s.listActionBtn}
-            >
-              <Ionicons
-                name={item.isMuted ? 'trash-outline' : 'create-outline'}
-                size={18}
-                color={LIST_ACTION_GRAY}
-              />
-            </TouchableOpacity>
-          ) : null}
-        </View>
+        {showLeadingMobileEdit ? (
+          <View style={s.listEditWrapLeft}>{listEditControl}</View>
+        ) : null}
         {item.statusCorner && !item.hideStatusBadge ? (
           <View style={s.listRowCornerPinWrap} pointerEvents="none">
             <View style={[s.listRowCornerPinTriangle, { backgroundColor: item.statusCorner.bg }]} />
@@ -455,8 +492,8 @@ export function ProjectListRow({
             <View style={s.listClassificationRowPlaceholder} />
           )}
           <View style={s.listRow2}>
-            <View style={s.listStatusWrap}>
-              {!item.statusCorner && !item.hideStatusBadge && (
+            {showListStatusPill ? (
+              <View style={s.listStatusWrap}>
                 <View style={[s.listStatusPill, { backgroundColor: item.statusColor }]}>
                   <Text
                     style={[
@@ -467,8 +504,8 @@ export function ProjectListRow({
                     {item.statusLabel}
                   </Text>
                 </View>
-              )}
-            </View>
+              </View>
+            ) : null}
             {item.footerText ? (
               <Text style={s.listFirmName} numberOfLines={1} ellipsizeMode="tail">
                 {item.footerText}
@@ -537,6 +574,20 @@ export function ProjectListRow({
                 </Text>
               </View>
             ) : null}
+          </View>
+        ) : null}
+        {showTrailingListEdit ? (
+          <View style={s.listEditWrapRight}>
+            {Platform.OS === 'web' ? (
+              <View
+                style={!showEdit ? s.listEditBtnHiddenWeb : undefined}
+                pointerEvents={showEdit ? 'auto' : 'none'}
+              >
+                {listEditControl}
+              </View>
+            ) : (
+              listEditControl
+            )}
           </View>
         ) : null}
       </TouchableOpacity>
@@ -779,19 +830,29 @@ const s = StyleSheet.create({
     position: 'relative',
   },
   listRowMuted: { opacity: 0.6 },
-  listEditWrap: {
+  /** Mobile: edit to the left of the thumbnail; spacing matches row padding (see listCoverWrap). */
+  listEditWrapLeft: {
     width: 28,
     minWidth: 28,
     alignSelf: 'stretch',
-    marginLeft: -12,
-    paddingLeft: 2,
-    paddingTop: 32,
+    justifyContent: 'center',
+    paddingRight: 6,
+  },
+  /** Web: edit at row end; pin/favorite overlay stays top-left. */
+  listEditWrapRight: {
+    width: 28,
+    minWidth: 28,
+    alignSelf: 'stretch',
+    justifyContent: 'center',
+    marginLeft: 8,
   },
   listActionBtn: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
+  /** Web: invisible hit target placeholder while row not hovered — slot width stays fixed. */
+  listEditBtnHiddenWeb: { opacity: 0 },
   listCoverWrap: {
     width: 64,
     height: 64,
-    marginLeft: 4,
+    marginLeft: 0,
     borderRadius: 8,
     overflow: 'hidden',
     backgroundColor: '#E9ECEF',
@@ -825,13 +886,17 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     transform: [{ rotate: '-45deg' }],
   },
+  /** List row corner ribbon only (Draft/Private/Published); Android needs tighter metrics than iOS/Web. */
   listStatusCornerLabel: {
     fontSize: 10,
     fontWeight: '800',
     color: '#FFF',
+    textAlign: 'center',
+    lineHeight: 12,
     textShadowColor: 'rgba(0,0,0,0.5)',
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 1,
+    ...(Platform.OS === 'android' ? { includeFontPadding: false } : {}),
   },
   listRowCornerPinWrap: {
     position: 'absolute',
@@ -870,10 +935,10 @@ const s = StyleSheet.create({
   },
   listRowCornerStatusLabelWrap: {
     position: 'absolute',
-    top: 14,
-    left: -4,
-    width: 48,
-    minHeight: 14,
+    top: 12,
+    left: -12,
+    width: 68,
+    minHeight: 16,
     alignItems: 'center',
     justifyContent: 'center',
     transform: [{ rotate: '-45deg' }],
@@ -886,9 +951,9 @@ const s = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 6,
     minHeight: 12,
-    marginBottom: 0,
+    marginBottom: 8,
   },
-  listClassificationRowPlaceholder: { minHeight: 0, marginBottom: 0 },
+  listClassificationRowPlaceholder: { minHeight: 0, marginBottom: 8 },
   listClassificationPill: {
     paddingHorizontal: 6,
     paddingVertical: 2,

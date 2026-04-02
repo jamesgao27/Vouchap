@@ -161,6 +161,7 @@ export default function FirmServiceCatalogScreen() {
                     item={item}
                     onPress={() => goToDetail(s)}
                     onSettings={() => openEdit(s)}
+                    listEditTrailing
                   />
                 );
               })}
