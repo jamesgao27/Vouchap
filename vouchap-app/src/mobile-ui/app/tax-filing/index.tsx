@@ -10,6 +10,7 @@ import {
   SectionList,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   RefreshControl,
   Platform,
@@ -31,6 +32,7 @@ import {
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '../../../shared-logic/alertWeb';
 import { ServiceCatalogAddEntryTile } from '@/components/ServiceCatalogShared';
+import { PinToTopIcon } from '@/components/ProjectListCardAndRow';
 
 const PINNED_ORDER_IDS_KEY = 'tax_filing_pinned_order_ids';
 
@@ -295,80 +297,85 @@ function TaxFilingMobileScreen() {
       const progressPercent =
         progress && progress.total > 0 ? Math.round((progress.completed / progress.total) * 100) : 0;
 
+      const canLongPressPin = !isHiddenSection && !isCancelled;
+      const isPinned = pinnedOrderIds.includes(order.id);
+
       return (
-        <TouchableOpacity
-          style={styles.receiptItem}
-          onPress={() => (isHiddenSection ? goToTodos(order) : goToTodos(order))}
-          onLongPress={() => (order.status !== 'onboarding' ? undefined : handleTogglePin(order.id))}
-          activeOpacity={0.7}
-        >
+        <View style={[styles.receiptItem, styles.receiptItemWrap]}>
+          {!isHiddenSection && isPinned ? (
+            <View style={styles.receiptPinnedBadge} pointerEvents="none">
+              <View style={styles.receiptPinnedTriangle} />
+              <View style={styles.receiptPinnedIconWrap}>
+                <PinToTopIcon size={18} color="#FFFFFF" />
+              </View>
+            </View>
+          ) : null}
           <View style={styles.receiptContent}>
-            <View style={styles.firstRow}>
-              <View style={styles.firstRowLeft}>
-                {taxSeasonYear != null && (
-                  <View
-                    style={[
-                      styles.taxSeasonPill,
-                      { backgroundColor: getTaxSeasonBgColor(taxSeasonYear) },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.taxSeasonText,
-                        { color: getTaxSeasonColor(taxSeasonYear) },
-                      ]}
-                    >
-                      {taxSeasonYear}
+            <Pressable
+              onPress={() => goToTodos(order)}
+              onLongPress={canLongPressPin ? () => handleTogglePin(order.id) : undefined}
+              delayLongPress={450}
+              accessibilityHint={canLongPressPin ? 'Long press to pin or unpin this engagement' : undefined}
+              style={({ pressed }) => (pressed ? styles.receiptPressablePressed : null)}
+            >
+              <View>
+                <View style={styles.firstRow}>
+                  <View style={styles.firstRowLeft}>
+                    {taxSeasonYear != null && (
+                      <View
+                        style={[
+                          styles.taxSeasonPill,
+                          { backgroundColor: getTaxSeasonBgColor(taxSeasonYear) },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.taxSeasonText,
+                            { color: getTaxSeasonColor(taxSeasonYear) },
+                          ]}
+                        >
+                          {taxSeasonYear}
+                        </Text>
+                      </View>
+                    )}
+                    <Text style={[styles.storeName, isCancelled && styles.mutedText]} numberOfLines={1}>
+                      {displayName}
                     </Text>
                   </View>
-                )}
-                <Text style={[styles.storeName, isCancelled && styles.mutedText]} numberOfLines={1}>
-                  {displayName}
-                </Text>
+                  {isHiddenSection ? <View style={styles.receiptRecycleTitleSpacer} pointerEvents="none" /> : null}
+                </View>
+                <View style={styles.secondRow}>
+                  <View
+                    style={[
+                      styles.statusBadge,
+                      { backgroundColor: STAGE_SOLID[order.status] ?? '#636E72' },
+                    ]}
+                  >
+                    <Text style={[styles.statusText, { color: '#FFFFFF' }]}>
+                      {STAGE_LABEL[order.status] ?? order.status}
+                    </Text>
+                  </View>
+                  {order.firmName ? (
+                    <Text style={styles.footerText}>by {order.firmName}</Text>
+                  ) : null}
+                </View>
+                {progress ? (
+                  <View style={styles.progressRow}>
+                    <View style={styles.progressBarTrack}>
+                      <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
+                    </View>
+                    <Text style={styles.progressDetailText}>
+                      {progress.completed}/{progress.total} • {progressPercent}%
+                    </Text>
+                  </View>
+                ) : null}
               </View>
-              {isHiddenSection ? (
-                <TouchableOpacity
-                  style={styles.unhideBtn}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    unhideOrderForClient(order.id);
-                  }}
-                  disabled={unhidingId === order.id}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  accessibilityRole="button"
-                  accessibilityLabel="Restore to Service Engagements"
-                >
-                  {unhidingId === order.id ? (
-                    <ActivityIndicator size="small" color="#95A5A6" />
-                  ) : (
-                    <Ionicons name="arrow-undo-outline" size={22} color="#95A5A6" />
-                  )}
-                </TouchableOpacity>
-              ) : null}
-            </View>
-            <View style={styles.secondRow}>
-              <View
-                style={[
-                  styles.statusBadge,
-                  { backgroundColor: STAGE_SOLID[order.status] ?? '#636E72' },
-                ]}
-              >
-                <Text style={[styles.statusText, { color: '#FFFFFF' }]}>
-                  {STAGE_LABEL[order.status] ?? order.status}
-                </Text>
-              </View>
-              {order.firmName ? (
-                <Text style={styles.footerText}>by {order.firmName}</Text>
-              ) : null}
-            </View>
+            </Pressable>
             {isOnboarding && !isCancelled && !isHiddenSection ? (
               <View style={styles.actionRow}>
                 <TouchableOpacity
                   style={styles.rejectBtn}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    handleRejectOrder(order);
-                  }}
+                  onPress={() => handleRejectOrder(order)}
                   disabled={rejectingId === order.id}
                 >
                   {rejectingId === order.id ? (
@@ -379,10 +386,7 @@ function TaxFilingMobileScreen() {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.acceptBtn, confirmingId === order.id && styles.acceptBtnDisabled]}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    handleConfirmOrder(order);
-                  }}
+                  onPress={() => handleConfirmOrder(order)}
                   disabled={confirmingId === order.id}
                 >
                   {confirmingId === order.id ? (
@@ -392,23 +396,12 @@ function TaxFilingMobileScreen() {
                   )}
                 </TouchableOpacity>
               </View>
-            ) : progress ? (
-              <View style={styles.progressRow}>
-                <View style={styles.progressBarTrack}>
-                  <View style={[styles.progressBarFill, { width: `${progressPercent}%` }]} />
-                </View>
-                <Text style={styles.progressDetailText}>
-                  {progress.completed}/{progress.total} • {progressPercent}%
-                </Text>
-              </View>
-            ) : !isHiddenSection && isCancelled ? (
+            ) : null}
+            {!isHiddenSection && isCancelled ? (
               <View style={styles.progressRow}>
                 <TouchableOpacity
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    hideOrderForClient(order.id);
-                  }}
+                  onPress={() => hideOrderForClient(order.id)}
                   disabled={hidingId === order.id}
                   style={styles.settingsIcon}
                 >
@@ -421,7 +414,25 @@ function TaxFilingMobileScreen() {
               </View>
             ) : null}
           </View>
-        </TouchableOpacity>
+          {isHiddenSection ? (
+            <View style={styles.receiptRestoreBtnOverlay} pointerEvents="box-none">
+              <TouchableOpacity
+                style={styles.unhideBtn}
+                onPress={() => unhideOrderForClient(order.id)}
+                disabled={unhidingId === order.id}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="button"
+                accessibilityLabel="Restore to Service Engagements"
+              >
+                {unhidingId === order.id ? (
+                  <ActivityIndicator size="small" color="#95A5A6" />
+                ) : (
+                  <Ionicons name="arrow-undo-outline" size={22} color="#95A5A6" />
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : null}
+        </View>
       );
     },
     [
@@ -431,6 +442,7 @@ function TaxFilingMobileScreen() {
       hidingId,
       unhidingId,
       hiddenCollapsed,
+      pinnedOrderIds,
       handleConfirmOrder,
       handleRejectOrder,
       handleTogglePin,
@@ -562,6 +574,50 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.03,
     shadowRadius: 2,
     elevation: 1,
+  },
+  // Recycle restore overlays without nesting Touchables inside Pressable (fixes long-press pin).
+  receiptItemWrap: {
+    position: 'relative',
+  },
+  receiptPressablePressed: {
+    opacity: 0.85,
+  },
+  receiptRecycleTitleSpacer: {
+    width: 36,
+  },
+  receiptRestoreBtnOverlay: {
+    position: 'absolute',
+    top: 14,
+    right: 12,
+    zIndex: 2,
+  },
+  receiptPinnedBadge: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: 72,
+    height: 72,
+    overflow: 'hidden',
+    zIndex: 4,
+    borderTopLeftRadius: 12,
+  },
+  receiptPinnedTriangle: {
+    position: 'absolute',
+    top: -36,
+    left: -36,
+    width: 72,
+    height: 72,
+    backgroundColor: '#ff7711',
+    transform: [{ rotate: '-45deg' }],
+  },
+  receiptPinnedIconWrap: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   receiptContent: {
     flex: 1,

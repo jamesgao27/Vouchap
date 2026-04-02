@@ -58,7 +58,7 @@ export interface ProjectListCardItem {
   settingsIconOverride?: ComponentProps<typeof Ionicons>['name'];
 }
 
-function PinToTopIcon({ size = 24, color = '#ff7711' }: { size?: number; color?: string }) {
+export function PinToTopIcon({ size = 24, color = '#ff7711' }: { size?: number; color?: string }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path d="M5 6h14M12 20V10M12 10l-4 4M12 10l4 4" stroke={color} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
@@ -110,6 +110,7 @@ export function ProjectListCard({
     ? Math.round((item.progress.completed / item.progress.total) * 100)
     : 0;
   const showProgress = !item.action && item.progress && item.progress.total > 0;
+  const canLongPressPin = Platform.OS !== 'web' && onTogglePin != null && !item.isMuted;
 
   return (
     <View
@@ -124,7 +125,16 @@ export function ProjectListCard({
       <TouchableOpacity
         style={[s.card, hover && s.cardHover, item.isMuted && s.cardMuted]}
         onPress={onPress}
+        onLongPress={canLongPressPin ? () => { onTogglePin(); } : undefined}
+        delayLongPress={380}
         activeOpacity={0.85}
+        accessibilityHint={
+          canLongPressPin
+            ? pinAppearance === 'favorite'
+              ? 'Long press to add or remove from favorites'
+              : 'Long press to pin or unpin this item'
+            : undefined
+        }
       >
         <View style={s.cardCoverWrap}>
           {item.imageUrl ? (

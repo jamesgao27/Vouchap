@@ -1,7 +1,7 @@
 /**
  * Shared Service Catalog mapping + "New template" entry tile (firm) / same chrome for client catalog add entry.
  */
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import {
   GRID_GAP,
@@ -110,7 +110,14 @@ type AddTileProps = {
 export function ServiceCatalogAddEntryTile({ label, onPress, variant, cardWidth }: AddTileProps) {
   if (variant === 'list') {
     return (
-      <TouchableOpacity style={addStyles.addListRow} onPress={onPress} activeOpacity={0.8}>
+      <TouchableOpacity
+        style={[
+          addStyles.addListRowBase,
+          Platform.OS === 'web' ? addStyles.addListRowWeb : addStyles.addListRowNative,
+        ]}
+        onPress={onPress}
+        activeOpacity={0.8}
+      >
         <View style={addStyles.addListRowSpacer} />
         <View style={addStyles.addListRowContent}>
           <Ionicons name="add-circle-outline" size={26} color="#6C5CE7" />
@@ -152,17 +159,23 @@ const addStyles = StyleSheet.create({
     gap: 6,
   },
   addCardText: { fontSize: 14, fontWeight: '600', color: '#6C5CE7' },
-  addListRow: {
+  addListRowBase: {
     flexDirection: 'row',
     alignItems: 'center',
     minHeight: LIST_ROW_MIN_HEIGHT,
     paddingVertical: 12,
     paddingHorizontal: 12,
+  },
+  /** Web list: same as standard row — white tile inside grouped list (no dashed promo card). */
+  addListRowWeb: {
+    backgroundColor: '#FFF',
+  },
+  /** Native list: dashed tile aligned with grid add card. */
+  addListRowNative: {
     backgroundColor: '#FBFCFF',
     borderRadius: 12,
     borderStyle: 'dashed',
     ...addEntryDashChrome,
-    // Separation from row above comes from parent `list` gap:1 — matches grid `addCardWrap` chrome.
   },
   addListRowSpacer: {
     width: 28,
