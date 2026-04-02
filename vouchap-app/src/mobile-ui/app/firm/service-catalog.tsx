@@ -116,7 +116,7 @@ export default function FirmServiceCatalogScreen() {
   const cardWidth =
     Platform.OS === 'web'
       ? Math.min(SERVICE_CATALOG_CARD_MAX_WIDTH, (windowWidth - 48 - GRID_GAP * (numColumns - 1)) / numColumns)
-      : (windowWidth - 40 - GRID_GAP) / 2;
+      : (windowWidth - 24 - GRID_GAP) / 2;
   const listStyle = projectListStyles.list;
 
   return (
@@ -152,7 +152,8 @@ export default function FirmServiceCatalogScreen() {
             </View>
           </View>
           {viewMode === 'list' ? (
-            <View style={listStyle}>
+            <View style={projectListStyles.listChromeWrap}>
+              <View style={listStyle}>
               {skus.map((s) => {
                 const item = firmSkuToProjectListItem(s);
                 return (
@@ -166,6 +167,7 @@ export default function FirmServiceCatalogScreen() {
                 );
               })}
               <ServiceCatalogAddEntryTile variant="list" label="New Template" onPress={handleCreateSku} />
+              </View>
             </View>
           ) : (
             <View style={styles.grid}>
@@ -197,7 +199,14 @@ export default function FirmServiceCatalogScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
-  content: { padding: 20, paddingBottom: 40 },
+  content: {
+    paddingTop: 20,
+    paddingBottom: 40,
+    ...Platform.select({
+      web: { paddingHorizontal: 20 },
+      default: { paddingHorizontal: 12 },
+    }),
+  },
   subtitle: { fontSize: 14, color: '#636E72', marginBottom: 24 },
   loader: { marginTop: 40 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },

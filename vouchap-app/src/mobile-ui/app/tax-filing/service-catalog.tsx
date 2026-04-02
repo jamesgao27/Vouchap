@@ -376,7 +376,7 @@ export default function ClientServiceMarketplaceScreen() {
   const cardWidth =
     Platform.OS === 'web'
       ? Math.min(SERVICE_CATALOG_CARD_MAX_WIDTH, (windowWidth - 48 - GRID_GAP * (numColumns - 1)) / numColumns)
-      : (windowWidth - 40 - GRID_GAP) / 2;
+      : (windowWidth - 24 - GRID_GAP) / 2;
   const listStyle = projectListStyles.list;
 
   const emptyMessage = useMemo(() => {
@@ -568,7 +568,8 @@ export default function ClientServiceMarketplaceScreen() {
             ) : emptyMessage ? (
               <Text style={styles.emptyText}>{emptyMessage}</Text>
             ) : viewMode === 'list' ? (
-              <View style={listStyle}>
+              <View style={projectListStyles.listChromeWrap}>
+                <View style={listStyle}>
                 {displaySkus.map((s) => {
                   const item = firmSkuToProjectListItem(s, { firmFooter: true, forClientMarketplace: true });
                   return (
@@ -582,6 +583,7 @@ export default function ClientServiceMarketplaceScreen() {
                     />
                   );
                 })}
+                </View>
               </View>
             ) : (
               <View style={styles.grid}>
@@ -739,7 +741,14 @@ const styles = StyleSheet.create({
     }),
   },
   scroll: { flex: 1 },
-  content: { padding: 20, paddingBottom: 40 },
+  content: {
+    paddingTop: 20,
+    paddingBottom: 40,
+    ...Platform.select({
+      web: { paddingHorizontal: 20 },
+      default: { paddingHorizontal: 12 },
+    }),
+  },
   loader: { marginTop: 40 },
   emptyText: { fontSize: 15, color: '#636E72', marginTop: 24, textAlign: 'center' },
   viewToggle: { flexDirection: 'row', alignItems: 'center', gap: 4, flexShrink: 0, marginLeft: 'auto' },

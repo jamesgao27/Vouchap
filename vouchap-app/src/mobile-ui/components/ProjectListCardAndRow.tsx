@@ -2,7 +2,7 @@
  * 项目/服务列表 — 卡片与列表行（client 项目列表与 firm Service Catalog 完全复用）
  * 样式与交互一致；仅数据与行动按钮文案不同（如 Accept and start / 发布）。
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ComponentProps } from 'react';
 import {
   View,
   Text,
@@ -54,6 +54,8 @@ export interface ProjectListCardItem {
     onReject?: () => void;
     rejecting?: boolean;
   } | null;
+  /** When set, used for the trailing settings/edit icon instead of create / trash from `isMuted`. */
+  settingsIconOverride?: ComponentProps<typeof Ionicons>['name'];
 }
 
 function PinToTopIcon({ size = 24, color = '#ff7711' }: { size?: number; color?: string }) {
@@ -187,9 +189,15 @@ export function ProjectListCard({
                 activeOpacity={0.85}
               >
                 <Ionicons
-                  name={item.isMuted ? 'trash-outline' : 'create-outline'}
+                  name={
+                    item.settingsIconOverride
+                      ? item.settingsIconOverride
+                      : item.isMuted
+                        ? 'trash-outline'
+                        : 'create-outline'
+                  }
                   size={22}
-                  color={CORNER_PIN_ORANGE}
+                  color={item.settingsIconOverride ? LIST_ACTION_GRAY : CORNER_PIN_ORANGE}
                 />
               </TouchableOpacity>
             </View>
@@ -244,7 +252,12 @@ export function ProjectListCard({
             <View style={s.classificationRowPlaceholder} />
           )}
           {item.footerText ? (
-            <View style={s.cardRowFooter}>
+            <View
+              style={[
+                s.cardRowFooter,
+                item.hideStatusBadge ? s.cardRowFooterMarketplaceFirm : null,
+              ]}
+            >
               <Text style={s.cardFirmName} numberOfLines={1} ellipsizeMode="tail">{item.footerText}</Text>
             </View>
           ) : null}
@@ -375,9 +388,15 @@ export function ProjectListRow({
           : {})}
       >
         <Ionicons
-          name={item.isMuted ? 'trash-outline' : 'create-outline'}
+          name={
+            item.settingsIconOverride
+              ? item.settingsIconOverride
+              : item.isMuted
+                ? 'trash-outline'
+                : 'create-outline'
+          }
           size={18}
-          color={CORNER_PIN_ORANGE}
+          color={item.settingsIconOverride ? LIST_ACTION_GRAY : CORNER_PIN_ORANGE}
         />
       </TouchableOpacity>
     ) : null;
@@ -758,6 +777,8 @@ const s = StyleSheet.create({
   },
   classificationPillText: { fontSize: 11, fontWeight: '500' },
   cardRowFooter: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', marginTop: 0 },
+  /** Client Service Marketplace card: extra space above “By …” firm line. */
+  cardRowFooterMarketplaceFirm: { marginTop: 8 },
   statusPill: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 10 },
   // 默认白字；若需要浅底深字，由调用方通过 item.statusFgColor 覆盖
   statusPillText: { fontSize: 12, color: '#FFF', fontWeight: '600' },
@@ -818,7 +839,24 @@ const s = StyleSheet.create({
     backgroundColor: '#00B894',
     borderRadius: 2,
   },
-  list: { gap: 1, backgroundColor: '#E9ECEF', borderRadius: 12, overflow: 'hidden' },
+  /**
+   * Wrap `list` for a single outer edge (e.g. Service Catalog). Do not stack with another bordered wrapper.
+   * Web: hairline border; native: 1px. Color matches client Engagements list chrome.
+   */
+  listChromeWrap: {
+    borderRadius: 12,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+    borderWidth: Platform.OS === 'web' ? StyleSheet.hairlineWidth : 1,
+  },
+  /** Grouped row gutters only — border belongs on `listChromeWrap` or screen `listWrapper`, not here. */
+  list: {
+    gap: 1,
+    backgroundColor: '#E9ECEF',
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
   listRowWrap: { width: '100%' },
   listRow: {
     flexDirection: 'row',

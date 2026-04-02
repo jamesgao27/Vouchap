@@ -182,7 +182,7 @@ function TaxFilingMobileScreen() {
         : sortedOrders.length > 0
           ? [...sortedOrders, { id: TAX_FILING_MARKETPLACE_ROW_ID }]
           : [{ id: TAX_FILING_MARKETPLACE_ROW_ID }];
-    const out: SectionData[] = [{ title: 'Active', monthKey: 'active', data: activeData }];
+    const out: SectionData[] = [{ title: 'Service Engagements', monthKey: 'active', data: activeData }];
     if (hiddenOrders.length > 0) {
       out.push({
         title: 'Recycle bin',
@@ -272,14 +272,12 @@ function TaxFilingMobileScreen() {
     ({ item, section }: { item: TaxFilingSectionItem; section: SectionData }) => {
       if (section.monthKey === 'active' && isMarketplaceSectionRow(item)) {
         return (
-          <View style={{ paddingHorizontal: 12, marginBottom: 8 }}>
-            <View style={{ borderRadius: 12, overflow: 'hidden', backgroundColor: '#fff' }}>
-              <ServiceCatalogAddEntryTile
-                variant="list"
-                label="Service Marketplace"
-                onPress={() => router.push('/tax-filing/service-catalog')}
-              />
-            </View>
+          <View style={{ marginBottom: 8 }}>
+            <ServiceCatalogAddEntryTile
+              variant="list"
+              label="Service Marketplace"
+              onPress={() => router.push('/tax-filing/service-catalog')}
+            />
           </View>
         );
       }
@@ -336,11 +334,14 @@ function TaxFilingMobileScreen() {
                     unhideOrderForClient(order.id);
                   }}
                   disabled={unhidingId === order.id}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityRole="button"
+                  accessibilityLabel="Restore to Service Engagements"
                 >
                   {unhidingId === order.id ? (
-                    <ActivityIndicator size="small" color="#6C5CE7" />
+                    <ActivityIndicator size="small" color="#95A5A6" />
                   ) : (
-                    <Text style={styles.unhideBtnText}>Unhide</Text>
+                    <Ionicons name="arrow-undo-outline" size={22} color="#95A5A6" />
                   )}
                 </TouchableOpacity>
               ) : null}
@@ -522,7 +523,7 @@ function TaxFilingMobileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ECEFF1',
+    backgroundColor: '#F8F9FA',
   },
   toolbarSlot: {
     height: 52,
@@ -557,10 +558,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     // 轻微底部阴影，让卡片与背景分层
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 2,
+    elevation: 1,
   },
   receiptContent: {
     flex: 1,
@@ -584,7 +585,7 @@ const styles = StyleSheet.create({
   },
   storeName: {
     flex: 1,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '600',
     color: '#2D3436',
     marginRight: 12,
@@ -622,7 +623,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   footerText: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#636E72',
     marginLeft: 'auto',
   },
@@ -709,22 +710,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   unhideBtn: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#E8E0F7',
-  },
-  unhideBtnText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#6C5CE7',
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   sectionHeader: {
-    backgroundColor: '#E9ECEF',
+    backgroundColor: '#F8F9FA',
     paddingVertical: 8,
     paddingHorizontal: 12,
-    borderBottomWidth: 0,
-    borderBottomColor: 'transparent',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -739,7 +732,7 @@ const styles = StyleSheet.create({
     color: '#636E72',
   },
   listContent: {
-    paddingHorizontal: 4,
+    paddingHorizontal: 12,
     paddingTop: 0,
     paddingBottom: 100,
   },
@@ -1122,7 +1115,14 @@ function TaxFilingWebScreen() {
                   <View style={stylesWeb.listWrapper}>
                     <View style={projectListStylesWeb.list}>
                       {hiddenOrders.map((o) => {
-                        const item = orderToItemWeb(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
+                        const item = orderToItemWeb(
+                          o,
+                          confirmingId,
+                          rejectingId,
+                          handleConfirmOrder,
+                          handleRejectOrder,
+                          { recycleBinRestore: true },
+                        );
                         return (
                           <ProjectListRow
                             key={o.id}
@@ -1139,7 +1139,14 @@ function TaxFilingWebScreen() {
                 ) : (
                   <View style={stylesWeb.grid}>
                     {hiddenOrders.map((o) => {
-                      const item = orderToItemWeb(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
+                      const item = orderToItemWeb(
+                        o,
+                        confirmingId,
+                        rejectingId,
+                        handleConfirmOrder,
+                        handleRejectOrder,
+                        { recycleBinRestore: true },
+                      );
                       return (
                         <ProjectListCard
                           key={o.id}
@@ -1186,6 +1193,7 @@ function orderToItemWeb(
   rejectingId: string | null,
   onConfirm: (order: FirmOrderForClient) => void,
   onReject: (order: FirmOrderForClient) => void,
+  opts?: { recycleBinRestore?: boolean },
 ): ProjectListCardItemWeb {
   const isOnboarding = order.status === 'onboarding';
   const taxSeasonYear = getTaxSeasonYearWeb(order);
@@ -1213,6 +1221,7 @@ function orderToItemWeb(
           rejecting: rejectingId === order.id,
         }
       : null,
+    settingsIconOverride: opts?.recycleBinRestore ? 'arrow-undo-outline' : undefined,
   };
 }
 
@@ -1237,6 +1246,6 @@ const stylesWeb = StyleSheet.create({
     borderColor: '#E5E7EB',
     backgroundColor: '#FFFFFF',
     overflow: 'hidden',
-    borderWidth: 1,
+    borderWidth: Platform.OS === 'web' ? StyleSheet.hairlineWidth : 1,
   },
 });

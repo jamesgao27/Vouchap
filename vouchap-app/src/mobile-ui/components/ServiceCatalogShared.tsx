@@ -13,6 +13,9 @@ import type { FirmSku } from '@/types';
 
 export const SERVICE_CATALOG_CARD_MAX_WIDTH = 320;
 
+/** Dashed add-tile border — web and native aligned. */
+const addEntryDashChrome = { borderWidth: 1, borderColor: '#CED4DA' };
+
 /** Same palette as firm/sku Info tags */
 export const SERVICE_CATALOG_TAG_PALETTE: [string, string][] = [
   ['#EDE9FD', '#6C5CE7'],
@@ -134,12 +137,11 @@ const addStyles = StyleSheet.create({
   addCardWrap: {
     maxWidth: SERVICE_CATALOG_CARD_MAX_WIDTH,
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
     borderStyle: 'dashed',
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: '#FBFCFF',
+    ...addEntryDashChrome,
   },
   addCardInner: {
     width: '100%',
@@ -156,9 +158,11 @@ const addStyles = StyleSheet.create({
     minHeight: LIST_ROW_MIN_HEIGHT,
     paddingVertical: 12,
     paddingHorizontal: 12,
-    backgroundColor: '#FFF',
-    borderTopWidth: 1,
-    borderTopColor: '#E9ECEF',
+    backgroundColor: '#FBFCFF',
+    borderRadius: 12,
+    borderStyle: 'dashed',
+    ...addEntryDashChrome,
+    // Separation from row above comes from parent `list` gap:1 — matches grid `addCardWrap` chrome.
   },
   addListRowSpacer: {
     width: 28,
