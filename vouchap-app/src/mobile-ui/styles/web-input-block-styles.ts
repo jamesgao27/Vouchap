@@ -147,6 +147,12 @@ export const webInputBlockStyles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 6,
   },
+  stagedFilesMoreHint: {
+    fontSize: 12,
+    color: '#636E72',
+    marginTop: 4,
+    width: '100%',
+  },
   stagedFileChip: {
     flexDirection: 'row',
     alignItems: 'center',

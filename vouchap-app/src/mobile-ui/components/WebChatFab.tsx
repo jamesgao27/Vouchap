@@ -23,6 +23,10 @@ import { getChatToLogAllowedTypes } from '@/lib/chat-to-log-allowed-types';
 import { getAssistantInfo, getInputPlaceholder } from '@/lib/assistant-config';
 import { showToast } from '@/lib/toast';
 import { webInputBlockStyles } from '../styles/web-input-block-styles';
+import {
+  CHAT_STAGED_FILES_DISPLAY_MAX,
+  chatStagedFilesOverflowLabel,
+} from '../lib/chat-staged-files-display';
 
 const FAB_SIZE = 100;
 const FAB_BOTTOM = 52;
@@ -159,6 +163,8 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
 
   // 悬停时展开输入栏，头像保持未触摸前位置（右下角）；点击后打开右栏、头像隐去
   if (hovered) {
+    const stagedAttachmentFilesVisible = stagedAttachmentFiles.slice(0, CHAT_STAGED_FILES_DISPLAY_MAX);
+    const stagedAttachmentFilesOverflowHint = chatStagedFilesOverflowLabel(stagedAttachmentFiles.length);
     const thumbAlignTopLeft = Platform.select({
       web: { objectFit: 'cover' as const, objectPosition: 'top left' as const },
       default: {},
@@ -174,7 +180,7 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
             {stagedAttachmentFiles.length > 0 ? (
               <View style={webInputBlockStyles.stagedFilesRow}>
                 <View style={webInputBlockStyles.stagedFilesList}>
-                  {stagedAttachmentFiles.map((f) => (
+                  {stagedAttachmentFilesVisible.map((f) => (
                     <View key={f.id} style={webInputBlockStyles.stagedFileChip}>
                       <View style={webInputBlockStyles.stagedFileThumbWrap}>
                         <Image source={{ uri: f.uri }} style={[webInputBlockStyles.stagedFileThumb, thumbAlignTopLeft]} resizeMode="cover" />
@@ -189,6 +195,9 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
                     </View>
                   ))}
                 </View>
+                {stagedAttachmentFilesOverflowHint ? (
+                  <Text style={webInputBlockStyles.stagedFilesMoreHint}>{stagedAttachmentFilesOverflowHint}</Text>
+                ) : null}
               </View>
             ) : null}
             <TouchableOpacity style={webInputBlockStyles.webInputRow} onPress={openFullPanel} activeOpacity={1}>

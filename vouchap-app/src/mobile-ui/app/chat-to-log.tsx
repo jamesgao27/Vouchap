@@ -67,6 +67,10 @@ import FirmAddClientModal, {
 } from '@/components/FirmAddClientModal';
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 import { webInputBlockStyles } from '../styles/web-input-block-styles';
+import {
+  CHAT_STAGED_FILES_DISPLAY_MAX,
+  chatStagedFilesOverflowLabel,
+} from '../lib/chat-staged-files-display';
 
 // 语音识别置信度阈值：与照片 needs_retake 一致，低于此值视为无可识别内容，提示重新提交
 const VOICE_CONFIDENCE_THRESHOLD = 0.4;
@@ -2163,6 +2167,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     </View>
   );
 
+  const stagedAttachmentFilesVisible = stagedAttachmentFiles.slice(0, CHAT_STAGED_FILES_DISPLAY_MAX);
+  const stagedAttachmentFilesOverflowHint = chatStagedFilesOverflowLabel(stagedAttachmentFiles.length);
+
   const mainContent = (
     <>
       <Modal visible={!!attachmentImageModalUrl} transparent animationType="fade">
@@ -2939,7 +2946,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               {stagedAttachmentFiles.length > 0 && !isProcessing ? (
                 <View style={webInputBlockStyles.stagedFilesRow}>
                   <View style={webInputBlockStyles.stagedFilesList}>
-                    {stagedAttachmentFiles.map((f) => {
+                    {stagedAttachmentFilesVisible.map((f) => {
                       const uploading = uploadingStagedIds.has(f.id);
                       const isImage = isImageMime(f.mimeType);
                       return (
@@ -2967,6 +2974,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                       );
                     })}
                   </View>
+                  {stagedAttachmentFilesOverflowHint ? (
+                    <Text style={webInputBlockStyles.stagedFilesMoreHint}>{stagedAttachmentFilesOverflowHint}</Text>
+                  ) : null}
                 </View>
               ) : null}
               <View style={webInputBlockStyles.webInputRow}>
@@ -3063,7 +3073,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             {stagedAttachmentFiles.length > 0 && !isProcessing ? (
               <View style={webInputBlockStyles.stagedFilesRow}>
                 <View style={webInputBlockStyles.stagedFilesList}>
-                  {stagedAttachmentFiles.map((f) => {
+                  {stagedAttachmentFilesVisible.map((f) => {
                     const uploading = uploadingStagedIds.has(f.id);
                     const isImage = isImageMime(f.mimeType);
                     return (
@@ -3091,6 +3101,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                     );
                   })}
                 </View>
+                {stagedAttachmentFilesOverflowHint ? (
+                  <Text style={webInputBlockStyles.stagedFilesMoreHint}>{stagedAttachmentFilesOverflowHint}</Text>
+                ) : null}
               </View>
             ) : null}
             {/* 录入行：键盘/录音 icon 左端，再图片 icon，再输入框/录音按钮，再发送 */}
