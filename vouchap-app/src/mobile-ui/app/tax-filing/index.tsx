@@ -30,6 +30,7 @@ import {
 } from '@/lib/firm';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '../../../shared-logic/alertWeb';
+import { ServiceCatalogAddEntryTile } from '@/components/ServiceCatalogShared';
 
 const PINNED_ORDER_IDS_KEY = 'tax_filing_pinned_order_ids';
 
@@ -464,6 +465,17 @@ function TaxFilingMobileScreen() {
         renderItem={renderItem}
         renderSectionHeader={renderSectionHeader}
         stickySectionHeadersEnabled={false}
+        ListHeaderComponent={
+          <View style={{ paddingHorizontal: 12, paddingTop: 8, paddingBottom: 8 }}>
+            <View style={{ borderRadius: 12, overflow: 'hidden', backgroundColor: '#fff' }}>
+              <ServiceCatalogAddEntryTile
+                variant="list"
+                label="Service Marketplace"
+                onPress={() => router.push('/tax-filing/service-catalog')}
+              />
+            </View>
+          </View>
+        }
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         contentContainerStyle={
           sections.every((s) => s.data.length === 0) ? styles.emptyList : styles.listContent
@@ -978,7 +990,7 @@ function TaxFilingWebScreen() {
       ) : (
         <>
           <View style={stylesWeb.header}>
-            <Text style={stylesWeb.sectionTitle}>Service engagements</Text>
+            <Text style={stylesWeb.sectionTitle}>Service Engagements</Text>
             <View style={stylesWeb.viewToggle}>
               <TouchableOpacity
                 style={[stylesWeb.viewToggleBtn, viewMode === 'grid' && stylesWeb.viewToggleBtnActive]}
@@ -998,11 +1010,24 @@ function TaxFilingWebScreen() {
           </View>
           {sortedOrders.length === 0 && hiddenOrders.length === 0 ? (
             <View style={stylesWeb.emptySection}>
+              <View style={[stylesWeb.grid, { marginBottom: 16 }]}>
+                <ServiceCatalogAddEntryTile
+                  variant="grid"
+                  label="Service Marketplace"
+                  cardWidth={cardWidth}
+                  onPress={() => router.push('/tax-filing/service-catalog')}
+                />
+              </View>
               <Text style={stylesWeb.emptySectionText}>No orders yet</Text>
             </View>
           ) : viewMode === 'list' ? (
             <View style={stylesWeb.listWrapper}>
               <View style={projectListStylesWeb.list}>
+                <ServiceCatalogAddEntryTile
+                  variant="list"
+                  label="Service Marketplace"
+                  onPress={() => router.push('/tax-filing/service-catalog')}
+                />
                 {sortedOrders.map((o) => {
                   const item = orderToItemWeb(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
                   return (
@@ -1026,6 +1051,12 @@ function TaxFilingWebScreen() {
             </View>
           ) : (
             <View style={stylesWeb.grid}>
+              <ServiceCatalogAddEntryTile
+                variant="grid"
+                label="Service Marketplace"
+                cardWidth={cardWidth}
+                onPress={() => router.push('/tax-filing/service-catalog')}
+              />
               {sortedOrders.map((o) => {
                 const item = orderToItemWeb(o, confirmingId, rejectingId, handleConfirmOrder, handleRejectOrder);
                 return (

@@ -17,94 +17,22 @@ import {
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { getCurrentSpace } from '@/lib/auth';
-import { getFirmSkus, updateFirmSku } from '@/lib/firm';
+import { getFirmSkus } from '@/lib/firm';
 import { supabase } from '@/lib/supabase';
 import {
   ProjectListCard,
   ProjectListRow,
-  GRID_GAP,
-  LIST_ROW_MIN_HEIGHT,
   projectListStyles,
-  type ProjectListCardItem,
 } from '@/components/ProjectListCardAndRow';
+import {
+  SERVICE_CATALOG_CARD_MAX_WIDTH,
+  firmSkuToProjectListItem,
+  ServiceCatalogAddEntryTile,
+  GRID_GAP,
+} from '@/components/ServiceCatalogShared';
 import type { FirmSku } from '@/types';
 
-const CARD_MAX_WIDTH = 320;
-
-// 与 SKU Info 页的标签配色保持一致的调色板与 hash 映射
-const TAG_PALETTE: [string, string][] = [
-  ['#EDE9FD', '#6C5CE7'],
-  ['#E3F2FD', '#1E88E5'],
-  ['#E8F5E9', '#27AE60'],
-  ['#FFF3E0', '#E67E22'],
-  ['#FCE4EC', '#E91E63'],
-  ['#E8EAF6', '#3F51B5'],
-  ['#E0F7FA', '#00838F'],
-  ['#FFF8E1', '#F9A825'],
-];
-function getTagColor(s: string): [string, string] {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) & 0xfffff;
-  return TAG_PALETTE[Math.abs(h) % TAG_PALETTE.length]!;
-}
-
 type ViewMode = 'grid' | 'list';
-
-function skuToItem(
-  sku: FirmSku,
-): ProjectListCardItem {
-  const isPublished = sku.isPublished === true;
-  const hasSetup = !!sku.taxCountry || !!sku.taxScenario;
-
-  let statusLabel: 'Draft' | 'Private' | 'Published';
-  let statusColor: string;
-  if (sku.templateStatus === 'draft' || sku.templateStatus === 'private' || sku.templateStatus === 'published') {
-    statusLabel = sku.templateStatus === 'published' ? 'Published' : sku.templateStatus === 'private' ? 'Private' : 'Draft';
-    statusColor = statusLabel === 'Published' ? '#00B894' : statusLabel === 'Private' ? '#0984E3' : '#636E72';
-  } else if (isPublished) {
-    statusLabel = 'Published';
-    statusColor = '#00B894';
-  } else if (hasSetup) {
-    statusLabel = 'Private';
-    statusColor = '#0984E3';
-  } else {
-    statusLabel = 'Draft';
-    statusColor = '#636E72';
-  }
-
-  const classificationTags: { label: string; bg: string; fg: string }[] = [];
-  if (sku.taxCountry) {
-    const [bg, fg] = getTagColor(sku.taxCountry);
-    classificationTags.push({ label: sku.taxCountry, bg, fg });
-  }
-  if (sku.taxScenario) {
-    const [bg, fg] = getTagColor(sku.taxScenario);
-    classificationTags.push({ label: sku.taxScenario, bg, fg });
-  }
-
-  let statusCorner: { label: string; bg: string } | null = null;
-  if (statusLabel === 'Draft') {
-    statusCorner = { label: 'Draft', bg: statusColor };
-  } else if (statusLabel === 'Private') {
-    statusCorner = { label: 'Private', bg: statusColor };
-  } else if (statusLabel === 'Published') {
-    statusCorner = { label: 'Published', bg: statusColor };
-  }
-
-  return {
-    id: sku.id,
-    displayName: sku.name ?? '—',
-    imageUrl: sku.imageUrl ?? null,
-    tagPill: null,
-    statusLabel,
-    statusColor,
-    statusCorner,
-    classificationTags: classificationTags.length > 0 ? classificationTags : null,
-    footerText: null,
-    progress: null,
-    action: null,
-  };
-}
 
 export default function FirmServiceCatalogScreen() {
   const router = useRouter();
@@ -179,7 +107,7 @@ export default function FirmServiceCatalogScreen() {
     } catch {
       if (typeof window !== 'undefined') window.alert('Failed to create service');
     }
-  }, [loadData, router]);
+  }, [router]);
 
   const numColumns = Platform.select({
     web: Math.max(2, Math.floor((windowWidth - 48) / (200 + GRID_GAP))),
@@ -187,7 +115,7 @@ export default function FirmServiceCatalogScreen() {
   });
   const cardWidth =
     Platform.OS === 'web'
-      ? Math.min(CARD_MAX_WIDTH, (windowWidth - 48 - GRID_GAP * (numColumns - 1)) / numColumns)
+      ? Math.min(SERVICE_CATALOG_CARD_MAX_WIDTH, (windowWidth - 48 - GRID_GAP * (numColumns - 1)) / numColumns)
       : (windowWidth - 40 - GRID_GAP) / 2;
   const listStyle = projectListStyles.list;
 
@@ -226,7 +154,7 @@ export default function FirmServiceCatalogScreen() {
           {viewMode === 'list' ? (
             <View style={listStyle}>
               {skus.map((s) => {
-                const item = skuToItem(s);
+                const item = firmSkuToProjectListItem(s);
                 return (
                   <ProjectListRow
                     key={s.id}
@@ -236,18 +164,12 @@ export default function FirmServiceCatalogScreen() {
                   />
                 );
               })}
-              <TouchableOpacity style={styles.addListRow} onPress={handleCreateSku} activeOpacity={0.8}>
-                <View style={styles.addListRowSpacer} />
-                <View style={styles.addListRowContent}>
-                  <Ionicons name="add-circle-outline" size={26} color="#6C5CE7" />
-                  <Text style={styles.addListRowText}>New Template</Text>
-                </View>
-              </TouchableOpacity>
+              <ServiceCatalogAddEntryTile variant="list" label="New Template" onPress={handleCreateSku} />
             </View>
           ) : (
             <View style={styles.grid}>
               {skus.map((s) => {
-                const item = skuToItem(s);
+                const item = firmSkuToProjectListItem(s);
                 return (
                   <ProjectListCard
                     key={s.id}
@@ -258,16 +180,12 @@ export default function FirmServiceCatalogScreen() {
                   />
                 );
               })}
-              <TouchableOpacity
-                style={[styles.addCardWrap, { width: cardWidth }]}
+              <ServiceCatalogAddEntryTile
+                variant="grid"
+                label="New Template"
+                cardWidth={cardWidth}
                 onPress={handleCreateSku}
-                activeOpacity={0.85}
-              >
-                <View style={styles.addCardInner}>
-                  <Ionicons name="add-circle-outline" size={26} color="#6C5CE7" />
-                  <Text style={styles.addCardText}>New Template</Text>
-                </View>
-              </TouchableOpacity>
+              />
             </View>
           )}
         </>
@@ -287,46 +205,4 @@ const styles = StyleSheet.create({
   viewToggleBtn: { padding: 8, borderRadius: 8 },
   viewToggleBtnActive: { backgroundColor: '#EDE9FE' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP },
-  addCardWrap: {
-    maxWidth: CARD_MAX_WIDTH,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    borderStyle: 'dashed',
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#FBFCFF',
-  },
-  addCardInner: {
-    width: '100%',
-    height: '100%',
-    minHeight: 180,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 6,
-  },
-  addCardText: { fontSize: 14, fontWeight: '600', color: '#6C5CE7' },
-  addListRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    minHeight: LIST_ROW_MIN_HEIGHT,
-    paddingVertical: 12,
-    paddingHorizontal: 12,
-    backgroundColor: '#FFF',
-    borderTopWidth: 1,
-    borderTopColor: '#E9ECEF',
-  },
-  addListRowSpacer: {
-    width: 28,
-    minWidth: 28,
-    marginLeft: -12,
-    marginRight: 0,
-  },
-  addListRowContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginLeft: 4 + 64 + 12,
-  },
-  addListRowText: { fontSize: 14, fontWeight: '600', color: '#6C5CE7' },
 });

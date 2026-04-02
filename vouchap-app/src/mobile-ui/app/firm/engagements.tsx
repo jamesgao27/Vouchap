@@ -36,6 +36,7 @@ import {
   type FirmOrderWithDetails,
 } from '@/lib/firm';
 import DataTable, { type DataTableColumn, WEB_POPOVER } from '@/components/DataTable';
+import EngagementClassificationFilterChips from '@/components/EngagementClassificationFilterChips';
 import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors';
 import CenterModal from '../../components/CenterModal';
 import SkuPreview from '../../components/SkuPreview';
@@ -44,18 +45,12 @@ import { createPendingOrderForInvitee } from '@/lib/firm-clients';
 import { showToast } from '@/lib/toast';
 import {
   CLASSIFICATION_DIMENSIONS,
-  CLASSIFICATION_DIMENSION_LABEL,
   type ClassificationDimension,
   type ClassificationDimFilter,
-  SCOPE_ALL_LIT_BG,
-  SCOPE_ALL_LIT_FG,
-  SCOPE_CHIP_MUTED_FG,
-  SCOPE_CHIP_UNLIT_BG,
   collectClassificationOptionsForDim,
   classificationFilterConstraintCount,
   customClassificationGroupKey,
   emptyClassificationDimFilters,
-  getClassificationChipColors,
   getTaxSeasonYearForClassification,
   orderMatchesClassificationDimFilters,
 } from '@/lib/firm-classification-dimensions';
@@ -187,102 +182,6 @@ function serviceItemLabel(row: FirmOrderWithDetails): string {
 /** Same as column / pill: infer tax season year for display */
 function getTaxSeasonYear(row: FirmOrderWithDetails): number | null {
   return getTaxSeasonYearForClassification(row);
-}
-
-/** Permission scope–style lit/unlit chips for four classification dimensions */
-function EngagementClassificationFilterChips(props: {
-  optionsByDim: Record<ClassificationDimension, string[]>;
-  classFilterByDim: Record<ClassificationDimension, ClassificationDimFilter>;
-  onToggleValue: (d: ClassificationDimension, value: string) => void;
-  onSelectAll: (d: ClassificationDimension) => void;
-  chipStyles: {
-    dimGroupsWrap: object;
-    dimBlock: object;
-    dimTitleRow: object;
-    dimTitle: object;
-    dimEmpty: object;
-    scopeChipsWrap: object;
-    metaTag: object;
-    scopeLabelChip: object;
-    scopeLabelChipMin: object;
-    scopeLabelChipText: object;
-  };
-}) {
-  const { optionsByDim, classFilterByDim, onToggleValue, onSelectAll, chipStyles: s } = props;
-  return (
-    <View style={s.dimGroupsWrap}>
-      {CLASSIFICATION_DIMENSIONS.map((d) => {
-        const labels = optionsByDim[d];
-        const f = classFilterByDim[d];
-        const allLit = f.mode === 'all';
-        return (
-          <View key={d} style={s.dimBlock}>
-            <View style={s.dimTitleRow}>
-              <Text style={s.dimTitle}>{CLASSIFICATION_DIMENSION_LABEL[d]}</Text>
-            </View>
-            {labels.length === 0 ? (
-              <Text style={s.dimEmpty}>No values in current list</Text>
-            ) : (
-              <View style={s.scopeChipsWrap}>
-                <TouchableOpacity onPress={() => onSelectAll(d)} activeOpacity={0.85}>
-                  <View
-                    style={[
-                      s.metaTag,
-                      s.scopeLabelChip,
-                      s.scopeLabelChipMin,
-                      { backgroundColor: allLit ? SCOPE_ALL_LIT_BG : SCOPE_CHIP_UNLIT_BG },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        s.scopeLabelChipText,
-                        {
-                          color: allLit ? SCOPE_ALL_LIT_FG : SCOPE_CHIP_MUTED_FG,
-                          fontWeight: allLit ? '700' : '500',
-                        },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      ALL
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-                {labels.map((lab) => {
-                  const lit = f.mode === 'include' && f.values.has(lab);
-                  const [bg, fg] = getClassificationChipColors(lab);
-                  return (
-                    <TouchableOpacity key={`${d}-${lab}`} onPress={() => onToggleValue(d, lab)} activeOpacity={0.85}>
-                      <View
-                        style={[
-                          s.metaTag,
-                          s.scopeLabelChip,
-                          s.scopeLabelChipMin,
-                          { backgroundColor: lit ? bg : SCOPE_CHIP_UNLIT_BG },
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            s.scopeLabelChipText,
-                            {
-                              color: lit ? fg : SCOPE_CHIP_MUTED_FG,
-                              fontWeight: lit ? '600' : '500',
-                            },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {lab}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            )}
-          </View>
-        );
-      })}
-    </View>
-  );
 }
 
 function matchQuery(q: string, row: FirmOrderWithDetails): boolean {

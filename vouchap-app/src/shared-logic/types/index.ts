@@ -563,6 +563,8 @@ export interface FirmSku {
   taxScenario?: string | null;
   /** SKU 自定义标签（用于创建订单时复制到订单） */
   tags?: string[] | null;
+  /** Firm display name when listing cross-firm published catalog */
+  firmName?: string | null;
   createdAt?: string;
   updatedAt?: string;
 }

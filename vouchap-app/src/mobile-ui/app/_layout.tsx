@@ -24,7 +24,7 @@ function isChatDisabledPath(pathname: string | null): boolean {
   // Dashboard（首页）
   if (pathname === '/' || pathname === '/index') return true;
   // 报税项目列表页：仅浏览，不支持 chat-to-log
-  if (pathname === '/tax-filing') return true;
+  if (pathname === '/tax-filing' || pathname.startsWith('/tax-filing/service-catalog')) return true;
   return false;
 }
 
@@ -233,9 +233,16 @@ function LayoutContent() {
         <Stack.Screen 
           name="tax-filing/index" 
           options={{ 
-            title: 'Tax Filing Engagements',
+            title: 'Tax Filing',
             headerBackTitle: 'Home'
           }} 
+        />
+        <Stack.Screen
+          name="tax-filing/service-catalog"
+          options={{
+            title: 'Service Marketplace',
+            headerBackTitle: 'Tax Filing',
+          }}
         />
         <Stack.Screen 
           name="tax-filing/order/[orderId]" 

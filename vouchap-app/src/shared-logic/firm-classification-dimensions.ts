@@ -3,6 +3,7 @@
  * (see firm/permissions.tsx Permission scope).
  */
 import type { FirmOrderWithDetails } from '@/lib/firm';
+import type { FirmSku } from '@/types';
 
 export type ClassificationDimension = 'season' | 'country' | 'scenario' | 'custom';
 
@@ -115,6 +116,55 @@ export function orderMatchesClassificationDimFilters(
     if (sel.size === 0) continue;
     const orderVals = getOrderValuesForClassificationDim(row, d);
     if (!orderVals.some((v) => sel.has(v))) return false;
+  }
+  return true;
+}
+
+/** Published catalog SKUs have no tax season on the row until the API exposes it; keep season empty for filtering. */
+export function getSkuValuesForClassificationDim(sku: FirmSku, d: ClassificationDimension): string[] {
+  switch (d) {
+    case 'season':
+      return [];
+    case 'country':
+      return sku.taxCountry && String(sku.taxCountry).trim() ? [String(sku.taxCountry).trim()] : [];
+    case 'scenario':
+      return sku.taxScenario && String(sku.taxScenario).trim() ? [String(sku.taxScenario).trim()] : [];
+    case 'custom':
+      if (!Array.isArray(sku.tags)) return [];
+      return sku.tags
+        .filter((t): t is string => typeof t === 'string' && !!String(t).trim())
+        .map((t) => String(t).trim());
+    default:
+      return [];
+  }
+}
+
+export function collectClassificationOptionsForSkuDim(skus: FirmSku[], d: ClassificationDimension): string[] {
+  const acc = new Set<string>();
+  for (const sku of skus) {
+    for (const v of getSkuValuesForClassificationDim(sku, d)) {
+      acc.add(v);
+    }
+  }
+  return Array.from(acc).sort((a, b) => a.localeCompare(b));
+}
+
+export function skuMatchesClassificationDimFilters(
+  sku: FirmSku,
+  filters: Record<ClassificationDimension, ClassificationDimFilter>,
+  optionsByDim: Record<ClassificationDimension, string[]>
+): boolean {
+  for (const d of CLASSIFICATION_DIMENSIONS) {
+    const f = filters[d];
+    if (f.mode === 'all') continue;
+    const sel = f.values;
+    const allOpts = optionsByDim[d];
+    if (allOpts.length > 0 && sel.size === allOpts.length && allOpts.every((x) => sel.has(x))) {
+      continue;
+    }
+    if (sel.size === 0) continue;
+    const vals = getSkuValuesForClassificationDim(sku, d);
+    if (!vals.some((v) => sel.has(v))) return false;
   }
   return true;
 }

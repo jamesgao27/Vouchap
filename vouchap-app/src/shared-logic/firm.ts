@@ -2701,6 +2701,58 @@ export async function getFirmSkus(firmSpaceId: string): Promise<FirmSku[]> {
   });
 }
 
+/** Client：跨事务所已发布的服务模板列表（RPC；需当前用户属于某 client 空间） */
+export async function getPublishedSkusForClientCatalog(): Promise<FirmSku[]> {
+  const { data, error } = await supabase.schema('firm').rpc('list_published_skus_for_client_catalog');
+  if (error) {
+    console.error('getPublishedSkusForClientCatalog:', error);
+    return [];
+  }
+  const rows = (data || []) as Record<string, unknown>[];
+  return rows.map((row) => {
+    const templateStatus =
+      row.template_status === 'draft' || row.template_status === 'private' || row.template_status === 'published'
+        ? row.template_status
+        : null;
+    let tags: string[] = [];
+    if (Array.isArray(row.tags)) {
+      tags = row.tags.filter((x): x is string => typeof x === 'string');
+    }
+    return {
+      id: String(row.id),
+      firmSpaceId: String(row.firm_space_id),
+      firmName: row.firm_name != null ? String(row.firm_name) : null,
+      name: String(row.name ?? '—'),
+      description: row.description ? String(row.description) : undefined,
+      imageUrl: row.image_url ? String(row.image_url) : null,
+      isPublished: row.is_published === true,
+      templateStatus: templateStatus ?? undefined,
+      itemsCount: row.items_count != null ? Number(row.items_count) : 0,
+      taxCountry: row.tax_country != null ? String(row.tax_country) : null,
+      taxScenario: row.tax_scenario != null ? String(row.tax_scenario) : null,
+      tags,
+      createdAt: row.created_at != null ? String(row.created_at) : undefined,
+      updatedAt: row.updated_at != null ? String(row.updated_at) : undefined,
+    };
+  });
+}
+
+/** Client：从已发布 SKU 创建 onboarding 订单（RPC；绕过 firm_orders_insert） */
+export async function clientCreateOnboardingOrderFromPublishedSku(
+  clientSpaceId: string,
+  skuId: string,
+): Promise<{ orderId: string | null; error: Error | null }> {
+  const { data, error } = await supabase.schema('firm').rpc('client_create_onboarding_order_from_published_sku', {
+    p_client_space_id: clientSpaceId,
+    p_sku_id: skuId,
+  });
+  if (error) {
+    return { orderId: null, error: error as Error };
+  }
+  const orderId = data != null ? String(data) : null;
+  return { orderId, error: null };
+}
+
 /** Firm 空间：删除单个服务 SKU 及其关联的 sku_items */
 export async function deleteFirmSku(firmSkuId: string): Promise<void> {
   // 先删 sku_items，再删 skus（即使数据库有 ON DELETE CASCADE，这里也显式清理，避免残留）

@@ -20,6 +20,7 @@ export const LIST_ROW_MIN_HEIGHT = 92;
 export const LIST_STATUS_WRAP_WIDTH = 92;
 export const ACTION_ROW_HEIGHT = 40;
 const CORNER_PIN_ORANGE = '#ff7711';
+const CORNER_FAVORITE_AMBER = '#F9A825';
 const CORNER_PIN_WHITE_TRANSPARENT = 'rgba(255,255,255,0.88)';
 export const LIST_ACTION_GRAY = '#636E72';
 
@@ -38,6 +39,8 @@ export interface ProjectListCardItem {
   isMuted?: boolean;
   /** 可选左上角状态角标（如 Draft/Private/Published 的首字母） */
   statusCorner?: { label: string; bg: string } | null;
+  /** 为 true 时不展示状态角标与状态 pill（如 client Service Marketplace） */
+  hideStatusBadge?: boolean;
   footerText?: string | null;
   /** 可选分类标签（如 Jurisdiction / Scenario），用于 SKU Service Template 卡片与列表行 */
   classificationTags?: { label: string; bg: string; fg: string }[] | null;
@@ -88,6 +91,7 @@ export function ProjectListCard({
   isPinned,
   onTogglePin,
   cardWidth,
+  pinAppearance = 'pin',
 }: {
   item: ProjectListCardItem;
   onPress: () => void;
@@ -95,6 +99,8 @@ export function ProjectListCard({
   isPinned?: boolean;
   onTogglePin?: () => void;
   cardWidth?: number;
+  /** `favorite`：星标收藏（Service Marketplace）；默认图钉置顶（Tax Filing engagements） */
+  pinAppearance?: 'pin' | 'favorite';
 }) {
   const [hover, setHover] = useState(false);
   const showEdit = Platform.OS === 'web' ? hover : true;
@@ -126,7 +132,7 @@ export function ProjectListCard({
               <Ionicons name="document-text-outline" size={32} color="#B2BEC3" />
             </View>
           )}
-          {item.statusCorner && (
+          {item.statusCorner && !item.hideStatusBadge && (
             <View style={s.statusCornerWrap} pointerEvents="none">
               <View style={[s.statusCornerTriangle, { backgroundColor: item.statusCorner.bg }]} />
               <View style={s.statusCornerLabelWrap}>
@@ -139,7 +145,13 @@ export function ProjectListCard({
               <View
                 style={[
                   s.cornerPinTriangle,
-                  { backgroundColor: isPinned ? CORNER_PIN_ORANGE : CORNER_PIN_WHITE_TRANSPARENT },
+                  {
+                    backgroundColor: isPinned
+                      ? pinAppearance === 'favorite'
+                        ? CORNER_FAVORITE_AMBER
+                        : CORNER_PIN_ORANGE
+                      : CORNER_PIN_WHITE_TRANSPARENT,
+                  },
                 ]}
                 pointerEvents="none"
               />
@@ -148,8 +160,17 @@ export function ProjectListCard({
                 onPress={(e) => { e.stopPropagation(); onTogglePin(); }}
                 hitSlop={0}
                 activeOpacity={0.85}
+                accessibilityLabel={pinAppearance === 'favorite' ? (isPinned ? 'Remove from favorites' : 'Add to favorites') : undefined}
               >
-                <PinToTopIcon size={28} color={isPinned ? '#FFF' : CORNER_PIN_ORANGE} />
+                {pinAppearance === 'favorite' ? (
+                  <Ionicons
+                    name={isPinned ? 'star' : 'star-outline'}
+                    size={28}
+                    color={isPinned ? '#FFF' : CORNER_FAVORITE_AMBER}
+                  />
+                ) : (
+                  <PinToTopIcon size={28} color={isPinned ? '#FFF' : CORNER_PIN_ORANGE} />
+                )}
               </TouchableOpacity>
             </View>
           )}
@@ -195,7 +216,7 @@ export function ProjectListCard({
             ) : (
               <View />
             )}
-            {!item.statusCorner && (
+            {!item.statusCorner && !item.hideStatusBadge && (
               <View style={[
                 s.statusPill,
                 { backgroundColor: item.statusColor },
@@ -315,12 +336,14 @@ export function ProjectListRow({
   onSettings,
   isPinned,
   onTogglePin,
+  pinAppearance = 'pin',
 }: {
   item: ProjectListCardItem;
   onPress: () => void;
   onSettings?: () => void;
   isPinned?: boolean;
   onTogglePin?: () => void;
+  pinAppearance?: 'pin' | 'favorite';
 }) {
   const [hover, setHover] = useState(false);
   const showEdit = Platform.OS === 'web' ? hover : true;
@@ -345,7 +368,13 @@ export function ProjectListRow({
             <View
               style={[
                 s.listRowCornerPinTriangle,
-                { backgroundColor: isPinned ? CORNER_PIN_ORANGE : CORNER_PIN_WHITE_TRANSPARENT },
+                {
+                  backgroundColor: isPinned
+                    ? pinAppearance === 'favorite'
+                      ? CORNER_FAVORITE_AMBER
+                      : CORNER_PIN_ORANGE
+                    : CORNER_PIN_WHITE_TRANSPARENT,
+                },
               ]}
               pointerEvents="none"
             />
@@ -354,8 +383,17 @@ export function ProjectListRow({
               onPress={(e) => { e.stopPropagation(); onTogglePin(); }}
               hitSlop={0}
               activeOpacity={0.85}
+              accessibilityLabel={pinAppearance === 'favorite' ? (isPinned ? 'Remove from favorites' : 'Add to favorites') : undefined}
             >
-              <PinToTopIcon size={18} color={isPinned ? '#FFF' : LIST_ACTION_GRAY} />
+              {pinAppearance === 'favorite' ? (
+                <Ionicons
+                  name={isPinned ? 'star' : 'star-outline'}
+                  size={18}
+                  color={isPinned ? '#FFF' : CORNER_FAVORITE_AMBER}
+                />
+              ) : (
+                <PinToTopIcon size={18} color={isPinned ? '#FFF' : LIST_ACTION_GRAY} />
+              )}
             </TouchableOpacity>
           </View>
         )}
@@ -375,7 +413,7 @@ export function ProjectListRow({
             </TouchableOpacity>
           ) : null}
         </View>
-        {item.statusCorner ? (
+        {item.statusCorner && !item.hideStatusBadge ? (
           <View style={s.listRowCornerPinWrap} pointerEvents="none">
             <View style={[s.listRowCornerPinTriangle, { backgroundColor: item.statusCorner.bg }]} />
             <View style={s.listRowCornerStatusLabelWrap}>
@@ -418,7 +456,7 @@ export function ProjectListRow({
           )}
           <View style={s.listRow2}>
             <View style={s.listStatusWrap}>
-              {!item.statusCorner && (
+              {!item.statusCorner && !item.hideStatusBadge && (
                 <View style={[s.listStatusPill, { backgroundColor: item.statusColor }]}>
                   <Text
                     style={[
