@@ -499,6 +499,8 @@ export type FirmSkuHeader = {
   taxCountry?: string | null;
   taxScenario?: string | null;
   tags?: string[] | null;
+  /** 来自 firm.skus.firm_space_id；用于标签库与更新 custom_label_ids */
+  firmSpaceId?: string | null;
   isPublished?: boolean;
   templateStatus?: 'draft' | 'private' | 'published' | null;
 };
@@ -507,7 +509,9 @@ async function fetchSkuHeaderFromTable(skuId: string): Promise<FirmSkuHeader | n
   const { data, error } = await supabase
     .schema('firm')
     .from('skus')
-    .select('name, description, image_url, tax_country, tax_scenario, tags, is_published, template_status')
+    .select(
+      'name, description, image_url, tax_country, tax_scenario, tags, custom_label_ids, firm_space_id, is_published, template_status',
+    )
     .eq('id', skuId)
     .maybeSingle();
 
@@ -517,13 +521,26 @@ async function fetchSkuHeaderFromTable(skuId: string): Promise<FirmSkuHeader | n
     row.template_status === 'draft' || row.template_status === 'private' || row.template_status === 'published'
       ? row.template_status
       : null;
+  const fromTags = Array.isArray(row.tags) ? (row.tags as string[]) : [];
+  const customIds = Array.isArray(row.custom_label_ids)
+    ? (row.custom_label_ids as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0)
+    : [];
+  let tags: string[] = fromTags;
+  if (customIds.length > 0) {
+    const nameMap = await getOrderLabelNameMap(customIds);
+    const fromIds = customIds.map((id) => nameMap[id]).filter((n): n is string => !!n && n.trim().length > 0);
+    if (fromIds.length > 0) {
+      tags = fromIds;
+    }
+  }
   return {
     name: row.name ?? '',
     description: row.description ?? null,
     imageUrl: row.image_url ?? null,
     taxCountry: row.tax_country ?? null,
     taxScenario: row.tax_scenario ?? null,
-    tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
+    tags,
+    firmSpaceId: row.firm_space_id ?? null,
     isPublished: row.is_published ?? false,
     templateStatus: templateStatus ?? undefined,
   };
@@ -1514,6 +1531,22 @@ export async function confirmOrderAndCreateProjectTodos(
     return { error: skuErr ? new Error(skuErr.message) : new Error('SKU not found') };
   }
 
+  // Classification：默认由触发器 public.projects_fill_tax_fields_from_order 从 firm.orders 复制
+  // （订单税字段来自 SKU / 标签库）。若订单尚无 tax_season_year，则用 due_at/created_at 年兜底写入 project。
+  const derivedTaxSeasonYear =
+    typeof (order as any).tax_season_year === 'number'
+      ? undefined
+      : (() => {
+          const d = (order as any).due_at || (order as any).created_at || null;
+          if (!d) return undefined;
+          try {
+            const y = new Date(d).getFullYear();
+            return Number.isNaN(y) ? undefined : y;
+          } catch {
+            return undefined;
+          }
+        })();
+
   const { data: projectRow, error: projectErr } = await supabase
     .from('projects')
     .insert({
@@ -1524,19 +1557,7 @@ export async function confirmOrderAndCreateProjectTodos(
       name: (sku as any).name ?? 'Project',
       description: (sku as any).description ?? null,
       image_url: (sku as any).image_url ?? null,
-      tax_country: (sku as any).tax_country ?? null,
-      tax_scenario: (sku as any).tax_scenario ?? null,
-      // 初始税季：按算法计算一次并写入 tax_season_year，之后各处只从该字段读取
-      tax_season_year: (() => {
-        const d = (order as any).due_at || (order as any).created_at || null;
-        if (!d) return null;
-        try {
-          const y = new Date(d).getFullYear();
-          return Number.isNaN(y) ? null : y;
-        } catch {
-          return null;
-        }
-      })(),
+      ...(derivedTaxSeasonYear != null ? { tax_season_year: derivedTaxSeasonYear } : {}),
     })
     .select('id')
     .maybeSingle();
@@ -1673,7 +1694,7 @@ export interface FirmProjectInfo {
 export async function getProjectByOrderId(orderId: string): Promise<FirmProjectInfo | null> {
   const { data, error } = await supabase
     .from('projects')
-    .select('id, order_id, name, description, image_url, status, start_at, end_at, created_at, updated_at, tax_country, tax_scenario, tax_season_year')
+    .select('id, order_id, name, description, image_url, status, start_at, end_at, created_at, updated_at, tax_country, tax_scenario, tags, tax_season_year')
     .eq('order_id', orderId)
     .maybeSingle();
 
@@ -1692,6 +1713,7 @@ export async function getProjectByOrderId(orderId: string): Promise<FirmProjectI
     updatedAt: row.updated_at,
     taxCountry: row.tax_country ?? null,
     taxScenario: row.tax_scenario ?? null,
+    tags: (row.tags as string[] | null) ?? [],
     taxSeasonYear: row.tax_season_year ?? null,
   };
 }
@@ -2797,6 +2819,7 @@ export async function updateFirmSku(
     templateStatus?: 'draft' | 'private' | 'published';
     taxCountry?: string | null;
     taxScenario?: string | null;
+    /** 自定义标签名称；写入时同步 firm.order_labels（custom）与 firm.skus.custom_label_ids */
     tags?: string[] | null;
   }
 ): Promise<{ error: Error | null }> {
@@ -2812,7 +2835,37 @@ export async function updateFirmSku(
   }
   if (payload.taxCountry !== undefined) updates.tax_country = payload.taxCountry;
   if (payload.taxScenario !== undefined) updates.tax_scenario = payload.taxScenario;
-  if (payload.tags !== undefined) updates.tags = payload.tags;
+  if (payload.tags !== undefined) {
+    const { data: skuRow, error: skuSelErr } = await supabase
+      .schema('firm')
+      .from('skus')
+      .select('firm_space_id')
+      .eq('id', skuId)
+      .maybeSingle();
+    if (skuSelErr) {
+      console.error('updateFirmSku firm_space_id:', skuSelErr);
+      return { error: new Error(skuSelErr.message) };
+    }
+    const firmSpaceId = (skuRow as { firm_space_id?: string } | null)?.firm_space_id;
+    if (!firmSpaceId) {
+      return { error: new Error('SKU not found or missing firm space') };
+    }
+    const customNames = Array.from(
+      new Set(
+        (payload.tags || [])
+          .map((t) => normalizeLabelName(t))
+          .filter((t): t is string => !!t),
+      ),
+    );
+    try {
+      const customIds = await ensureOrderLabelIdsByNames(firmSpaceId, 'custom', customNames);
+      updates.tags = customNames;
+      updates.custom_label_ids = customIds;
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Failed to resolve custom labels';
+      return { error: new Error(msg) };
+    }
+  }
   const { error } = await supabase
     .schema('firm')
     .from('skus')

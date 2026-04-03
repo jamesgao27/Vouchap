@@ -129,13 +129,11 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
       setEditName(projectData.name ?? '');
       setEditDesc(projectData.description ?? '');
       setEditImageUrl(projectData.imageUrl ?? null);
-      setEditTaxCountry(mode === 'firm' ? (orderData.taxCountry ?? '') : (projectData.taxCountry ?? ''));
-      setEditTaxScenario(mode === 'firm' ? (orderData.taxScenario ?? '') : (projectData.taxScenario ?? ''));
-      setEditTags(mode === 'firm' ? (orderData.tags ?? []) : (projectData.tags ?? []));
-
-      setEditTaxSeasonYear(mode === 'firm'
-        ? (orderData.taxSeasonLabelName ?? (orderData.taxSeasonYear != null ? String(orderData.taxSeasonYear) : ''))
-        : (projectData.taxSeasonYear != null ? String(projectData.taxSeasonYear) : ''));
+      // Classification 以 projects 为唯一下拉/保存源；初始值来自订单确认时触发器从 template/order 写入 project
+      setEditTaxCountry(projectData.taxCountry ?? '');
+      setEditTaxScenario(projectData.taxScenario ?? '');
+      setEditTags(projectData.tags ?? []);
+      setEditTaxSeasonYear(projectData.taxSeasonYear != null ? String(projectData.taxSeasonYear) : '');
 
       if (mode === 'firm' && orderData.firmSpaceId) {
         const [seasonLabels, countryLabels, scenarioLabels, customLabels] = await Promise.all([
@@ -221,6 +219,14 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
         });
         if (heroErr) throw heroErr;
 
+        const { error: projClassErr } = await updateProject(project.id, {
+          taxCountry: editTaxCountry.trim() || null,
+          taxScenario: editTaxScenario.trim() || null,
+          tags: trimmedTags.length > 0 ? trimmedTags : null,
+          taxSeasonYear: parsedYear,
+        });
+        if (projClassErr) throw projClassErr;
+
         const { error: classErr } = await updateOrderClassificationByLabelNames({
           orderId: order.id,
           firmSpaceId: order.firmSpaceId,
@@ -299,21 +305,35 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
           ...(pendingTag ? [pendingTag] : []),
         ]),
       );
-      const { error: err } = mode === 'firm'
-        ? await updateOrderClassificationByLabelNames({
+      let err: Error | null = null;
+      if (mode === 'firm') {
+        const r1 = await updateProject(project.id, {
+          taxCountry: trimmedCountry,
+          taxScenario: trimmedScenario,
+          tags: trimmedTags.length > 0 ? trimmedTags : null,
+          taxSeasonYear: parsedYear,
+        });
+        err = r1.error;
+        if (!err) {
+          const r2 = await updateOrderClassificationByLabelNames({
             orderId: order.id,
             firmSpaceId: order.firmSpaceId,
             taxCountry: trimmedCountry,
             taxScenario: trimmedScenario,
             taxSeasonLabelName: editTaxSeasonYear.trim() || null,
             customTags: trimmedTags,
-          })
-        : await updateProject(project.id, {
-            taxCountry: trimmedCountry,
-            taxScenario: trimmedScenario,
-            tags: trimmedTags.length > 0 ? trimmedTags : null,
-            taxSeasonYear: parsedYear,
           });
+          err = r2.error;
+        }
+      } else {
+        const r = await updateProject(project.id, {
+          taxCountry: trimmedCountry,
+          taxScenario: trimmedScenario,
+          tags: trimmedTags.length > 0 ? trimmedTags : null,
+          taxSeasonYear: parsedYear,
+        });
+        err = r.error;
+      }
       if (err) throw err;
       if (pendingTag) {
         setCustomLabelOptions((prev) => (prev.includes(pendingTag) ? prev : [...prev, pendingTag]));
@@ -327,20 +347,21 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
     } finally {
       setSaving(false);
     }
-  }, [project?.id, editTaxCountry, editTaxScenario, editTags, editTaxSeasonYear, load, mode, order]);
+  }, [project?.id, editTaxCountry, editTaxScenario, editTags, editTaxSeasonYear, load, mode, order?.id, order?.firmSpaceId]);
 
   const handleCancelEditAll = useCallback(() => {
     if (!project) return;
     setEditName(project.name ?? '');
     setEditDesc(project.description ?? '');
     setEditImageUrl(project.imageUrl ?? null);
-    setEditTaxCountry(mode === 'firm' ? (order?.taxCountry ?? '') : (project.taxCountry ?? ''));
-    setEditTaxScenario(mode === 'firm' ? (order?.taxScenario ?? '') : (project.taxScenario ?? ''));
-    setEditTags(mode === 'firm' ? (order?.tags ?? []) : (project.tags ?? []));
+    setEditTaxCountry(project.taxCountry ?? '');
+    setEditTaxScenario(project.taxScenario ?? '');
+    setEditTags(project.tags ?? []);
+    setEditTaxSeasonYear(project.taxSeasonYear != null ? String(project.taxSeasonYear) : '');
     setTagInput('');
     setEditingHero(false);
     setEditingClassification(false);
-  }, [project, mode, order]);
+  }, [project]);
 
   /** 仅取消 Hero 卡片的编辑（还原名称/描述/封面） */
   const handleCancelHero = useCallback(() => {
@@ -354,15 +375,13 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
   /** 仅取消 Classification 卡片编辑（还原税季/国别/场景/标签） */
   const handleCancelClassification = useCallback(() => {
     if (!project) return;
-    setEditTaxCountry(mode === 'firm' ? (order?.taxCountry ?? '') : (project.taxCountry ?? ''));
-    setEditTaxScenario(mode === 'firm' ? (order?.taxScenario ?? '') : (project.taxScenario ?? ''));
-    setEditTags(mode === 'firm' ? (order?.tags ?? []) : (project.tags ?? []));
+    setEditTaxCountry(project.taxCountry ?? '');
+    setEditTaxScenario(project.taxScenario ?? '');
+    setEditTags(project.tags ?? []);
     setTagInput('');
-    setEditTaxSeasonYear(mode === 'firm'
-      ? (order?.taxSeasonLabelName ?? (order?.taxSeasonYear != null ? String(order.taxSeasonYear) : ''))
-      : (project.taxSeasonYear != null ? String(project.taxSeasonYear) : ''));
+    setEditTaxSeasonYear(project.taxSeasonYear != null ? String(project.taxSeasonYear) : '');
     setEditingClassification(false);
-  }, [project, order, mode]);
+  }, [project]);
 
   // useImperativeHandle 放在 handleSave / handleCancelEdit 定义之后，避免暂时性死区
   useImperativeHandle(
@@ -407,12 +426,8 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
     ? new Date((order.dueAt || order.createdAt)!).getFullYear()
     : null;
   const taxSeasonYear =
-    mode === 'firm'
-      ? (order.taxSeasonYear != null ? order.taxSeasonYear : derivedTaxSeasonYear)
-      : (project.taxSeasonYear != null ? project.taxSeasonYear : derivedTaxSeasonYear);
-  const taxSeasonLabelName = mode === 'firm'
-    ? (order.taxSeasonLabelName ?? (taxSeasonYear != null ? String(taxSeasonYear) : null))
-    : (taxSeasonYear != null ? String(taxSeasonYear) : null);
+    project.taxSeasonYear != null ? project.taxSeasonYear : derivedTaxSeasonYear;
+  const taxSeasonLabelName = taxSeasonYear != null ? String(taxSeasonYear) : null;
   const stageConfig = STAGE_CONFIG[order.status] ?? STAGE_CONFIG.onboarding;
   const displayImageUrl = editingHero ? editImageUrl : project.imageUrl;
 
@@ -523,15 +538,13 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
       <View style={s.card}>
         {/* Classification 卡片编辑入口：右上角铅笔 / 取消 / 保持 */}
         {!editingClassification ? (
-          mode === 'firm' ? (
-            <TouchableOpacity
-              style={s.cardEditIcon}
-              onPress={() => setEditingClassification(true)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="create-outline" size={18} color="#636E72" />
-            </TouchableOpacity>
-          ) : null
+          <TouchableOpacity
+            style={s.cardEditIcon}
+            onPress={() => setEditingClassification(true)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="create-outline" size={18} color="#636E72" />
+          </TouchableOpacity>
         ) : (
           <View style={s.cardEditActions}>
             <TouchableOpacity
@@ -557,7 +570,7 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
         )}
         <Text style={s.cardTitle}>Classification</Text>
 
-        {/* Tax season — 彩色 pill；编辑态支持选择 + 自定义年份 */}
+        {/* Tax season — 彩色 pill；firm 可从维度 chips 选；client 仅数字年份 */}
         <View style={s.cfRow}>
           <View style={s.cfTagCol}>
             <Text style={s.cfLabel}>Tax season</Text>
@@ -595,6 +608,15 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
                   placeholderTextColor="#B2BEC3"
                 />
               </View>
+            ) : editingClassification && mode === 'client' ? (
+              <TextInput
+                style={[s.tagsInput, { minWidth: 100, maxWidth: 120 }]}
+                value={editTaxSeasonYear}
+                onChangeText={setEditTaxSeasonYear}
+                placeholder="YYYY"
+                placeholderTextColor="#B2BEC3"
+                keyboardType="number-pad"
+              />
             ) : taxSeasonLabelName ? (
               <View
                 style={[
@@ -654,9 +676,20 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
                   />
                 </View>
               )
-              : (mode === 'firm' ? order.taxCountry : project.taxCountry)
+              : editingClassification && mode === 'client'
+                ? (
+                  <TextInput
+                    style={[s.tagsInput, { flex: 1, minWidth: 120 }]}
+                    value={editTaxCountry}
+                    onChangeText={setEditTaxCountry}
+                    placeholder="e.g. CANADA"
+                    placeholderTextColor="#B2BEC3"
+                    autoCapitalize="characters"
+                  />
+                )
+              : project.taxCountry
                   ? (() => {
-                      const name = (mode === 'firm' ? order.taxCountry : project.taxCountry) as string;
+                      const name = project.taxCountry as string;
                       const [bg, fg] = getTagColor(name);
                       return <View style={[s.valueTagPill, { backgroundColor: bg }]}><Text style={[s.valueTagText, { color: fg }]}>{name}</Text></View>;
                     })()
@@ -698,9 +731,19 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
                   />
                 </View>
               )
-              : (mode === 'firm' ? order.taxScenario : project.taxScenario)
+              : editingClassification && mode === 'client'
+                ? (
+                  <TextInput
+                    style={[s.tagsInput, { flex: 1, minWidth: 120 }]}
+                    value={editTaxScenario}
+                    onChangeText={setEditTaxScenario}
+                    placeholder="e.g. T1"
+                    placeholderTextColor="#B2BEC3"
+                  />
+                )
+              : project.taxScenario
                   ? (() => {
-                      const name = (mode === 'firm' ? order.taxScenario : project.taxScenario) as string;
+                      const name = project.taxScenario as string;
                       const [bg, fg] = getTagColor(name);
                       return <View style={[s.valueTagPill, { backgroundColor: bg }]}><Text style={[s.valueTagText, { color: fg }]}>{name}</Text></View>;
                     })()
@@ -710,46 +753,50 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
 
         <View style={s.divider} />
 
-        {/* Custom label — 已有标签 + 行内新增入口（同一行：chips + 输入框+号） */}
+        {/* Custom label — firm 维度多选；client 点标签删除 + 新增；只读来自 project.tags */}
         <View style={s.cfRow}>
           <View style={s.cfTagCol}>
             <Text style={s.cfLabel}>Custom label</Text>
           </View>
           <View style={[s.cfValueCol, { gap: 8 }]}>
-            <View style={s.tagsRow}>
-              {(customLabelOptions.length > 0 ? customLabelOptions : editTags).map((t) => {
-                const isSelected = editTags.includes(t);
-                const [bg, fg] = getTagColor(t);
-                return (
-                  <TouchableOpacity
-                    key={t}
-                    style={[
-                      s.tagPill,
-                      isSelected && { backgroundColor: bg, borderColor: 'transparent' },
-                    ]}
-                    onPress={
-                      editingClassification && mode === 'firm'
-                        ? () => {
-                            setEditTags((prev) =>
-                              prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
-                            );
-                          }
-                        : undefined
-                    }
-                    activeOpacity={editingClassification && mode === 'firm' ? 0.7 : 1}
-                  >
-                    <Text
+            {!editingClassification ? (
+              <View style={s.tagsRow}>
+                {project.tags && project.tags.length > 0 ? (
+                  project.tags.map((t) => {
+                    const [bg, fg] = getTagColor(t);
+                    return (
+                      <View key={t} style={[s.valueTagPill, { backgroundColor: bg }]}>
+                        <Text style={[s.valueTagText, { color: fg }]}>{t}</Text>
+                      </View>
+                    );
+                  })
+                ) : (
+                  <Text style={s.cfEmptyTag}>—</Text>
+                )}
+              </View>
+            ) : mode === 'firm' ? (
+              <View style={s.tagsRow}>
+                {(customLabelOptions.length > 0 ? customLabelOptions : editTags).map((t) => {
+                  const isSelected = editTags.includes(t);
+                  const [bg, fg] = getTagColor(t);
+                  return (
+                    <TouchableOpacity
+                      key={t}
                       style={[
-                        s.tagPillText,
-                        isSelected && { color: fg },
+                        s.tagPill,
+                        isSelected && { backgroundColor: bg, borderColor: 'transparent' },
                       ]}
+                      onPress={() => {
+                        setEditTags((prev) =>
+                          prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
+                        );
+                      }}
+                      activeOpacity={0.7}
                     >
-                      {t}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-              {editingClassification && mode === 'firm' && (
+                      <Text style={[s.tagPillText, isSelected && { color: fg }]}>{t}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
                 <View style={s.tagInlineInputWrap}>
                   <TextInput
                     style={[s.tagInlineInput, { flex: 1 }]}
@@ -761,16 +808,43 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
                     returnKeyType="done"
                     blurOnSubmit={false}
                   />
-                  <TouchableOpacity
-                    onPress={addTag}
-                    activeOpacity={0.7}
-                    hitSlop={6}
-                  >
+                  <TouchableOpacity onPress={addTag} activeOpacity={0.7} hitSlop={6}>
                     <Text style={s.tagPillText}>+</Text>
                   </TouchableOpacity>
                 </View>
-              )}
-            </View>
+              </View>
+            ) : (
+              <View style={s.tagsRow}>
+                {editTags.map((t) => {
+                  const [bg, fg] = getTagColor(t);
+                  return (
+                    <TouchableOpacity
+                      key={t}
+                      style={[s.tagPill, { backgroundColor: bg, borderColor: 'transparent' }]}
+                      onPress={() => removeTag(t)}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[s.tagPillText, { color: fg }]}>{t} ·</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <View style={s.tagInlineInputWrap}>
+                  <TextInput
+                    style={[s.tagInlineInput, { flex: 1 }]}
+                    value={tagInput}
+                    onChangeText={setTagInput}
+                    placeholder="Add label"
+                    placeholderTextColor="#B2BEC3"
+                    onSubmitEditing={addTag}
+                    returnKeyType="done"
+                    blurOnSubmit={false}
+                  />
+                  <TouchableOpacity onPress={addTag} activeOpacity={0.7} hitSlop={6}>
+                    <Text style={s.tagPillText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
           </View>
         </View>
       </View>

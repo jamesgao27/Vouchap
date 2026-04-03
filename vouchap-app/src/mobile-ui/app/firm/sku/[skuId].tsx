@@ -20,6 +20,7 @@ import * as ImagePicker from 'expo-image-picker';
 import {
   getSkuById,
   getSkuItems,
+  getFirmOrderLabelsByDimension,
   updateFirmSku,
   createSkuItem,
   updateSkuItem,
@@ -151,6 +152,9 @@ export default function FirmSkuDetailScreen() {
   const [editTaxScenario, setEditTaxScenario] = useState('');
   type TemplateStatus = 'draft' | 'private' | 'published';
   const [editStatus, setEditStatus] = useState<TemplateStatus>('draft');
+  const [editTags, setEditTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState('');
+  const [customLabelOptions, setCustomLabelOptions] = useState<string[]>([]);
 
   // ── 新建 SKU 检测：从 Service Catalog「New service」进入时带 isNew=1，若期间无任何修改则离开时自动删除该草稿
   const isNewSku = isNew === '1' || isNew === 'true';
@@ -170,7 +174,7 @@ export default function FirmSkuDetailScreen() {
       const skuForState: FirmSku = {
         ...skuData,
         id: skuId,
-        firmSpaceId: '',
+        firmSpaceId: skuData.firmSpaceId ?? '',
         description: skuData.description ?? undefined,
         imageUrl: skuData.imageUrl ?? undefined,
         taxCountry: skuData.taxCountry ?? undefined,
@@ -179,6 +183,17 @@ export default function FirmSkuDetailScreen() {
       setSku(skuForState);
       setItems(itemsData);
       resetDraft(skuForState);
+      const fid = (skuData.firmSpaceId ?? '').trim();
+      if (fid) {
+        try {
+          const custom = await getFirmOrderLabelsByDimension(fid, 'custom');
+          setCustomLabelOptions(custom);
+        } catch {
+          setCustomLabelOptions([]);
+        }
+      } else {
+        setCustomLabelOptions([]);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
@@ -192,9 +207,19 @@ export default function FirmSkuDetailScreen() {
     setEditImageUrl(data.imageUrl ?? null);
     setEditTaxCountry(data.taxCountry ?? '');
     setEditTaxScenario(data.taxScenario ?? '');
+    setEditTags(data.tags ?? []);
+    setTagInput('');
     const status: TemplateStatus = data.templateStatus ?? (data.isPublished ? 'published' : (data.taxCountry || data.taxScenario ? 'private' : 'draft'));
     setEditStatus(status);
   }
+
+  const addCustomLabelTag = useCallback(() => {
+    const t = tagInput.trim();
+    if (!t) return;
+    setEditTags((prev) => (prev.includes(t) ? prev : [...prev, t]));
+    setCustomLabelOptions((prev) => (prev.includes(t) ? prev : [...prev, t]));
+    setTagInput('');
+  }, [tagInput]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -210,6 +235,13 @@ export default function FirmSkuDetailScreen() {
   const handleSaveInfo = useCallback(async () => {
     if (!skuId) return;
     setSaving(true);
+    const pendingTag = tagInput.trim();
+    const trimmedTags = Array.from(
+      new Set([
+        ...editTags.map((t) => t.trim()).filter((t) => t.length > 0),
+        ...(pendingTag ? [pendingTag] : []),
+      ]),
+    );
     const { error: err } = await updateFirmSku(skuId, {
       name: editName.trim() || sku?.name,
       description: editDesc.trim() || null,
@@ -217,14 +249,19 @@ export default function FirmSkuDetailScreen() {
       templateStatus: editStatus,
       taxCountry: editTaxCountry || null,
       taxScenario: editTaxScenario || null,
+      tags: trimmedTags,
     });
     setSaving(false);
     if (err) { showToast('Failed to save', 'error'); return; }
+    if (pendingTag) {
+      setCustomLabelOptions((prev) => (prev.includes(pendingTag) ? prev : [...prev, pendingTag]));
+      setTagInput('');
+    }
     markTouched();
     showToast('Saved', 'success');
     setInfoEditing(false);
     await load();
-  }, [skuId, editName, editDesc, editImageUrl, editTaxCountry, editTaxScenario, editStatus, sku?.name, load]);
+  }, [skuId, editName, editDesc, editImageUrl, editTaxCountry, editTaxScenario, editStatus, editTags, tagInput, sku?.name, load]);
 
   const handleCancelEdit = useCallback(() => {
     if (sku) resetDraft(sku);
@@ -477,6 +514,67 @@ export default function FirmSkuDetailScreen() {
               const [bg, fg] = getTagColor(sku.taxScenario);
               return <View style={[s.valueTagPill, { backgroundColor: bg }]}><Text style={[s.valueTagText, { color: fg }]}>{sku.taxScenario}</Text></View>;
             })() : <Text style={s.cfEmptyTag}>—</Text>}
+          </View>
+        </View>
+
+        <View style={s.divider} />
+
+        {/* Custom labels — firm label library + free-text add (syncs firm.skus.tags + custom_label_ids) */}
+        <View style={s.cfRow}>
+          <View style={s.cfTagCol}><Text style={s.cfLabel}>Custom labels</Text></View>
+          <View style={[s.cfValueCol, { gap: 8 }]}>
+            {!infoEditing ? (
+              <View style={s.tagsRow}>
+                {sku.tags && sku.tags.length > 0 ? (
+                  sku.tags.map((t) => {
+                    const [bg, fg] = getTagColor(t);
+                    return (
+                      <View key={t} style={[s.valueTagPill, { backgroundColor: bg }]}>
+                        <Text style={[s.valueTagText, { color: fg }]}>{t}</Text>
+                      </View>
+                    );
+                  })
+                ) : (
+                  <Text style={s.cfEmptyTag}>—</Text>
+                )}
+              </View>
+            ) : (
+              <View style={s.tagsRow}>
+                {(customLabelOptions.length > 0 ? customLabelOptions : editTags).map((t) => {
+                  const isSelected = editTags.includes(t);
+                  const [bg, fg] = getTagColor(t);
+                  return (
+                    <TouchableOpacity
+                      key={t}
+                      style={[s.tagPill, isSelected && { backgroundColor: bg, borderColor: 'transparent' }]}
+                      onPress={() => {
+                        setEditTags((prev) =>
+                          prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t],
+                        );
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[s.tagPillText, isSelected && { color: fg }]}>{t}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <View style={s.tagInlineInputWrap}>
+                  <TextInput
+                    style={[s.tagInlineInput, { flex: 1 }]}
+                    value={tagInput}
+                    onChangeText={setTagInput}
+                    placeholder="Add label"
+                    placeholderTextColor="#B2BEC3"
+                    onSubmitEditing={addCustomLabelTag}
+                    returnKeyType="done"
+                    blurOnSubmit={false}
+                  />
+                  <TouchableOpacity onPress={addCustomLabelTag} activeOpacity={0.7} hitSlop={6}>
+                    <Text style={s.tagPillText}>+</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
           </View>
         </View>
 
@@ -894,6 +992,43 @@ const s = StyleSheet.create({
   optChipActive: { borderColor: '#6C5CE7', backgroundColor: '#EDE9FD' },
   optChipText: { fontSize: 12, color: '#636E72', fontWeight: '500' },
   optChipTextActive: { color: '#6C5CE7', fontWeight: '700' },
+
+  tagsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+    gap: 6,
+  },
+  tagPill: {
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#DFE6E9',
+  },
+  tagPillText: { fontSize: 12, color: '#2D3436', fontWeight: '500' },
+  tagInlineInputWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#DFE6E9',
+    backgroundColor: '#FFFFFF',
+    gap: 4,
+    minWidth: 72,
+  },
+  tagInlineInput: {
+    fontSize: 12,
+    color: '#2D3436',
+    paddingVertical: 0,
+    minWidth: 44,
+    maxWidth: 110,
+    ...(Platform.OS === 'web' ? { outlineStyle: 'none' as const, outlineWidth: 0 } : {}),
+  },
 
   publishedToggle: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
