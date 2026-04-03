@@ -725,23 +725,28 @@ export default function ManagementScreen() {
                 <View style={styles.viewContent}>
                   <View style={styles.nameRow}>
                     {loading && !user ? (
-                      <View style={styles.loadingPlaceholder}>
-                        <ActivityIndicator size="small" color="#95A5A6" />
-                        <Text style={styles.placeholderText}>Loading...</Text>
-                      </View>
+                      <>
+                        <View style={styles.loadingPlaceholder}>
+                          <ActivityIndicator size="small" color="#95A5A6" />
+                          <Text style={styles.placeholderText}>Loading...</Text>
+                        </View>
+                        <View style={styles.nameRowEditSlot} />
+                      </>
                     ) : (
                       <>
                         <Text style={styles.spaceName}>{user?.name || user?.email || 'N/A'}</Text>
-                        <TouchableOpacity
-                          style={styles.editButton}
-                          onPress={() => {
-                            setUserLogoUri(null);
-                            setUserLogoClear(false);
-                            setEditingPersonal(true);
-                          }}
-                        >
-                          <Ionicons name="create-outline" size={18} color="#6C5CE7" />
-                        </TouchableOpacity>
+                        <View style={styles.nameRowEditSlot}>
+                          <TouchableOpacity
+                            style={styles.editButton}
+                            onPress={() => {
+                              setUserLogoUri(null);
+                              setUserLogoClear(false);
+                              setEditingPersonal(true);
+                            }}
+                          >
+                            <Ionicons name="create-outline" size={18} color="#6C5CE7" />
+                          </TouchableOpacity>
+                        </View>
                       </>
                     )}
                   </View>
@@ -864,25 +869,30 @@ export default function ManagementScreen() {
                 <View style={styles.viewContent}>
                   <View style={styles.nameRow}>
                     {loading && !space ? (
-                      <View style={styles.loadingPlaceholder}>
-                        <ActivityIndicator size="small" color="#95A5A6" />
-                        <Text style={styles.placeholderText}>Loading...</Text>
-                      </View>
+                      <>
+                        <View style={styles.loadingPlaceholder}>
+                          <ActivityIndicator size="small" color="#95A5A6" />
+                          <Text style={styles.placeholderText}>Loading...</Text>
+                        </View>
+                        <View style={styles.nameRowEditSlot} />
+                      </>
                     ) : (
                       <>
                         <Text style={styles.spaceName}>{space?.name || 'N/A'}</Text>
-                        {canEditSpaceInfo && (
-                          <TouchableOpacity
-                            style={styles.editButton}
-                            onPress={() => {
-                              setSpaceImageUri(null);
-                              setSpaceImageClear(false);
-                              setEditing(true);
-                            }}
-                          >
-                            <Ionicons name="create-outline" size={18} color="#6C5CE7" />
-                          </TouchableOpacity>
-                        )}
+                        <View style={styles.nameRowEditSlot}>
+                          {canEditSpaceInfo ? (
+                            <TouchableOpacity
+                              style={styles.editButton}
+                              onPress={() => {
+                                setSpaceImageUri(null);
+                                setSpaceImageClear(false);
+                                setEditing(true);
+                              }}
+                            >
+                              <Ionicons name="create-outline" size={18} color="#6C5CE7" />
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
                       </>
                     )}
                   </View>
@@ -1152,7 +1162,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     flex: 1,
-    height: 20, // 固定高度匹配spaceName的行高
+    minHeight: 28, // 与 nameRow / 编辑按钮槽同高，避免加载完成后卡片抖动
   },
   placeholderText: {
     fontSize: 15,
@@ -1356,13 +1366,20 @@ const styles = StyleSheet.create({
   },
   viewContent: {
     flex: 1,
-    minHeight: 44, // 固定最小高度：nameRow (24) + addressRow (20) = 44
+    minHeight: 52, // nameRow min 28 + marginBottom 4 + addressRow min 20
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 4,
+    minHeight: 28, // 与 editButton 同高，管理员出现编辑图标时不增高
+  },
+  nameRowEditSlot: {
+    width: 28,
+    height: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   chevronIcon: {
     marginLeft: 8,

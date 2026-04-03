@@ -68,6 +68,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { FileDetailModal } from '@/components/FileDetailModal';
 import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
+import { classificationLabelsForTaxFilingPrompt } from '@/lib/tax-filing-project-classification-labels';
 import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition-retry';
 import { processTaxFilingAttachmentAfterCreate } from '@/lib/tax-filing-attachment-followup';
 import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
@@ -2953,9 +2954,11 @@ export function TaxFilingTodosView({
           return;
         }
 
+        const classificationLabels = classificationLabelsForTaxFilingPrompt(project);
         const projectContext = {
           country: (project.taxCountry === 'USA' ? 'USA' : 'CANADA') as 'CANADA' | 'USA',
           taxScenario: project.taxScenario ?? '',
+          ...(classificationLabels.length > 0 ? { classificationLabels } : {}),
         };
 
         // 标记为处理中

@@ -3,6 +3,7 @@ import {
   getProjectTodoAttachmentById,
   updateProjectTodoAttachment,
 } from './firm';
+import { classificationLabelsForTaxFilingPrompt } from './tax-filing-project-classification-labels';
 import { runTaxFilingRecognition } from './tax-filing-recognition-run';
 import { runWithRecognitionRetry, getUserFacingMessage } from './recognition-retry';
 import { saveTaxFilingAttachmentChatLog } from './tax-filing-chat-log';
@@ -30,9 +31,11 @@ export async function processTaxFilingAttachmentAfterCreate(params: {
   }
 
   const { attachment, project, todoContext } = ctx;
+  const classificationLabels = classificationLabelsForTaxFilingPrompt(project);
   const projectContext = {
     country: (project.taxCountry === 'USA' ? 'USA' : 'CANADA') as 'CANADA' | 'USA',
     taxScenario: project.taxScenario ?? '',
+    ...(classificationLabels.length > 0 ? { classificationLabels } : {}),
   };
 
   const recognizeFn = () => runTaxFilingRecognition(attachment.attachment_url, projectContext, todoContext);

@@ -2538,7 +2538,12 @@ export async function getProjectTodoAttachmentById(
 /** 获取附件及其项目/任务上下文，供历史 PENDING_AI 识别：用 project 的 tax_country/tax_scenario + todo 的 phase/section/task 构建提示词后调用 updateProjectTodoAttachment */
 export async function getProjectTodoAttachmentWithContext(attachmentId: string): Promise<{
   attachment: { id: string; attachment_url: string; status: string; recognition_fail_count?: number };
-  project: { taxCountry: string | null; taxScenario: string | null };
+  project: {
+    taxCountry: string | null;
+    taxScenario: string | null;
+    tags: string[];
+    taxSeasonYear: number | null;
+  };
   todoContext: { phase?: string; section?: string; task?: string };
 } | null> {
   const { data: att, error: attErr } = await supabase
@@ -2557,7 +2562,7 @@ export async function getProjectTodoAttachmentWithContext(attachmentId: string):
   const projectId = (todo as any).project_id;
   const { data: proj, error: projErr } = await supabase
     .from('projects')
-    .select('tax_country, tax_scenario')
+    .select('tax_country, tax_scenario, tags, tax_season_year')
     .eq('id', projectId)
     .maybeSingle();
   if (projErr || !proj) return null;
@@ -2582,9 +2587,15 @@ export async function getProjectTodoAttachmentWithContext(attachmentId: string):
     else if (p.item_kind === 'section') todoContext.section = p.title;
     else if (p.item_kind === 'task') todoContext.task = p.title;
   });
+  const p = proj as any;
   return {
     attachment: { id: (att as any).id, attachment_url: (att as any).attachment_url, status: (att as any).status },
-    project: { taxCountry: (proj as any).tax_country ?? null, taxScenario: (proj as any).tax_scenario ?? null },
+    project: {
+      taxCountry: p.tax_country ?? null,
+      taxScenario: p.tax_scenario ?? null,
+      tags: Array.isArray(p.tags) ? (p.tags as string[]) : [],
+      taxSeasonYear: typeof p.tax_season_year === 'number' ? p.tax_season_year : null,
+    },
     todoContext,
   };
 }

@@ -18,6 +18,13 @@ export interface TaxDocumentTaskMatcherContext {
   taxCountry: string | null;
   /** 报税场景：T1, T2, 1040, 1120-S 等 */
   taxScenario: string | null;
+  /** 原始文件名（如 T4A-2024.jpg）可作为辅助线索，不得覆盖图像中的表单编号 */
+  fileName?: string | null;
+  /**
+   * 项目上的分类标签（辖区、场景、税年、自定义 tag），与 SKU/列表 pills 一致；
+   * 用于收窄候选项，不得覆盖图像中的表单类型。
+   */
+  classificationLabels?: string[];
 }
 
 export interface TaxDocumentTaskOption {
@@ -64,29 +71,64 @@ async function downloadImageToBase64(imageUrl: string): Promise<{ base64: string
 }
 
 function buildTaskMatcherPrompt(context: TaxDocumentTaskMatcherContext, tasks: TaxDocumentTaskOption[]): string {
-  const jurisdiction = context.taxCountry === 'CANADA' ? 'Canada (CRA)' : context.taxCountry === 'USA' ? 'USA (IRS)' : 'North America';
-  const scenario = context.taxScenario || 'general tax';
+  const jurisdiction =
+    context.taxCountry === 'CANADA'
+      ? 'Canada (CRA / Revenu Québec / provincial)'
+      : context.taxCountry === 'USA'
+        ? 'USA (IRS / SSA)'
+        : 'North America';
+  const scenario = (context.taxScenario || 'general tax').trim() || 'general tax';
   const taskList = tasks.map((t) => `- id: "${t.id}", title: "${t.title}"`).join('\n');
+  const nameHint =
+    context.fileName && context.fileName.trim()
+      ? `\nOriginal filename (weak hint; if it conflicts with the image, trust the image): "${context.fileName.trim()}"\n`
+      : '';
 
-  return `You are a North American tax document expert. Your task is to look at the provided image (THIS SINGLE DOCUMENT ONLY) and decide which TASK from the list below this document best belongs to. Association must match the correct task; do not confuse with other documents.
+  const labels = (context.classificationLabels ?? []).map((s) => s.trim()).filter(Boolean);
+  const engagementBlock =
+    labels.length > 0
+      ? `
+## Engagement classification (from this project’s metadata)
+These labels describe the service scope (same as the app’s project tags). They narrow **likely** document families; the image is always authoritative for the actual form type.
+${labels.map((l) => `- ${l}`).join('\n')}
+When several tasks could fit, prefer the task whose title best matches **both** the visible slip/form **and** this engagement scope. If tags conflict with a clearly identified form on the image, choose the task that matches the form.
+`
+      : '';
 
-Context: Jurisdiction ${jurisdiction}, tax scenario: ${scenario}.
+  const scenarioFocus =
+    scenario === 'T1'
+      ? 'Focus on personal income slips (T4 family, T5, donations, RRSP, T2202, medical, etc.). Do not map a clear T4 to a generic “other income” task when a T4-specific task exists.'
+      : scenario === 'T2'
+        ? 'Focus on corporate: financial statements, T2 schedules, GST/HST, minute books, corporate NOA—not personal T4 unless a task explicitly asks for owner employment slips.'
+        : scenario === '1040'
+          ? 'Focus on individual 1040 support: W-2, 1099 variants, 1098, SSA-1099, 1099-R, K-1 flowing to the individual return.'
+          : /^1120/i.test(scenario)
+            ? 'Focus on S-corp / business: Form 1120-S pages, Schedule K-1 (1120-S), payroll, business statements as labelled in tasks.'
+            : 'Use jurisdiction-appropriate forms exactly as shown on the document.';
 
-Common document types you might see (for matching to task titles):
-- Canada: T4, T5, T4A, RRSP slip, donation receipt, financial statement, GST/HST, T2 schedules.
-- USA: W-2, 1099-INT, 1099-DIV, 1098, 1099-MISC, K-1, S-corp forms.
+  return `You are a senior North American tax preparer. The input is ONE file (image). Pick exactly ONE task id from TASK LIST for this file.
 
-TASK LIST (you must return exactly one of these task ids; use the id verbatim):
+Context — Jurisdiction: ${jurisdiction}. Project tax scenario: ${scenario}.
+${scenarioFocus}
+${engagementBlock}
+${nameHint}
+## Identification protocol (internal reasoning; output JSON only)
+1. Read visible headers, form codes, box labels, and issuer lines (e.g. “Statement of Remuneration Paid”, “T4A”, “Relevé 1” / RL-1, “W-2”, “OMB No.”, “Department of the Treasury—Internal Revenue Service”, “Canada Revenue Agency”).
+2. Use the **most specific** form id (T4 ≠ T4A ≠ T4A(OAS) ≠ T4PS ≠ T4E ≠ T2202; 1099-INT ≠ 1099-DIV ≠ 1099-NEC ≠ 1099-R).
+3. If only part of a page is visible, classify from what is shown; do not assume a different form family.
+4. Map to the task whose **title** best matches that form (exact code in the title wins over vague words like “income”).
+5. Do not map generic bank/credit card statements to slip-specific tasks unless the task title clearly requests statements.
+
+## Common Canada identifiers
+T4, T4A, T4A(OAS), T4PS, T4E, T4FHSA, T4RSP, T4RIF, T5, T3, T5008, T2202, RRSP receipt, donation receipt, medical summaries, RL-1, NOA, T1 jacket.
+
+## Common USA identifiers
+W-2, 1099-INT, 1099-DIV, 1099-MISC, 1099-NEC, 1099-R, 1099-G, SSA-1099, 1098, 1098-T, 1098-E, K-1 (1065/1120-S), 1120-S.
+
+## TASK LIST (each line: id + task title — your answer must be one id from this list)
 ${taskList}
 
-Instructions:
-1. Identify the document type/category from the image (e.g. T4, W-2, receipt, bank statement).
-2. Choose the task whose title best matches this document type. Use semantic matching: e.g. "T4" document -> task titled "T4 slips" or "Employment income (T4)" or similar.
-3. If no task clearly fits, pick the most general one (e.g. "Other documents" or the last task in the list).
-4. Return ONLY valid JSON, no markdown. Example: {"task_id": "uuid-here"}
-5. The association must correspond to the correct task for THIS document only.
-
-Output format: {"task_id": "<one of the ids from the list above>"}`;
+Output ONLY valid JSON, no markdown: {"task_id":"<id from TASK LIST>"}`;
 }
 
 /**

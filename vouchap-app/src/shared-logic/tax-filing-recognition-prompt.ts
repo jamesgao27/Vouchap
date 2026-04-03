@@ -12,6 +12,11 @@ export interface TaxFilingProjectContext {
   country: TaxFilingJurisdiction;
   /** 报税场景，如 T1 / T2 / 1040 / 1120-S */
   taxScenario: TaxFilingScenario;
+  /**
+   * 项目分类标签（辖区、场景、税年、自定义 tags），与列表 pills 一致；
+   * 与 task 标题一起看，缩小候选项；不得以标签覆盖图像上的表单类型。
+   */
+  classificationLabels?: string[];
 }
 
 export interface TaxFilingTodoContext {
@@ -24,62 +29,80 @@ export interface TaxFilingTodoContext {
 }
 
 const BASE_SYSTEM_PROMPT = `# Role
-Expert North American Tax Auditor (CRA & IRS Specialist).
+Expert North American tax document analyst (CRA, Revenu Québec, IRS, SSA).
 
 # Task
-Analyze the provided image/PDF, identify the document type, and extract structured data into JSON.
+From the provided image, PDF, or extracted text: (1) identify the **exact** document / form type using visible titles and form codes, (2) extract structured fields, (3) if a task list is given, ensure association aligns with that type.
 
-# General Rules
-1. Format all dates as YYYY-MM-DD.
-2. Convert all currency/amounts to floats (remove symbols/commas).
-3. Identify Currency (CAD/USD) and Tax Year.
-4. Output ONLY valid JSON.
+# Identification first (critical)
+- Read headers, form numbers, and issuer lines before extracting boxes. Examples: “T4 Statement of Remuneration Paid”, “T4A Statement of Pension …”, “RL-1 Relevé 1”, “W-2 Wage and Tax Statement”, “Form 1099-INT”, “SSA-1099”.
+- Distinguish close forms: T4 vs T4A vs T4A(OAS) vs T4PS vs T4E vs T2202; 1099-INT vs 1099-DIV vs 1099-NEC vs 1099-R; employment slips vs bank statements vs generic receipts.
+- If “current task” context conflicts with the visible form, **trust the document** and set suggested_task_id to the correct task from the list (when a list is provided).
+- doc_type must be a specific code when possible (e.g. CANADA_T4, CANADA_T4A, US_W2, US_1099_INT), not vague labels like “tax paper”.
 
-# Output Schema
+# General rules
+1. Dates: YYYY-MM-DD.
+2. Amounts: numeric floats; strip symbols and thousands separators.
+3. Infer currency (CAD/USD) and tax year when visible.
+4. Output ONLY valid JSON (no markdown fence).
+
+# Output schema
 {
   "doc_type": "STRING_IDENTIFIER",
   "confidence_score": 0.00,
-  "summary": "One sentence summary",
-  "extracted_data": {
-    /* Fields mapped based on the scenarios below */
-  },
+  "summary": "One sentence: form type + key party/year",
+  "extracted_data": { },
   "metadata": {
     "currency": "CAD|USD",
     "tax_year": "YYYY",
-    "issuer": "Entity Name",
+    "issuer": "Entity or agency name",
     "is_legible": true
   },
-  "suggested_task_id": "OPTIONAL: only when task list is provided and this document clearly belongs to a different task than the current classification; must be one of the task ids from the list"
+  "suggested_task_id": "OPTIONAL — only if task list is provided: set when this document’s true type clearly matches a **different** task than the provisional “current classification”; value must be an id from that list exactly."
 }
 `;
 
 const SCENARIO_CANADA_T1 = `
 ## SCENARIO: CANADA T1 (Personal Tax)
-- **CANADA_T4**: Extract Box 14 (Income), 22 (Tax), 24 (EI), 26 (CPP), Employer Name.
-- **CANADA_T5**: Extract Box 13 (Interest), 14 (Dividends), 15 (Foreign Income), Issuer Name.
-- **RRSP_CONTRIBUTION**: Extract Contribution Amount, Period (First 60 days vs Rest of Year).
-- **DONATION_RECEIPT**: Extract Eligible Amount, Charity Registration Number.
+- **CANADA_T4**: Statement of Remuneration Paid — Boxes 14, 16, 18, 22, 24, 26; employer name; year.
+- **CANADA_T4A**: Pension, lump-sums, other income — identify “T4A” in title; boxes vary (16, 18, 20, 22, 34, etc.).
+- **CANADA_T4A_OAS**: Often titled T4A(OAS) — OAS/GIS style benefits.
+- **CANADA_T4PS**: Profit-sharing; **CANADA_T4E**: Employment insurance / training benefits.
+- **CANADA_T4FHSA**: First Home Savings Account slip.
+- **CANADA_T5**: Investment income — boxes for interest, dividends, foreign income; issuer.
+- **CANADA_T3**: Trust allocation slip; **CANADA_T5008**: Securities transactions statement.
+- **CANADA_T2202**: Tuition — institution, program, amounts.
+- **RRSP_CONTRIBUTION**: Contribution receipt — amount, first-60-days vs rest; issuer (bank/fund).
+- **DONATION_RECEIPT**: Eligible amount, charity BN/registration, date.
+- **CANADA_NOA**: Notice of Assessment — line items / balance if legible.
+- **QUEBEC_RL1**: Relevé 1 — parallel to Québec provincial employment; do not call it T4.
 `;
 
 const SCENARIO_CANADA_T2 = `
 ## SCENARIO: CANADA T2 (Corporate Tax)
-- **FINANCIAL_STATEMENT**: Extract Total Revenue, Net Income, Total Assets, Total Liabilities.
-- **T2_SCHEDULE_1**: Extract Net Income for Tax Purposes, Additions, Deductions.
-- **GST_HST_SUMMARY**: Extract Total Sales, GST/HST Collected, ITC (Input Tax Credits).
+- **FINANCIAL_STATEMENT**: Balance sheet / income statement — revenue, net income, assets, liabilities, period-end.
+- **T2_SCHEDULE_1**: Net income for tax purposes, addbacks, deductions.
+- **GST_HST_SUMMARY**: Sales, GST/HST collected, ITCs, net tax.
+- **CORP_MINUTES_OR_LEGAL**: Identify by title; extract entity name and date if showing.
+- **T4_SUMMARY / payroll**: Payroll vs individual T4 slip — if employer summary, label clearly in doc_type or summary.
 `;
 
 const SCENARIO_USA_1040 = `
 ## SCENARIO: USA 1040 (Individual Tax)
-- **US_W2**: Extract Box 1 (Wages), 2 (Fed Tax), 3 (Social Security Wages), 4 (SS Tax), Employer EIN.
-- **US_1099_INT**: Extract Box 1 (Interest), 4 (Fed Tax Withheld).
-- **US_1099_DIV**: Extract Box 1a (Ordinary Dividends), 1b (Qualified Dividends).
-- **US_1098_T**: Extract Box 1 (Payments Received), Institution Name.
+- **US_W2**: Boxes 1–6 as legible; employer name, EIN.
+- **US_1099_INT**: Payer, Box 1 interest, 4 withheld.
+- **US_1099_DIV**: 1a ordinary, 1b qualified, payer.
+- **US_1099_MISC / US_1099_NEC**: Box amounts per form revision; distinguish NEC (nonemployee comp) from MISC.
+- **US_1099_R**: Retirement distributions — distinguish from W-2.
+- **US_1099_G**: State/refund; **SSA_1099**: Social Security benefits.
+- **US_1098**: Mortgage; **US_1098_T**: Tuition; **US_1098_E**: Student loan interest.
+- **SCHEDULE_K1_1040**: K-1 from 1065/1120-S/1041 flowing to individual — note partnership vs S-corp in summary.
 `;
 
 const SCENARIO_USA_1120S = `
 ## SCENARIO: USA 1120-S (S-Corp)
-- **SCHEDULE_K1**: Extract Part III Box 1 (Ordinary Business Income), Box 2 (Rental Income), Shareholder % of Stock.
-- **US_1120S_PAGE1**: Extract Gross Receipts, Cost of Goods Sold, Total Deductions.
+- **SCHEDULE_K1_1120S**: Part III — ordinary business income, rental, credits, shareholder % if shown.
+- **US_1120S_PAGE1**: Receipts, COGS, deductions, line 22 style totals where visible.
 `;
 
 const SCENARIO_EXPENSE = `
@@ -131,15 +154,22 @@ export function buildTaxFilingRecognitionPrompt(opts: {
   const { projectContext, todoContext, taskList, userInstructions } = opts;
   const scenarios = scenariosForContext(projectContext, todoContext);
 
+  const cls = (projectContext.classificationLabels ?? []).map((s) => s.trim()).filter(Boolean);
+  const classificationBullet =
+    cls.length > 0
+      ? `\n- Engagement classification (project tags; use with task titles to narrow likely document types, never override the visible form): ${cls.join('; ')}`
+      : '';
+
   let contextBlock = `
 # Current context (use to focus extraction)
 - Jurisdiction: ${projectContext.country}
-- Tax scenario: ${projectContext.taxScenario}
+- Tax scenario: ${projectContext.taxScenario}${classificationBullet}
 `;
   if (todoContext) {
     contextBlock += `
-- Attachment is classified under: Phase: ${todoContext.phase ?? '—'}, Section: ${todoContext.section ?? '—'}, Task: ${todoContext.task ?? '—'}
-- Prefer document types and fields relevant to this classification; omit scenarios that do not apply.
+- Provisional routing (from automation, may be wrong): Phase: ${todoContext.phase ?? '—'}, Section: ${todoContext.section ?? '—'}, Task: ${todoContext.task ?? '—'}
+- Do **not** force the document to match this task if the visible form type disagrees. ${taskList && taskList.length > 0 ? 'Use suggested_task_id to correct.' : 'Still set doc_type from the actual form.'}
+- Extract fields for the document’s true type per scenarios below; ignore the provisional task if it would bias field choice.
 `;
   } else {
     contextBlock += `
@@ -147,11 +177,17 @@ export function buildTaxFilingRecognitionPrompt(opts: {
 `;
   }
   if (taskList && taskList.length > 0) {
+    const scopeHint =
+      cls.length > 0
+        ? ` This engagement is labeled: ${cls.join('; ')}. Prefer tasks whose titles fit **both** that scope and the identified form.`
+        : '';
     contextBlock += `
-# Project task list (associate this document with the correct task)
-The following are the ONLY valid tasks for this project. When returning data, the association must match the correct task.
-If this document clearly belongs to a different task than the current classification above, set "suggested_task_id" in your JSON output to that task's id; otherwise omit suggested_task_id.
-Task list (id must be used exactly):
+# Project task list (routing correction)
+Valid tasks only. After you determine doc_type from the file:${scopeHint}
+- If the task whose **title** best matches that doc_type is **not** the provisional task above, set "suggested_task_id" to that task’s id.
+- Prefer titles that name the exact slip/form (e.g. T4A task for a T4A slip).
+- If the provisional task already matches, omit "suggested_task_id".
+Task list (ids verbatim):
 ${taskList.map((t) => `- id: "${t.id}", title: "${t.title}"`).join('\n')}
 `;
   }

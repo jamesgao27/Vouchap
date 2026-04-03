@@ -45,6 +45,7 @@ import {
   type ProjectTodoNode,
 } from '@/lib/firm';
 import { classifyTaxDocumentAndPickTask, getFallbackTaskId } from '@/lib/tax-filing-task-matcher';
+import { classificationLabelsForTaxFilingPrompt } from '@/lib/tax-filing-project-classification-labels';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
 import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
 import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound, ExtractedClient, ClientRecognitionResult } from '@/types';
@@ -1327,7 +1328,13 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             if (voucherType === 'tax-filing') {
               const projectId = effectiveProjectId!;
               const project = await getProjectById(projectId);
-              const projectContext = { taxCountry: project?.taxCountry ?? null, taxScenario: project?.taxScenario ?? null };
+              const classificationLabels = classificationLabelsForTaxFilingPrompt(project ?? undefined);
+              const projectContext = {
+                taxCountry: project?.taxCountry ?? null,
+                taxScenario: project?.taxScenario ?? null,
+                fileName: file.name ?? null,
+                ...(classificationLabels.length > 0 ? { classificationLabels } : {}),
+              };
               const taxFilingUploadOpts =
                 file.name || file.mimeType
                   ? { fileName: file.name ?? undefined, mimeType: file.mimeType ?? undefined }
@@ -1397,7 +1404,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 const recognizeFn = () =>
                   runTaxFilingRecognition(
                     fileUrl,
-                    { country: (project?.taxCountry === 'USA' ? 'USA' : 'CANADA') as 'CANADA' | 'USA', taxScenario: project?.taxScenario ?? '' },
+                    {
+                      country: (project?.taxCountry === 'USA' ? 'USA' : 'CANADA') as 'CANADA' | 'USA',
+                      taxScenario: project?.taxScenario ?? '',
+                      ...(classificationLabels.length > 0 ? { classificationLabels } : {}),
+                    },
                     taskTitle ? { task: taskTitle } : undefined,
                     userInstructions,
                     isImage ? undefined : (file.mimeType ?? undefined),
