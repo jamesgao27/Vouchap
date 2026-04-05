@@ -446,7 +446,16 @@ export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolea
   if (!spaceId) throw new Error('No space selected');
 
   // 关联方 Payer（付款方）
-  let entityId = invoice.entityId ?? invoice.entity?.id ?? null;
+  // 收入详情页选单来自 getEntityOptions，选项 id 写入 customerId / customerSupplierId（兼容字段），须与 entity_id 一致；
+  // 若只更新兼容字段而不更新 entityId，保存仍会沿用旧的 entity_id，与已选的名称冲突，误抛「关联方名称已存在」。
+  const invAny = invoice as Invoice & { customerId?: string; customerSupplierId?: string };
+  const uiPickedEntityId =
+    (typeof invAny.customerId === 'string' && invAny.customerId.trim() ? invAny.customerId.trim() : null) ||
+    (typeof invAny.customerSupplierId === 'string' && invAny.customerSupplierId.trim()
+      ? invAny.customerSupplierId.trim()
+      : null) ||
+    null;
+  let entityId = uiPickedEntityId ?? invoice.entityId ?? invoice.entity?.id ?? null;
   const customerName = invoice.customerName ?? '';
   const trimmedCustomerName = customerName.trim();
   const invalidNames = ['processing', 'processing...', 'pending', 'pending...', 'loading', 'loading...', '识别中', '处理中', '待处理'];

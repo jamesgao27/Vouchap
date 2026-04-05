@@ -613,6 +613,8 @@ export default function InvoiceDetailsScreen() {
         customerSupplierId: undefined,
         customer: undefined,
         customerSupplier: undefined,
+        entityId: undefined,
+        entity: undefined,
       });
       return;
     }
@@ -624,6 +626,8 @@ export default function InvoiceDetailsScreen() {
         customerSupplierId: undefined,
         customer: { id: option.id, name: option.name } as any,
         customerSupplier: undefined,
+        entityId: option.id,
+        entity: { id: option.id, name: option.name, spaceId: editedInvoice.spaceId } as any,
       });
     } else {
       setEditedInvoice({
@@ -633,6 +637,8 @@ export default function InvoiceDetailsScreen() {
         customerSupplierId: option.id,
         customer: undefined,
         customerSupplier: { id: option.id, name: option.name } as any,
+        entityId: option.id,
+        entity: { id: option.id, name: option.name, spaceId: editedInvoice.spaceId } as any,
       });
     }
     // 从空改为选择时不弹三选项；仅当已有客户且换成另一个时弹窗
@@ -1388,7 +1394,9 @@ export default function InvoiceDetailsScreen() {
               {customerOptions.map((opt) => {
                 const isSelected =
                   (opt.source === 'customer' && editedInvoice?.customerId === opt.id) ||
-                  (opt.source === 'supplier' && editedInvoice?.customerSupplierId === opt.id);
+                  (opt.source === 'supplier' && editedInvoice?.customerSupplierId === opt.id) ||
+                  editedInvoice?.entityId === opt.id ||
+                  editedInvoice?.entity?.id === opt.id;
                 return (
                   <TouchableOpacity
                     key={`${opt.source}-${opt.id}`}

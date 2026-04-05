@@ -246,3 +246,21 @@
 - 同上条「核实 label_id」讨论
 
 ---
+
+### 2026-04-03（Income 发票详情：选已有 Payer 保存误报关联方名称已存在）
+
+**User（提示词/原意）**  
+- income 模块发票详情修改，用已有 entity 替换识别错误的 entity，保存时报「关联名称已存在」，不符合设计。
+
+**Assistant（实现前说明）**  
+- Payer 选单已统一为 `entities`（`getCustomerOptions` → `getEntityOptions`），但 `handleSelectCustomer` 只写 `customerId`/`customer` 兼容字段；`saveInvoice` 仅用 `invoice.entityId` 写 `invoices.entity_id`，导致仍关联旧 AI 关联方，而 `customer_name` 已是所选名称，与 `getEntityOptionsForDuplicateCheck` 命中实体不一致，触发「关联方名称已存在」。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`saveInvoice`**：若存在非空的 `customerId` 或 `customerSupplierId`（选单写入的实体 id），**优先**作为 `entityId` 再进入后续重名校验与 `updateEntity`。  
+- **`invoice-details/[id].tsx`**：选 Payer 时同步 `entityId`/`entity`；清空选单时清空二者；选单高亮增加 `entityId`/`entity?.id` 与选项 id 一致（仅 DB 有 `entity_id` 而无兼容字段时也能显示已选）。  
+- **验证**：错误识别关联实体 A，打开编辑 → Select Payer 选正确实体 B → Save，应成功且 `invoices.entity_id` 为 B。
+
+**关联**  
+- `vouchap-app/src/shared-logic/invoices.ts`、`vouchap-app/src/mobile-ui/app/invoice-details/[id].tsx`
+
+---
