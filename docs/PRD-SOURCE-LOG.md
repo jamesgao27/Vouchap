@@ -610,3 +610,21 @@
 - `vouchap-app/src/mobile-ui/app/receipt-items.tsx`
 
 ---
+
+### 2026-04-05（Line items：Web chat 右栏默认关闭）
+
+**User（提示词/原意）**  
+- **Line Items** 页 chat **右栏默认不打开**；**其他页面**保持现有默认策略。
+
+**Assistant（实现前说明）**  
+- **`defaultChatOpen`** 此前对 **`/receipt-items`** 与 **`/receipts`** 同为 **true**。拟移除 line items 的默认打开，使其落入末支 **false**。  
+- 原先 **`WebChatFab`** 在 **`/receipt-items`** 与 **`/receipts`** 一样被排除；line items 若默认关栏且无 FAB 则难以再打开，故**仅从 FAB 排除条件中去掉 `receipt-items`**，**保留 `receipts` 等**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`_layout.tsx`**：**`defaultChatOpen`** 不再对 **`/receipt-items`** 返回 **true**；**`WebChatFab`** 在 line items 且右栏关闭时**可显示**（类型仍为 **`chatTypeFromPathname` → receipt**）。  
+- **验证**：Web 打开 Line items → 右栏关闭、主区更宽；点 FAB 可打开右栏；从 Line items 切到 Expenses 列表 → 仍默认打开右栏（未改）。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/_layout.tsx`
+
+---

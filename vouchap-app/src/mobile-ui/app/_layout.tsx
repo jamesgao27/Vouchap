@@ -106,9 +106,8 @@ function defaultChatOpen(pathname: string | null): boolean {
   // 报税项目详情页：每次进入都默认打开右栏
   if (pathname.startsWith('/tax-filing/project/')) return true;
   if (pathname.startsWith('/firm/engagement/')) return true;
-  // 费用、收入、库存列表页：默认打开右栏
+  // 费用、收入、库存列表页：默认打开右栏（Line items 除外：表格占宽，默认关闭右栏）
   if (pathname === '/receipts' || pathname.startsWith('/receipts/')) return true;
-  if (pathname === '/receipt-items' || pathname.startsWith('/receipt-items/')) return true;
   if (pathname === '/invoices' || pathname.startsWith('/invoices/')) return true;
   if (pathname === '/inbound' || pathname.startsWith('/inbound/')) return true;
   if (pathname === '/outbound' || pathname.startsWith('/outbound/')) return true;
@@ -557,7 +556,7 @@ textarea:focus-within {
       {showSidebar && !chatDisabled && chatOpen && (
         <WebChatPanel effectiveType={chatTypeFromPathname(pathnameForType) ?? chatType ?? 'receipt'} />
       )}
-      {showSidebar && !chatDisabled && !chatOpen && Platform.OS === 'web' && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/receipt-items') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && !isSettingsPage(pathname ?? '') && (
+      {showSidebar && !chatDisabled && !chatOpen && Platform.OS === 'web' && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && !isSettingsPage(pathname ?? '') && (
         <WebChatFab type={chatTypeFromPathname(pathnameForType) ?? 'receipt'} />
       )}
       <ToastHost />
