@@ -1,17 +1,9 @@
 import { supabase } from './supabase';
 import { getCurrentUser } from './auth';
-import type { ExpenseIncomeScope } from '@/types';
+import type { Attribution, ExpenseIncomeScope } from '@/types';
+import { sortScopeTagsForDisplay } from './sort-scope-tags-for-display';
 
-export interface Attribution {
-  id: string;
-  spaceId: string;
-  name: string;
-  color: string;
-  isDefault: boolean;
-  scope?: ExpenseIncomeScope;
-  createdAt?: string;
-  updatedAt?: string;
-}
+export type { Attribution };
 
 function mapAttributionRow(row: any): Attribution {
   return {
@@ -20,14 +12,11 @@ function mapAttributionRow(row: any): Attribution {
     name: row.name,
     color: row.color,
     isDefault: row.is_default,
+    usageCount: row.usage_count != null ? Number(row.usage_count) : 0,
     scope: row.scope === 'income' ? 'income' : (row.scope === 'expense' ? 'expense' : undefined),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
-}
-
-function sortOtherLast<T extends { name: string }>(list: T[]): T[] {
-  return [...list].sort((a, b) => (a.name === 'Other' ? 1 : 0) - (b.name === 'Other' ? 1 : 0));
 }
 
 export async function getAttributions(scope?: ExpenseIncomeScope): Promise<Attribution[]> {
@@ -48,7 +37,7 @@ export async function getAttributions(scope?: ExpenseIncomeScope): Promise<Attri
       .order('name', { ascending: true });
 
     if (result.error) throw result.error;
-    return sortOtherLast((result.data || []).map(mapAttributionRow));
+    return sortScopeTagsForDisplay((result.data || []).map(mapAttributionRow));
   } catch (error) {
     console.error('Error fetching attributions:', error);
     throw error;

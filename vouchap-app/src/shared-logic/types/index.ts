@@ -11,6 +11,8 @@ export interface Attribution {
   name: string;
   color: string;
   isDefault: boolean;
+  /** 当前 space 下作为行项目 attribution 被引用的次数（DB usage_count） */
+  usageCount?: number;
   /** 用于支出 expense 或收入 income，分别维护、分别提交模型 */
   scope?: ExpenseIncomeScope;
   createdAt?: string;
@@ -24,6 +26,8 @@ export interface Category {
   name: string;
   color: string;
   isDefault: boolean;
+  /** 当前 space 下作为行项目 category 被引用的次数（DB usage_count） */
+  usageCount?: number;
   /** 用于支出 expense 或收入 income，分别维护、分别提交模型 */
   scope?: ExpenseIncomeScope;
   createdAt?: string;
@@ -94,6 +98,22 @@ export interface ReceiptItem {
   price: number;
   isAsset: boolean;
   confidence?: number; // AI识别置信度
+}
+
+/** Web 端支出「按明细行」扁平列表（receipt_items + 小票 Payee / 交易时间等） */
+export interface ReceiptLineItemListRow {
+  id: string;
+  name: string;
+  price: number;
+  currency: string;
+  categoryId: string;
+  attributionId: string | null;
+  category?: Category;
+  attribution?: Attribution | null;
+  isAsset: boolean;
+  receiptId: string;
+  payeeName: string;
+  receiptDate: string;
 }
 
 // 提交方式类型：camera=实时拍摄 image=上传图片 document=上传文档

@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { Receipt, ReceiptItem, ReceiptStatus } from '@/types';
+import { Receipt, ReceiptItem, ReceiptLineItemListRow, ReceiptStatus } from '@/types';
 import { getCurrentUser } from './auth';
 import { findCategoryByName } from './categories';
 import { findOrCreateAccount, getAccountMergeMap, getAccountById } from './accounts';
@@ -10,12 +10,27 @@ import { isMissingNestedAttributionEmbedError } from './postgrest-embed-errors';
 
 const ATTRIBUTION_LOOKUP_CHUNK = 120;
 
+function receiptItemAttributionRefId(item: { attribution_id?: unknown }): string | null {
+  const v = item.attribution_id;
+  return v != null && v !== '' ? String(v) : null;
+}
+
 function collectAttributionIdsFromReceiptRows(rows: any[]): string[] {
   const s = new Set<string>();
   for (const row of rows) {
     for (const item of row.receipt_items || []) {
-      if (item.attribution_id) s.add(String(item.attribution_id));
+      const id = receiptItemAttributionRefId(item);
+      if (id) s.add(id);
     }
+  }
+  return [...s];
+}
+
+function collectAttributionIdsFromReceiptItemRows(rows: any[]): string[] {
+  const s = new Set<string>();
+  for (const row of rows) {
+    const id = receiptItemAttributionRefId(row);
+    if (id) s.add(id);
   }
   return [...s];
 }
@@ -827,9 +842,9 @@ export async function getAllReceipts(): Promise<Receipt[]> {
           spaceId: row.created_by_user.current_space_id,
         } : undefined,
         items: (row.receipt_items || []).map((item: any) => {
+          const attrId = receiptItemAttributionRefId(item);
           const attributionRow =
-            item.attributions ??
-            (item.attribution_id && attributionLookup?.get(String(item.attribution_id)));
+            item.attributions ?? (attrId && attributionLookup?.get(attrId));
           return {
           id: item.id,
           name: item.name,
@@ -843,7 +858,7 @@ export async function getAllReceipts(): Promise<Receipt[]> {
             createdAt: item.categories.created_at,
             updatedAt: item.categories.updated_at,
           } : undefined,
-          attributionId: item.attribution_id ?? null,
+          attributionId: attrId,
           attribution: attributionRow ? {
             id: attributionRow.id,
             spaceId: attributionRow.space_id,
@@ -865,6 +880,129 @@ export async function getAllReceipts(): Promise<Receipt[]> {
     return mappedReceipts;
   } catch (error) {
     console.error('❌ [getAllReceipts] 查询失败:', error);
+    throw error;
+  }
+}
+
+/** 当前空间下所有 receipt_items（含小票币种、Payee、交易时间），供 Web 明细表使用 */
+export async function getAllReceiptLineItemsForList(): Promise<ReceiptLineItemListRow[]> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) throw new Error('Not logged in');
+    const spaceId = user.currentSpaceId || user.spaceId;
+    if (!spaceId) throw new Error('No space selected');
+
+    const selectWithAttr = `
+      *,
+      receipts!inner (
+        id,
+        date,
+        currency,
+        space_id,
+        entities (
+          id,
+          name
+        )
+      ),
+      categories (*),
+      attributions (*)
+    `;
+    const selectNoAttr = `
+      *,
+      receipts!inner (
+        id,
+        date,
+        currency,
+        space_id,
+        entities (
+          id,
+          name
+        )
+      ),
+      categories (*)
+    `;
+
+    let { data, error } = await supabase
+      .from('receipt_items')
+      .select(selectWithAttr)
+      .eq('receipts.space_id', spaceId);
+
+    let attributionLookup: Map<string, any> | null = null;
+    if (error && isMissingNestedAttributionEmbedError(error, 'receipt_items')) {
+      const plain = await supabase.from('receipt_items').select(selectNoAttr).eq('receipts.space_id', spaceId);
+      data = plain.data;
+      error = plain.error;
+      if (!error && data?.length) {
+        attributionLookup = await fetchAttributionRowsMapForSpace(
+          spaceId,
+          collectAttributionIdsFromReceiptItemRows(data)
+        );
+      }
+    }
+
+    if (error) throw error;
+
+    const rows = data || [];
+    const mapCategory = (c: any) =>
+      c
+        ? {
+            id: c.id,
+            spaceId: c.space_id,
+            name: c.name,
+            color: c.color,
+            isDefault: c.is_default,
+            scope: c.scope,
+            createdAt: c.created_at,
+            updatedAt: c.updated_at,
+          }
+        : undefined;
+
+    const mapAttribution = (a: any) =>
+      a
+        ? {
+            id: a.id,
+            spaceId: a.space_id,
+            name: a.name,
+            color: a.color,
+            isDefault: a.is_default,
+            scope: a.scope,
+            createdAt: a.created_at,
+            updatedAt: a.updated_at,
+          }
+        : undefined;
+
+    const mapped: ReceiptLineItemListRow[] = rows.map((row: any) => {
+      const rec = row.receipts;
+      const payeeName = rec?.entities?.name ?? '';
+      const attrId = receiptItemAttributionRefId(row);
+      const attributionRow =
+        row.attributions ?? (attrId && attributionLookup?.get(attrId));
+      return {
+        id: String(row.id),
+        name: row.name || '—',
+        price: Number(row.price) || 0,
+        currency: rec?.currency || 'USD',
+        categoryId: row.category_id ? String(row.category_id) : '',
+        attributionId: attrId,
+        category: mapCategory(row.categories),
+        attribution: mapAttribution(attributionRow) ?? null,
+        isAsset: !!row.is_asset,
+        receiptId: String(rec?.id ?? row.receipt_id ?? ''),
+        payeeName,
+        receiptDate: normalizeDate(rec?.date),
+      };
+    });
+
+    mapped.sort((a, b) => {
+      const da = a.receiptDate || '';
+      const db = b.receiptDate || '';
+      if (da !== db) return db.localeCompare(da);
+      return (a.name || '').localeCompare(b.name || '');
+    });
+
+    return mapped;
+  } catch (error) {
+    console.error('❌ [getAllReceiptLineItemsForList] 查询失败:', error);
     throw error;
   }
 }
@@ -1098,9 +1236,10 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
         spaceId: data.created_by_user.current_space_id,
       } : undefined,
       items: (data.receipt_items || []).map((item: any) => {
+        const attrId = receiptItemAttributionRefId(item);
         const attributionRow =
           item.attributions ??
-          (item.attribution_id && attributionLookupById?.get(String(item.attribution_id)));
+          (attrId && attributionLookupById?.get(attrId));
         return {
         id: item.id,
         name: item.name,
@@ -1114,7 +1253,7 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
           createdAt: item.categories.created_at,
           updatedAt: item.categories.updated_at,
         } : undefined,
-        attributionId: item.attribution_id ?? null,
+        attributionId: attrId,
         attribution: attributionRow ? {
           id: attributionRow.id,
           spaceId: attributionRow.space_id,

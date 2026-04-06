@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { Category, ExpenseIncomeScope } from '@/types';
 import { getCurrentUser } from './auth';
+import { sortScopeTagsForDisplay } from './sort-scope-tags-for-display';
 
 function mapCategoryRow(row: any): Category {
   return {
@@ -9,15 +10,11 @@ function mapCategoryRow(row: any): Category {
     name: row.name,
     color: row.color,
     isDefault: row.is_default,
+    usageCount: row.usage_count != null ? Number(row.usage_count) : 0,
     scope: row.scope === 'income' ? 'income' : (row.scope === 'expense' ? 'expense' : undefined),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
-}
-
-/** 含 Other 的列表将 Other 排到最后 */
-function sortOtherLast<T extends { name: string }>(list: T[]): T[] {
-  return [...list].sort((a, b) => (a.name === 'Other' ? 1 : 0) - (b.name === 'Other' ? 1 : 0));
 }
 
 /** 获取当前空间的分类，可选 scope 仅返回支出或收入 */
@@ -57,12 +54,12 @@ export async function getCategories(scope?: ExpenseIncomeScope): Promise<Categor
         const filtered = scope === 'income'
           ? (all || []).filter((r: any) => r.scope === 'income')
           : (all || []).filter((r: any) => r.scope === 'expense' || r.scope == null);
-        return sortOtherLast(filtered.map(mapCategoryRow));
+        return sortScopeTagsForDisplay(filtered.map(mapCategoryRow));
       }
       throw result.error;
     }
 
-    return sortOtherLast((result.data || []).map(mapCategoryRow));
+    return sortScopeTagsForDisplay((result.data || []).map(mapCategoryRow));
   } catch (error) {
     console.error('Error fetching categories:', error);
     throw error;

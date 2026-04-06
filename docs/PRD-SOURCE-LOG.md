@@ -283,3 +283,330 @@
 - `vouchap-app/supabase/migrations/20260403180000_rename_line_item_purpose_id_to_attribution_id.sql`、`vouchap-app/src/shared-logic/database.ts`、`vouchap-app/src/shared-logic/invoices.ts`
 
 ---
+
+### 2026-04-05（Web 支出：按明细行表格页 + Items 入口）
+
+**User（提示词/原意）**  
+- client 版 expenses 模块 Web 端，表格上方操作行右端增加「items」入口，进入按 receipt_items 为行的新表格页；列：名称、金额、category / attribution 标签、小票 payee、小票交易时间。
+
+**Assistant（实现前说明）**  
+- 在 `receipts` Web 工具栏搜索框右侧增加「Items」跳转；新增路由 `/receipt-items`：`getAllReceiptLineItemsForList` 从 `receipt_items` 嵌套 `receipts!inner` + `entities` + `categories` + `attributions`（与现有小票一致，缺嵌套时回退 attribution 批量查询）；`DataTable` + `getReceiptLineItemColumns`；侧栏与 chat 行为与 expenses 对齐。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **类型**：`ReceiptLineItemListRow`（`types/index.ts`）。  
+- **数据**：`getAllReceiptLineItemsForList`（`database.ts`），按交易日期降序再按名称。  
+- **UI**：`receipt-items.tsx`（Web 表格 + 搜索 + 下拉刷新 + 行跳转 `receipt-details`）；`voucher-table-columns.tsx` 增加 `getReceiptLineItemColumns`；`receipts.tsx` Web 仅显示「Items」按钮；`_layout.tsx` 注册 `receipt-items`、`chatType`/`defaultChatOpen`/全局 FAB 排除；`WebSidebar` Expenses 高亮包含 `/receipt-items`。  
+- **验证**：Web 打开 Expenses → 点 Items → 列与数据正确；点行进入对应小票详情；非 Web 进入该路由提示可用桌面 Web。  
+- **残留**：行数多时未做分页，一次性拉全空间明细（与 `getAllReceipts` 量级策略不同，若数据极大需后续分页）。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipts.tsx`、`receipt-items.tsx`、`vouchap-app/src/shared-logic/database.ts`、`vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`
+
+---
+
+### 2026-04-05（Line items 表：Item 列最大 50ch + 省略）
+
+**User（提示词/原意）**  
+- items 名称列宽度设为 50 字符最大宽度，过长用缩略显示。
+
+**Assistant（实现前说明）**  
+- `DataTableColumn` 增加可选 `maxWidth`（number | string），作用于 th/td；Item 列 `maxWidth: '50ch'`、`numberOfLines={1}` + `ellipsizeMode="tail"`；Web 上为完整名称加 `title` 悬停提示。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`DataTable.tsx`**：`maxWidth` 合并进表头与两种 tbody 单元格样式。  
+- **`voucher-table-columns.tsx`**：`getReceiptLineItemColumns` 的 Item 列 `minWidth: 120`、`maxWidth: '50ch'`，单行省略；Web 传 `title` 显示全文。  
+- **验证**：Web 打开 Line items，长名称列宽不超过约 50ch，尾部 `…`，悬停见全文。
+
+---
+
+### 2026-04-05（Line items：Is asset 列 + 多选/分组/筛选/批量改 category·attribution·is asset）
+
+**User（提示词/原意）**  
+- items 表在 attribution 后增加 Is asset 列；多选、全选、分组、筛选；选中后批量修改 category、attribution、Is asset。
+
+**Assistant（实现前说明）**  
+- `ReceiptLineItemListRow` 增加 `isAsset`、`categoryId`、`attributionId`；`getAllReceiptLineItemsForList` 映射 DB 字段；列配置增加 Is asset；`receipt-items` 启用 `DataTable` 多选与表头全选；工具栏 Group / Filter（月份、Category、Attribution、Is asset 子项多选/单选）；选中行显示批量栏，弹层选择 category / attribution（含 None）/ Yes·No，循环 `updateReceiptItem` 后刷新。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **类型与数据**：`types/index.ts`、`database.ts` 行映射 `is_asset`、`category_id`、`attribution_id`。  
+- **列**：`voucher-table-columns.tsx` 在 Attribution 与 Payee 之间增加 **Is asset**（Yes/No）。  
+- **页面**：`receipt-items.tsx` 分组（None / Transaction month / Category / Attribution / Payee / Is asset）、筛选（同上维度 + Is asset 三态）、搜索；`selectable` + `selectableRevealOnHover`；批量 Category / Attribution / Is asset；浮层样式用 RN `StyleSheet` 避免 `WEB_POPOVER.optionRow` 与 `ViewStyle` 不兼容。  
+- **验证**：Web Line items 勾选、表头全选、分组与筛选联动；批量改三类字段后列表与详情一致。  
+- **残留**：批量为顺序 `await` 大量行时可能较慢；`tsc` 对 `react-dom` 声明的提示与项目他处一致。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipt-items.tsx`、`vouchap-app/src/shared-logic/database.ts`、`vouchap-app/src/shared-logic/types/index.ts`、`vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`
+
+---
+
+### 2026-04-05（改 receipt item attribution 失败：usage 触发器仍引用 purpose_id）
+
+**User（提示词/原意）**  
+- 已执行 `purpose_id`→`attribution_id` 迁移后仍失败；不要再用回退 `purpose` 的兼容写法，后续要删 `purposes` 表。
+
+**Assistant（实现前说明）**  
+- 核实：历史脚本 `add-usage-count-to-categories-purposes.sql` 在 `receipt_items` 上的触发器函数 `update_usage_counts_on_item_change()` 仍读写 `OLD/NEW.purpose_id` 并更新 `purposes.usage_count`。列改名后 `purpose_id` 不存在，任意 UPDATE 行项目在触发器内即报错，客户端表现为 Failed to update item。  
+- 撤销此前客户端对 `purpose_id` 的回退逻辑，仅保留 DB 侧修复。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **迁移** `20260405120000_receipt_items_usage_trigger_use_attribution_id.sql`：`CREATE OR REPLACE` 该函数，改为 `attribution_id` + 维护 `public.attributions.usage_count`（与行项目 FK 一致）。  
+- **代码**：移除 `isAttributionIdColumnUnknownError` 及 insert/update 的 `purpose_id` 回退；`receiptItemAttributionRefId` 仅读 `attribution_id`。  
+- **验证**：对已跑过列改名迁移的环境再 `db push` 本迁移后，详情页/Line items 修改 attribution 应成功；若从未安装旧 usage 脚本，函数被替换无副作用。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260405120000_receipt_items_usage_trigger_use_attribution_id.sql`、`add-usage-count-to-categories-purposes.sql`（历史手工脚本，新环境以迁移为准）
+
+---
+
+### 2026-04-05（Line items 表内编辑 Category / Attribution / Is asset）
+
+**User（提示词/原意）**  
+- 表格内直接改 category、attribution、Is asset；Is asset：true 为点亮勾选，false 为空白格样式。
+
+**Assistant（实现前说明）**  
+- `DataTableColumn` 增加 `stopRowPress`，在 `td` 上 `stopPropagation`，避免点编辑格触发 `onRowPress` 进详情。  
+- `getReceiptLineItemColumns`：Web 上 Category/Attribution 用 **`LineItemNativeSelect`（原生 `<select>`）** 内联下拉；`onCategoryChange` / `onAttributionChange` 写库并乐观更新；Is asset 为 `checkbox`（真）/`square-outline`（假）可点击切换。  
+- `receipt-items` 传入上述回调；批量编辑仍可用居中浮层。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`DataTable.tsx`**：`stopRowPress` → `td.onClick` 阻止冒泡。  
+- **`voucher-table-columns.tsx`**：`LineItemNativeSelect` + Is asset 勾选样式。  
+- **`receipt-items.tsx`**：`onCategoryChange` / `onAttributionChange` / `onIsAssetCellPress` + `updateReceiptItem`；**表内不设 Category/Attribution 居中弹窗**。  
+- **验证**：Web Line items 在单元格内下拉改 Category/Attribution；点勾选切换 Is asset 且不跳转详情。
+
+---
+
+### 2026-04-05（移除 Line items 表内 cellEdit Portal 死代码）
+
+**User（提示词/原意）**  
+- 表格内直接修改不宜浮出浮窗，应直接下拉选择；续作需删除仍引用 `cellEdit` 的 Portal 残留。
+
+**Assistant（实现前说明）**  
+- `receipt-items.tsx` 底部仍保留 `createPortal` + `cellEdit` / `cellEditWorking` / `applyCellCategory` / `applyCellAttribution` 块，但相关 state 与函数已移除，会导致 TS 报错或运行异常；整段删除。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已删除该 Portal；表内编辑仅依赖 `voucher-table-columns` 的 `LineItemNativeSelect`。`read_lints`：`receipt-items.tsx` 无新问题。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipt-items.tsx`
+
+---
+
+### 2026-04-05（Line items：标签底色 + Attribution 下拉锚定在单元格下方）
+
+**User（提示词/原意）**  
+- 下拉样式可保留，但表格内闭合态须为带底色标签样式；Attribution 的下拉列表需在修改位置（锚点）**下方**展开。
+
+**Assistant（实现前说明）**  
+- Category 仍用原生 `<select>`，增加 `appearance: 'pill'`：按选中项 `color` 作为闭合态药丸背景、白字、自定义 chevron；选项类型扩展 `color?`。  
+- Attribution 不用原生 select（弹出方向不可控且易被 `td { overflow: hidden }` 裁切），改为 `LineItemAttributionAnchorDropdownWeb`：`nativeID` 锚点 + `getBoundingClientRect` + `createPortal` 固定定位在 `bottom + 4px`；滚动/点击外侧关闭。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`voucher-table-columns.tsx`**：`LineItemNativeSelect` 支持 `pill`；新增 `LineItemAttributionAnchorDropdownWeb`；列配置传入带 `color` 的 options。  
+- **验证**：Web Line items 中 Category 闭合为彩色标签；点 Attribution 标签在**其下方**出列表并完成修改。`read_lints`：`react-dom` 类型提示与项目他处一致。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`
+
+---
+
+### 2026-04-05（Line items Category 药丸高度与宽度）
+
+**User（提示词/原意）**  
+- Category 标签高度过高，应与其它标签一致；宽度过宽，应随文案自适应。
+
+**Assistant（实现前说明）**  
+- 闭合态与 `LineTagPill` / Attribution 药丸对齐：`padding` 3px×8px 量级、`fontSize` 11、`lineHeight` 13px，去掉额外 `minHeight`。  
+- 去掉外层 `minWidth` + select `width:100%` 造成的拉满列宽；pill 使用 `width: max-content`、`maxWidth: 200`，并加 `fieldSizing: 'content'`（Chromium 下按当前选中项收窄，减轻「按最长 option 撑开」）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`voucher-table-columns.tsx`**：`LineItemNativeSelect` 的 `pill` 分支与 Category 列外层 `View` 已按上调整。  
+- **验证**：Web Line items 中 Category 与 Attribution 药丸视觉高度接近；标签宽度随名称变化、最长约 200px。不支持 `field-sizing` 的浏览器仍可能略受最长 option 影响，必要时可再改为与 Attribution 同型的自定义锚定列表。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`
+
+---
+
+### 2026-04-05（Line items Attribution 药丸高度）
+
+**User（提示词/原意）**  
+- Attribution 标签高度偏高，可能因下拉 icon 过大。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`voucher-table-columns.tsx`**：`LineItemAttributionAnchorDropdownWeb` 中药丸将 `chevron-down` 由 12 改为 **10**，文案增加 **`lineHeight: 13`**（与 Category pill 一致），`gap` 4→**2**。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`
+
+---
+
+### 2026-04-05（Line items Attribution 选项去掉 None）
+
+**User（提示词/原意）**  
+- Attribution 的选项不需要 None。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`voucher-table-columns.tsx`**：表内 Attribution 选项列表不再含空项；未知 id 仍 `unshift`；无选中时药丸文案 **—**、灰色。下拉回调仅传 **string**。  
+- **`receipt-items.tsx`**：批量「Set attribution」浮层去掉 **None** 行。筛选/分组里表示「未归属」的文案未改（非选项列表）。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`、`vouchap-app/src/mobile-ui/app/receipt-items.tsx`
+
+---
+
+### 2026-04-05（Web 支出详情行项目 Category/Attribution 与表格同款选单）
+
+**User（提示词/原意）**  
+- Web 端详情页内 Category、Attribution 选单采用与 Line items 表格相同的组件。
+
+**Assistant（实现前说明）**  
+- 导出 **`LineItemNativeSelect`**、**`LineItemAttributionAnchorDropdownWeb`**，并抽出 **`buildLineItemCategoryOptions`** / **`lineItemCategorySelectValue`** / **`buildLineItemAttributionOptions`** 供表与详情共用。  
+- **`receipt-details/[id].tsx`**：Web 且列表非空时用上述组件；原生端仍用底部 Modal（Modal `visible` 在 Web 关闭）。新建行无 `item.id` 时走 **`handleItemChange`**；已持久化行走 **`handleItemChangeDirect`**。**`handleItemChange`** 补 **`attributionId`** 分支；**`handleItemChangeDirect`** 在 **`editing`** 时同步 **`setEditedReceipt`**，避免编辑态 UI 与库不一致。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已实现并联调路径与表格一致（含 Attribution 下拉锚定下方、无 None 项）。  
+- **验证**：Web 打开支出详情，行项目 Category/Attribution 与 Line items 表交互一致；移动端仍为 Bottom sheet。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`、`vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`
+
+---
+
+### 2026-04-05（Attribution 锚定下拉位置：避免视口左上角）
+
+**User（提示词/原意）**  
+- Attribution 选单出现在页面左上角，需检查优化。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`LineItemAttributionAnchorDropdownWeb`**：`nativeID` + `getElementById` 在 ScrollView/详情页等场景下常测到 **0×0 或未命中节点**，`fixed` 菜单即贴在 (0,0)。改为 **`ref` + `measureInWindow`**（优先），其次 **`ref`/`id` 的 `getBoundingClientRect`**；`rowId` 做 **`lineItemAttributionAnchorId` 安全化**；Web 补充 **`id` 属性**、`collapsable={false}`；打开后 **rAF 双帧 + 50ms** 再测一次以等布局稳定；DOM 全零矩形则跳过，避免误用左上角。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`
+
+---
+
+### 2026-04-05（Category / Attribution：管理页与选单按 usage_count 排序 · 续）
+
+**User（提示词/原意）**  
+- Category、Attribution 在**管理页**与各类**选单**中，选项顺序按 space 内 **`usage_count`**（`usageCount`）排序（与既有 `sortScopeTagsForDisplay` / `getCategories` / `getAttributions` 规则一致：Other 最后等）。
+
+**Assistant（实现前说明）**  
+- 共享层已映射并排序；需补齐：**表格/详情共用的 `buildLineItem*`**、**行项目筛选与批量选单**、**设置内嵌 ScopeSettingsManager**、**收支详情底部 Modal 列表**、**独立 manage 页在乐观更新后重排**；`categories-manage` 改用 `@/lib` 别名与其它屏一致。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`voucher-table-columns.tsx`**：`buildLineItemCategoryOptions` / `buildLineItemAttributionOptions` 对入参先 `sortScopeTagsForDisplay`，未知 id 仍 `unshift`。  
+- **`receipt-items.tsx`**：筛选 Category/Attribution 选项按 `usageCount` 等排序（结合已加载的 categories/attributions）；批量设置浮层使用排序后列表。  
+- **`ScopeSettingsManager.tsx`**：列表用 `useMemo` 排序视图；新增/改名后 `setState` 内再排序。  
+- **`categories-manage.tsx`** / **`attributions-manage.tsx`**：新增/更新后 `sortScopeTagsForDisplay`；分类管理 imports 改为 `@/lib`、`@/types`。  
+- **`receipt-details/[id].tsx`**、**`invoice-details/[id].tsx`**：原生 Modal 选单使用 `categoriesSorted` / `attributionsSorted`。  
+- **验证**：打开分类/用途管理、支出或收入详情行项目选单、Line items 表内下拉及行项目列表筛选，顺序应与 DB `usage_count` + Other 置底规则一致；新建项乐观更新后列表不应长期卡在末尾。  
+- **说明**：全量 `tsc` 工程内仍有既有报错，未以本次变更为由一并清理。
+
+**关联**  
+- `vouchap-app/src/shared-logic/sort-scope-tags-for-display.ts`、`vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`、`vouchap-app/src/mobile-ui/app/receipt-items.tsx`、`vouchap-app/src/mobile-ui/components/ScopeSettingsManager.tsx`、`vouchap-app/src/mobile-ui/app/categories-manage.tsx`、`vouchap-app/src/mobile-ui/app/attributions-manage.tsx`、`vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`、`vouchap-app/src/mobile-ui/app/invoice-details/[id].tsx`
+
+---
+
+### 2026-04-05（Line items：工具栏高度与 Category 药丸聚焦蓝框）
+
+**User（提示词/原意）**  
+- Line items 表格页内**操作行**略减高，与**选中后**操作行高度一致，避免选中后页面抖动。  
+- **Category** 标签点选后有**蓝色外框**，需消除。
+
+**Assistant（实现前说明）**  
+- 抖动来源：`receipt-items` 顶栏在未选（Group/Filter/Search）与已选（批量条）间垂直 padding 不一致；`DataTable` 表头全选在 `selectableRevealOnHover` 下由**条件卸载**改为与表体一致**始终挂载**更稳。  
+- 蓝框：Web 原生 `<select>` 聚焦默认 `outline`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt-items.tsx`**（首版）：曾整体压低顶栏高度。  
+- **更正（与 Expenses 表一致）**：`toolbarSlot` / `header` / `bulkBar` 与 **`receipts.tsx`** 对齐——固定 **高度 52**、`bulkBar` 使用 **gap 12**、**paddingVertical 10**、**bulkBtn / bulkBtnClear 8×12**、`bulkText` **marginRight 8**；未选态 `header` 与 **Group/Filter/Search** 的 padding、**gap 12**、按钮 **8×12**、搜索框 **paddingVertical 8** 与 receipts 一致；批量图标 **17→18**。  
+- **`DataTable.tsx`**：表头全选 `input` 始终渲染，`opacity` + `pointerEvents` 与「有无选中」及 reveal 模式对齐（不再在未选时卸载节点）。  
+- **`voucher-table-columns.tsx`**：`LineItemNativeSelect` 样式增加 **`outline: 'none'`**、**`outlineWidth: 0`**。  
+- **验证**：Web Line items 勾选一行前后顶栏与表头区域无明显高度跳动；点选 Category 药丸后无浏览器默认蓝色聚焦框。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipt-items.tsx`、`vouchap-app/src/mobile-ui/components/DataTable.tsx`、`vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`
+
+---
+
+### 2026-04-05（Line items Category / Attribution 选单：统一样式与向下展开）
+
+**User（提示词/原意）**  
+- Category 与 Attribution **选单样式**（半透明、展开位置）不一致。  
+- 应统一：**Category 的半透明 + 鼠标悬停反色**；**Attribution 的展开位置**（始终在下方下拉，而非随当前项上下翻转）。
+
+**Assistant（实现前说明）**  
+- Category 原为 Web **原生 `<select>`**，列表由系统绘制；Attribution 为 **Portal + 锚点下方固定坐标**。  
+- 抽取共用 **`LineItemPillAnchorDropdownWeb`**：药丸触发一致；菜单 `rgba` + `backdrop-filter` 半透明；选项 `hover` 深底白字；位置沿用 `measure` + `top + height + 4`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`voucher-table-columns.tsx`**：新增 **`LineItemPillAnchorDropdownWeb`**（`kind: 'category' | 'attribution'`，`anchorId` 前缀区分）；**`LineItemAttributionAnchorDropdownWeb`** 改为薄封装。Line items 表内 **Category** 列改用该组件（不再用原生 pill select）。**`LineItemNativeSelect`** 仍保留供非 pill 场景。  
+- **`receipt-details/[id].tsx`**：Web 行项目 **Category** 改为 **`LineItemPillAnchorDropdownWeb`**；与 Attribution 共用同一 `lineStableId` 作为 rowId（DOM id 仍因 `kind` 不同而不冲突）。  
+- **验证**：Web Line items 与支出详情行项目：两列药丸一致；展开均在药丸**下方**；菜单毛玻璃半透明；悬停选项反色；选中为浅紫底。  
+- **后续**：悬停由深灰反色改为 **#6C5CE7** 浅高光（见下条）。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`、`vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`
+
+---
+
+### 2026-04-05（Line items 药丸选单：悬停改亮紫蓝）
+
+**User（提示词/原意）**  
+- 反色悬停过深，改用亮蓝色（品牌 **#6C5CE7**）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`LineItemPillAnchorDropdownWeb`**：悬停底 **`rgba(108, 92, 231, 0.28)`**；文案 **#2D3436**，勾选 **#6C5CE7**；色点悬停描边为淡紫。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`
+
+---
+
+### 2026-04-05（Line items 批量：锚定下拉 + Is asset 双态 + 二次确认）
+
+**User（提示词/原意）**  
+- 批量 Category/Attribution 用**操作行按钮向下**拉出选单，不用固定居中浮窗。**Is asset** 不要选单，整批标资产 / 再点整批取消。**批量**均需**二次确认**，复用统一浮窗。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt-items.tsx`**：Portal 锚定菜单 + **`confirmThen`**；**Is asset** 按**当前选中行**推导：并非全部为 asset 时第一次为**全部标 asset**；**已全部为 asset** 时第一次即为**全部取消**（**`bulkSelectedAllAsset`**，按钮文案 **Not asset**）。已弃用按次翻转的 `bulkAssetNextTrue`。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipt-items.tsx`、`vouchap-app/src/shared-logic/alertWeb.ts`
+
+---
+
+### 2026-04-05（Line items 批量操作三按钮：弱化视觉重量）
+
+**User（提示词/原意）**  
+- 三个批量修改操作按钮（Category / Attribution / Is asset）**样式过深**，需**弱化**，减轻深色实心主按钮感。
+
+**Assistant（实现前说明）**  
+- 原为 **`bulkBtn`** 实心 **`#6C5CE7`** + 白字/白图标；**`bulkBar`** 为 **`#E8E0F7`**。拟改为**浅色底 + 淡紫描边 + 紫字/紫图标**的 secondary 风格；**`bulkBtnAltHint`**（**Not asset** 双态）改为略强调描边与极浅紫底，替代原白描边。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt-items.tsx`**：**`bulkBar`** → **`#F2EDFA`**；**`bulkBtn`** → 近白底、**`borderColor: rgba(108,92,231,0.32)`**；**`bulkBtnText`** → **`#5B4DC7`**；三处 **Ionicons** 改为 **`#6C5CE7`**；**`bulkBtnAltHint`** → 稍粗描边 + 浅紫底。  
+- **验证**：进入批量选中，三按钮为轻量 outline，与条带对比度仍可读；**Not asset** 态（全选均为 asset 时）有轻微强调。  
+- **残留**：若与 receipts 批量条需严格像素对齐，可再对表单项单列比对。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipt-items.tsx`
+
+---
+
+### 2026-04-05（Line items 批量 Is asset：双态按钮文案 Not asset）
+
+**User（提示词/原意）**  
+- 将 **Is asset (clear)** 改为 **Not asset**。
+
+**Assistant（实现前说明）**  
+- 无逻辑变更；仅批量条按钮在 **`bulkSelectedAllAsset`** 时的展示文案。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt-items.tsx`**：**`bulkSelectedAllAsset`** 时按钮显示 **Not asset**，否则 **Is asset**；确认弹窗仍为 **Mark as non-asset** / **Mark … as non-asset?**（与操作一致）。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipt-items.tsx`
+
+---

@@ -1176,6 +1176,17 @@ export default function ReceiptsScreen() {
                   </TouchableOpacity>
                 ) : null}
               </View>
+              {Platform.OS === 'web' && (
+                <TouchableOpacity
+                  style={styles.itemsEntryButton}
+                  onPress={() => router.push('/receipt-items')}
+                  accessibilityRole="link"
+                  accessibilityLabel="Open line items table"
+                >
+                  <Ionicons name="layers-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />
+                  <Text style={styles.itemsEntryText}>Items</Text>
+                </TouchableOpacity>
+              )}
             </View>
           </View>
         )}
@@ -2297,6 +2308,17 @@ const styles = StyleSheet.create({
   },
   searchClear: {
     marginLeft: 4,
+  },
+  itemsEntryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  itemsEntryText: {
+    fontSize: 14,
+    color: '#6C5CE7',
+    fontWeight: '600',
   },
   receiptItem: {
     backgroundColor: '#fff',

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,6 +9,7 @@ import type { Category, ExpenseIncomeScope } from '@/types';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '@/lib/alertWeb';
 import { TAG_COLOR_LIBRARY } from '@/lib/category-attribution-presets';
+import { sortScopeTagsForDisplay } from '@/lib/sort-scope-tags-for-display';
 
 const COLOR_OPTIONS = [...TAG_COLOR_LIBRARY];
 
@@ -46,6 +47,9 @@ export default function ScopeSettingsManager({ scope }: { scope: ExpenseIncomeSc
   useEffect(() => {
     void loadData();
   }, [scope]);
+
+  const categoriesSorted = useMemo(() => sortScopeTagsForDisplay(categories), [categories]);
+  const attributionsSorted = useMemo(() => sortScopeTagsForDisplay(attributions), [attributions]);
 
   const loadData = async () => {
     try {
@@ -90,10 +94,18 @@ export default function ScopeSettingsManager({ scope }: { scope: ExpenseIncomeSc
     try {
       if (editingKind === 'category') {
         await updateCategory(editingId, { name: editName.trim(), color: editColor });
-        setCategories((prev) => prev.map((c) => (c.id === editingId ? { ...c, name: editName.trim(), color: editColor } : c)));
+        setCategories((prev) =>
+          sortScopeTagsForDisplay(
+            prev.map((c) => (c.id === editingId ? { ...c, name: editName.trim(), color: editColor } : c)),
+          ),
+        );
       } else {
         await updateAttribution(editingId, { name: editName.trim(), color: editColor });
-        setAttributions((prev) => prev.map((p) => (p.id === editingId ? { ...p, name: editName.trim(), color: editColor } : p)));
+        setAttributions((prev) =>
+          sortScopeTagsForDisplay(
+            prev.map((p) => (p.id === editingId ? { ...p, name: editName.trim(), color: editColor } : p)),
+          ),
+        );
       }
       cancelEdit();
     } catch (error: any) {
@@ -136,10 +148,10 @@ export default function ScopeSettingsManager({ scope }: { scope: ExpenseIncomeSc
     try {
       if (addKind === 'category') {
         const created = await createCategory(newName.trim(), newColor, scope);
-        setCategories((prev) => [...prev, created]);
+        setCategories((prev) => sortScopeTagsForDisplay([...prev, created]));
       } else {
         const created = await createAttribution(newName.trim(), newColor, scope);
-        setAttributions((prev) => [...prev, created]);
+        setAttributions((prev) => sortScopeTagsForDisplay([...prev, created]));
       }
       cancelAdd();
       showToast('Created', 'success');
@@ -242,7 +254,7 @@ export default function ScopeSettingsManager({ scope }: { scope: ExpenseIncomeSc
         <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
           <View style={styles.categoriesList}>
             <Text style={styles.sectionLabel}>Categories</Text>
-            {categories.map((category) => (
+            {categoriesSorted.map((category) => (
               <View key={category.id} style={styles.categoryCard}>
                 {editingKind === 'category' && editingId === category.id ? (
                   renderEdit()
@@ -274,7 +286,7 @@ export default function ScopeSettingsManager({ scope }: { scope: ExpenseIncomeSc
             )}
 
             <Text style={[styles.sectionLabel, styles.sectionLabelAfterGroup]}>Attributions</Text>
-            {attributions.map((attr) => (
+            {attributionsSorted.map((attr) => (
               <View key={attr.id} style={styles.categoryCard}>
                 {editingKind === 'attribution' && editingId === attr.id ? (
                   renderEdit()

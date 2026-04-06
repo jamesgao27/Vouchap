@@ -15,6 +15,10 @@ export interface DataTableColumn<T> {
   getSortValue?: (row: T) => string | number | Date | null | undefined;
   visible?: boolean;
   minWidth?: number;
+  /** 列最大宽度（px 或 CSS 长度如 50ch）；与 minWidth 一并作用于 th/td，避免单元格被长内容撑开 */
+  maxWidth?: number | string;
+  /** Web：点击该列单元格不触发表格行 onRowPress（行内编辑） */
+  stopRowPress?: boolean;
 }
 
 export interface DataTableSection<T> {
@@ -599,22 +603,28 @@ export default function DataTable<T>({
                         flexShrink: 0,
                       }}
                     >
-                      {(!selectableRevealOnHover || selectedSet.size > 0) && (
-                        <input
-                          type="checkbox"
-                          checked={allSelected}
-                          onChange={(e) => {
-                            e.stopPropagation();
-                            if (!selectable) return;
-                            if (allSelected) {
-                              setSelected([]);
-                            } else {
-                              setSelected(allSelectableKeys);
-                            }
-                          }}
-                          style={{ cursor: 'pointer', width: 16, height: 16 }}
-                        />
-                      )}
+                      <input
+                        type="checkbox"
+                        checked={allSelected}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          if (!selectable) return;
+                          if (allSelected) {
+                            setSelected([]);
+                          } else {
+                            setSelected(allSelectableKeys);
+                          }
+                        }}
+                        style={{
+                          cursor: 'pointer',
+                          width: 16,
+                          height: 16,
+                          /** 与 tbody 一致：始终挂载，避免选中前后表头布局抖动 */
+                          opacity: !selectableRevealOnHover || selectedSet.size > 0 ? 1 : 0,
+                          transition: selectableRevealOnHover ? 'opacity 0.15s ease' : undefined,
+                          pointerEvents: !selectableRevealOnHover || selectedSet.size > 0 ? 'auto' : 'none',
+                        }}
+                      />
                     </View>
                   )}
                   <View
@@ -741,6 +751,7 @@ export default function DataTable<T>({
                     style={{
                       ...thStyle,
                       minWidth: col.minWidth ?? 90,
+                      ...(col.maxWidth != null ? { maxWidth: col.maxWidth } : {}),
                       cursor: isSortable ? 'pointer' : 'default',
                       userSelect: 'none',
                       position: 'relative' as const,
@@ -931,7 +942,14 @@ export default function DataTable<T>({
                             )}
                           </td>
                           {orderedVisibleColumns.map(col => (
-                            <td key={col.id} style={tdStyle}>
+                            <td
+                              key={col.id}
+                              style={{
+                                ...tdStyle,
+                                ...(col.maxWidth != null ? { maxWidth: col.maxWidth } : {}),
+                              }}
+                              onClick={col.stopRowPress ? (e: React.MouseEvent) => e.stopPropagation() : undefined}
+                            >
                               {col.getValue(row)}
                             </td>
                           ))}
@@ -973,7 +991,14 @@ export default function DataTable<T>({
                       )}
                     </td>
                     {orderedVisibleColumns.map(col => (
-                      <td key={col.id} style={tdStyle}>
+                      <td
+                        key={col.id}
+                        style={{
+                          ...tdStyle,
+                          ...(col.maxWidth != null ? { maxWidth: col.maxWidth } : {}),
+                        }}
+                        onClick={col.stopRowPress ? (e: React.MouseEvent) => e.stopPropagation() : undefined}
+                      >
                         {col.getValue(row)}
                       </td>
                     ))}

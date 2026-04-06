@@ -22,6 +22,7 @@ import { supabase, uploadReceiptImage } from '@/lib/supabase';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getCategories } from '@/lib/categories';
 import { getAttributions } from '@/lib/attributions';
+import { sortScopeTagsForDisplay } from '@/lib/sort-scope-tags-for-display';
 import { getAccounts, mergeAccount } from '@/lib/accounts';
 import { getSupplierOptions } from '@/lib/customer-supplier-list';
 import { normalizeNameForCompare } from '@/lib/name-utils';
@@ -34,6 +35,13 @@ import { format } from 'date-fns';
 import { showToast } from '@/lib/toast';
 import { showChoiceDialog } from '@/lib/confirmDialog';
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
+import {
+  LineItemPillAnchorDropdownWeb,
+  LineItemAttributionAnchorDropdownWeb,
+  buildLineItemCategoryOptions,
+  lineItemCategorySelectValue,
+  buildLineItemAttributionOptions,
+} from '@/components/voucher-table-columns';
 
 export default function ReceiptDetailsScreen() {
   const { id, new: isNew } = useLocalSearchParams<{ id: string; new?: string }>();
@@ -448,6 +456,9 @@ export default function ReceiptDetailsScreen() {
     []
   );
 
+  const categoriesSorted = useMemo(() => sortScopeTagsForDisplay(categories), [categories]);
+  const attributionsSorted = useMemo(() => sortScopeTagsForDisplay(attributions), [attributions]);
+
   // 计算商品明细金额总和
   const calculateItemsSum = useCallback((items: ReceiptItem[]) => {
     return items.reduce((sum, item) => sum + (item.price || 0), 0);
@@ -466,6 +477,10 @@ export default function ReceiptDetailsScreen() {
         updatedItem.categoryId = value;
         updatedItem.category = selectedCategory;
       }
+    } else if (field === 'attributionId') {
+      const selectedAttribution = attributions.find(a => a.id === value);
+      updatedItem.attributionId = value;
+      updatedItem.attribution = selectedAttribution ?? null;
     } else {
       (updatedItem as any)[field] = value;
     }
@@ -644,6 +659,9 @@ export default function ReceiptDetailsScreen() {
       newItems[index] = updatedItem;
       const updatedReceipt = { ...currentReceipt, items: newItems };
       setReceipt(updatedReceipt);
+      if (editing) {
+        setEditedReceipt(updatedReceipt);
+      }
 
       // 保存到数据库（使用 item.id 而不是 index，确保不依赖顺序）
       await updateReceiptItem(id, item.id, field, value);
@@ -1141,7 +1159,12 @@ export default function ReceiptDetailsScreen() {
           <View style={styles.sectionTitleContainer}>
             <Text style={styles.sectionTitle}>Items</Text>
           </View>
-          {currentReceipt.items.map((item, index) => (
+          {currentReceipt.items.map((item, index) => {
+            const categoryOpts = buildLineItemCategoryOptions(item, categories);
+            const categoryValue = lineItemCategorySelectValue(item.categoryId, categoryOpts);
+            const attributionOpts = buildLineItemAttributionOptions(item, attributions);
+            const lineStableId = item.id ?? `${id ?? 'new'}-line-${index}`;
+            return (
             <View 
               key={index} 
               style={[
@@ -1219,6 +1242,21 @@ export default function ReceiptDetailsScreen() {
               <View style={styles.itemTags}>
                   {/* 分类标签 - 左侧，左对齐 */}
                   <View style={styles.tagGroupLeft}>
+                    {Platform.OS === 'web' && categories.length > 0 ? (
+                      <View style={{ alignSelf: 'flex-start', maxWidth: 200 }}>
+                        <LineItemPillAnchorDropdownWeb
+                          kind="category"
+                          rowId={lineStableId}
+                          ariaLabel="Category"
+                          value={categoryValue}
+                          options={categoryOpts}
+                          onValueChange={v => {
+                            if (item.id) void handleItemChangeDirect(index, 'categoryId', v);
+                            else if (editedReceipt) handleItemChange(index, 'categoryId', v);
+                          }}
+                        />
+                      </View>
+                    ) : (
                     <TouchableOpacity
                       style={styles.tagTouchable}
                       onPress={() => {
@@ -1241,10 +1279,26 @@ export default function ReceiptDetailsScreen() {
                         <Ionicons name="chevron-down" size={12} color="#fff" style={styles.tagIcon} />
                       </View>
                     </TouchableOpacity>
+                    )}
                   </View>
 
                   {/* 用途标签 - 居中，左对齐 */}
                   <View style={styles.tagGroupCenter}>
+                    {Platform.OS === 'web' && attributionOpts.length > 0 ? (
+                      <View style={{ alignSelf: 'flex-start', maxWidth: 220 }}>
+                        <LineItemAttributionAnchorDropdownWeb
+                          rowId={lineStableId}
+                          value={item.attributionId}
+                          options={attributionOpts}
+                          onValueChange={v => {
+                            if (item.id) void handleItemChangeDirect(index, 'attributionId', v);
+                            else if (editedReceipt) handleItemChange(index, 'attributionId', v);
+                          }}
+                        />
+                      </View>
+                    ) : Platform.OS === 'web' ? (
+                      <Text style={{ fontSize: 13, color: '#95A5A6', alignSelf: 'flex-start' }}>—</Text>
+                    ) : (
                     <TouchableOpacity
                       style={styles.tagTouchable}
                       onPress={() => {
@@ -1269,6 +1323,7 @@ export default function ReceiptDetailsScreen() {
                         <Ionicons name="chevron-down" size={12} color="#fff" style={styles.tagIcon} />
                       </View>
                     </TouchableOpacity>
+                    )}
                   </View>
 
                   {/* 资产标签 - 右侧，右对齐 */}
@@ -1301,7 +1356,8 @@ export default function ReceiptDetailsScreen() {
                   </View>
                 </View>
             </View>
-          ))}
+            );
+          })}
 
           {editing && (
             <View style={styles.addItemButtonContainer}>
@@ -1490,7 +1546,7 @@ export default function ReceiptDetailsScreen() {
 
       {/* 分类选择器 */}
       <Modal
-        visible={showCategoryPicker !== null}
+        visible={Platform.OS !== 'web' && showCategoryPicker !== null}
         transparent={true}
         animationType="slide"
         onRequestClose={() => setShowCategoryPicker(null)}
@@ -1516,7 +1572,7 @@ export default function ReceiptDetailsScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
-              {categories.map((cat) => {
+              {categoriesSorted.map((cat) => {
                 const itemIndex = showCategoryPicker;
                 if (itemIndex === null) return null;
                 const item = currentReceipt.items[itemIndex];
@@ -1560,7 +1616,7 @@ export default function ReceiptDetailsScreen() {
 
       {/* 用途选择器 */}
       <Modal
-        visible={showAttributionPicker !== null}
+        visible={Platform.OS !== 'web' && showAttributionPicker !== null}
         transparent={true}
         animationType="slide"
         onRequestClose={() => setShowAttributionPicker(null)}
@@ -1586,7 +1642,7 @@ export default function ReceiptDetailsScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
-              {attributions.map((attrRow) => {
+              {attributionsSorted.map((attrRow) => {
                 const itemIndex = showAttributionPicker;
                 if (itemIndex === null) return null;
                 const item = currentReceipt.items[itemIndex];

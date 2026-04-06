@@ -37,6 +37,7 @@ function chatTypeFromPathname(pathname: string | null): ChatPanelType | null {
   // Clients 模块：Cody (Client Assistant)
   if (pathname === '/firm/clients' || pathname.startsWith('/firm/clients/') || pathname.startsWith('/firm/client/')) return 'client';
   if (pathname === '/receipts' || pathname.startsWith('/receipts/')) return 'receipt';
+  if (pathname === '/receipt-items' || pathname.startsWith('/receipt-items/')) return 'receipt';
   if (pathname === '/invoices' || pathname.startsWith('/invoices/')) return 'invoice';
   if (pathname === '/inbound' || pathname.startsWith('/inbound/')) return 'inbound';
   if (pathname === '/outbound' || pathname.startsWith('/outbound/')) return 'outbound';
@@ -107,6 +108,7 @@ function defaultChatOpen(pathname: string | null): boolean {
   if (pathname.startsWith('/firm/engagement/')) return true;
   // 费用、收入、库存列表页：默认打开右栏
   if (pathname === '/receipts' || pathname.startsWith('/receipts/')) return true;
+  if (pathname === '/receipt-items' || pathname.startsWith('/receipt-items/')) return true;
   if (pathname === '/invoices' || pathname.startsWith('/invoices/')) return true;
   if (pathname === '/inbound' || pathname.startsWith('/inbound/')) return true;
   if (pathname === '/outbound' || pathname.startsWith('/outbound/')) return true;
@@ -243,6 +245,13 @@ textarea:focus-within {
             title: 'Expenses',
             headerBackTitle: 'Home'
           }} 
+        />
+        <Stack.Screen
+          name="receipt-items"
+          options={{
+            title: 'Line items',
+            headerBackTitle: 'Expenses',
+          }}
         />
         <Stack.Screen 
           name="ai-inventory" 
@@ -548,7 +557,7 @@ textarea:focus-within {
       {showSidebar && !chatDisabled && chatOpen && (
         <WebChatPanel effectiveType={chatTypeFromPathname(pathnameForType) ?? chatType ?? 'receipt'} />
       )}
-      {showSidebar && !chatDisabled && !chatOpen && Platform.OS === 'web' && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && !isSettingsPage(pathname ?? '') && (
+      {showSidebar && !chatDisabled && !chatOpen && Platform.OS === 'web' && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/receipt-items') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && !isSettingsPage(pathname ?? '') && (
         <WebChatFab type={chatTypeFromPathname(pathnameForType) ?? 'receipt'} />
       )}
       <ToastHost />

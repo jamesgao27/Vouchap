@@ -47,7 +47,7 @@ interface NavItem {
 
 const NAV_ITEMS: NavItem[] = [
   { path: '/', label: 'Dashboard', icon: 'grid-outline', match: (p) => p === '/' || p === '' },
-  { path: '/receipts', label: 'Expenses', icon: 'document-text-outline', match: (p) => p.startsWith('/receipts') || p.startsWith('/receipt-details') },
+  { path: '/receipts', label: 'Expenses', icon: 'document-text-outline', match: (p) => p.startsWith('/receipts') || p.startsWith('/receipt-details') || p.startsWith('/receipt-items') },
   { path: '/invoices', label: 'Income', icon: 'arrow-up-circle-outline', match: (p) => p.startsWith('/invoices') || p.startsWith('/invoice-details') },
 ];
 

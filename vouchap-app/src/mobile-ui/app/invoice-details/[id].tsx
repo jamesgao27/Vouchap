@@ -22,6 +22,7 @@ import { supabase, uploadInvoiceImage } from '@/lib/supabase';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getCategories } from '@/lib/categories';
 import { getAttributions } from '@/lib/attributions';
+import { sortScopeTagsForDisplay } from '@/lib/sort-scope-tags-for-display';
 import { getAccounts, mergeAccount } from '@/lib/accounts';
 import { getCustomerOptions } from '@/lib/customer-supplier-list';
 import { normalizeNameForCompare } from '@/lib/name-utils';
@@ -530,6 +531,9 @@ export default function InvoiceDetailsScreen() {
   };
 
   const commonCurrencies = useMemo(() => ['USD', 'CAD', 'EUR', 'GBP', 'JPY', 'HKD', 'AUD', 'CNY'], []);
+
+  const categoriesSorted = useMemo(() => sortScopeTagsForDisplay(categories), [categories]);
+  const attributionsSorted = useMemo(() => sortScopeTagsForDisplay(attributions), [attributions]);
 
   const calculateItemsSum = useCallback((items: InvoiceItem[]) => {
     return items.reduce((sum, item) => sum + (item.price || 0), 0);
@@ -1246,7 +1250,7 @@ export default function InvoiceDetailsScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
-              {categories.map((cat) => {
+              {categoriesSorted.map((cat) => {
                 const itemIndex = showCategoryPicker;
                 if (itemIndex === null) return null;
                 const item = currentInvoice.items[itemIndex];
@@ -1283,7 +1287,7 @@ export default function InvoiceDetailsScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
-              {attributions.map((attrRow) => {
+              {attributionsSorted.map((attrRow) => {
                 const itemIndex = showAttributionPicker;
                 if (itemIndex === null) return null;
                 const item = currentInvoice.items[itemIndex];

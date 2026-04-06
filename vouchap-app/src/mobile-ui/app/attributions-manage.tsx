@@ -23,6 +23,7 @@ import { GradientText } from '@/lib/GradientText';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '@/lib/alertWeb';
 import { TAG_COLOR_LIBRARY } from '@/lib/category-attribution-presets';
+import { sortScopeTagsForDisplay } from '@/lib/sort-scope-tags-for-display';
 
 const COLOR_OPTIONS = [...TAG_COLOR_LIBRARY];
 
@@ -69,9 +70,9 @@ export default function AttributionsManageScreen() {
     try {
       const created = await createAttribution(newName.trim(), newColor, addScope);
       if (addScope === 'expense') {
-        setExpenseAttributions(prev => [...prev, created]);
+        setExpenseAttributions(prev => sortScopeTagsForDisplay([...prev, created]));
       } else {
-        setIncomeAttributions(prev => [...prev, created]);
+        setIncomeAttributions(prev => sortScopeTagsForDisplay([...prev, created]));
       }
       setNewName('');
       setNewColor('#95A5A6');
@@ -96,8 +97,12 @@ export default function AttributionsManageScreen() {
         color: editColor,
       });
       const upd = { name: editName.trim(), color: editColor };
-      setExpenseAttributions(prev => prev.map(p => p.id === attributionId ? { ...p, ...upd } : p));
-      setIncomeAttributions(prev => prev.map(p => p.id === attributionId ? { ...p, ...upd } : p));
+      setExpenseAttributions(prev =>
+        sortScopeTagsForDisplay(prev.map(p => (p.id === attributionId ? { ...p, ...upd } : p))),
+      );
+      setIncomeAttributions(prev =>
+        sortScopeTagsForDisplay(prev.map(p => (p.id === attributionId ? { ...p, ...upd } : p))),
+      );
       setEditingId(null);
       setEditName('');
       setEditColor('#95A5A6');

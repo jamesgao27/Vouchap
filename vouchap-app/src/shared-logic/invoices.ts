@@ -228,7 +228,7 @@ export async function getAllInvoicesWithItems(): Promise<Invoice[]> {
   if (ids.length === 0) return invoices;
   const { data: itemRows } = await supabase
     .from('invoice_items')
-    .select('id, name, price, invoice_id, category_id, attribution_id')
+    .select('id, name, price, invoice_id, category_id')
     .in('invoice_id', ids)
     .order('id', { ascending: true });
   const itemsByInvoice = new Map<string, InvoiceItem[]>();

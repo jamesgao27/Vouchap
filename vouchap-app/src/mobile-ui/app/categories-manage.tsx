@@ -16,12 +16,13 @@ import {
   createCategory,
   updateCategory,
   deleteCategory,
-} from '../../shared-logic/categories';
-import type { Category, ExpenseIncomeScope } from '../../shared-logic/types';
-import { GradientText } from '../../shared-logic/GradientText';
-import { showToast } from '../../shared-logic/toast';
-import { confirmDestructive } from '../../shared-logic/alertWeb';
-import { TAG_COLOR_LIBRARY } from '../../shared-logic/category-attribution-presets';
+} from '@/lib/categories';
+import type { Category, ExpenseIncomeScope } from '@/types';
+import { GradientText } from '@/lib/GradientText';
+import { showToast } from '@/lib/toast';
+import { confirmDestructive } from '@/lib/alertWeb';
+import { TAG_COLOR_LIBRARY } from '@/lib/category-attribution-presets';
+import { sortScopeTagsForDisplay } from '@/lib/sort-scope-tags-for-display';
 
 const COLOR_OPTIONS = [...TAG_COLOR_LIBRARY];
 
@@ -68,9 +69,9 @@ export default function CategoriesManageScreen() {
     try {
       const newCategory = await createCategory(newName.trim(), newColor, addScope);
       if (addScope === 'expense') {
-        setExpenseCategories(prev => [...prev, newCategory]);
+        setExpenseCategories(prev => sortScopeTagsForDisplay([...prev, newCategory]));
       } else {
-        setIncomeCategories(prev => [...prev, newCategory]);
+        setIncomeCategories(prev => sortScopeTagsForDisplay([...prev, newCategory]));
       }
       setNewName('');
       setNewColor('#95A5A6');
@@ -96,8 +97,12 @@ export default function CategoriesManageScreen() {
       });
       // 乐观更新：直接更新列表中的分类，不需要重新加载所有分类
       const upd = { name: editName.trim(), color: editColor };
-      setExpenseCategories(prev => prev.map(cat => cat.id === categoryId ? { ...cat, ...upd } : cat));
-      setIncomeCategories(prev => prev.map(cat => cat.id === categoryId ? { ...cat, ...upd } : cat));
+      setExpenseCategories(prev =>
+        sortScopeTagsForDisplay(prev.map(cat => (cat.id === categoryId ? { ...cat, ...upd } : cat))),
+      );
+      setIncomeCategories(prev =>
+        sortScopeTagsForDisplay(prev.map(cat => (cat.id === categoryId ? { ...cat, ...upd } : cat))),
+      );
       setEditingId(null);
       setEditName('');
       setEditColor('#95A5A6');
