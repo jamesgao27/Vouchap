@@ -1,6 +1,6 @@
 /**
  * Category and attribution name presets for expense/income scopes.
- * DB column on line items remains `purpose_id` for legacy compatibility; app types use attributionId.
+ * DB column on line items is `attribution_id` (FK to attributions); app types use attributionId.
  */
 
 export type ExpenseIncomeScope = 'expense' | 'income';

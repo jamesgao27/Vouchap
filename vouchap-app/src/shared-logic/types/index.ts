@@ -88,7 +88,7 @@ export interface ReceiptItem {
   name: string;
   categoryId: string;
   category?: Category; // 关联的分类对象
-  /** 对应 DB receipt_items.purpose_id → attributions.id */
+  /** 对应 DB receipt_items.attribution_id → attributions.id */
   attributionId: string | null;
   attribution?: Attribution | null;
   price: number;
@@ -238,7 +238,7 @@ export interface InvoiceItem {
   name: string;
   categoryId?: string | null;
   category?: Category;
-  /** 对应 DB invoice_items.purpose_id → attributions.id */
+  /** 对应 DB invoice_items.attribution_id → attributions.id */
   attributionId?: string | null;
   attribution?: Attribution | null;
   price: number;

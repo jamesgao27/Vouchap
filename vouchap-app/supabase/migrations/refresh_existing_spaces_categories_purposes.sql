@@ -4,6 +4,7 @@
 -- 依赖：各空间需已有预设项（否则重定向时可能为 NULL）。可先对全库执行一次
 --       seed_default_categories_purposes_for_space(space_id) 补全缺失预设再跑本脚本。
 -- 若存在 receipt_items / invoice_items，会先将“非预设”引用重定向到同空间预设再删除。
+-- 依赖：invoice_items.attribution_id（见迁移 20260403180000_rename_line_item_purpose_id_to_attribution_id）。
 -- 颜色库：与 seed_new_space_presets 一致
 --   #F47C7C #5DC8B4 #37B9DC #F7A87A #A8E0C4 #FBF177 #B494DA #F0A093 #A3D8F5 #87E09A
 -- =============================================================================
@@ -64,18 +65,18 @@ WHERE (p.scope = 'expense' OR p.scope IS NULL) AND p.name = 'Home'
 DELETE FROM purposes p
 WHERE (p.scope = 'expense' OR p.scope IS NULL) AND LOWER(p.name) = 'gifts'
   AND EXISTS (SELECT 1 FROM purposes p2 WHERE p2.space_id = p.space_id AND (p2.scope = 'expense' OR p2.scope IS NULL) AND p2.name = 'Client' AND p2.id != p.id);
--- 重定向 invoice_items 中指向 Home/Gifts 的 purpose_id 到已有 Personal/Client（若存在）
+-- 重定向 invoice_items 中指向 Home/Gifts 的 attribution_id 到已有 Personal/Client（若存在）
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'invoice_items') THEN
-    UPDATE invoice_items ii SET purpose_id = p2.id
-    FROM purposes p_old
-    JOIN purposes p2 ON p2.space_id = p_old.space_id AND (p2.scope = 'expense' OR p2.scope IS NULL) AND p2.name = 'Personal' AND p2.id != p_old.id
-    WHERE ii.purpose_id = p_old.id AND (p_old.scope = 'expense' OR p_old.scope IS NULL) AND p_old.name = 'Home';
-    UPDATE invoice_items ii SET purpose_id = p2.id
-    FROM purposes p_old
-    JOIN purposes p2 ON p2.space_id = p_old.space_id AND (p2.scope = 'expense' OR p2.scope IS NULL) AND p2.name = 'Client' AND p2.id != p_old.id
-    WHERE ii.purpose_id = p_old.id AND (p_old.scope = 'expense' OR p_old.scope IS NULL) AND LOWER(p_old.name) = 'gifts';
+    UPDATE invoice_items ii SET attribution_id = a2.id
+    FROM attributions a_old
+    JOIN attributions a2 ON a2.space_id = a_old.space_id AND (a2.scope = 'expense' OR a2.scope IS NULL) AND a2.name = 'Personal' AND a2.id != a_old.id
+    WHERE ii.attribution_id = a_old.id AND (a_old.scope = 'expense' OR a_old.scope IS NULL) AND a_old.name = 'Home';
+    UPDATE invoice_items ii SET attribution_id = a2.id
+    FROM attributions a_old
+    JOIN attributions a2 ON a2.space_id = a_old.space_id AND (a2.scope = 'expense' OR a2.scope IS NULL) AND a2.name = 'Client' AND a2.id != a_old.id
+    WHERE ii.attribution_id = a_old.id AND (a_old.scope = 'expense' OR a_old.scope IS NULL) AND LOWER(a_old.name) = 'gifts';
   END IF;
 END $$;
 UPDATE purposes SET name = 'Personal'  WHERE (scope = 'expense' OR scope IS NULL) AND name = 'Home';
@@ -142,7 +143,7 @@ BEGIN
   END IF;
 END $$;
 
--- invoice_items：若存在且含 category_id / purpose_id，重定向到同空间预设
+-- invoice_items：若存在且含 category_id / attribution_id，重定向到同空间预设
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'invoice_items') THEN
@@ -157,24 +158,24 @@ BEGIN
       SELECT id FROM categories WHERE scope = 'income' AND name NOT IN ('Salary','Sales','Fee','Bonus','Tax','Grant','Refund','Other')
     );
     UPDATE invoice_items ii
-    SET purpose_id = (
-      SELECT p.id FROM purposes p
-      WHERE p.space_id = (SELECT space_id FROM invoices WHERE id = ii.invoice_id LIMIT 1)
-        AND p.scope = 'income' AND p.name = 'Employer'
+    SET attribution_id = (
+      SELECT a.id FROM attributions a
+      WHERE a.space_id = (SELECT space_id FROM invoices WHERE id = ii.invoice_id LIMIT 1)
+        AND a.scope = 'income' AND a.name = 'Employer'
       LIMIT 1
     )
-    WHERE ii.purpose_id IS NOT NULL AND ii.purpose_id IN (
-      SELECT id FROM purposes WHERE scope = 'income' AND name NOT IN ('Employer','Client','Gov','Private')
+    WHERE ii.attribution_id IS NOT NULL AND ii.attribution_id IN (
+      SELECT id FROM attributions WHERE scope = 'income' AND name NOT IN ('Employer','Client','Gov','Private')
     );
     UPDATE invoice_items ii
-    SET purpose_id = (
-      SELECT p.id FROM purposes p
-      WHERE p.space_id = (SELECT space_id FROM invoices WHERE id = ii.invoice_id LIMIT 1)
-        AND (p.scope = 'expense' OR p.scope IS NULL) AND p.name = 'Personal'
+    SET attribution_id = (
+      SELECT a.id FROM attributions a
+      WHERE a.space_id = (SELECT space_id FROM invoices WHERE id = ii.invoice_id LIMIT 1)
+        AND (a.scope = 'expense' OR a.scope IS NULL) AND a.name = 'Personal'
       LIMIT 1
     )
-    WHERE ii.purpose_id IS NOT NULL AND ii.purpose_id IN (
-      SELECT id FROM purposes WHERE (scope IS NULL OR scope = 'expense') AND name NOT IN ('Personal','Business','Client')
+    WHERE ii.attribution_id IS NOT NULL AND ii.attribution_id IN (
+      SELECT id FROM attributions WHERE (scope IS NULL OR scope = 'expense') AND name NOT IN ('Personal','Business','Client')
     );
   END IF;
 END $$;

@@ -264,3 +264,22 @@
 - `vouchap-app/src/shared-logic/invoices.ts`、`vouchap-app/src/mobile-ui/app/invoice-details/[id].tsx`
 
 ---
+
+### 2026-04-03（DB：receipt_items / invoice_items 列 purpose_id → attribution_id）
+
+**User（提示词/原意）**  
+- 后台仍为 `purpose_id`；应改为 `attribution_id`，并实际关联 `attributions` 的数据 id；`invoice_items` 同理。
+
+**Assistant（实现前说明）**  
+- 新增迁移：去掉旧 FK、列改名、`attribution_id` → `public.attributions(id) ON DELETE SET NULL`；同步 `vouchap-app` 中所有读写该列的 Supabase 字段名与嵌套 `attributions` 映射；更新运维脚本 `refresh_existing_spaces_categories_purposes.sql` 与根目录 `lib/` 中与 DB 列相关的旧名。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **迁移**：`vouchap-app/supabase/migrations/20260403180000_rename_line_item_purpose_id_to_attribution_id.sql`。  
+- **应用**：`database.ts`、`invoices.ts`、`types`、`category-attribution-presets`、`postgrest-embed-errors`；`lib/database.ts`、`lib/invoices.ts` 列名与 embed 改为 `attribution_id` / `attributions`。  
+- **验证**：对目标库执行 `supabase db push`（或等价应用迁移）后，小票/发票行项目的 Source 读写与列表应正常；若 PostgREST 仍报嵌套关系错误，需确认迁移已应用且外键生效。  
+- **残留**：仓库根目录若干历史 SQL（如 `add-usage-count-to-categories-purposes.sql`、`create-new-project-schema*.sql`）仍写 `purpose_id`，仅在新环境手工执行时需自行对齐或忽略。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260403180000_rename_line_item_purpose_id_to_attribution_id.sql`、`vouchap-app/src/shared-logic/database.ts`、`vouchap-app/src/shared-logic/invoices.ts`
+
+---

@@ -228,7 +228,7 @@ export async function getAllInvoicesWithItems(): Promise<Invoice[]> {
   if (ids.length === 0) return invoices;
   const { data: itemRows } = await supabase
     .from('invoice_items')
-    .select('id, name, price, invoice_id, category_id, purpose_id')
+    .select('id, name, price, invoice_id, category_id, attribution_id')
     .in('invoice_id', ids)
     .order('id', { ascending: true });
   const itemsByInvoice = new Map<string, InvoiceItem[]>();
@@ -397,7 +397,7 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
     itemRows = plain.data;
     itemsError = plain.error;
     if (!itemsError && itemRows?.length && invoiceSpaceId) {
-      const pids = [...new Set((itemRows as any[]).map((r) => r.purpose_id).filter(Boolean).map(String))];
+      const pids = [...new Set((itemRows as any[]).map((r) => r.attribution_id).filter(Boolean).map(String))];
       attributionLookup = await fetchAttributionRowsMapForSpace(invoiceSpaceId, pids);
     }
   }
@@ -405,7 +405,7 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
 
   const items: InvoiceItem[] = (itemRows || []).map((r: any) => {
     const attributionRow =
-      r.attributions ?? (r.purpose_id && attributionLookup?.get(String(r.purpose_id)));
+      r.attributions ?? (r.attribution_id && attributionLookup?.get(String(r.attribution_id)));
     return {
     id: r.id,
     name: r.name,
@@ -419,7 +419,7 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
       createdAt: r.categories.created_at,
       updatedAt: r.categories.updated_at,
     } : undefined,
-    attributionId: r.purpose_id ?? undefined,
+    attributionId: r.attribution_id ?? undefined,
     attribution: attributionRow ? {
       id: attributionRow.id,
       spaceId: attributionRow.space_id,
@@ -567,7 +567,7 @@ export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolea
           invoice_id: invoice.id,
           name: it.name,
           category_id: it.categoryId ?? null,
-          purpose_id: it.attributionId ?? null,
+          attribution_id: it.attributionId ?? null,
           price: it.price,
           is_asset: it.isAsset ?? false,
           confidence: it.confidence ?? null,
@@ -604,7 +604,7 @@ export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolea
         invoice_id: id,
         name: it.name,
         category_id: it.categoryId ?? null,
-        purpose_id: it.attributionId ?? null,
+        attribution_id: it.attributionId ?? null,
         price: it.price,
         is_asset: it.isAsset ?? false,
         confidence: it.confidence ?? null,
@@ -627,7 +627,7 @@ export async function updateInvoiceItem(
   field: 'categoryId' | 'attributionId' | 'isAsset',
   value: any
 ): Promise<void> {
-  const col = field === 'categoryId' ? 'category_id' : field === 'attributionId' ? 'purpose_id' : 'is_asset';
+  const col = field === 'categoryId' ? 'category_id' : field === 'attributionId' ? 'attribution_id' : 'is_asset';
   const { error } = await supabase
     .from('invoice_items')
     .update({ [col]: value })

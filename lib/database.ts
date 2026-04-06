@@ -221,7 +221,7 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
           receipt_id: receiptId,
           name: item.name,
           category_id: categoryId,
-          purpose_id: item.purposeId ?? null,
+          attribution_id: item.purposeId ?? null,
           price: item.price,
           is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
           confidence: item.confidence,
@@ -413,7 +413,7 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
             receipt_id: receiptId,
             name: item.name,
             category_id: categoryId,
-            purpose_id: item.purposeId ?? null,
+            attribution_id: item.purposeId ?? null,
             price: item.price,
             is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
             confidence: item.confidence,
@@ -730,7 +730,7 @@ export async function getAllReceipts(): Promise<Receipt[]> {
         receipt_items (
           *,
           categories (*),
-          purposes (*)
+          attributions (*)
         )
       `)
       .eq('space_id', spaceId)
@@ -908,15 +908,15 @@ export async function getAllReceipts(): Promise<Receipt[]> {
             createdAt: item.categories.created_at,
             updatedAt: item.categories.updated_at,
           } : undefined,
-          purposeId: item.purpose_id ?? null,
-          purpose: item.purposes ? {
-            id: item.purposes.id,
-            spaceId: item.purposes.space_id,
-            name: item.purposes.name,
-            color: item.purposes.color,
-            isDefault: item.purposes.is_default,
-            createdAt: item.purposes.created_at,
-            updatedAt: item.purposes.updated_at,
+          purposeId: item.attribution_id ?? null,
+          purpose: item.attributions ? {
+            id: item.attributions.id,
+            spaceId: item.attributions.space_id,
+            name: item.attributions.name,
+            color: item.attributions.color,
+            isDefault: item.attributions.is_default,
+            createdAt: item.attributions.created_at,
+            updatedAt: item.attributions.updated_at,
           } : undefined,
           price: item.price,
           isAsset: item.is_asset,
@@ -949,7 +949,7 @@ export async function updateReceiptItem(
     if (field === 'categoryId') {
       updateData.category_id = value;
     } else if (field === 'purposeId') {
-      updateData.purpose_id = value;
+      updateData.attribution_id = value;
     } else if (field === 'isAsset') {
       updateData.is_asset = value;
     }
@@ -1047,7 +1047,7 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
         receipt_items (
           *,
           categories (*),
-          purposes (*)
+          attributions (*)
         )
       `)
       .eq('id', receiptId)
@@ -1174,15 +1174,15 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
           createdAt: item.categories.created_at,
           updatedAt: item.categories.updated_at,
         } : undefined,
-        purposeId: item.purpose_id ?? null,
-        purpose: item.purposes ? {
-          id: item.purposes.id,
-          spaceId: item.purposes.space_id,
-          name: item.purposes.name,
-          color: item.purposes.color,
-          isDefault: item.purposes.is_default,
-          createdAt: item.purposes.created_at,
-          updatedAt: item.purposes.updated_at,
+        purposeId: item.attribution_id ?? null,
+        purpose: item.attributions ? {
+          id: item.attributions.id,
+          spaceId: item.attributions.space_id,
+          name: item.attributions.name,
+          color: item.attributions.color,
+          isDefault: item.attributions.is_default,
+          createdAt: item.attributions.created_at,
+          updatedAt: item.attributions.updated_at,
         } : undefined,
         price: item.price,
         isAsset: item.is_asset,

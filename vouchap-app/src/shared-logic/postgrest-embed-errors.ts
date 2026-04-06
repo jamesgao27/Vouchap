@@ -1,4 +1,4 @@
-/** PostgREST 嵌套 select 需要 FK；line item 列仍为 purpose_id，关系应指向 attributions。 */
+/** PostgREST 嵌套 select 需要 FK；line item 列为 attribution_id，关系应指向 attributions。 */
 export function isMissingNestedAttributionEmbedError(
   err: unknown,
   itemsTable: 'receipt_items' | 'invoice_items'

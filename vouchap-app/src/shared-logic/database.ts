@@ -14,13 +14,13 @@ function collectAttributionIdsFromReceiptRows(rows: any[]): string[] {
   const s = new Set<string>();
   for (const row of rows) {
     for (const item of row.receipt_items || []) {
-      if (item.purpose_id) s.add(String(item.purpose_id));
+      if (item.attribution_id) s.add(String(item.attribution_id));
     }
   }
   return [...s];
 }
 
-/** PostgREST 未注册 purpose_id→attributions 外键时嵌套会失败；按 id 仅从 attributions 拉取。 */
+/** PostgREST 未注册 attribution_id→attributions 外键时嵌套会失败；按 id 仅从 attributions 拉取。 */
 export async function fetchAttributionRowsMapForSpace(spaceId: string, ids: string[]): Promise<Map<string, any>> {
   const map = new Map<string, any>();
   const unique = [...new Set(ids.filter(Boolean))];
@@ -239,7 +239,7 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
           receipt_id: receiptId,
           name: item.name,
           category_id: categoryId,
-          purpose_id: item.attributionId ?? null,
+          attribution_id: item.attributionId ?? null,
           price: item.price,
           is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
           confidence: item.confidence,
@@ -393,7 +393,7 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
             receipt_id: receiptId,
             name: item.name,
             category_id: categoryId,
-            purpose_id: item.attributionId ?? null,
+            attribution_id: item.attributionId ?? null,
             price: item.price,
             is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
             confidence: item.confidence,
@@ -829,7 +829,7 @@ export async function getAllReceipts(): Promise<Receipt[]> {
         items: (row.receipt_items || []).map((item: any) => {
           const attributionRow =
             item.attributions ??
-            (item.purpose_id && attributionLookup?.get(String(item.purpose_id)));
+            (item.attribution_id && attributionLookup?.get(String(item.attribution_id)));
           return {
           id: item.id,
           name: item.name,
@@ -843,7 +843,7 @@ export async function getAllReceipts(): Promise<Receipt[]> {
             createdAt: item.categories.created_at,
             updatedAt: item.categories.updated_at,
           } : undefined,
-          attributionId: item.purpose_id ?? null,
+          attributionId: item.attribution_id ?? null,
           attribution: attributionRow ? {
             id: attributionRow.id,
             spaceId: attributionRow.space_id,
@@ -885,7 +885,7 @@ export async function updateReceiptItem(
     if (field === 'categoryId') {
       updateData.category_id = value;
     } else if (field === 'attributionId') {
-      updateData.purpose_id = value;
+      updateData.attribution_id = value;
     } else if (field === 'isAsset') {
       updateData.is_asset = value;
     }
@@ -1100,7 +1100,7 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
       items: (data.receipt_items || []).map((item: any) => {
         const attributionRow =
           item.attributions ??
-          (item.purpose_id && attributionLookupById?.get(String(item.purpose_id)));
+          (item.attribution_id && attributionLookupById?.get(String(item.attribution_id)));
         return {
         id: item.id,
         name: item.name,
@@ -1114,7 +1114,7 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
           createdAt: item.categories.created_at,
           updatedAt: item.categories.updated_at,
         } : undefined,
-        attributionId: item.purpose_id ?? null,
+        attributionId: item.attribution_id ?? null,
         attribution: attributionRow ? {
           id: attributionRow.id,
           spaceId: attributionRow.space_id,
