@@ -279,7 +279,15 @@ export function LineItemPillAnchorDropdownWeb({
       rafInner = requestAnimationFrame(measure);
     });
     const t2 = typeof window !== 'undefined' ? window.setTimeout(measure, 50) : 0;
-    const onScroll = () => setOpen(false);
+    /** 捕获阶段会收到选单自身 overflow 滚动，需忽略，否则一滚列表就选单消失 */
+    const onScroll = (e: Event) => {
+      const t = e.target;
+      if (t instanceof Node) {
+        const menu = document.getElementById(menuDomId);
+        if (menu?.contains(t)) return;
+      }
+      setOpen(false);
+    };
     if (typeof window !== 'undefined') {
       window.addEventListener('scroll', onScroll, true);
       window.addEventListener('resize', measure);
@@ -293,7 +301,7 @@ export function LineItemPillAnchorDropdownWeb({
         window.removeEventListener('resize', measure);
       }
     };
-  }, [open, measure]);
+  }, [open, measure, menuDomId]);
 
   useEffect(() => {
     if (!open) setHoveredValue(null);

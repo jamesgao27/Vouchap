@@ -6,6 +6,7 @@ import { findOrCreateAccount } from './accounts';
 import { findOrCreateEntity } from './entities';
 import { findOrCreateWarehouseByName, findOrCreateLocationByName } from './warehouse';
 import { findOrCreateSkuByNameAndUnit } from './skus';
+import { normalizeReceiptItemTaxClassCode } from './receipt-item-tax';
 
 // 将 Gemini 识别结果转换为 Receipt 格式
 export async function convertGeminiResultToReceipt(result: GeminiReceiptResult): Promise<Receipt> {
@@ -136,6 +137,14 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
       const itemName = item.name ?? (item as { description?: string }).description ?? 'Unknown Item';
       // 兼容 API 返回 amount 而非 price（如语音识别返回 "amount": 1200）
       const itemPrice = Number((item as { price?: number; amount?: number }).price ?? (item as { amount?: number }).amount ?? 0);
+      const taxClassCode = normalizeReceiptItemTaxClassCode(
+        (item as { taxClassCode?: string | null }).taxClassCode,
+      );
+      const posTaxCodeRaw = (item as { posTaxCode?: string | null }).posTaxCode;
+      const posTaxCode =
+        posTaxCodeRaw != null && String(posTaxCodeRaw).trim() !== ''
+          ? String(posTaxCodeRaw).trim().toUpperCase()
+          : undefined;
       return {
         name: itemName,
         categoryId: category.id,
@@ -147,6 +156,8 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
         price: itemPrice,
         isAsset: item.isAsset || false,
         confidence: item.confidence,
+        ...(taxClassCode ? { taxClassCode } : {}),
+        ...(posTaxCode ? { posTaxCode } : {}),
       };
     })
   );
@@ -246,6 +257,15 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
     throw new Error('User must have a space selected');
   }
 
+  const raw = result as GeminiReceiptResult & {
+    tax_jurisdiction_country?: string | null;
+    tax_jurisdiction_region?: string | null;
+  };
+  const taxJurisdictionCountry =
+    result.taxJurisdictionCountry ?? raw.tax_jurisdiction_country ?? null;
+  const taxJurisdictionRegion =
+    result.taxJurisdictionRegion ?? raw.tax_jurisdiction_region ?? null;
+
   return {
     spaceId: spaceId,
     supplierName: result.supplierName,
@@ -253,6 +273,8 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
     totalAmount: result.totalAmount,
     currency: result.currency,
     tax: result.tax,
+    taxJurisdictionCountry: taxJurisdictionCountry || null,
+    taxJurisdictionRegion: taxJurisdictionRegion || null,
     date: result.date,
     accountId: accountId,
     status: status,

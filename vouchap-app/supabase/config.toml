@@ -1,6 +1,11 @@
 # Supabase project config (used by CLI for migrations, functions, etc.)
 # See: https://supabase.com/docs/guides/functions/function-configuration
 
+# Expose crm so PostgREST / supabase-js .schema('crm') can read tax_rate_standard.
+# Hosted projects: also add "crm" under Project Settings → API → Exposed schemas.
+[api]
+schemas = ["public", "graphql_public", "crm"]
+
 # Edge Function: allow browser/client to call without 401.
 # Gateway enforces JWT by default; this function only sends email from body (no DB).
 # Redeploy after change: supabase functions deploy send-invitation-email

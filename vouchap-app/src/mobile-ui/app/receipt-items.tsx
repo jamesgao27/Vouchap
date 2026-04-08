@@ -368,12 +368,19 @@ export default function ReceiptLineItemsScreen() {
 
   useEffect(() => {
     if (Platform.OS !== 'web' || !bulkMenu) return;
-    const close = () => setBulkMenu(null);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
+    const onScroll = (e: Event) => {
+      if (e.target instanceof Node) {
+        const menu = document.getElementById('receipt-items-bulk-menu');
+        if (menu?.contains(e.target)) return;
+      }
+      setBulkMenu(null);
+    };
+    const onResize = () => setBulkMenu(null);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
     return () => {
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
     };
   }, [bulkMenu]);
 

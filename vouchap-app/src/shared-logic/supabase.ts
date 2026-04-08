@@ -192,6 +192,18 @@ export function getFileExtAndMime(
     const ext = docMatch[1].toLowerCase();
     return { ext, mimeType: mimeTypeForDocExtension(ext) };
   }
+  if (name && IMAGE_EXT_REG.test(name)) {
+    return getImageExtAndMime(`local/${name}`);
+  }
+  const genericExtMatch = name.match(/\.([a-zA-Z0-9]{1,32})$/);
+  if (genericExtMatch) {
+    const ext = genericExtMatch[1].toLowerCase();
+    const mimeFromOpts = opts?.mimeType?.trim();
+    if (mimeFromOpts) {
+      return { ext, mimeType: mimeFromOpts };
+    }
+    return { ext, mimeType: 'application/octet-stream' };
+  }
   return getImageExtAndMime(fileUri);
 }
 

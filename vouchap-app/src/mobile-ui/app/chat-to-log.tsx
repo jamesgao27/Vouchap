@@ -73,6 +73,35 @@ import {
   chatStagedFilesOverflowLabel,
 } from '../lib/chat-staged-files-display';
 
+function isAndroidImagePickerLauncherNotReadyError(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e);
+  return Platform.OS === 'android' && /unregistered ActivityResultLauncher/i.test(msg);
+}
+
+/**
+ * After returning from the system picker (or when MainActivity was recreated), Expo may still be
+ * re-registering ActivityResult contracts on the main queue; the first launch can throw
+ * IllegalStateException until registration completes. Retry a few times with short backoff.
+ */
+async function launchImageLibraryAsyncWithAndroidRelaunchRetries(
+  options: Parameters<typeof ImagePicker.launchImageLibraryAsync>[0],
+): Promise<Awaited<ReturnType<typeof ImagePicker.launchImageLibraryAsync>>> {
+  const betweenAttemptWaitsMs = Platform.OS === 'android' ? [120, 280] : [];
+  let attempt = 0;
+  for (;;) {
+    try {
+      return await ImagePicker.launchImageLibraryAsync(options);
+    } catch (e) {
+      const waitMs = betweenAttemptWaitsMs[attempt];
+      if (waitMs == null || !isAndroidImagePickerLauncherNotReadyError(e)) {
+        throw e;
+      }
+      await new Promise<void>((r) => setTimeout(r, waitMs));
+      attempt += 1;
+    }
+  }
+}
+
 // 语音识别置信度阈值：与照片 needs_retake 一致，低于此值视为无可识别内容，提示重新提交
 const VOICE_CONFIDENCE_THRESHOLD = 0.4;
 
@@ -1194,10 +1223,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         showToast('Photo library access is required to add images.', 'info');
         return;
       }
-      // Android: defer launch so ActivityResultLauncher is registered (avoids IllegalStateException)
       const launchPicker = async () => {
         try {
-          const result = await ImagePicker.launchImageLibraryAsync({
+          const result = await launchImageLibraryAsyncWithAndroidRelaunchRetries({
             mediaTypes: ImagePicker.MediaTypeOptions.Images,
             allowsMultipleSelection: true,
             quality: 0.9,
@@ -1218,13 +1246,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
           showToast(e instanceof Error ? e.message : 'Failed to add files', 'error');
         }
       };
-      if (Platform.OS === 'android') {
-        InteractionManager.runAfterInteractions(() => {
-          setTimeout(launchPicker, 0);
-        });
-      } else {
-        await launchPicker();
-      }
+      await launchPicker();
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Failed to add files', 'error');
     }

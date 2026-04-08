@@ -9,6 +9,7 @@
  */
 import { Stack } from 'expo-router';
 import { Platform } from 'react-native';
+import { getWebStackHeaderLeftScreenOptions } from '../../../../lib/web-stack-header-left';
 
 const orderStackIosSafe =
   Platform.OS === 'ios'
@@ -25,6 +26,7 @@ export default function OrderDetailLayout() {
         headerShown: true,
         headerBackButtonVisible: true,
         ...orderStackIosSafe,
+        ...getWebStackHeaderLeftScreenOptions(),
       }}
     >
       <Stack.Screen

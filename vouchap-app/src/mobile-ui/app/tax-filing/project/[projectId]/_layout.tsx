@@ -5,6 +5,7 @@
  * 附件详情已改为大浮窗（FileDetailModal），不再单独路由。
  */
 import { Stack } from 'expo-router';
+import { getWebStackHeaderLeftScreenOptions } from '../../../../lib/web-stack-header-left';
 
 export default function ProjectDetailLayout() {
   return (
@@ -15,6 +16,7 @@ export default function ProjectDetailLayout() {
         // 避免 iOS 生产环境下 RNSScreen 冻结/快照阶段触发原生 SIGABRT
         animation: 'none' as any,
         freezeOnBlur: false as any,
+        ...getWebStackHeaderLeftScreenOptions(),
       }}
     >
       <Stack.Screen

@@ -98,6 +98,13 @@ export interface ReceiptItem {
   price: number;
   isAsset: boolean;
   confidence?: number; // AI识别置信度
+  /**
+   * Optional per-line supply / rate-bundle (receipt_items.tax_class_code): which CRM rate set applies to the line.
+   * STANDARD_TAXABLE | EXEMPT | ZERO_RATED when set/normalized. Not one tax kind; see receipt_item_taxes.
+   */
+  taxClassCode?: string | null;
+  /** Retailer POS line tax code (receipt_items.pos_tax_code): public.entity_pos_tax_code (via receipt merchant_entity_id) first, then crm.tax_pos_code_rule. */
+  posTaxCode?: string | null;
 }
 
 /** Web 端支出「按明细行」扁平列表（receipt_items + 小票 Payee / 交易时间等） */
@@ -119,6 +126,14 @@ export interface ReceiptLineItemListRow {
 // 提交方式类型：camera=实时拍摄 image=上传图片 document=上传文档
 export type InputType = 'camera' | 'image' | 'text' | 'audio' | 'document';
 
+/** 行税合计 vs 票面 tax 的对账状态（见 receipt_item_taxes / receipts 列） */
+export type ReceiptTaxReconciliationStatus =
+  | 'matched'
+  | 'within_tolerance'
+  | 'variance'
+  | 'pending_recalc'
+  | 'skipped';
+
 // 小票数据（支出单：对方为 Payee 收款方）
 export interface Receipt {
   id?: string;
@@ -127,6 +142,8 @@ export interface Receipt {
   storeName?: string;
   entityId?: string | null; // 关联方 entities 表（支出单：Payee）
   entity?: Entity | null;
+  /** Shared-catalog key for public.entity_pos_tax_code; not entities.id */
+  merchantEntityId?: string | null;
   totalAmount: number;
   date: string;
   accountId?: string;
@@ -141,6 +158,19 @@ export interface Receipt {
   confidence?: number; // 整体识别置信度
   currency?: string; // 币种，如：CNY、USD
   tax?: number; // 税费
+  /** ISO 3166-1 alpha-2，用于行税规则（如 CA）；空则按币种推断 */
+  taxJurisdictionCountry?: string | null;
+  /** 省/州代码，如 ON、BC；可为空字符串 */
+  taxJurisdictionRegion?: string | null;
+  /** 各 receipt_item_taxes.amount 之和与 tax 的对账状态 */
+  taxReconciliationStatus?: ReceiptTaxReconciliationStatus | null;
+  taxItemsSum?: number | null;
+  /** receipts.tax − taxItemsSum（票面总税优先） */
+  taxVarianceAmount?: number | null;
+  /** True when line tax engine differs from receipt.tax beyond tolerance */
+  taxAuditRequired?: boolean | null;
+  /** English note for reviewers */
+  taxAuditComment?: string | null;
   createdBy?: string; // 提交者用户ID
   createdByUser?: User; // 提交者用户信息
 }
@@ -414,6 +444,9 @@ export interface GeminiReceiptResult {
   currency?: string; // 币种，如：CNY、USD
   paymentAccountName?: string; // 支付账户，包含卡号尾号信息
   tax?: number; // 税费
+  /** 销售税辖区：国家 ISO 3166-1 alpha-2；region 为省/州（如加拿大 ON、BC） */
+  taxJurisdictionCountry?: string | null;
+  taxJurisdictionRegion?: string | null;
   items: Array<{
     name: string;
     categoryName: string; // 分类名称，从[食品,外餐, 居家, 交通, 购物, 医疗, 教育]中选择
@@ -421,6 +454,10 @@ export interface GeminiReceiptResult {
     attributionName?: string; // 映射到 attributions.name（模型若仍返回 purposeName，解析层会兼容）
     isAsset?: boolean; // 可选
     confidence?: number; // 可选
+    /** STANDARD_TAXABLE (default), EXEMPT (e.g. tax-free groceries), ZERO_RATED */
+    taxClassCode?: string | null;
+    /** Single-letter or short POS tax code printed on the line (e.g. D, H, N, X) when visible */
+    posTaxCode?: string | null;
   }>;
   confidence?: number; // 可选，整体识别置信度 0-1
   imageQuality?: ImageQuality; // 图片质量评价

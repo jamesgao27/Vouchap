@@ -628,3 +628,693 @@
 - `vouchap-app/src/mobile-ui/app/_layout.tsx`
 
 ---
+
+### 2026-04-05（Category / Attribution 选单：内部滚动不再误关）
+
+**User（提示词/原意）**  
+- Category、Attribution **选单选项多、出现滚动条时，一滚动选单就消失**，需修复。
+
+**Assistant（实现前说明）**  
+- **`LineItemPillAnchorDropdownWeb`**（及 Line items **批量** Portal 选单）在打开时对 **`window` `scroll` capture** 监听并**一律关菜单**；浏览器在**选单自身 `overflowY: auto`** 上滚动时同样向 window 冒泡/捕获，导致误关。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`voucher-table-columns.tsx`**：**`onScroll`** 若 **`event.target`** 位于 **`#menuDomId`** 内则 **return**，否则 **`setOpen(false)`**；**`useLayoutEffect`** 依赖补 **`menuDomId`**。  
+- **`receipt-items.tsx`**：批量选单 **`onScroll`** 同理忽略 **`#receipt-items-bulk-menu`** 内滚动；**`resize`** 仍为无条件收起（与原行为一致）。  
+- **验证**：Web 表内与批量：选单拉高至出滚动条，滚轮/拖拽滚动列表，选单保持；滚外层表格/页面仍应关闭选单。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`、`vouchap-app/src/mobile-ui/app/receipt-items.tsx`
+
+---
+
+### 2026-04-05（Web 顶栏返回：箭头间歇消失）
+
+**User（提示词/原意）**  
+- Web **顶行返回箭头经常消失**；有时**占位仍可点**仅**无箭头**；有时**占位也没了**。
+
+**Assistant（实现前说明）**  
+- Web **Stack** 使用 JS **`NativeStackView`**，默认 **`HeaderBackButton`** 为 **PNG + RN `Image` `tintColor`**；**RN Web** 上易出现**位图画不出来**但**仍有点击区**。整条按钮缺失另可能与 **`canGoBack`/栈** 或页级 **`headerLeft`** 有关；本次消除 PNG/tint 主因。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 **`vouchap-app/src/mobile-ui/lib/web-stack-header-left.tsx`**：**仅 web** 合并 **`getWebStackHeaderLeftScreenOptions()`**：**`HeaderBackButton`** + **`backImage`** 用 **Unicode U+2039** 与 **系统 UI 字体**，不依赖位图着色。  
+- **`app/_layout.tsx`**、**`tax-filing/project/[projectId]/_layout.tsx`**、**`tax-filing/order/[orderId]/_layout.tsx`** 的 **`screenOptions`** 已合并；**非 web** 返回 **`{}`**，原生不变。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/lib/web-stack-header-left.tsx`、`vouchap-app/src/mobile-ui/app/_layout.tsx`、`vouchap-app/src/mobile-ui/app/tax-filing/project/[projectId]/_layout.tsx`、`vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/_layout.tsx`
+
+---
+
+### 2026-04-05（小票：标准税率表 + 行税、辖区、对账与异步重算）
+
+**User（提示词/原意）**  
+- 设计并实现 **标准税率表 / 行项目税表** 及后端：**识别时**优先用 `tax_rate_catalog`，缺失则用内置标准税率 **写入 space 缓存** 再算行税；**行税合计 vs 票面 tax**：接近则通过，差距大则 **异步** 换辖区重算；仍对不齐则 **差额可接受**（票面 `receipts.tax` 为准，行税以计算为准）。  
+- 接续此前已存在的迁移草稿与 `receipt-item-tax.ts`，补全接入与 prompt。
+
+**Assistant（实现前说明）**  
+- 修复 `scheduleReceiptTaxRecalcIfNeeded` 中非法条件；在 **`saveReceipt` / `updateReceipt`** 写入 **`tax_jurisdiction_*`**（来自识别或推断），保存行项后 **`applyReceiptItemTaxesAndReconcile`**，大差额时 **`scheduleReceiptTaxRecalcIfNeeded`**。  
+- 扩展 **`Receipt` / `GeminiReceiptResult`**、**`convertGeminiResultToReceipt`**、**`buildReceiptExtractionRules`** 与文本/语音小票 prompt 输出 **`taxJurisdictionCountry` / `taxJurisdictionRegion`**。  
+- **`getReceipt*`** 映射 **`tax_reconciliation_status`、`tax_items_sum`、`tax_variance_amount`**。  
+- 依赖迁移：`supabase/migrations/20260405220000_tax_rate_catalog_and_receipt_item_taxes.sql`（若尚未在生产执行需 deploy）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt-item-tax.ts`**：`pending_recalc` 循环后若仍为 pending 则降为 **`variance`**；重算成功则 **`matched` / `within_tolerance` / `skipped`** 时退出循环。  
+- **`database.ts`**：`insert`/`update` 税辖区列；保存/更新影响行税或税总额时触发 **apply + schedule**；列表/详情 **Receipt** 带回对账字段。  
+- **`types/index.ts`**、**`receipt-helpers.ts`**、**`gemini.ts`**：辖区与类型、prompt 一致。  
+- **验证**：应用迁移后保存含明细的 CAD 小票 → `receipt_item_taxes` 有行、**`tax_reconciliation_status`** 非空；人为大差额 CA 场景可观察 **`pending_recalc`** → 异步尝试其他省或最终 **`variance`**。全量 `tsc` 工程内仍有既有报错，与本次改动文件无新增可指出的阻塞项。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260405220000_tax_rate_catalog_and_receipt_item_taxes.sql`、`vouchap-app/src/shared-logic/receipt-item-tax.ts`、`vouchap-app/src/shared-logic/database.ts`、`vouchap-app/src/shared-logic/types/index.ts`、`vouchap-app/src/shared-logic/receipt-helpers.ts`、`vouchap-app/src/shared-logic/gemini.ts`
+
+---
+
+### 2026-04-06（标准税率迁入 crm schema；space 对标准表只读）
+
+**User（提示词/原意）**  
+- 数据库已有 **`crm`** schema；**标准税率表**放到该 schema；**模型/运营侧**可对标准表写入；**用户 space**（客户端 authenticated）对标准税率为 **只读**。
+
+**Assistant（实现前说明）**  
+- 新增 **`crm.tax_rate_standard`**（无 `space_id`），**RLS**：`authenticated` 仅 **SELECT**；写操作交给 **service_role**（或后续 CRM 后台），与「用户不可改标准表」一致。  
+- **`public.tax_rate_catalog`**：去掉 **`space_id IS NULL`** 平台行，**`space_id` NOT NULL** 专作 space 缓存；原平台种子迁入 crm 并 **DELETE** 旧行；**`receipt_item_taxes`** 增加 **`crm_tax_rate_standard_id`**，与 **`tax_rate_catalog_id`**（仅缓存行）二选一引用。  
+- 应用层 **`receipt-item-tax.ts`**：合并查询 **`crm.tax_rate_standard`** 与 **`public.tax_rate_catalog`**；**`supabase/config.toml`** 增加 **`api.schemas` 含 `crm`**；托管项目需在 **Dashboard → API → Exposed schemas** 勾选 **`crm`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 迁移 **`20260406120000_crm_tax_rate_standard.sql`**：建表、seed、从 public 迁遗留平台行、`receipt_item_taxes` 新列、删 public 平台行、**`tax_rate_catalog.space_id` NOT NULL**、收紧 **`tax_rate_catalog` SELECT** 策略仅本 space。  
+- **`receipt-item-tax.ts`**：`schema('crm').from('tax_rate_standard')` + 原 **`tax_rate_catalog`**；写入行税时按来源填 **`crm_tax_rate_standard_id` 或 `tax_rate_catalog_id`**。  
+- **`crm.tax_rate_standard.source`** 允许 **`model`**，便于 pipeline 用 service role 落库。  
+- **验证**：跑迁移 → 客户端仍可取 CRM 标准税率并算行税；authenticated 对 **`crm.tax_rate_standard`** 无 INSERT；Supabase 未暴露 **`crm`** 时 `.schema('crm')` 会失败，需同步 config + Dashboard。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260406120000_crm_tax_rate_standard.sql`、`vouchap-app/supabase/config.toml`、`vouchap-app/src/shared-logic/receipt-item-tax.ts`
+
+---
+
+### 2026-04-06（crm 标准税表：美国各州 + 加拿大各省种子）
+
+**User（提示词/原意）**  
+- 检索**美国、加拿大**各税种/税率，**写入标准税表**（`crm.tax_rate_standard`）。
+
+**Assistant（实现前说明）**  
+- 加拿大：按省补全 **HST 单轨**（ON/NB/NL/PE/NS）、**GST+PST/SK**、**GST+RST/MB**、**GST+QST/QC**、**GST-only**（AB/NT/NU/YT）及 **CA 空 region 的 GST 兜底**；NS **HST 14%** 自 **2025-04-01** 起（与公开税改表述一致）。  
+- 美国：每州一行 **`COMBINED_SALES_TAX`** = Tax Foundation **2025-01-01** 表 **州税 + 人口加权平均地方税**（仅作小票估算参考，不含免税品/基地差异）；另加 **`US` + 空 region** 全美国约 **6.65%** 粗 fallback。  
+- 新建幂等迁移 **`20260406180000_seed_crm_tax_rate_standard_us_ca.sql`**（`NOT EXISTS` 自然键 + `effective_from`）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已写入迁移；表 **`COMMENT`** 标明来源与「非申报级精度」限制。  
+- **修复**：NE 州行 `effective_from` 笔误 **`2022025-01-01`** → **`2025-01-01`**。  
+- **验证**：`supabase db push` / SQL Editor 执行迁移后 `SELECT country_code, region_code, tax_kind_code, rate FROM crm.tax_rate_standard WHERE country_code IN ('US','CA') ORDER BY 1,2,4;`；业务上仍需法务/税务复核再用于申报。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260406180000_seed_crm_tax_rate_standard_us_ca.sql`
+
+---
+
+### 2026-04-06（小票行税无数据：美国 effective_from + CRM 回退）
+
+**User（提示词/原意）**  
+- Dev 拍摄小票后 **`receipt_item_taxes` 没有数据**。
+
+**Assistant（实现前说明）**  
+- 根因：**美国**标准税率种子使用 **`effective_from = 2025-01-01`**，查询使用 **`effective_from <= receipt_date`**，小票日期早于 2025 时 **CRM 无匹配行**；**`builtinStandardRates` 仅含加拿大**，美国不会写入 **`tax_rate_catalog` 缓存**，最终 **pickRates 为空**。次要风险：**Supabase 未暴露 `crm` schema** 时查询失败且无回退。  
+- 计划：**迁移** 将美国 **`COMBINED`** 行的 **`effective_from` 统一改为 `2000-01-01`**；补 **NS HST 15%**（至 2025-03-31）；同步修正 **`20260406180000`** 中美国与 NS 种子；**应用侧** CRM 结果按 **`effective_from` / `effective_to` 在内存收窄**；**`builtinStandardRates` 增加美国**（`us-combined-sales-tax-builtin.ts`）；**insert 失败日志** 打出 code/details。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 **`20260406200000_tax_standard_us_effective_from_and_ns_hst.sql`**；**`us-combined-sales-tax-builtin.ts`**；**`receipt-item-tax.ts`** 如上。  
+- **验证**：执行新迁移后，**USD + 小票日期 2024** 仍应命中 CRM；控制台若见 **`crm.tax_rate_standard failed`** 须在 **Project Settings → API → Exposed schemas** 勾选 **`crm`**。已存小票可再编辑保存触发 **`updateReceipt`** 或依赖后续产品「重算税」入口。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260406200000_tax_standard_us_effective_from_and_ns_hst.sql`、`vouchap-app/supabase/migrations/20260406180000_seed_crm_tax_rate_standard_us_ca.sql`、`vouchap-app/src/shared-logic/receipt-item-tax.ts`、`vouchap-app/src/shared-logic/us-combined-sales-tax-builtin.ts`
+
+---
+
+### 2026-04-06（拍照小票仍无 item-tax：辖区/日期/receipt-processor 二次 apply）
+
+**User（提示词/原意）**  
+- 已按说明执行迁移后，**识别新小票仍无 item-tax 数据**。
+
+**Assistant（实现前说明）**  
+- 可能原因：**(1)** 初次 **`saveReceipt({ items: [] })`** 后本就不会写行税（仅说明性日志）；**(2)** **`updateReceipt` 之后**仍无辖区时 **`country` 为空**（非 USD/CAD 且无 `tax_jurisdiction_*`）直接 skipped；**(3)** **`date` 非 ISO** 导致 CRM 有效期比较异常；**(4)** 需确认识别完成后 **`applyReceiptItemTaxesAndReconcile` 一定执行**。  
+- 拟：**辖区回退**（空币种按 USD→US；显式 CAD→CA）、**`receiptTaxAsOfDate`**、**诊断日志**、在 **`receipt-processor.ts`** 于 **`updateReceipt` 成功后再次调用 apply+schedule**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt-item-tax.ts`**：如上；无明细时 warn 说明「行税在明细写入后才算」。  
+- **`receipt-processor.ts`**：**`getCurrentUser` + `bgSpaceId`** 下二次 **`applyReceiptItemTaxesAndReconcile`**（与 `updateReceipt` 内调用重复但幂等）。  
+- **验证**：拍票 → 识别结束 → 看控制台 **`[receipt-item-tax] No tax rows computed`** 或 **`crm.tax_rate_standard failed`**；**非 USD/CAD** 且无辖区仍将 skipped（需模型返回辖区或扩展币种表）。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`、`vouchap-app/src/shared-logic/receipt-processor.ts`
+
+---
+
+### 2026-04-06（updateReceipt：先删后插行项目是否致关联冗余、是否需改）
+
+**User（提示词/原意）**  
+- 日志显示**修改 receipt 详情**时是**删除 item 再重新添加**，是否会导致**关联数据冗余**？**是否必要**调整更新逻辑？
+
+**Assistant（实现前说明）**  
+- 无代码变更；查阅 **`database.ts` 中 `updateReceipt`**、`receipt_item_taxes` 迁移 FK。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt_item_taxes.receipt_item_id` → `receipt_items.id` 为 `ON DELETE CASCADE`**，删行项目会**级联删除**对应行税，**不会**长期堆积「孤儿」行税行，语义上**不是**「关联表冗余堆积」。  
+- **代价**：每次编辑换来**新的 `receipt_items.id`**，随后 **`applyReceiptItemTaxesAndReconcile` 全量重算并插入**属于**预期**；若别处未来用**稳定 item 外键**（审计、第三方同步），全删全插会使旧 ID 失效——当前代码库未见除 **`receipt_item_taxes`** 外对 **item id** 的强依赖。  
+- **是否必改**：非为「防冗余」而必改；若需**稳定 ID / 少写放大 / 保留细粒度审计**，可改为 **按 id upsert / 仅 diff 变更行**（实现与冲突处理成本更高）。
+
+**关联**  
+- `vouchap-app/src/shared-logic/database.ts`（`updateReceipt`）、`vouchap-app/supabase/migrations/20260405220000_tax_rate_catalog_and_receipt_item_taxes.sql`
+
+---
+
+### 2026-04-06（曼省等小票：只识别部分税种、行税合计与票面税差很大）
+
+**User（提示词/原意）**  
+- 刚识别的小票（**加拿大曼尼托巴省快餐**）**只识别了部分税种**，items 税总额与**小票税额偏差很大**，需核实并修复。
+
+**Assistant（实现前说明）**  
+- 假设根因：**识别返回的 `taxJurisdictionRegion` 为全称**（如 Manitoba）与 **`crm.tax_rate_standard.region_code`（MB）** 不一致；**`pickRatesForRegion`** 对 CRM 行需 **`bestScore >= 3`** 才入选：**GST** 仍可借 **`CA` + 空 region** 行得分入选，**RST 仅存在于 MB 行**时得分不足被丢弃 → **只有 5% GST、缺 7% RST**，与**约 12% 合计税**严重偏差。  
+- 拟：**加拿大省名/别名 → ISO 二位码** 规范化；**`builtinStandardRates`** 补 **MB（GST+RST）、SK（GST+PST）**；**`CA_ALT_REGIONS`** 加入 MB/SK/QC；**Gemini 提示**强制二位省码。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt-item-tax.ts`**：新增 **`normalizeCanadianRegionCode`**（导出）、在 **`applyReceiptItemTaxesAndReconcile`** 内 **`country === 'CA'`** 时写入规范化 region；补内置税率与重算省份列表；修正 **`NORTHWEST TERRITORIES`** 对象字面量键须加引号（否则 TS 语法错）。  
+- **`gemini.ts`**：**`taxJurisdictionRegion` 必须为二位代码**，禁止全称。  
+- **验证**：将票面 **`tax_jurisdiction_region` 设为 `Manitoba` 或 `MB`** 后保存/重算，**`receipt_item_taxes`** 应同时含 **GST + RST**，**`tax_items_sum`** 与 **`receipts.tax`** 接近；仍差时需查 **行价是否含税、分类税级** 等与模型无关因素。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`、`vouchap-app/src/shared-logic/gemini.ts`
+
+---
+
+### 2026-04-06（保存小票：行税先出现 PST/RST 后消失只剩 GST）
+
+**User（提示词/原意）**  
+- **修改保存**刚才的小票，后台**短时间出现 pst 数据**，**最终又消失只剩 gst**。
+
+**Assistant（实现前说明）**  
+- 根因：**`scheduleReceiptTaxRecalcIfNeeded`** 在 **`pending_recalc`** 时对 **`CA_ALT_REGIONS`** 依次 **`regionOverride`** 重算；列表末尾曾含 **`''`** → **`pickRatesForRegion`** 只保留联邦 **GST**（`, CA region_code ''`），**删掉** 省税行 → 用户看到先有两税、后被异步一轮**覆盖成仅 GST**。  
+- 另：**非 CA 小票**不应跑加拿大学历轮询。  
+- 拟：**移除 `''`**；**扩展**备选省列表（含领土）；`schedule` 查询补上 **`tax_jurisdiction_country`**；不引入「凡有省码就禁止轮询」（与 **CAD 默认写 ON** 冲突）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt-item-tax.ts`**：**`CA_ALT_REGIONS`** 去掉 **空 region**；**`scheduleReceiptTaxRecalcIfNeeded`** 中 **`country !== 'CA'`** 时仅把 **`pending_recalc` → `variance`**，不执行省轮询；循环跳过条件用 **`normBase`** 与 **`baseRegion`** 与大写 **alt** 对齐。  
+- **验证**：保存后 **Supabase** 观察 **`receipt_item_taxes`**：不应再出现「数秒后只剩 GST」；若 **`pending_recalc`** 仍存在，最后一轮不再使用 **`regionOverride: ''`**。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`
+
+---
+
+### 2026-04-06（重存小票后台仍只有 GST）
+
+**User（提示词/原意）**  
+- **重新保存**改小票，**后台仍只有 gst**（预期曼省等应有省税行）。
+
+**Assistant（实现前说明）**  
+- 推断：空间中 **`tax_rate_catalog`** 已有 **其它省**（常见 **CAD 默认 ON**）的 **GST** 行时，`pickRatesForRegion` 会为 **GST** 选中该行（score≥3），**`picked.size > 0`** → **`resolveRateRows`** **不会**再执行 **`ensureSpaceCatalogFromBuiltin`**；**RST** 仅存在于 **MB/对应省** 或 **CRM**，缓存无省税 → **最终只写入 GST**。另：**`CA ''` 联邦 GST** 会在非严格筛选时与省行并存，对 **HST 省**也不利。  
+- 拟：在 **`region` 已非空** 时，候选税率 **仅限 `region_code` 与辖区一致** 的行，迫使 **MB** 场景 **`picked` 为空** 直至 **`ensure`** 写入 **GST+RST**，或 **CRM** 仅有省区行时正确双轨。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`pickRatesForRegion`**：当 **`reg`** 非空时先用 **`scoped`** 过滤 **`region_code === reg`**（大小写不敏感），再按 kind 打分。  
+- **验证**：`tax_jurisdiction_region = MB`（或规范化后 MB）、CRM/缓存无 MB 时重存后应出现 **`RST`** + **`GST`**；若仍为单列，查 **`crm` schema 暴露**、**RLS**、`tax_rate_catalog` **insert** 报错日志。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`
+
+---
+
+### 2026-04-06（Winnipeg 小票误用 14% HST 而非 GST+PST/RST）
+
+**User（提示词/原意）**  
+- 票面有 **Winnipeg**、**GST 5% / PST 7%** 字样，却用 **14% HST** 计算；需核查逻辑，确保**标准税率取用正确**。
+
+**Assistant（实现前说明）**  
+- **14% HST** 与种子 **NS**（`crm.tax_rate_standard`）一致；**模型**误填 **`tax_jurisdiction_region`**（如 **NS**）或 **`pending_recalc`** 跨省轮询在 **`within_tolerance`** 时**过早 break**，会误选 **NS** 单轨 HST。  
+- **曼省**应为 **GST+RST**（票面常写 **PST**），**非** HST 省。  
+- 拟：**从 `processed_by` + entity name/address 推断** Winnipeg、**R** 邮编、**GST+PST** 文本；若与 **HST 省**辖区冲突则**覆盖为 MB**；**禁用**跨省轮询中 **within_tolerance** 的「误匹配」；**Gemini** 规则补强。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt-item-tax.ts`**：新增 **`inferCanadianRegionFromReceiptSignals`**、**`receiptTextSuggestsGstPlusProvincialNotHst`**（导出）；**`applyReceiptItemTaxesAndReconcile`** 拉取 **`processed_by`、`entity_id`** 并读 **`entities(name,address)`** 拼证据；**CA** 下在模型区划为 **ON/NB/NS/NL/PE** 且文本含 **GST+PST** 或推断 **MB/BC** 时**纠正辖区**；**`scheduleReceiptTaxRecalcIfNeeded`** **取消**跨省依次重算，仅 **`pending_recalc` → `variance`**（避免 NS 等误匹配）。  
+- **`gemini.ts`**：Winnipeg / R 邮编 → **MB**；**GST+PST** 与 HST 省互斥说明。  
+- **验证**：保存后 **`receipt_item_taxes`** 应为 **GST+RST**（非单列 HST）；**重新识别**旧小票以更新模型输出的 `taxJurisdictionRegion`。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`、`vouchap-app/src/shared-logic/gemini.ts`
+
+---
+
+### 2026-04-07（混合税率行：食品免税与行税合计严格对账）
+
+**User（提示词/原意）**  
+- 部分 **item 适用税率不同**（如食品免税），识别却**统一税率**；**items 税总额与票面税额**不一致；需**严格校验**，**只允许四舍五入末位差异**。
+
+**Assistant（实现前说明）**  
+- 根因：行税仅按 **分类 → category_tax_class_map**；无**行级免税**时全部为 **STANDARD_TAXABLE**；对账曾用 **绝对 0.02 + 相对 2%**，易把**实质差异**标成 **within_tolerance**。  
+- 拟：**`receipt_items.tax_class_code`** 可覆盖分类；**Gemini** 输出可选 **`taxClassCode`**（**EXEMPT** / **ZERO_RATED**）；**对账**仅允许 **≤0.01**（末位分币舍入），**去掉相对容差**；**variance** 时 **console.warn**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **迁移** **`20260407100000_receipt_items_tax_class_code.sql`**；**`receipt-item-tax.ts`**：**`normalizeReceiptItemTaxClassCode`**、**`RECONCILE_ROUNDING_EPS = 0.01`**、**`reconcileStatus`** 仅 **matched / variance**（≤1 分视为 **matched**）；**`apply`** 读 **`tax_class_code`** 优先于分类；**`database.ts`** 写入/读出 **`tax_class_code`**；**`types`**、**`receipt-helpers`**、**`gemini`** 管线接 **`taxClassCode`**。  
+- **验证**：迁移后 **免税行** 识别带 **EXEMPT** 时行税和应逼近 **`receipts.tax`**；仍 **variance** 须人工改分类或行税级。  
+- **CRM**：当前种子以 **STANDARD_TAXABLE** 为主；**EXEMPT** 无税率行属预期（**0** 税）。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260407100000_receipt_items_tax_class_code.sql`、`vouchap-app/src/shared-logic/receipt-item-tax.ts`、`vouchap-app/src/shared-logic/database.ts`、`vouchap-app/src/shared-logic/receipt-helpers.ts`、`vouchap-app/src/shared-logic/gemini.ts`、`vouchap-app/src/shared-logic/types/index.ts`
+
+---
+
+### 2026-04-07（加国超市：模型未标 EXEMPT 时用关键词启发式）
+
+**User（提示词/原意）**  
+- 终端仍报 **行税合计远高于票面税**（如 `receiptTax` 0.68 vs `sumItems` 2.24）；**免税行仍按全额计税**。
+
+**Assistant（实现前说明）**  
+- 先前 **`inferCanadianRetailGroceryTaxClass` / `canApplyCanadianGroceryTaxHeuristic`** 已加，但 **正则字符串转义错误**导致启发式几乎不生效；**`convertGeminiResultToReceipt`** 未在模型缺 **`taxClassCode`** 时调用启发式。  
+- 拟：**字面量 `/.../i` 正则**重写启发式；**`receipt-helpers`** 在 **`CAD`、非 QC、国家空或 CA** 且模型未给合法 class 时补 **`EXEMPT`**；**`gemini`** 规则补充加国超市分行标注；果汁等应税关键字进 blocklist。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt-item-tax.ts`**：`inferCanadianRetailGroceryTaxClass` 改为清晰 **`RegExp` 字面量**；扩充零食/果汁等 **应税** 词；**`wings`** 使用 **`\bwings\b`**。  
+- **`receipt-helpers.ts`**：调用 **`canApplyCanadianGroceryTaxHeuristic(result)`** + **`inferCanadianRetailGroceryTaxClass(itemName, categoryName, resolvedCategory.name)`** 回填 **`taxClassCode`**。  
+- **`gemini.ts`**：`RECEIPT_JSON_ITEMS_RULE` 增加加拿大超市 **基本食品 vs 即食/饮料/零食** 的 **`EXEMPT`** 说明。  
+- **验证**：同一曼省/混合税率小票重扫后 **`sumItems`≈`receipt.tax`**（≤0.01）；异常品名可再扩关键词。已知 **QC** 不启用启发式；**Shopping** 等非 Grocery 分类依赖 **品名关键词** 命中。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`、`vouchap-app/src/shared-logic/receipt-helpers.ts`、`vouchap-app/src/shared-logic/gemini.ts`
+
+---
+
+### 2026-04-07（行税计算阶段应用加国免税启发式 + Toast 诊断）
+
+**User（提示词/原意）**  
+- 仍错：**免税行仍按全额计税**，总额与票面不一致；**原生相机**时 Metro 日志看不到。
+
+**Assistant（实现前说明）**  
+- 根因：`receipt_items.tax_class_code` 为空时，`applyReceiptItemTaxesAndReconcile` **仅用 `category_tax_class_map`**，分类多为 STANDARD_TAXABLE，**永远在分类之后才算税**，识别阶段写的启发式若不命中则 DB 仍 null。  
+- 拟：在 **`applyReceiptItemTaxesAndReconcile`** 内对 **CAD、非 QC** 在分类前调用与识别端一致的 **`inferCanadianRetailGroceryTaxClass`**（商户/证据字符串含店名以便判 Walmart 等）；将 **EXEMPT 写回 `receipt_items`**；用现有 **`showToast`**（与 ToastHost 订阅）在 **仍有 variance 或刚标 exempt** 时提示；去掉 **`processReceiptInBackground` 内第二次 `apply`**（与 `updateReceipt` 重复）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt-item-tax.ts`**：扩充关键词与 **商超私牌 / WM 行样式**、**已知杂货商商户名**；`Shopping` 分类仅在 **杂货商 + 食品/私牌 SKU** 时标 EXEMPT；行税循环顺序为 **显式 override → 启发式 → `category_tax_class_map`**；持久化推断的 **`tax_class_code`**；**英文 Toast** 提示 exempt 行数与 variance。  
+- **`receipt-helpers.ts`**：启发式第四参传入 **`payeeName`**。  
+- **`receipt-processor.ts`**：移除重复的 **`applyReceiptItemTaxesAndReconcile` / `scheduleReceiptTaxRecalcIfNeeded`**。  
+- **验证**：加国混合税小票保存后 **`receipt_item_taxes` 合计应逼近 `receipts.tax`**；原生拍完后应出现 Toast（无 Metro 亦可）。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`、`receipt-helpers.ts`、`receipt-processor.ts`
+
+---
+
+### 2026-04-08（EXEMPT/ZERO_RATED 走平台地区税率镜像，去掉前端启发式）
+
+**User（提示词/原意）**  
+- **免税应配置地区税率**，识别到 **`tax_class_code` 后直接套用**，不要用前端启发式；**魁北克不应再特殊判断**。
+
+**Assistant（实现前说明）**  
+- 现状：`crm.tax_rate_standard` 几乎仅 **STANDARD_TAXABLE**；`builtinStandardRates` 对 EXEMPT 返回空，`resolveRateRows` 曾禁止对 EXEMPT **ensureSpaceCatalogFromBuiltin**，免税行无法与应税行走同一套 **按税种解析** 的路径。  
+- 拟：**迁移** 为每条 CA/US 的 STANDARD 行镜像 **EXEMPT、ZERO_RATED**（**相同 tax_kind、effective 区间，rate=0**）；**builtin** 对 EXEMPT/ZERO_RATED 返回与应税**相同税种结构、税率全 0**；**`resolveRateRows`** 在缺缓存时也对免税类 **ensure**；删除 **`inferCanadianRetailGroceryTaxClass` / `canApplyCanadianGroceryTaxHeuristic`** 及 **`applyReceiptItemTaxesAndReconcile` 内推断与写回**；**`gemini`** 说明由平台按辖区解析 0%。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`20260408100000_crm_exempt_zero_rated_mirror_standard.sql`**：从 **STANDARD_TAXABLE** 复制 **EXEMPT、ZERO_RATED**（**country CA/US**）。  
+- **`receipt-item-tax.ts`**：**`builtinStandardTaxableLines`** 补全 **NB/NL/PE/NS/QC**；**`builtinStandardRates`** 对 EXEMPT/ZERO_RATED 映射为 **0%**；**`resolveRateRows`** 对免税类同样 **builtin 回填**；移除全部加国关键词启发式；** variance Toast** 保留。  
+- **`receipt-helpers.ts`**：仅保留模型 **`taxClassCode`** 规范化。  
+- **`gemini.ts`**：**`RECEIPT_JSON_ITEMS_RULE`** 与平台税率一致表述。  
+- **验证**：部署迁移后对任意省（含 **QC**）行 **`tax_class_code=EXEMPT`** 时 **`resolveRateRows`** 应得到 **与各税种对应的 0 税率行**（或写入空间缓存）；**须跑 Supabase migration**。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260408100000_crm_exempt_zero_rated_mirror_standard.sql`、`vouchap-app/src/shared-logic/receipt-item-tax.ts`、`receipt-helpers.ts`、`gemini.ts`
+
+---
+
+### 2026-04-08（拍照/文档识别丢弃 taxClassCode 导致行税永远按应税算）
+
+**User（提示词/原意）**  
+- **免税类目仍识别不对**，行税额与**票面仍不一致**。
+
+**Assistant（实现前说明）**  
+- **`recognizeReceipt`（图片）与 `recognizeReceiptFromDocument`** 在组装返回的 **`items` 时未拷贝 `taxClassCode`**，模型即便输出免税类，`convertGeminiResultToReceipt` 也拿不到 → DB **`tax_class_code` 空** → 仅 **`category_tax_class_map`**，几乎全部 **STANDARD_TAXABLE**。同一路径还曾**丢弃 `taxJurisdictionCountry/Region`**（蛇形字段也未兼容），辖区错会进一步放大差额。  
+- 拟：映射 **`taxClassCode` / `tax_class_code` / `taxClass`** 并经 **`normalizeReceiptItemTaxClassCode`**；返回体写入 **`taxJurisdiction*`**；**`recognizeReceiptFromText` / 音频** 在统一 item 时显式写入 **`taxClassCode`**；规范化函数增加常见别名（如 **TAX_EXEMPT**）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`gemini.ts`**：新增 **`normalizedItemTaxClassCode`**；图片/文档返回项含 **`taxClassCode`** 与 **`taxJurisdictionCountry/Region`**（含 **`tax_jurisdiction_*`**）；文字与音频 item 合并逻辑同步。  
+- **`receipt-item-tax.ts`**：**`TAX_CLASS_ALIASES`** 映射非法但常见的模型写法。  
+- **验证**：对混合税小票拍照后 **`receipt_items.tax_class_code`** 应有 **EXEMPT**（若模型输出）；行税和逼近 **`receipts.tax`**（另需已部署 **EXEMPT 镜像 migration**）。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini.ts`、`vouchap-app/src/shared-logic/receipt-item-tax.ts`
+
+---
+
+### 2026-04-08（加拿大杂货分类默认 EXEMPT：无 map、非 QC）
+
+**User（提示词/原意）**  
+- **食品**仍未走 **0 税率**。
+
+**Assistant（实现前说明）**  
+- 仅依赖模型 **`taxClassCode`** 与 **`category_tax_class_map`** 时，预设分类名 **Groceries / Food / 食品** 等常**无 map 行**，回落 **STANDARD_TAXABLE**。  
+- 拟：在 **`applyReceiptItemTaxesAndReconcile`** 与 **`convertGeminiResultToReceipt`** 中，当 **CAD、CA、辖区非 QC**、**行上无税类**、**分类无 `category_tax_class_map` 行**（避免覆盖用户显式 STANDARD）、且分类显示名匹配 **杂货类**（含 **grocer**、**grocery**、**food**、**食品/食物**，排除 **meal/restaurant/外餐** 等）→ **`EXEMPT`**（仍走平台镜像 0%）；算税后 **写回 `receipt_items.tax_class_code`**。  
+- **QC** 不做分类默认免税（QST/食品规则复杂）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt-item-tax.ts`**：导出 **`canApplyCanadianGroceryCategoryExemptDefault`**、**`expenseCategoryDefaultsExemptInCanada`**；**`fetchCategoryTaxClassFromMap`** 区分 **hadRow**；杂货分类默认与持久化。  
+- **`receipt-helpers.ts`**：转换时同步默认 **EXEMPT**。  
+- **验证**：杂货小票、分类为 **Groceries**、无 map 时行税和应下降；若已为 **`category_tax_class_map` 配置税类**则以配置为准。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`、`receipt-helpers.ts`
+
+---
+
+### 2026-04-05（北美小票税：DB 规则、POS 码映射、Decimal、尾差与审计）
+
+**User（提示词/原意）**  
+- 从 **storeInfo / 辖区** 定位场景；逐项通过 **查库规则** 得税种与税率，**禁止**品类硬编码；**item_tax = price × Σrates**，区分 **inclusive / exclusive**；汇总与 **receipt.tax** 比对：**±0.02** 尾差摊到**金额最大应税行**，否则 **审计标记** + **`audit_comment`**；多税种、**Decimal**、负价折扣按税率比例。
+
+**Assistant（实现前说明，若有）**  
+- 新增 **`crm.pos_tax_code_rule`**（国家/省/商户 ILIKE / POS 字母 → **`tax_class_code`**）及示例 seed；**`receipt_items.pos_tax_code`**；**`receipts.tax_audit_required` / `tax_audit_comment`**。  
+- **`receipt-item-tax.ts`**：**`decimal.js`** 算行税；解析顺序为 **行 `tax_class_code` → POS 规则 → `category_tax_class_map` → STANDARD**；移除 **加拿大杂货分类名默认 EXEMPT**；导出 **`getApplicableTaxRules`**；尾差与 **`finalizeReconciliation`**；**inclusive** 仅在**单价单一价内税种**时拆税。  
+- **Gemini / types / database / receipt-helpers**：**`posTaxCode`** 管线；收据读写审计字段。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 迁移：**`vouchap-app/supabase/migrations/20260409100000_pos_tax_code_rule_and_audit.sql`**。依赖：**`decimal.js`**。  
+- **验证**：跑 migration 后，**MB Walmart 样例**在 **pos_tax_code=D/H** 且商户名匹配时应对 **`ZERO_RATED` / `STANDARD_TAXABLE`**；**|Σ 行税 − receipt.tax| ≤ 0.02** 时摊差后 **`tax_items_sum`** 对齐票面、**`tax_audit_required=false`**；超额则 **`variance` + 英文 audit 注释**。  
+- **残留**：POS seed **merchant-specific**，生产需按零售商扩充；**价内税 + 多税种并行**未完整建模。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260409100000_pos_tax_code_rule_and_audit.sql`、`receipt-item-tax.ts`、`gemini.ts`、`database.ts`、`types/index.ts`、`receipt-helpers.ts`
+
+---
+
+### 2026-04-05（POS 税码：自动学习并晋升 CRM 规则）
+
+**User（提示词/原意）**  
+- 仅静态 **`pos_tax_code_rule` 没用**，必须配套**自动变聪明**的机制。
+
+**Assistant（实现前说明，若有）**  
+- 在**对账 matched**、行上 **`pos_tax_code` 存在**且**尚无匹配 CRM 规则**时，若税类来自 **模型行 `tax_class_code`** 或 **`category_tax_class_map` 有行**，则视为可信信号。  
+- 新增 **`public.pos_tax_code_learning_events`** 追加观测；**SECURITY DEFINER** RPC **`record_pos_tax_learning_and_maybe_promote`**：校验 **user_spaces + receipt 归属**，同色类在 **180 天内达 `p_min_observations`（默认 2）** 且无**多类冲突**、无**已存在不同类规则**时，**INSERT `crm.pos_tax_code_rule`**（`source=learned`，`priority=150`）。商户名规范为 **`normalize_merchant_pattern_for_learning`**（空格→`%`，与 ILIKE 种子一致）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 迁移：**`20260410120000_pos_tax_code_learning.sql`**；**`receipt-item-tax.ts`** 在 **`finalStatus === matched`** 且非 **`recalcPass`** 时对符合条件的行逐个 **`rpc`**。  
+- **验证**：两张「同店+同省+同 POS 码+同类」且对账成功的小票（或一单两行）后，应出现 **`learned`** 规则；下一张小票应能 **直接命中规则**。  
+- **残留**：信噪依赖模型/分类；**多类同码**会 **`conflicting_classes`** 不晋升；不调用外网搜索。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260410120000_pos_tax_code_learning.sql`、`vouchap-app/src/shared-logic/receipt-item-tax.ts`
+
+---
+
+### 2026-04-05（POS D 仍按 STANDARD 计税：优先级与商户名）
+
+**User（提示词/原意）**  
+- 行上 **pos_tax_code=D** 应按规则 **ZERO_RATED**，却回填 **STANDARD_TAXABLE**，税额错且与票面校对失败仍落库。
+
+**Assistant（实现前说明，若有）**  
+- 根因：**`tax_class_code`（模型默认应税）优先于 `pos_tax_code_rule`**；另 **`entity` 未建时 `merchantName` 为空** 导致 **%WALMART%** 不匹配。  
+- 拟：**CRM POS 规则优先**于行上模型税类；**`processed_by`** 补 **`supplierName`**；**商户 ILIKE** 改为 **分段字母数字** 匹配以使 **Wal-Mart** 命中 **WALMART**；命中规则后 **回写 `receipt_items.tax_class_code`**；**`getApplicableTaxRules`** 同步顺序。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 **`receipt-item-tax.ts`**（含 **`extractSupplierNameFromProcessedBy` export**）。小票主表仍会保存；校错时 **`tax_reconciliation_status=variance` / `tax_audit_required`** 为预期，根因修复后应对齐票面。  
+- **验证**：无 entity、仅有 AI **`supplierName` + pos D + MB** 时行税应为 0 类镜面税率；DB 行 **`tax_class_code`** 应为 **ZERO_RATED**。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`
+
+---
+
+### 2026-04-05（清理 crm.tax_rate_standard 重复种子与库内重复行）
+
+**User（提示词/原意）**  
+- **`tax_rate_standard`** 已有数据检查清理，剔除不必要重复项。
+
+**Assistant（实现前说明，若有）**  
+- **061200** 中 CA 小样与 **061800** 全量 CA/US 种子自然键重复；**062000** 中 NS HST 插入与 **061800** 重复。  
+- 拟：061200 **删除**该段 INSERT，以 **061800** 为唯一参考税率种子；062000 **删除**冗余 NS INSERT，**UPDATE US** 仅修正仍为 **effective_from = 2025-01-01** 的历史行；新增 **`20260411100000_tax_rate_standard_dedupe.sql`**：按自然键去重并 **回写 receipt_item_taxes** 再删多余 id。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已修改 **`20260406120000_crm_tax_rate_standard.sql`**、**`20260406200000_tax_standard_us_effective_from_and_ns_hst.sql`**；新增 dedupe 迁移。新环境只依赖 **061800** 作为主种子。  
+- **验证**：`supabase db reset` 或新库迁移后 **crm.tax_rate_standard** 无同键多行；生产若曾绕过唯一约束可跑 dedupe。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260406120000_crm_tax_rate_standard.sql`、`20260406200000_tax_standard_us_effective_from_and_ns_hst.sql`、`20260411100000_tax_rate_standard_dedupe.sql`
+
+---
+
+### 2026-04-05（CRM 表重命名：pos_tax_code_rule → tax_pos_code_rule）
+
+**User（提示词/原意）**  
+- **`pos_tax_code_rule`** 表更名为 **`tax_pos_code_rule`**。
+
+**Assistant（实现前说明，若有）**  
+- 基线迁移 **`20260409100000`** 改为新建 **`crm.tax_pos_code_rule`**（索引 **`idx_tax_pos_code_rule_country`**、RLS 策略名 **`crm_tax_pos_code_rule_select`**）；**`20260410120000`** 内 RPC / COMMENT 全部指向新表名。  
+- 已部署且仍为旧表名的库：新增 **`20260411120000_rename_pos_tax_code_rule_to_tax_pos_code_rule.sql`**，**`RENAME`**（仅当 **`crm.pos_tax_code_rule`** 存在且 **`crm.tax_pos_code_rule`** 不存在）并 **`CREATE OR REPLACE`** **`record_pos_tax_learning_and_maybe_promote`**，避免函数体仍引用旧表名。  
+- 应用层：**`receipt-item-tax.ts`** **`.schema('crm').from('tax_pos_code_rule')`**；**`types/index.ts`** 注释同步。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改上述迁移与 TS；新增 rename 迁移。  
+- **验证**：新库 **`supabase db reset`** 后存在 **`crm.tax_pos_code_rule`**；旧库 **`db push`** 后旧表被重命名且学习 RPC 仍可晋升规则；客户端拉规则无 404。  
+- **残留**：若历史环境 RLS 策略名仍为旧命名，仅影响可读性，不影响权限。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260409100000_pos_tax_code_rule_and_audit.sql`、`20260410120000_pos_tax_code_learning.sql`、`20260411120000_rename_pos_tax_code_rule_to_tax_pos_code_rule.sql`、`receipt-item-tax.ts`、`types/index.ts`
+
+---
+
+### 2026-04-05（Walmart：pos_tax_code 已有但 tax_class_code 未走 CRM 规则）
+
+**User（提示词/原意）**  
+- Walmart 小票 **POS code 已识别**，**`tax_class_code` 仍未按规则**（截图 **D/E** 等为 **STANDARD_TAXABLE**）。
+
+**Assistant（实现前说明，若有）**  
+- 根因 1：**已关联 entity 时仅用 `entity.name` 做 `%WALMART%` 匹配**，若实体名为用户改过、简称或与票头商户不一致，**不会再用 `processed_by` 里的商户**，导致 **POS 规则不命中**。  
+- 根因 2：种子仅有 **D/H**，**无 **E**，E 行会落默认应税。  
+- 拟：**`mergeMerchantHintsForPosRules(primary, extractSupplierNameFromProcessedBy)`** 合并后再 **`pickPosTaxClassFromRules`**；**扩大 `extractSupplierNameFromProcessedBy`**（`merchantName` / `storeName` / 一层 `parsedResult`）；**单字母码**在仅含杂字符时规范为字母位；学习 RPC 的 **`p_merchant_display_name`** 与 POS 匹配用同一合并串；**091000 + 迁移 111300** 增加 **CA Walmart E → ZERO_RATED**（示例种子，可按店修正）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 **`receipt-item-tax.ts`**；已更新 **`20260409100000`** 种子并新增 **`20260411130000_tax_pos_code_rule_walmart_ca_e.sql`**。  
+- **验证**：关联非 Walmart 实体但 **`processed_by.supplierName`** 含 Walmart 时，**D** 应解析为 **ZERO_RATED**；跑迁移后 **E** 同省/CA 兜底应有规则。若 **`crm.tax_pos_code_rule` 客户端查不到**（schema 未暴露），仍会得到空规则——需 Dashboard 暴露 **crm**。  
+- **残留**：**GP** 等复合码需单独种子；**E 的税意因省/店可能不同**，运营可按实票改 **`maps_to_tax_class_code`**。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`、`vouchap-app/supabase/migrations/20260409100000_pos_tax_code_rule_and_audit.sql`、`20260411130000_tax_pos_code_rule_walmart_ca_e.sql`
+
+---
+
+### 2026-04-05（票面税额驱动的 POS 码自学习：receipt.tax 拟合 + 学习）
+
+**User（提示词/原意）**  
+- 计算仍不对；应能根据**票面税额**发现不对；需要按**票面税额核算**做**自学习**，使 **`pos_tax_code` 含义**越来越准。
+
+**Assistant（实现前说明，若有）**  
+- 原学习仅在 **`tax_reconciliation_status=matched`** 且行类来自 **override/category** 时触发，**默认 STANDARD** 不参与**；与「用票面总额校验」脱节。  
+- 拟：在 **`Σ` 行税 ≠ `receipt.tax`**（`variance`）时，对**有 `pos_tax_code` 且无 CRM POS 规则**的行做**坐标下降**（在 **STANDARD / ZERO_RATED / EXEMPT** 间试探），使 **`Σ`（含尾差摊分）与 `receipt.tax` 差 ≤ 0.02**；成功则**回写行 `tax_class_code`**、**`receipt_item_taxes` 用 `recalc`**，并对这些行调用 **`record_pos_tax_learning_and_maybe_promote`**（票面拟合标签）。  
+- 首遍已 **matched** 时：保留原防刷策略（**纯默认 STANDARD** 不学），**拟合成功**则**一律**学。  
+- 抽取 **`buildDraftsFromTaxClassMap`**、**`applyPennyTailAllocation`**、**`greedyFitPosLineClassesToReceiptTax`**；**`ApplyReceiptItemTaxOptions.skipReceiptTaxFit`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 **`vouchap-app/src/shared-logic/receipt-item-tax.ts`**（无新 DB 迁移）。  
+- **验证**：构造 **税额对不齐** 且多行带 **POS 码**、无 CRM 规则的小票 → 拟合后应对齐票面并写入学习事件；**全票无 POS 码或仅 CRM 已锁行** → 不拟合。  
+- **残留**：拟合**不唯一**时可能取到局部最优；行数 **>28** 跳过；**价内税+多税种**仍可能无法单靠三类切换对齐。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`
+
+---
+
+### 2026-04-05（Walmart POS E：仅 GST、不收 PST/RST — `GST_ONLY`）
+
+**User（提示词/原意）**  
+- 票面 **GST / PST（或 MB 的 RST）** 分项与计算不符；**`pos_tax_code=E` 不收 PST**（省税不应按全额应税摊到 E 行）。
+
+**Assistant（实现前说明，若有）**  
+- **E→`ZERO_RATED`** 会令 **GST+省税** 均为 0；**E→`STANDARD_TAXABLE`** 则 **GST+PST/RST** 全征 → **省税合计偏大**。  
+- 拟新增 **`GST_ONLY`**：**MB/BC/SK** 在 CRM 为 **GST 5% + 省税税种 0%**；扩展 **POS 规则 / 学习** CHECK 与 RPC；**Walmart CA E** 改为 **`GST_ONLY`**；**builtinStandardRates** 与 **receipt.tax 拟合**候选含 **`GST_ONLY`**（CA MB/BC/SK）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 迁移 **`20260411140000_gst_only_tax_class_walmart_e.sql`**；已同步 **`091000`/`101200`/`111300`** 与 **`receipt-item-tax.ts`**。  
+- **验证**：**`supabase db push`** 后 **E** 行仅 **5% GST**，省税仅来自 **非 E 应税行**；**`receipt.tax` 总额**校对应改善。  
+- **残留**：票面印 **「PST」** 而 MB 实为 **RST** 仅为展示差异；**QC** 等未加 **GST_ONLY** 种子。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260411140000_gst_only_tax_class_walmart_e.sql`、`receipt-item-tax.ts`
+
+---
+
+### 2026-04-05（撤销 GST_ONLY：按税种过滤 + 票面规则收尾）
+
+**User（提示词/原意）**  
+- 不应新增 **`GST_ONLY`**，应为**多税种分别匹配**（如 POS 码仅计 GST）。  
+- 总结：**严格按票面税额校验**，不对则重新组合，正确则学习；**票面税额为 0** 则各 item 税额记 0；**仅一项 item** 时：若票面已**分税种**则直接记入该 item；若**未分税种**则按规则拆分税种并校验票面。
+
+**Assistant（实现前说明，若有）**  
+- **`crm.tax_pos_code_rule.included_tax_kind_codes`**（NULL=辖区全部税种；`['GST']`=本行只保留 GST 分量）替代行税类 **`GST_ONLY`**；迁移 **`20260411140000_tax_pos_rule_included_tax_kinds.sql`** 等已就位。  
+- 拟在 **`applyReceiptItemTaxesAndReconcile`**：`receipt.tax===0` 短路清空行税并 **matched**；**单明细 + `tax_breakdown`** 且分项和≈票面时直接写入 **`receipt_item_taxes`**；主循环用 **`resolvePosTaxCodeRule`** 建立 **`taxKindFilterByItemId`**，**`buildDraftsFromTaxClassMap`** / **`greedyFitPosLineClassesToReceiptTax`** 全路径传入；查询收据增加 **`tax_breakdown`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 **`vouchap-app/src/shared-logic/receipt-item-tax.ts`**：`parseReceiptTaxBreakdown` / **`canonicalTaxKindFromBreakdownKey`**（MB 票面 PST→RST）；零税额分支；单 item+**`tax_breakdown`** 与 **`receipt.tax`** 对齐则落库；主路径与拟合路径传入 **`taxKindFilterByItemId`**。  
+- **验证**：零税小票 → 行税全 0；单 item 带 `{GST,PST}` JSON 且与总额一致 → 按税种写入；Walmart **E** + **`included_tax_kind_codes={GST}`** → 仅 GST 行分量。  
+- **残留**：**保存/解析流水线**若未写入 **`tax_breakdown`** 需在各层类型与 insert 中补字段；多行小票仍依赖规则引擎+拟合与票面总额对齐。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`、`vouchap-app/supabase/migrations/20260411140000_tax_pos_rule_included_tax_kinds.sql`
+
+---
+
+### 2026-04-05（crm.tax_rate_standard：EXEMPT / ZERO_RATED 不重复存）
+
+**User（提示词/原意）**  
+- `tax_rate_standard` 里**不需要 EXEMPT 与 ZERO_RATED 并存**（与不要 GST_ONLY 式冗余一致）。
+
+**Assistant（实现前说明，若有）**  
+- 现状：迁移 **`081000`** 对每条 **STANDARD** 复制了 **EXEMPT + ZERO_RATED** 两套全 0 行；语义上两行相同。  
+- 拟：**CRM 只保留 EXEMPT 镜像**；**`receipt_items.tax_class_code`** 仍可为 **EXEMPT | ZERO_RATED**（申报/展示语义）；查询 CRM 时 **ZERO_RATED → EXEMPT**；**space cache** 对两种 class 并查以兼容旧缓存。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新迁移 **`20260411150000_tax_rate_standard_drop_zero_rated_mirror.sql`**：`receipt_item_taxes` 上 FK 从 **ZERO_RATED** 标准行迁到同键 **EXEMPT** 行后 **DELETE ZERO_RATED**；更新表 COMMENT。  
+- **`081000`** 改为只插入 **EXEMPT** 镜像（新库不再生成 **ZERO_RATED** CRM 行）。  
+- **`receipt-item-tax.ts`**：`crmTaxClassForStandardLookup`、`queryCatalogCandidates` 对 **public.tax_rate_catalog** 在 EXEMPT/ZERO_RATED 时用 **`.in('tax_class_code', ['EXEMPT','ZERO_RATED'])`**。  
+- **验证**：`supabase db push` 后 **crm** 无 **ZERO_RATED** 行；零税率行计算与 **crm_tax_rate_standard_id** 仍可用。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260408100000_crm_exempt_zero_rated_mirror_standard.sql`、`20260411150000_tax_rate_standard_drop_zero_rated_mirror.sql`、`receipt-item-tax.ts`
+
+---
+
+### 2026-04-05（无明细小票：合并为单行再走单明细税路径）
+
+**User（提示词/原意）**  
+- 无明细的小票处理有问题，应**落一行 item**，合并到**单明细**的处理路径（`tax_breakdown`、规则引擎等）。
+
+**Assistant（实现前说明，若有）**  
+- 原逻辑：**无 `receipt_items`** 时直接 **skipped** 且不写行税。  
+- 拟：在 **`applyReceiptItemTaxesAndReconcile`** 内若明细为空，**插入一条**合成行（英文名 **Receipt total (merged)**），**price** = `total_amount − tax`（与常见价外税一致；缺税且 total>0 时用 total）；分类用空间内默认支出类；成功后再 **select** 明细并走原有流程。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 **`vouchap-app/src/shared-logic/receipt-item-tax.ts`**：`mergedLineExclusiveBase`、`pickDefaultExpenseCategoryId`、`ensureSingleMergedLineItem`；收据查询增加 **`total_amount`**。  
+- **验证**：保存仅有抬头 **`total_amount`/`tax`**、无 AI 行明细的收据 → 应出现一行合并明细并完成税额拆分/对账；空间**无任何 category** 时仍会 skipped（与旧 save 依赖一致）。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`
+
+---
+
+### 2026-04-05（receipt_item_taxes 空表：ZERO/EXEMPT 被跳过 + 辖区无行时联邦兜底）
+
+**User（提示词/原意）**  
+- **`tax_class_code`**：item 与税种 **1:N**，直接挂一个 class 的结构有问题。  
+- 实测：**pos_tax_code** 已有，**`receipt_item_taxes`** 仍无数据。
+
+**Assistant（实现前说明，若有）**  
+- **语义**：`tax_class_code` = **supply / 税率包**（选 CRM 哪套行）；**税种明细** = **`receipt_item_taxes`**（每 **`tax_kind_code`** 一行）。  
+- **空表根因**：**`buildDraftsFromTaxClassMap`** 在 **`taxAmt.isZero() && rateZero`** 时跳过，**ZERO_RATED/EXEMPT** 下行税率全 0 → 无 draft。  
+- 次要：strict 省份筛选无行时未退 **`region_code ''`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipt-item-tax.ts`**：**EXEMPT/ZERO_RATED** 仍写入 **amount=0** 的税种行；**`pickRatesForRegion`** 无省份行时用联邦行；**rateMap 空** 且 line price>0 时 **warn**。注释与 **`types/index.ts`** 已澄清。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`、`vouchap-app/src/shared-logic/types/index.ts`
+
+---
+
+### 2026-04-06（Android Chat to log：相册 unregistered ActivityResultLauncher）
+
+**User（提示词/原意）**  
+- dev Android 端 expenses 的 chat 页面，上传文件报错（截图：`ExponentImagePicker.launchImageLibraryAsync` → `IllegalStateException: unregistered ActivityResultLauncher`）。
+
+**Assistant（实现前说明，若有）**  
+- 根因倾向：Expo Modules 在 Activity `onDestroy`/`onHostResume` 后会**异步**重新 `registerActivityContracts`；原先 Android 分支用 `InteractionManager.runAfterInteractions` + `setTimeout(0)` 推迟 `launch`，易与「旧 launcher 已 unregister、新 launcher 尚未挂好」的窗口重叠；连续第二次打开相册更易触发。  
+- 拟：`chat-to-log.tsx` 内改为在权限通过后**立即**调用 `launchImageLibraryAsync`，并对仅含 `unregistered ActivityResultLauncher` 的失败做短 backoff **重试**（最多 3 次）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已新增 `launchImageLibraryAsyncWithAndroidRelaunchRetries` + `isAndroidImagePickerLauncherNotReadyError`，移除 Android 的 defer 分支，统一 `await launchPicker()`。  
+- **验证**：真机/Android 模拟器 Chat to log → 连续多次点相册选图（可先传 PDF/图再传 JPEG）；不应再出现该 IllegalStateException。若仍偶发，可把重试间隔略加大或检查开发者选项「不保留活动」场景。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/chat-to-log.tsx`
+
+---
+
+### 2026-04-07（梳理现有税拆分实现 + 目标设计方案纲要）
+
+**User（提示词/原意）**  
+- 完整梳理此前代码与 SQL，并按 7 点重新梳理「税额拆到 item」的设计：①标准税率表不重复税种（如安省只挂 HST）；②receipt 用 JSON 记录分税种税额并做合计校验；③item 据辖区+pos_tax_code 判定关联税种并 JSON 落库；④按标准表算分项写入 `receipt_item_taxes`；⑤CRM 增加带 `entity_id` 的 `pos_tax_code` 表及模型自学习；⑥残差反推法分配不确定行；⑦清理无用表字段。
+
+**Assistant（实现前说明，若有）**  
+- 无本轮代码变更；通读迁移 `20260405220000`…`20260411150000` 与 `receipt-item-tax.ts`、`gemini.ts` 等，输出与现状对齐的设计纲要供后续实现对齐。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 见对话回复：**现状映射**（`crm.tax_rate_standard`、`tax_rate_catalog`、`receipt_item_taxes`、`tax_pos_code_rule`、`pos_tax_code_learning_events`、`receipts.tax_breakdown`）与 **目标架构缺口**（按税种对账、`entity_id` 维度、残差按税种分配、税率/POS 规则的自学习写入路径、废弃对象清点）。  
+- **验证**：后续落地分支可对每条需求写迁移 + 单测/集成收据样例（多行 MB Walmart、ON HST、`tax_breakdown` 与多行分摊）。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`、`vouchap-app/supabase/migrations/202604*.sql`
+
+---
+
+### 2026-04-07（entity_pos_tax_code：弃用 tax_rate_catalog / category 映射 / 旧学习表）
+
+**User（提示词/原意）**  
+- 整合清理 `public.tax_rate_catalog`、`category_tax_class_map`、`pos_tax_code_learning_events`；标准税率只认 **crm**；商家税码表 **entity_pos_tax_code** 放 **public** 且 **entity → public.entities.id**；其余按前序设计改代码。
+
+**Assistant（实现前说明，若有）**  
+- 新增迁移：``entity_pos_tax_code``、``entity_pos_tax_code_learning_events``、``record_entity_pos_tax_learning_and_maybe_promote``；删 ``tax_rate_catalog_id``、插入 ``entity_pos_tax_code_id``、行上 ``applicable_tax_kinds``；DROP 三旧表与旧 RPC。  
+- ``receipt-item-tax.ts``：仅用 ``crm.tax_rate_standard`` + 内置 fallback；POS 先 ``entity_pos_tax_code`` 再 ``crm.tax_pos_code_rule``；去掉 category 映射查询；学习仅在有 ``receipt.entity_id`` 时写实体规则。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 迁移：``vouchap-app/supabase/migrations/20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql``。  
+- 逻辑：``receipt-item-tax.ts``、``types/index.ts`` 注释。  
+- **验证**：`supabase db push` / 本地迁移后，有 entity 的收据多次相同 pos 码应对账并升格 ``entity_pos_tax_code``；无 CRM 行辖区仍能靠内置税率算行税。  
+- **说明**：表名采用 ``entity_pos_tax_code``（与用户命名一致）；种子/运营仍可手插该行；**crm.tax_pos_code_rule** 仍作无 entity 或兜底匹配。
+
+**关联**  
+- `20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql`、`receipt-item-tax.ts`
+
+---
+
+### 2026-04-07（entity_pos_tax_code 增加 space_id 与 entities 对齐）
+
+**User（提示词/原意）**  
+- `entity_pos_tax_code` 仅 FK `entities.id` 不妥，`entities` 按 space 区分；迁移尚未执行，需微调 SQL。
+
+**Assistant（实现前说明，若有）**  
+- 为 `entity_pos_tax_code` / `entity_pos_tax_code_learning_events` 增加 **`space_id`**（FK `spaces`），触发器校验 **`entities.space_id`**、收据 **`receipts.space_id`** 一致；RLS 改为按 **`space_id ∈ user_spaces`**；RPC 与 TS 查询均带 **`space_id`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 **`20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql`**；**`receipt-item-tax.ts`**：`fetchEntityPosTaxCodesForEntity(spaceId,…)`，**`getApplicableTaxRules`** 恢复必填 **`spaceId`**。
+
+**关联**  
+- 同上迁移与 `receipt-item-tax.ts`
+
+---
+
+### 2026-04-07（更正：entity_pos_tax_code 不按 space；merchant 键不得 FK entities）
+
+**User（提示词/原意）**  
+- 不是要给 `entity_pos_tax_code` 增加 `space_id`，该表是**共用目录**；重点是表里的「商户实体」**不能**关联 `public.entities.id`（entities 按 space 区分）。
+
+**Assistant（实现前说明，若有）**  
+- 迁移与类型已按 **`merchant_entity_id`（无 FK）** + 收据列 **`receipts.merchant_entity_id`** 建模；补一处代码遗漏：`getAllReceipts` 完整映射需透出 **`merchantEntityId`**，否则详情页税逻辑与列表不一致。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`vouchap-app/src/shared-logic/database.ts`**：在 `getAllReceipts` 的 `rows.map` 返回对象中增加 **`merchantEntityId`**（与 `getAllReceiptsForList` 等路径一致）。  
+- **验证**：拉取含 `merchant_entity_id` 的收据详情，`Receipt.merchantEntityId` 有值且行税解析可命中 `entity_pos_tax_code`。  
+- **说明**：上一条「给 `entity_pos_tax_code` 加 `space_id`」的方向已废弃；**学习事件表**仍保留 `space_id` 仅作 RLS/收据归属校验，**目录表**无 `space_id`。
+
+**关联**  
+- `20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql`、`database.ts`
+
+---
+
+### 2026-04-07（Engagement / Todos：task 行 Upload 支持任意文件类型）
+
+**User（提示词/原意）**  
+- engagement 详情页 todos、task 行上传文件，需支持上传所有文件格式，不局限于图片。
+
+**Assistant（实现前说明，若有）**  
+- Engagement 与 project 详情共用 **`TaxFilingTodosView`**，原 **`expo-image-picker`** 仅相册图片；改为 **`expo-document-picker`** 的 `*/*`，Web 侧 **`base64: false`** 便于 blob 上传。  
+- **`uploadTaxFilingFile`** 已支持 `fileName`/`mimeType`；补 **`getFileExtAndMime`**：在文档/图片规则之后，对任意扩展名用 picker MIME 或 `application/octet-stream`，避免非图非表拆文档被误标成 `.jpg`。  
+- **`processTaxFilingAttachmentAfterCreate`** 的 **`isImage`** 按 MIME/扩展名判断；抽出 **`tax-filing-todo-upload-helpers`** 供 **`tax-filing/order/[orderId]/index.tsx`** 内嵌 Todo 树同款上传路径复用。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 改动：**`TaxFilingTodosView.tsx`**（DocumentPicker + 正确 `isImage`）、**`supabase.ts`**（`getFileExtAndMime` 泛型扩展名）、**`tax-filing-todo-upload-helpers.ts`**（新建）、**`tax-filing/order/[orderId]/index.tsx`**（与上一致的 picker）。  
+- **验证**：在 engagement / project Todos 点 task 行 Upload，可选 PDF、Office、ZIP 等；上传后存储扩展名与 MIME 合理；图片仍走 image 识别路径。  
+- **风险**：极大文件 + `copyToCacheDirectory: true` 在移动端可能有性能/空间压力；AI 识别对非扫描类文件可能失败（既有行为）。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/TaxFilingTodosView.tsx`、`vouchap-app/src/shared-logic/supabase.ts`、`vouchap-app/src/shared-logic/tax-filing-todo-upload-helpers.ts`、`vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/index.tsx`
+
+---

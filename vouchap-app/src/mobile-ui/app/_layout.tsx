@@ -11,6 +11,7 @@ import { FirmPendingOverlay } from '@/components/FirmPendingOverlay';
 import WebChatFab from '@/components/WebChatFab';
 import WebChatPanel from '@/components/WebChatPanel';
 import { ChatPanelProvider, useChatPanel, type ChatPanelType } from '../contexts/ChatPanelContext';
+import { getWebStackHeaderLeftScreenOptions } from '../lib/web-stack-header-left';
 
 /** 基础数据设置页：这些页不显示 chat-to-log 气泡（已打开的右栏保留） */
 function isSettingsPage(pathname: string): boolean {
@@ -96,6 +97,7 @@ const iosRnScreensProductionSafe =
 const stackScreenOptions = {
   contentStyle: { flex: 1 },
   ...(Platform.OS === 'ios' ? iosRnScreensProductionSafe : {}),
+  ...getWebStackHeaderLeftScreenOptions(),
 };
 
 /** 不同页面的默认 chat 开关策略 */

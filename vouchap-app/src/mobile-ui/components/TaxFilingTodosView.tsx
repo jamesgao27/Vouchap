@@ -64,13 +64,14 @@ import {
   getStatusColor,
 } from '@/lib/constants/project-todo-status';
 import { supabase, uploadTaxFilingFile } from '@/lib/supabase';
-import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { FileDetailModal } from '@/components/FileDetailModal';
 import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
 import { classificationLabelsForTaxFilingPrompt } from '@/lib/tax-filing-project-classification-labels';
 import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition-retry';
 import { processTaxFilingAttachmentAfterCreate } from '@/lib/tax-filing-attachment-followup';
+import { taxFilingTodoUploadIsImageKind } from '@/lib/tax-filing-todo-upload-helpers';
 import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
 
 // ──────────────────────────────────────────────────
@@ -3224,26 +3225,25 @@ export function TaxFilingTodosView({
   const onUploadFile = useCallback(
     async (todoId: string) => {
       try {
-        const { status } =
-          (await (ImagePicker.requestMediaLibraryPermissionsAsync?.() ??
-            Promise.resolve({ status: 'granted' }))) || {};
-        if (status !== 'granted' && status !== 'undetermined') {
-          if (Platform.OS === 'web') window.alert('Need photo library permission to upload.');
-          else Alert.alert('Permission', 'Need photo library permission to upload.');
-          return;
-        }
-        const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          allowsEditing: false,
-          quality: 0.9,
+        const result = await DocumentPicker.getDocumentAsync({
+          type: '*/*',
+          copyToCacheDirectory: true,
+          multiple: false,
+          ...(Platform.OS === 'web' ? { base64: false } : {}),
         });
         if (result.canceled || !result.assets?.[0]?.uri) return;
-        const imageUri = result.assets[0].uri;
-        const imageUrl = await uploadTaxFilingFile(imageUri, `order-task-${Date.now()}`, clientSpaceId);
+        const asset = result.assets[0];
+        const fileUri = asset.uri;
+        const displayName = asset.name?.trim() || `File-${Date.now()}`;
+        const mimeType = asset.mimeType;
+        const fileUrl = await uploadTaxFilingFile(fileUri, `order-task-${Date.now()}`, clientSpaceId, {
+          fileName: displayName,
+          mimeType,
+        });
 
         const uploaderName = await resolveUploaderNameForTaxFilingAttachment();
 
-        const createResult = await createProjectTodoAttachment(todoId, imageUrl, {
+        const createResult = await createProjectTodoAttachment(todoId, fileUrl, {
           status: 'PENDING_AI',
           uploader_name: uploaderName,
         });
@@ -3258,16 +3258,13 @@ export function TaxFilingTodosView({
         }
 
         const attachmentId = createResult.id;
-        const displayName =
-          (result.assets[0] as { fileName?: string | null }).fileName?.trim() ||
-          `Photo-${Date.now()}.jpg`;
 
         const follow = await processTaxFilingAttachmentAfterCreate({
           orderId,
           attachmentId,
           todoId,
           fileName: displayName,
-          isImage: true,
+          isImage: taxFilingTodoUploadIsImageKind(displayName, mimeType),
         });
         if (!follow.ok) {
           if (Platform.OS === 'web') window.alert(follow.alertMessage);

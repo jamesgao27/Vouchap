@@ -46,7 +46,8 @@ import { processTaxFilingAttachmentAfterCreate } from '@/lib/tax-filing-attachme
 import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
 import { showToast } from '@/lib/toast';
 import { getTaxSeasonColor } from '@/lib/tax-season-colors';
-import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import { taxFilingTodoUploadIsImageKind } from '@/lib/tax-filing-todo-upload-helpers';
 import EngagementConsentModal from '@/components/EngagementConsentModal';
 
 /** 将 sku_items 转成 TaxFilingTodosView 需要的 ProjectTodoNode 树结构（与 firm 侧预览一致） */
@@ -494,25 +495,24 @@ export default function OrderTodosScreen() {
   const onUploadFile = useCallback(
     async (todoId: string) => {
       try {
-        const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync?.();
-        if (status !== 'granted' && status !== 'undetermined') {
-          if (Platform.OS === 'web') window.alert('Need photo library permission to upload.');
-          else Alert.alert('Permission', 'Need photo library permission to upload.');
-          return;
-        }
-        const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ImagePicker.MediaTypeOptions.Images,
-          allowsEditing: false,
-          quality: 0.9,
+        const result = await DocumentPicker.getDocumentAsync({
+          type: '*/*',
+          copyToCacheDirectory: true,
+          multiple: false,
+          ...(Platform.OS === 'web' ? { base64: false } : {}),
         });
         if (result.canceled || !result.assets?.[0]?.uri) return;
         const asset = result.assets[0];
-        const imageUri = asset.uri;
-        const displayName = (asset as { fileName?: string | null }).fileName?.trim() || `Photo-${Date.now()}.jpg`;
+        const fileUri = asset.uri;
+        const displayName = asset.name?.trim() || `File-${Date.now()}`;
+        const mimeType = asset.mimeType;
         const tempFileName = `order-task-${Date.now()}`;
-        const imageUrl = await uploadTaxFilingFile(imageUri, tempFileName, clientSpaceId);
+        const fileUrl = await uploadTaxFilingFile(fileUri, tempFileName, clientSpaceId, {
+          fileName: displayName,
+          mimeType,
+        });
         const uploaderName = await resolveUploaderNameForTaxFilingAttachment();
-        const createResult = await createProjectTodoAttachment(todoId, imageUrl, {
+        const createResult = await createProjectTodoAttachment(todoId, fileUrl, {
           status: 'PENDING_AI',
           uploader_name: uploaderName,
         });
@@ -527,7 +527,7 @@ export default function OrderTodosScreen() {
           attachmentId: createResult.id,
           todoId,
           fileName: displayName,
-          isImage: true,
+          isImage: taxFilingTodoUploadIsImageKind(displayName, mimeType),
         });
         if (!follow.ok) {
           if (Platform.OS === 'web') window.alert(follow.alertMessage);

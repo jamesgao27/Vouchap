@@ -24,9 +24,24 @@ import {
 } from './gemini-helper';
 import { getMostFrequentCurrency, getCurrenciesByUsage } from './database';
 import { normalizeShortDate, getLocalDateString } from './date-utils';
+import { normalizeReceiptItemTaxClassCode } from './receipt-item-tax';
 import { supabase } from './supabase';
 import { isSpreadsheetMime, spreadsheetBase64ToPlainText } from './spreadsheet-to-text';
 import { isWordDocumentMime, wordDocumentBase64ToPlainText } from './word-document-to-text';
+
+/** Normalize per-line tax class from model JSON (camelCase or snake_case). */
+function normalizedItemTaxClassCode(item: any): string | undefined {
+  const n = normalizeReceiptItemTaxClassCode(
+    item?.taxClassCode ?? item?.tax_class_code ?? item?.taxClass,
+  );
+  return n ?? undefined;
+}
+
+function normalizedItemPosTaxCode(item: any): string | undefined {
+  const raw = item?.posTaxCode ?? item?.pos_tax_code ?? item?.taxCode ?? item?.tax_code;
+  if (raw == null || String(raw).trim() === '') return undefined;
+  return String(raw).trim().toUpperCase();
+}
 
 // 引用 gemini-helper 中处理好的安全判断逻辑（如果 gemini-helper 导出了 apiKey）
 // 或者直接在此处复制安全获取逻辑：
@@ -68,8 +83,16 @@ function clearModelCacheIfUnavailable(err: unknown) {
 }
 
 /** 小票识别统一 JSON 输出规范：所有录入方式（图片/文字/语音/文档）必须使用同一套字段，便于下游一致解析 */
-const RECEIPT_JSON_ITEMS_RULE = 'Each item MUST have: "name" (string), "categoryName" (string), "attributionName" (string), "price" (number). Legacy keys "purposeName"/"purpose" are accepted. Do NOT use "description" or "amount".';
-const RECEIPT_JSON_ITEMS_EXAMPLE = { name: 'Item Name', categoryName: 'Food', attributionName: 'Personal', price: 12.99 };
+const RECEIPT_JSON_ITEMS_RULE =
+  'Each item MUST have: "name" (string), "categoryName" (string), "attributionName" (string), "price" (number), "taxClassCode" (string) when known: "STANDARD_TAXABLE" | "EXEMPT" | "ZERO_RATED", and "posTaxCode" (string or omit): the short tax code printed on the receipt line when visible (e.g. single letter like D, H, N, X). Do not invent posTaxCode if the ticket does not show one.';
+const RECEIPT_JSON_ITEMS_EXAMPLE = {
+  name: 'Item Name',
+  categoryName: 'Food',
+  attributionName: 'Personal',
+  price: 12.99,
+  taxClassCode: 'STANDARD_TAXABLE',
+  posTaxCode: 'H',
+};
 
 /** 图片解析引导：针对拍照/扫描的小票图片 */
 const RECEIPT_IMAGE_PARSE_INTRO = 'You are a financial expert specializing in North American receipts. Analyze the receipt image and extract ALL available information with maximum accuracy.\n\n';
@@ -115,8 +138,11 @@ function buildReceiptExtractionRules(opts: {
 
 7. Tax amount (tax, numeric, 0 if not available). Sum all taxes if multiple.
 
+7b. Tax jurisdiction (for sales tax / VAT rules): taxJurisdictionCountry (ISO 3166-1 alpha-2, e.g. CA, US) and taxJurisdictionRegion MUST be the two-letter code only (US states: NY, TX, CA=California; Canadian provinces: ON, BC, MB, AB, SK, QC, etc.). Never output the full province/state name. Infer from address, postal/ZIP, or GST/HST/PST/QST/RST labels. If unknown, use null for both (downstream will infer from currency when possible).
+   - Canada: city Winnipeg or postal codes starting with R → MB. If the receipt shows **separate GST (5%) and PST or RST (e.g. 7%)** lines, the province is **not** an HST-only province (not NS, NB, NL, PE, ON for that receipt); use MB, BC, SK, or QC as appropriate — **Manitoba** uses **RST** (often labeled PST on receipts) with GST, not HST.
+
 8. Detailed item list (items). ${RECEIPT_JSON_ITEMS_RULE}
-   - name, categoryName (pick from [${categoryList}]), attributionName (pick from [${attributionNamesCsv}], default "${defaultAttributionName}"), price (number).
+   - name, categoryName (pick from [${categoryList}]), attributionName (pick from [${attributionNamesCsv}], default "${defaultAttributionName}"), price (number), taxClassCode, posTaxCode when printed on the line.
 
 9. Image quality assessment (imageQuality): clarity and completeness (0.0–1.0), clarityComment, completenessComment. For documents, rate readability and completeness of content.
 
@@ -133,7 +159,9 @@ Return ONLY valid JSON, no markdown. Format:
   "currency": "USD",
   "paymentAccountName": "string or null",
   "tax": number,
-  "items": [ { "name": "string", "categoryName": "string", "attributionName": "string", "price": number } ],
+  "taxJurisdictionCountry": "string or null",
+  "taxJurisdictionRegion": "string or null",
+  "items": [ { "name": "string", "categoryName": "string", "attributionName": "string", "price": number, "taxClassCode": "STANDARD_TAXABLE or EXEMPT or ZERO_RATED or omit", "posTaxCode": "string or omit" } ],
   "imageQuality": { "clarity": number, "completeness": number, "clarityComment": "string", "completenessComment": "string" },
   "dataConsistency": { "itemsSum": number, "itemsSumMatchesTotal": boolean, "missingItems": boolean, "consistencyComment": "string" },
   "confidence": number
@@ -360,6 +388,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
       const expectedTotal = calculatedItemsSum + tax;
       const actualItemsSumMatches = Math.abs(expectedTotal - totalAmount) <= 0.01;
 
+      const pj = parsedResult as any;
       return {
         supplierName: parsedResult.supplierName || 'Unknown Supplier',
         supplierInfo: parsedResult.supplierInfo ? {
@@ -372,14 +401,24 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
         currency: parsedResult.currency || 'CNY',
         paymentAccountName: paymentAccountName,
         tax: tax,
-        items: parsedResult.items.map((item: any) => ({
-          name: item.name ?? item.description ?? 'Unknown Item',
-          categoryName: item.categoryName ?? item.category ?? defaultCategory,
-          price: Number(item.price ?? item.amount ?? 0),
-          attributionName: item.attributionName ?? item.purposeName ?? item.purpose ?? 'Personal',
-          isAsset: item.isAsset !== undefined ? Boolean(item.isAsset) : false,
-          confidence: item.confidence !== undefined ? Number(item.confidence) : 0.8,
-        })),
+        taxJurisdictionCountry:
+          parsedResult.taxJurisdictionCountry ?? pj.tax_jurisdiction_country ?? null,
+        taxJurisdictionRegion:
+          parsedResult.taxJurisdictionRegion ?? pj.tax_jurisdiction_region ?? null,
+        items: parsedResult.items.map((item: any) => {
+          const tcc = normalizedItemTaxClassCode(item);
+          const ptc = normalizedItemPosTaxCode(item);
+          return {
+            name: item.name ?? item.description ?? 'Unknown Item',
+            categoryName: item.categoryName ?? item.category ?? defaultCategory,
+            price: Number(item.price ?? item.amount ?? 0),
+            attributionName: item.attributionName ?? item.purposeName ?? item.purpose ?? 'Personal',
+            isAsset: item.isAsset !== undefined ? Boolean(item.isAsset) : false,
+            confidence: item.confidence !== undefined ? Number(item.confidence) : 0.8,
+            ...(tcc ? { taxClassCode: tcc } : {}),
+            ...(ptc ? { posTaxCode: ptc } : {}),
+          };
+        }),
         confidence: parsedResult.confidence !== undefined ? Number(parsedResult.confidence) : 0.8,
         imageQuality: imageQuality,
         dataConsistency: dataConsistency || {
@@ -670,6 +709,7 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
       const tax = parsedResult.tax !== undefined ? Number(parsedResult.tax) : 0;
       const expectedTotal = calculatedItemsSum + tax;
       const actualItemsSumMatches = Math.abs(expectedTotal - totalAmount) <= 0.01;
+      const pj = parsedResult as any;
       return {
         supplierName: parsedResult.supplierName || 'Unknown Supplier',
         supplierInfo: parsedResult.supplierInfo ? {
@@ -682,14 +722,24 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
         currency: parsedResult.currency || 'USD',
         paymentAccountName,
         tax,
-        items: parsedResult.items.map((item: any) => ({
-          name: item.name ?? item.description ?? 'Unknown Item',
-          categoryName: item.categoryName ?? item.category ?? defaultCategory,
-          price: Number(item.price ?? item.amount ?? 0),
-          attributionName: item.attributionName ?? item.purposeName ?? item.purpose ?? 'Personal',
-          isAsset: item.isAsset !== undefined ? Boolean(item.isAsset) : false,
-          confidence: item.confidence !== undefined ? Number(item.confidence) : 0.8,
-        })),
+        taxJurisdictionCountry:
+          parsedResult.taxJurisdictionCountry ?? pj.tax_jurisdiction_country ?? null,
+        taxJurisdictionRegion:
+          parsedResult.taxJurisdictionRegion ?? pj.tax_jurisdiction_region ?? null,
+        items: parsedResult.items.map((item: any) => {
+          const tcc = normalizedItemTaxClassCode(item);
+          const ptc = normalizedItemPosTaxCode(item);
+          return {
+            name: item.name ?? item.description ?? 'Unknown Item',
+            categoryName: item.categoryName ?? item.category ?? defaultCategory,
+            price: Number(item.price ?? item.amount ?? 0),
+            attributionName: item.attributionName ?? item.purposeName ?? item.purpose ?? 'Personal',
+            isAsset: item.isAsset !== undefined ? Boolean(item.isAsset) : false,
+            confidence: item.confidence !== undefined ? Number(item.confidence) : 0.8,
+            ...(tcc ? { taxClassCode: tcc } : {}),
+            ...(ptc ? { posTaxCode: ptc } : {}),
+          };
+        }),
         confidence: parsedResult.confidence !== undefined ? Number(parsedResult.confidence) : 0.8,
         imageQuality,
         dataConsistency: dataConsistency || {
@@ -955,7 +1005,7 @@ Items: at least one. ${RECEIPT_JSON_ITEMS_RULE} Example item: ${JSON.stringify(R
 
 Data: today=${today}, 上周五=${lastFridayStr}. Suppliers [${supplierList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "${attributionNames[0]}".
 
-Output JSON keys: supplierName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items (array of { name, categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
+Output JSON keys: supplierName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), taxJurisdictionCountry (optional ISO country or null), taxJurisdictionRegion (optional state/province or null), items (array of { name, categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
 
 User text:
 "${text}"`;
@@ -1038,12 +1088,25 @@ User text:
           }];
         }
 
-        // 统一 item 字段：与图片/语音同一套 schema（name, categoryName, attributionName, price）
+        // 统一 item 字段：与图片/语音同一套 schema（name, categoryName, attributionName, price, taxClassCode, posTaxCode）
         parsedResult.items = parsedResult.items.map((item: any) => {
           const name = item.name ?? item.description;
           const price = item.price !== undefined && item.price !== null ? Number(item.price) : Number(item.amount);
           const attributionName = item.attributionName ?? item.purposeName ?? item.purpose ?? 'Personal';
-          return { ...item, name, price, attributionName, categoryName: item.categoryName ?? item.category };
+          const categoryName = item.categoryName ?? item.category;
+          const tcc = normalizedItemTaxClassCode(item);
+          const ptc = normalizedItemPosTaxCode(item);
+          const base: any = {
+            name,
+            price,
+            attributionName,
+            categoryName,
+          };
+          if (item.isAsset !== undefined) base.isAsset = Boolean(item.isAsset);
+          if (item.confidence !== undefined) base.confidence = Number(item.confidence);
+          if (tcc) base.taxClassCode = tcc;
+          if (ptc) base.posTaxCode = ptc;
+          return base;
         }).filter((item: any) => {
           if (item.name == null || item.name === '' || (item.price === undefined || isNaN(item.price)) || !item.categoryName) {
             console.warn('Invalid item found, skipping:', item);
@@ -1108,6 +1171,13 @@ User text:
 
         // 短日期归一化：取与今天最接近的合法解释（锚点今天）
         parsedResult.date = normalizeShortDate(parsedResult.date);
+
+        parsedResult.taxJurisdictionCountry =
+          parsedResult.taxJurisdictionCountry ?? parsedResult.tax_jurisdiction_country ?? null;
+        parsedResult.taxJurisdictionRegion =
+          parsedResult.taxJurisdictionRegion ?? parsedResult.tax_jurisdiction_region ?? null;
+        delete parsedResult.tax_jurisdiction_country;
+        delete parsedResult.tax_jurisdiction_region;
 
         console.log('Final parsed result:', {
           supplierName: parsedResult.supplierName,
@@ -1215,7 +1285,7 @@ Items: at least one. ${RECEIPT_JSON_ITEMS_RULE} Example item: ${JSON.stringify(R
 
 Data: today=${todayStr}, yesterday=${yesterdayStr}. Suppliers [${supplierListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "${attributionNames[0]}".
 
-Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymentAccountName (optional), tax (default 0), items (array of { name, categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
+Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymentAccountName (optional), tax (default 0), taxJurisdictionCountry (optional or null), taxJurisdictionRegion (optional or null), items (array of { name, categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
 
   try {
     // 读取音频文件
@@ -1285,7 +1355,15 @@ Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymen
             const name = item.name ?? item.description;
             const price = item.price !== undefined && item.price !== null ? Number(item.price) : Number(item.amount ?? 0);
             const attributionName = item.attributionName ?? item.purposeName ?? item.purpose ?? 'Personal';
-            return { ...item, name, price, attributionName, categoryName: item.categoryName ?? item.category };
+            const categoryName = item.categoryName ?? item.category;
+            const tcc = normalizedItemTaxClassCode(item);
+            const ptc = normalizedItemPosTaxCode(item);
+            const base: any = { name, price, attributionName, categoryName };
+            if (item.isAsset !== undefined) base.isAsset = Boolean(item.isAsset);
+            if (item.confidence !== undefined) base.confidence = Number(item.confidence);
+            if (tcc) base.taxClassCode = tcc;
+            if (ptc) base.posTaxCode = ptc;
+            return base;
           }).filter((item: any) => item.name != null && item.name !== '' && !isNaN(item.price) && item.categoryName);
         }
 

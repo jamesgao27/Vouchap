@@ -114,7 +114,9 @@ export async function processReceiptInBackground(
       imageUrl: finalImageUrl,
       confidence: receipt.confidence,
     }, true); // autoResolveDuplicate = true，自动处理重复名称
-    
+
+    // Line taxes + reconciliation run inside updateReceipt (database.ts); avoid duplicate apply here.
+
     // 6. 异步识别供应商详细信息（不阻塞主流程）
     // 如果基本识别中已经有一些供应商信息，先使用它们；然后异步补充更完整的信息
     const supplierInfoFromBasic = recognizedData.supplierInfo;

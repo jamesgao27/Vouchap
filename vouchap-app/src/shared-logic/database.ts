@@ -7,6 +7,11 @@ import { updateEntity, getEntityMergeMap, getEntityById, resolveEntityId, findOr
 import { getEntityOptionsForDuplicateCheck } from './entity-list';
 import { normalizeNameForCompare } from './name-utils';
 import { isMissingNestedAttributionEmbedError } from './postgrest-embed-errors';
+import {
+  applyReceiptItemTaxesAndReconcile,
+  normalizeReceiptItemTaxClassCode,
+  scheduleReceiptTaxRecalcIfNeeded,
+} from './receipt-item-tax';
 
 const ATTRIBUTION_LOOKUP_CHUNK = 120;
 
@@ -136,9 +141,12 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
     const insertPayload: Record<string, unknown> = {
       space_id: spaceId,
       entity_id: entityId,
+      merchant_entity_id: receipt.merchantEntityId ?? null,
       total_amount: receipt.totalAmount,
       currency: receipt.currency,
       tax: receipt.tax,
+      tax_jurisdiction_country: receipt.taxJurisdictionCountry ?? null,
+      tax_jurisdiction_region: receipt.taxJurisdictionRegion ?? null,
       date: receipt.date,
       account_id: accountId,
       status: receipt.status,
@@ -258,6 +266,8 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
           price: item.price,
           is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
           confidence: item.confidence,
+          tax_class_code: normalizeReceiptItemTaxClassCode(item.taxClassCode) ?? null,
+          pos_tax_code: item.posTaxCode?.trim() ? item.posTaxCode.trim().toUpperCase() : null,
         });
       }
 
@@ -275,6 +285,9 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
         }
       }
     }
+
+    await applyReceiptItemTaxesAndReconcile(supabase, receiptId, spaceId);
+    scheduleReceiptTaxRecalcIfNeeded(supabase, receiptId, spaceId, receipt.currency);
 
     return receiptId;
   } catch (error) {
@@ -366,9 +379,16 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
 
     const updateData: any = {};
     if (entityId !== undefined) updateData.entity_id = entityId ?? null;
+    if (receipt.merchantEntityId !== undefined) updateData.merchant_entity_id = receipt.merchantEntityId ?? null;
     if (receipt.totalAmount !== undefined) updateData.total_amount = receipt.totalAmount;
     if (receipt.currency !== undefined) updateData.currency = receipt.currency;
     if (receipt.tax !== undefined) updateData.tax = receipt.tax;
+    if (receipt.taxJurisdictionCountry !== undefined) {
+      updateData.tax_jurisdiction_country = receipt.taxJurisdictionCountry ?? null;
+    }
+    if (receipt.taxJurisdictionRegion !== undefined) {
+      updateData.tax_jurisdiction_region = receipt.taxJurisdictionRegion ?? null;
+    }
     if (receipt.date !== undefined) updateData.date = receipt.date;
     if (accountId !== undefined) updateData.account_id = accountId;
     if (receipt.status !== undefined) updateData.status = receipt.status;
@@ -382,6 +402,14 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
                 .eq('space_id', spaceId);
 
     if (receiptError) throw receiptError;
+
+    const shouldRecomputeItemTaxes =
+      receipt.items !== undefined ||
+      receipt.tax !== undefined ||
+      receipt.currency !== undefined ||
+      receipt.taxJurisdictionCountry !== undefined ||
+      receipt.taxJurisdictionRegion !== undefined ||
+      receipt.merchantEntityId !== undefined;
 
     // 如果更新了商品项，先删除旧的再插入新的
     if (receipt.items !== undefined) {
@@ -412,6 +440,8 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
             price: item.price,
             is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
             confidence: item.confidence,
+            tax_class_code: normalizeReceiptItemTaxClassCode(item.taxClassCode) ?? null,
+            pos_tax_code: item.posTaxCode?.trim() ? item.posTaxCode.trim().toUpperCase() : null,
           });
         }
 
@@ -423,6 +453,11 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
           if (itemsError) throw itemsError;
         }
       }
+    }
+
+    if (shouldRecomputeItemTaxes) {
+      await applyReceiptItemTaxesAndReconcile(supabase, receiptId, spaceId);
+      scheduleReceiptTaxRecalcIfNeeded(supabase, receiptId, spaceId, receipt.currency);
     }
   } catch (error: any) {
     if (error?.code === 'ENTITY_NAME_EXISTS') {
@@ -448,10 +483,10 @@ export async function getReceiptsForListFirstPaint(): Promise<Receipt[]> {
   const spaceId = user.currentSpaceId || user.spaceId;
   if (!spaceId) throw new Error('No space selected');
 
-  const { data, error } = await supabase
+    const { data, error } = await supabase
     .from('receipts')
     .select(`
-      id, space_id, entity_id, total_amount, currency, tax, date, account_id, status, image_url, input_type, confidence, processed_by, created_at, updated_at, created_by,
+      id, space_id, entity_id, merchant_entity_id, total_amount, currency, tax, tax_jurisdiction_country, tax_jurisdiction_region, tax_reconciliation_status, tax_items_sum, tax_variance_amount, tax_audit_required, tax_audit_comment, date, account_id, status, image_url, input_type, confidence, processed_by, created_at, updated_at, created_by,
       entities (id, name),
       created_by_user:users!created_by (id, email, name, current_space_id)
     `)
@@ -495,10 +530,18 @@ export async function getReceiptsForListFirstPaint(): Promise<Receipt[]> {
     supplierName: payeeName,
     storeName: payeeName,
     entityId: row.entity_id ?? undefined,
+    merchantEntityId: row.merchant_entity_id ?? undefined,
     entity: entityRow ? { id: entityRow.id, spaceId: row.space_id, name: entityRow.name, isAiRecognized: false } : undefined,
     totalAmount: row.total_amount,
     currency: row.currency,
     tax: row.tax,
+    taxJurisdictionCountry: row.tax_jurisdiction_country ?? null,
+    taxJurisdictionRegion: row.tax_jurisdiction_region ?? null,
+    taxReconciliationStatus: row.tax_reconciliation_status ?? null,
+    taxItemsSum: row.tax_items_sum != null ? Number(row.tax_items_sum) : null,
+    taxVarianceAmount: row.tax_variance_amount != null ? Number(row.tax_variance_amount) : null,
+    taxAuditRequired: row.tax_audit_required ?? null,
+    taxAuditComment: row.tax_audit_comment ?? null,
     date: normalizeDate(row.date),
     accountId: row.account_id,
     account: row.account_id ? { id: row.account_id, spaceId, name: '', isAiRecognized: false, createdAt: '', updatedAt: '' } : undefined,
@@ -614,6 +657,7 @@ export async function getAllReceiptsForList(): Promise<Receipt[]> {
         supplierName: payeeName,
         storeName: payeeName,
         entityId: row.entity_id ?? undefined,
+        merchantEntityId: row.merchant_entity_id ?? undefined,
         entity: entityRow ? {
           id: entityRow.id,
           spaceId: entityRow.spaceId,
@@ -629,6 +673,13 @@ export async function getAllReceiptsForList(): Promise<Receipt[]> {
         totalAmount: row.total_amount,
         currency: row.currency,
         tax: row.tax,
+        taxJurisdictionCountry: row.tax_jurisdiction_country ?? null,
+        taxJurisdictionRegion: row.tax_jurisdiction_region ?? null,
+        taxReconciliationStatus: row.tax_reconciliation_status ?? null,
+        taxItemsSum: row.tax_items_sum != null ? Number(row.tax_items_sum) : null,
+        taxVarianceAmount: row.tax_variance_amount != null ? Number(row.tax_variance_amount) : null,
+        taxAuditRequired: row.tax_audit_required ?? null,
+        taxAuditComment: row.tax_audit_comment ?? null,
         date: normalizeDate(row.date),
         accountId: row.account_id,
         account: accountRow ? {
@@ -802,6 +853,7 @@ export async function getAllReceipts(): Promise<Receipt[]> {
         supplierName: payeeName,
         storeName: payeeName,
         entityId: row.entity_id ?? undefined,
+        merchantEntityId: row.merchant_entity_id ?? undefined,
         entity: entityRow ? {
           id: entityRow.id,
           spaceId: entityRow.spaceId,
@@ -817,6 +869,13 @@ export async function getAllReceipts(): Promise<Receipt[]> {
         totalAmount: row.total_amount,
         currency: row.currency,
         tax: row.tax,
+        taxJurisdictionCountry: row.tax_jurisdiction_country ?? null,
+        taxJurisdictionRegion: row.tax_jurisdiction_region ?? null,
+        taxReconciliationStatus: row.tax_reconciliation_status ?? null,
+        taxItemsSum: row.tax_items_sum != null ? Number(row.tax_items_sum) : null,
+        taxVarianceAmount: row.tax_variance_amount != null ? Number(row.tax_variance_amount) : null,
+        taxAuditRequired: row.tax_audit_required ?? null,
+        taxAuditComment: row.tax_audit_comment ?? null,
         date: normalizeDate(row.date),
         accountId: row.account_id,
         account: accountRow ? {
@@ -871,6 +930,8 @@ export async function getAllReceipts(): Promise<Receipt[]> {
           price: item.price,
           isAsset: item.is_asset,
           confidence: item.confidence,
+          taxClassCode: item.tax_class_code ?? undefined,
+          posTaxCode: item.pos_tax_code ?? undefined,
         };
         }),
       };
@@ -1211,6 +1272,13 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
       totalAmount: data.total_amount,
       currency: data.currency,
       tax: data.tax,
+      taxJurisdictionCountry: data.tax_jurisdiction_country ?? null,
+      taxJurisdictionRegion: data.tax_jurisdiction_region ?? null,
+      taxReconciliationStatus: data.tax_reconciliation_status ?? null,
+      taxItemsSum: data.tax_items_sum != null ? Number(data.tax_items_sum) : null,
+      taxVarianceAmount: data.tax_variance_amount != null ? Number(data.tax_variance_amount) : null,
+      taxAuditRequired: data.tax_audit_required ?? null,
+      taxAuditComment: data.tax_audit_comment ?? null,
       date: normalizeDate(data.date),
       accountId: data.account_id,
       account: accountRow ? {
@@ -1266,6 +1334,8 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
         price: item.price,
         isAsset: item.is_asset,
         confidence: item.confidence,
+        taxClassCode: item.tax_class_code ?? undefined,
+        posTaxCode: item.pos_tax_code ?? undefined,
       };
       }),
     };
