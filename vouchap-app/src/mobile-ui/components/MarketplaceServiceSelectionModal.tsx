@@ -1,16 +1,17 @@
 /**
- * Client Service Marketplace — step 1: confirm choice of published template (firm + service highlighted).
+ * Client Service Marketplace — confirm template choice.
+ * Layout mirrors {@link FirmAddClientModal}: CenterModal + two columns; right pane uses {@link SkuPreview} like Add client.
  */
 import {
-  Modal,
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Pressable,
-  useWindowDimensions,
+  ScrollView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import CenterModal from '@/components/CenterModal';
+import SkuPreview from '@/components/SkuPreview';
+import type { FirmSku } from '@/types';
 
 const NEXT_STEPS_FONT_SIZE = 13;
 
@@ -20,10 +21,26 @@ const NEXT_STEP_LINES = [
   'Please watch your inbox for related email from your firm.',
 ] as const;
 
+const SUBTITLE =
+  'Review your firm and service choice before continuing.\nAfter you continue, you will confirm consent to start this engagement.';
+
+/**
+ * Right column total height: one line "Service preview" + {@link SkuPreview} card.
+ * Use **fixed row height** (not minHeight): otherwise a tall left column grows the row and stretches
+ * the right column, leaving empty space under the preview so buttons look too low vs the card bottom.
+ */
+const SKU_PREVIEW_CARD_HEIGHT = 560;
+const PREVIEW_TITLE_LINE_HEIGHT = 18;
+const PREVIEW_TITLE_MARGIN_BOTTOM = 8;
+const PREVIEW_COLUMN_HEIGHT =
+  SKU_PREVIEW_CARD_HEIGHT + PREVIEW_TITLE_LINE_HEIGHT + PREVIEW_TITLE_MARGIN_BOTTOM;
+
 type Props = {
   visible: boolean;
   firmName: string;
   templateName: string;
+  /** Full SKU row from the catalog — same as Add client preview source. */
+  previewSku?: FirmSku | null;
   onCancel: () => void;
   onContinue: () => void;
 };
@@ -32,25 +49,21 @@ export default function MarketplaceServiceSelectionModal({
   visible,
   firmName,
   templateName,
+  previewSku,
   onCancel,
   onContinue,
 }: Props) {
-  const { width: windowWidth } = useWindowDimensions();
-  const useGoldenButtonRatio = windowWidth >= 420;
-
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onCancel}>
-      <View style={styles.overlay}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={onCancel} accessibilityLabel="Dismiss" />
-        <View style={styles.card}>
-          <View style={styles.header}>
-            <Text style={styles.title}>Confirm your selection</Text>
-            <TouchableOpacity onPress={onCancel} hitSlop={10} accessibilityLabel="Close">
-              <Ionicons name="close" size={22} color="#636E72" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.body}>
+    <CenterModal visible={visible} title="Confirm your selection" onClose={onCancel} maxWidth={840} cardHeight={660}>
+      <View style={styles.formRow}>
+        <View style={styles.leftPane}>
+          <ScrollView
+            style={styles.leftScroll}
+            contentContainerStyle={styles.leftScrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            <Text style={styles.subtitle}>{SUBTITLE}</Text>
             <View style={styles.highlightBlock}>
               <Text style={styles.metaLabel}>Firm</Text>
               <Text style={styles.firmName}>{firmName.trim() || '—'}</Text>
@@ -63,7 +76,7 @@ export default function MarketplaceServiceSelectionModal({
                 <View key={line} style={styles.nextStepRow}>
                   <View style={styles.stepBulletCol}>
                     <Text style={styles.stepBulletMark} accessibilityLabel={`Step ${index + 1}`}>
-                      📌
+                      •
                     </Text>
                   </View>
                   <View style={styles.stepTextCol}>
@@ -72,67 +85,93 @@ export default function MarketplaceServiceSelectionModal({
                 </View>
               ))}
             </View>
-          </View>
-
-          <View style={styles.footerActions}>
-            <TouchableOpacity
-              style={[styles.cancelBtn, useGoldenButtonRatio && styles.cancelBtnGolden]}
-              onPress={onCancel}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.cancelBtnText}>Cancel</Text>
+          </ScrollView>
+          <View style={styles.btnRow}>
+            <TouchableOpacity style={styles.secondaryBtn} onPress={onCancel} activeOpacity={0.7}>
+              <Text style={styles.secondaryBtnText}>Cancel</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.continueBtn, useGoldenButtonRatio && styles.continueBtnGolden]}
-              onPress={onContinue}
-              activeOpacity={0.85}
-            >
-              <Text style={styles.continueBtnText}>Continue</Text>
+            <TouchableOpacity style={styles.primaryBtn} onPress={onContinue} activeOpacity={0.7}>
+              <Text style={styles.primaryBtnText}>Continue</Text>
             </TouchableOpacity>
           </View>
         </View>
+        <View style={styles.rightCol}>
+          <Text style={styles.previewTitle}>Service preview</Text>
+          {previewSku ? (
+            <SkuPreview sku={previewSku} maxHeight={SKU_PREVIEW_CARD_HEIGHT} />
+          ) : (
+            <View style={styles.previewPlaceholder}>
+              <Text style={styles.previewPlaceholderText}>No template selected.</Text>
+            </View>
+          )}
+        </View>
       </View>
-    </Modal>
+    </CenterModal>
   );
 }
 
+/** Layout tokens aligned with `FirmAddClientModal` (addClientFormRow / addClientRight / buttons). */
 const styles = StyleSheet.create({
-  overlay: {
+  formRow: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    gap: 24,
+    height: PREVIEW_COLUMN_HEIGHT,
+    position: 'relative',
+    overflow: 'visible',
+  },
+  leftPane: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    minWidth: 0,
+    flexDirection: 'column',
+    height: PREVIEW_COLUMN_HEIGHT,
+  },
+  leftScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  leftScrollContent: {
+    padding: 20,
+    paddingTop: 8,
+    paddingBottom: 12,
+    flexGrow: 1,
+  },
+  rightCol: {
+    width: 400,
+    paddingRight: 12,
+    flexShrink: 0,
+    height: PREVIEW_COLUMN_HEIGHT,
+    justifyContent: 'flex-start',
+  },
+  subtitle: {
+    fontSize: 13,
+    color: '#636E72',
+    lineHeight: 18,
+    marginBottom: 20,
+    flexWrap: 'wrap',
+  },
+  previewTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#636E72',
+    lineHeight: PREVIEW_TITLE_LINE_HEIGHT,
+    marginBottom: PREVIEW_TITLE_MARGIN_BOTTOM,
+  },
+  previewPlaceholder: {
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E2E4F0',
+    backgroundColor: '#F8F9FA',
+    minHeight: SKU_PREVIEW_CARD_HEIGHT,
+    maxHeight: SKU_PREVIEW_CARD_HEIGHT,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 16,
+    padding: 16,
   },
-  card: {
-    width: '100%',
-    maxWidth: 440,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#E9ECEF',
-    overflow: 'hidden',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EEF1F4',
-  },
-  title: {
-    flex: 1,
-    marginRight: 10,
-    fontSize: 17,
-    fontWeight: '700',
-    color: '#2D3436',
-  },
-  body: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    gap: 14,
+  previewPlaceholderText: {
+    fontSize: 13,
+    color: '#95A5A6',
+    textAlign: 'center',
   },
   highlightBlock: {
     alignSelf: 'stretch',
@@ -141,6 +180,7 @@ const styles = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     borderColor: '#E9ECEF',
+    marginBottom: 16,
   },
   metaLabel: {
     fontSize: 11,
@@ -171,6 +211,7 @@ const styles = StyleSheet.create({
   nextStepsBlock: {
     alignSelf: 'stretch',
     gap: 8,
+    marginBottom: 8,
   },
   nextStepRow: {
     flexDirection: 'row',
@@ -186,6 +227,8 @@ const styles = StyleSheet.create({
   stepBulletMark: {
     fontSize: NEXT_STEPS_FONT_SIZE,
     lineHeight: 19,
+    color: '#636E72',
+    fontWeight: '700',
   },
   stepTextCol: {
     flex: 1,
@@ -198,35 +241,43 @@ const styles = StyleSheet.create({
     color: '#636E72',
     lineHeight: 19,
   },
-  footerActions: {
+  btnRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
-    paddingHorizontal: 16,
-    paddingBottom: 16,
-    flexWrap: 'nowrap',
+    paddingTop: 0,
+    flexShrink: 0,
   },
-  cancelBtn: {
-    minWidth: 96,
-    minHeight: 44,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#DDE1E6',
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-  },
-  cancelBtnText: { fontSize: 14, fontWeight: '600', color: '#636E72' },
-  continueBtn: {
+  secondaryBtn: {
     flex: 1,
-    minHeight: 44,
-    borderRadius: 10,
-    backgroundColor: '#6C5CE7',
-    justifyContent: 'center',
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
     paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#F8F9FA',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
   },
-  continueBtnText: { fontSize: 14, fontWeight: '700', color: '#FFFFFF' },
-  cancelBtnGolden: { flex: 0.382, minWidth: 0 },
-  continueBtnGolden: { flex: 0.618, minWidth: 0 },
+  secondaryBtnText: {
+    fontSize: 13,
+    color: '#636E72',
+    fontWeight: '500',
+  },
+  primaryBtn: {
+    flex: 1.618,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 8,
+    backgroundColor: '#6C5CE7',
+  },
+  primaryBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#fff',
+  },
 });

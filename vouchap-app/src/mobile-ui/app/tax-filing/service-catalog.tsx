@@ -412,6 +412,7 @@ export default function ClientServiceMarketplaceScreen() {
         visible={selectionModalVisible && pendingMarketplaceSku != null}
         firmName={selectionFirmName}
         templateName={selectionTemplateName}
+        previewSku={pendingMarketplaceSku}
         onCancel={closeSelectionModal}
         onContinue={proceedFromSelectionToConsent}
       />

@@ -1428,3 +1428,71 @@
 - `vouchap-app/src/shared-logic/project-todo-tree-patch.ts`、`TaxFilingTodosView.tsx`、`tax-filing/order/[orderId]/index.tsx`
 
 ---
+
+### 2026-04-07（Service Marketplace：确认浮窗右侧模板预览）
+
+**User（提示词/原意）**  
+- service marketplace 的 **Confirm your selection** 浮窗，**右侧**加上与列表一致的 **template 标准预览组件**。
+
+**Assistant（实现前说明，若有）**  
+- **`MarketplaceServiceSelectionModal`**：可选 **`templatePreviewItem`**（与网格相同的 **`ProjectListCardItem`**）；Web 且窗宽 ≥680 时 **两栏**：右侧 **Template preview** + 只读 **`ProjectListCard`**；窄屏/原生在 **高亮块与 Next steps 之间**插入同一预览。  
+- **`service-catalog`**：用 **`firmSkuToProjectListItem(pendingMarketplaceSku, { firmFooter: true, forClientMarketplace: true })`** 传入，与目录卡一致。  
+- 修复样式：`StyleSheet` 中误用未定义变量 **`previewAsideWidth`** 改为固定 **`width: 316`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已接好 **`templatePreviewItem`**；catalog 侧 **`useMemo`** 映射 pending SKU。侧栏宽度字面量，**lint** 通过。  
+- **验证**：打开 Service Marketplace → 选一项 → **Confirm** 浮窗：Web 宽屏右侧见与网格一致的 **`ProjectListCard`**；缩窄或移动端预览出现在高亮与步骤之间。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/MarketplaceServiceSelectionModal.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/service-catalog.tsx`
+
+---
+
+### 2026-04-07（Service Marketplace 确认浮窗：对齐 Add client 布局 + SkuPreview）
+
+**User（提示词/原意）**  
+- 找已设计过的**标准 SKU 预览**；浮窗布局需**复用 Add client** 浮窗。
+
+**Assistant（实现前说明，若有）**  
+- 标准预览组件为 **`SkuPreview`**（Add client / engagements / invite 共用）；Add client 外壳为 **`CenterModal`** + **`FirmAddClientModal`** 内 **`addClientFormRow`** 双栏（左滚动表单区、右 **`Service preview`** + **`SkuPreview`**）。  
+- 将 **`MarketplaceServiceSelectionModal`** 改为同一 **`CenterModal`** 尺寸（**`maxWidth={840}` `cardHeight={660}`**）、同款双栏样式与右侧 **`SkuPreview`**；入参由 **`templatePreviewItem`** 改为 **`previewSku: FirmSku`**（catalog 传 **`pendingMarketplaceSku`**）。  
+- 左侧保留确认文案 + Firm/Service 高亮 + Next steps；底部按钮样式对齐 Add client（**`flex: 1` / `flex: 1.618`**）。列表符号改为 **•**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已替换实现并完成 catalog 传参；**lint** 无报错。  
+- **验证**：打开确认浮窗 → 外观与 Add client 一致（大圆角卡片、双栏、右侧文档树预览）；**Continue** 进入 consent 流程不变。
+
+**关联**  
+- `MarketplaceServiceSelectionModal.tsx`、`service-catalog.tsx`；参照 `FirmAddClientModal.tsx`、`SkuPreview.tsx`、`CenterModal.tsx`
+
+---
+
+### 2026-04-07（Marketplace 确认浮窗：修正按钮相对 SkuPreview 下缘偏高/偏低）
+
+**User（提示词/原意）**  
+- 按钮仍**太靠下**，与预览组件下缘**没对齐**。
+
+**Assistant（实现前说明，若有）**  
+- 根因：**`formRow` / 左栏用了 `minHeight`**，左栏（文案 + 步骤 + 按钮）**内容高度常大于** 右侧「标题 + 560 预览」，行高由左栏**撑开**；右栏 **`stretch`** 后在 **`SkuPreview` 下方出现空白**，按钮贴着**行底**就会落在预览卡**下缘之下**。  
+- 处理：双栏行改为**固定 `height: 560 + lineHeight(18) + marginBottom(8)`**，与 `previewTitle` 的 **`lineHeight` / `marginBottom` 常量一致**；去掉会在视觉上把按钮再往下推的 **`btnRow.paddingTop`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 **`MarketplaceServiceSelectionModal.tsx`**。
+
+---
+
+### 2026-04-07（Marketplace 确认浮窗：Cancel/Continue 与 SkuPreview 下缘对齐）
+
+**User（提示词/原意）**  
+- **Cancel / Continue** 按钮**下缘**与**预览组件下缘**对齐。
+
+**Assistant（实现前说明，若有）**  
+- 原先按钮在左侧 **`ScrollView`** 内且左栏 **`maxHeight: 560`**，与右侧「**Service preview** + 560 卡片」总高不一致。  
+- 改为左侧 **`leftPane`**：`minHeight` = 与右栏相同的 **`PREVIEW_COLUMN_HEIGHT`**（**560 + 标题区**），**`ScrollView` `flex:1`** 仅承载说明与高亮、Next steps；**`btnRow` 移出 Scroll** 置于列底；双栏 **`alignItems: stretch`**。占位预览 **`minHeight/maxHeight`** 与卡片高一致。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 **`MarketplaceServiceSelectionModal.tsx`**；静态检查通过。  
+- **验证**：打开确认浮窗 — 右栏卡片底与左栏按钮底同一水平线；左栏正文过长时仅中间区域滚动。
+
+---
