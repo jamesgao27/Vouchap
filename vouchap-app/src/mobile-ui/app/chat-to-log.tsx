@@ -48,6 +48,7 @@ import { classifyTaxDocumentAndPickTask, getFallbackTaskId } from '@/lib/tax-fil
 import { classificationLabelsForTaxFilingPrompt } from '@/lib/tax-filing-project-classification-labels';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
 import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
+import { buildTaxFilingAttachmentDefaultDisplayName } from '@/lib/tax-filing-attachment-display-name';
 import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound, ExtractedClient, ClientRecognitionResult } from '@/types';
 import { convertGeminiResultToReceipt, convertGeminiResultToInvoice, convertGeminiResultToInbound, convertGeminiResultToOutbound } from '@/lib/receipt-helpers';
 import { format } from 'date-fns';
@@ -325,7 +326,17 @@ interface Message {
   inboundPreview?: Inbound;
   outboundPreview?: Outbound;
   /** attachments 类型：报税附件上传记录，用于跳转 project/attachment（放在「收到消息」卡片）；与 FileDetailModal 一致展示 docType/summary/extracted */
-  attachmentPreview?: { id: string; projectId: string; todoId: string; name: string; summary?: string | null; imageUrl?: string | null; docType?: string | null; extracted_data?: unknown };
+  attachmentPreview?: {
+    id: string;
+    projectId: string;
+    todoId: string;
+    name: string;
+    displayName?: string | null;
+    summary?: string | null;
+    imageUrl?: string | null;
+    docType?: string | null;
+    extracted_data?: unknown;
+  };
   /** attachments 类型：发出消息中预览的图片 URL */
   attachmentImageUrl?: string | null;
   /** Client Assistant: recognized client list for confirmation before creating clients + sending invites */
@@ -351,6 +362,16 @@ interface Message {
   isPlayingAudio?: boolean;
   /** 多文件提交时：上传完成、识别中，占位预览卡片 loading */
   previewCardLoading?: boolean;
+}
+
+function taxFilingAttachmentCardTitle(preview: NonNullable<Message['attachmentPreview']>): string {
+  const d = preview.displayName?.trim();
+  if (d) return d;
+  return buildTaxFilingAttachmentDefaultDisplayName({
+    summary: preview.summary,
+    docType: preview.docType,
+    sourceFileName: preview.name,
+  });
 }
 
 /**
@@ -609,7 +630,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       }
       const file: FileDetailModalFile = {
         id: raw.id,
-        name: raw.summary ?? undefined,
+        name: raw.display_name?.trim() || raw.summary?.trim() || undefined,
         imageUrl: raw.attachment_url,
         docType: raw.doc_type ?? undefined,
         status: raw.status,
@@ -697,6 +718,23 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 return { ...msg, outboundPreview: outbound, outboundDeleted: false };
               } catch {
                 return { ...msg, outboundDeleted: true };
+              }
+            }
+            if (msg.attachmentPreview?.id) {
+              try {
+                const raw = await getProjectTodoAttachmentById(msg.attachmentPreview.id);
+                if (!raw) return msg;
+                return {
+                  ...msg,
+                  attachmentPreview: {
+                    ...msg.attachmentPreview,
+                    displayName: raw.display_name ?? msg.attachmentPreview.displayName,
+                    summary: raw.summary ?? msg.attachmentPreview.summary,
+                    docType: raw.doc_type ?? msg.attachmentPreview.docType,
+                  },
+                };
+              } catch {
+                return msg;
               }
             }
             if (!msg.receiptPreview?.id) return msg;
@@ -867,6 +905,23 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   return { ...msg, outboundPreview: outbound, outboundDeleted: false };
                 } catch {
                   return { ...msg, outboundDeleted: true };
+                }
+              }
+              if (msg.attachmentPreview?.id) {
+                try {
+                  const raw = await getProjectTodoAttachmentById(msg.attachmentPreview.id);
+                  if (!raw) return msg;
+                  return {
+                    ...msg,
+                    attachmentPreview: {
+                      ...msg.attachmentPreview,
+                      displayName: raw.display_name ?? msg.attachmentPreview.displayName,
+                      summary: raw.summary ?? msg.attachmentPreview.summary,
+                      docType: raw.doc_type ?? msg.attachmentPreview.docType,
+                    },
+                  };
+                } catch {
+                  return msg;
                 }
               }
               if (!msg.receiptPreview?.id) return msg;
@@ -1060,6 +1115,23 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               return { ...msg, outboundPreview: outbound, outboundDeleted: false };
             } catch {
               return { ...msg, outboundDeleted: true };
+            }
+          }
+          if (msg.attachmentPreview?.id) {
+            try {
+              const raw = await getProjectTodoAttachmentById(msg.attachmentPreview.id);
+              if (!raw) return msg;
+              return {
+                ...msg,
+                attachmentPreview: {
+                  ...msg.attachmentPreview,
+                  displayName: raw.display_name ?? msg.attachmentPreview.displayName,
+                  summary: raw.summary ?? msg.attachmentPreview.summary,
+                  docType: raw.doc_type ?? msg.attachmentPreview.docType,
+                },
+              };
+            } catch {
+              return msg;
             }
           }
           if (!msg.receiptPreview?.id) return msg;
@@ -1386,9 +1458,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 todoId = getFallbackTaskId(attachmentTaskOptions);
               }
               const uploaderName = await resolveUploaderNameForTaxFilingAttachment();
+              const name = file.name ?? `File ${i + 1}`;
               const createResult = await createProjectTodoAttachment(todoId, fileUrl, {
                 status: 'PENDING_AI',
                 uploader_name: uploaderName,
+                source_file_name: name,
               });
               if ('error' in createResult) {
                 showToast(`Upload failed: ${createResult.error.message}`, 'error');
@@ -1397,7 +1471,6 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 continue;
               }
               const attachmentId = createResult.id;
-              const name = file.name ?? `File ${i + 1}`;
               const loadingCardId = `attach-preview-loading-${file.id}`;
               // tax-filing 模块：图片用缩略图，文档用 documentUrl（已上传的远端 URL）
               const userMsg: Message = {
@@ -1468,6 +1541,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 }
 
                 const recognition = recognitionResult.result;
+                const displayName = buildTaxFilingAttachmentDefaultDisplayName({
+                  summary: recognition.summary,
+                  docType: recognition.doc_type,
+                  sourceFileName: name,
+                });
                 if (recognition.suggested_task_id && recognition.suggested_task_id !== todoId && attachmentTaskOptions.some((t) => t.id === recognition.suggested_task_id)) {
                   effectiveTodoId = recognition.suggested_task_id;
                   await updateProjectTodoAttachment(attachmentId, {
@@ -1477,6 +1555,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                     status: 'PROCESSED',
                     project_todo_id: effectiveTodoId,
                     recognition_fail_count: 0,
+                    display_name: displayName,
                   });
                 } else {
                   await updateProjectTodoAttachment(attachmentId, {
@@ -1485,6 +1564,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                     extracted_data: recognition.extracted_data,
                     status: 'PROCESSED',
                     recognition_fail_count: 0,
+                    display_name: displayName,
                   });
                 }
                 summary = recognition.summary;
@@ -1495,6 +1575,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   projectId,
                   todoId: effectiveTodoId,
                   name,
+                  displayName,
                   summary,
                   imageUrl: fileUrl,
                   docType,
@@ -2893,8 +2974,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               </View>
             )}
 
-            {message.attachmentPreview && (voucherType === 'tax-filing' || message.voucherType === 'tax-filing') && (
-              <Pressable style={styles.receiptPreviewCard} onPress={() => handlePreviewDetails(message)}>
+            {message.attachmentPreview?.id &&
+              message.attachmentPreview.projectId != null &&
+              message.attachmentPreview.todoId != null && (
+              <View style={styles.receiptPreviewCard}>
                 <View style={styles.receiptPreviewHeader}>
                   <Ionicons name="attach" size={20} color="#6C5CE7" />
                   <Text style={styles.receiptPreviewTitle}>
@@ -2903,68 +2986,78 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 </View>
                 <View style={styles.receiptPreviewContent}>
                   <View style={styles.attachmentPreviewRow}>
-                    {(() => {
-                      const isDoc = isPreviewableDoc(message.attachmentPreview.name);
-                      const url = message.attachmentPreview.imageUrl || undefined;
-                      if (url && !isDoc) {
-                        const imgUrl = url as string;
-                        return (
-                          <View style={styles.attachmentThumbWrap}>
-                            <Image source={{ uri: imgUrl }} style={[styles.attachmentThumb, styles.thumbAlignTopLeft]} resizeMode="cover" />
-                          </View>
-                        );
-                      }
-                      if (url && isDoc) {
+                    <Pressable onPress={() => handlePreviewDetails(message)}>
+                      {(() => {
+                        const isDoc = isPreviewableDoc(message.attachmentPreview.name);
+                        const url = message.attachmentPreview.imageUrl || undefined;
+                        if (url && !isDoc) {
+                          const imgUrl = url as string;
+                          return (
+                            <View style={styles.attachmentThumbWrap}>
+                              <Image source={{ uri: imgUrl }} style={[styles.attachmentThumb, styles.thumbAlignTopLeft]} resizeMode="cover" />
+                            </View>
+                          );
+                        }
+                        if (url && isDoc) {
+                          return (
+                            <View style={[styles.attachmentThumbWrap, styles.attachmentThumbDocIcon]}>
+                              <Ionicons name="document-text-outline" size={32} color="#636E72" />
+                            </View>
+                          );
+                        }
                         return (
                           <View style={[styles.attachmentThumbWrap, styles.attachmentThumbDocIcon]}>
-                            <Ionicons name="document-text-outline" size={32} color="#636E72" />
+                            <Ionicons name={isDoc ? 'document-text-outline' : 'document-outline'} size={32} color="#636E72" />
                           </View>
                         );
-                      }
-                      return (
-                        <View style={[styles.attachmentThumbWrap, styles.attachmentThumbDocIcon]}>
-                          <Ionicons name={isDoc ? 'document-text-outline' : 'document-outline'} size={32} color="#636E72" />
-                        </View>
-                      );
-                    })()}
+                      })()}
+                    </Pressable>
                     <View style={styles.attachmentPreviewMeta}>
-                      {/* 第一行：doc_type（来自 project_todo_attachments.doc_type） */}
-                      <Text style={styles.attachmentPreviewSummaryTitle} numberOfLines={1}>
-                        {message.attachmentPreview.docType ?? 'Attachment'}
-                      </Text>
-                      {/* 第二行：关联 task 名称 + 图标 */}
-                      <View style={styles.attachmentPreviewTodoRow}>
-                        <Ionicons name="checkmark-circle-outline" size={14} color="#6C5CE7" style={styles.attachmentPreviewTodoIcon} />
-                        <Text style={styles.attachmentPreviewTodoName} numberOfLines={1}>
-                          {attachmentTaskOptions.find((t) => t.id === message.attachmentPreview.todoId)?.title ?? 'Unknown task'}
+                      <View style={styles.attachmentPreviewTitleRow}>
+                        <Text style={styles.attachmentPreviewSummaryTitle} numberOfLines={2}>
+                          {taxFilingAttachmentCardTitle(message.attachmentPreview)}
                         </Text>
                       </View>
-                      {/* 第三行起：识别描述（若 summary 过长） */}
-                      {message.attachmentPreview.summary ? (
-                        <Text style={styles.attachmentPreviewSummary} numberOfLines={2}>
-                          {message.attachmentPreview.summary}
+                      {message.attachmentPreview.docType ? (
+                        <Text style={styles.attachmentPreviewTypeCode} numberOfLines={1}>
+                          {`Type: ${message.attachmentPreview.docType}`}
                         </Text>
                       ) : null}
-                      {message.attachmentPreview.extracted_data
-                        ? (() => {
-                            const rows = buildExtractedPreview(message.attachmentPreview!.extracted_data!);
-                            if (rows.length === 0) return null;
-                            return (
-                              <View style={styles.attachmentPreviewExtracted}>
-                                {rows.map((p, i) => (
-                                  <View key={i} style={styles.attachmentPreviewExtractedRow}>
-                                    <Text style={styles.attachmentPreviewExtractedLabel}>{p.label}:</Text>
-                                    <Text style={styles.attachmentPreviewExtractedValue} numberOfLines={1}>{p.value}</Text>
+                      <Pressable onPress={() => handlePreviewDetails(message)}>
+                        <View>
+                          <View style={styles.attachmentPreviewTodoRow}>
+                            <Ionicons name="checkmark-circle-outline" size={14} color="#6C5CE7" style={styles.attachmentPreviewTodoIcon} />
+                            <Text style={styles.attachmentPreviewTodoName} numberOfLines={1}>
+                              {attachmentTaskOptions.find((t) => t.id === message.attachmentPreview!.todoId)?.title ?? 'Unknown task'}
+                            </Text>
+                          </View>
+                          {message.attachmentPreview.summary ? (
+                            <Text style={styles.attachmentPreviewSummary} numberOfLines={2}>
+                              {message.attachmentPreview.summary}
+                            </Text>
+                          ) : null}
+                          {message.attachmentPreview.extracted_data
+                            ? (() => {
+                                const rows = buildExtractedPreview(message.attachmentPreview!.extracted_data!);
+                                if (rows.length === 0) return null;
+                                return (
+                                  <View style={styles.attachmentPreviewExtracted}>
+                                    {rows.map((p, i) => (
+                                      <View key={i} style={styles.attachmentPreviewExtractedRow}>
+                                        <Text style={styles.attachmentPreviewExtractedLabel}>{p.label}:</Text>
+                                        <Text style={styles.attachmentPreviewExtractedValue} numberOfLines={1}>{p.value}</Text>
+                                      </View>
+                                    ))}
                                   </View>
-                                ))}
-                              </View>
-                            );
-                          })()
-                        : null}
+                                );
+                              })()
+                            : null}
+                        </View>
+                      </Pressable>
                     </View>
                   </View>
                 </View>
-              </Pressable>
+              </View>
             )}
             
           </View>
@@ -3789,6 +3882,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
     color: '#6C5CE7',
+    marginBottom: 0,
+  },
+  attachmentPreviewTitleRow: {
+    marginBottom: 4,
+  },
+  attachmentPreviewTypeCode: {
+    fontSize: 11,
+    color: '#95A5A6',
     marginBottom: 4,
   },
   attachmentPreviewTodoRow: {

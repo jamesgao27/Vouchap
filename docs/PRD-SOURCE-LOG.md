@@ -1318,3 +1318,113 @@
 - `vouchap-app/src/mobile-ui/components/TaxFilingTodosView.tsx`、`vouchap-app/src/shared-logic/supabase.ts`、`vouchap-app/src/shared-logic/tax-filing-todo-upload-helpers.ts`、`vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/index.tsx`
 
 ---
+
+### 2026-04-07（Chat 税表附件：完整展示名 + display_name + 行内改名）
+
+**User（提示词/原意）**  
+- Chat 提交 tax 文件时，仅用 **`project_todo_attachments.doc_type`** 作标题辨识度低；需要完整命名，并支持用户修改；重命名交互复用 task 名称修改（输入 + 确认/取消）。
+
+**Assistant（实现前说明，若有）**  
+- **`doc_type`** 保留为 AI 机器码；新增 **`source_file_name`**、**`display_name`**（迁移），识别成功后 **`display_name`** 由 **`buildTaxFilingAttachmentDefaultDisplayName`**（摘要首行 / 类型可读串 / 原始文件名）生成。  
+- **`chat-to-log`** 卡片主标题用 **`displayName`**，**`Type: doc_type`** 降为副标；铅笔进入行内 **`TextInput` + Cancel + 确认**，写入 **`updateProjectTodoAttachment.display_name`**；历史消息 id 为 **`{logId}-preview`** 时同步 **`updateChatLogResponseData`**。  
+- 列表/跟进：**`firm.ts`** 附件行映射统一走 **`projectTodoAttachmentRowToSummary`**；**`tax-filing-attachment-followup`** 与 chat 识别写库、**`TaxFilingTodosView`** 重试识别补 **`display_name`**；订单页附件卡主标题改为 **`f.name`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 迁移 **`20260407140000_project_todo_attachments_display_name.sql`**；新建 **`tax-filing-attachment-display-name.ts`**；改 **`firm.ts`**、**`tax-filing-attachment-followup.ts`**、**`chat-to-log.tsx`**、**`TaxFilingTodosView.tsx`**、**`tax-filing/order/[orderId]/index.tsx`**。  
+- **验证**：跑迁移 → Chat 上传税表 → 卡片标题为完整默认名 → 铅笔改名后任务列表与重新进入 Chat 历史一致；详情弹窗标题优先 **`display_name`**。  
+- **说明**：瞬态消息 id **`attach-preview-{attachmentId}`** 无对应 **`ai_chat_logs.id`**，改名仅落库附件；重进会话后 enrich 仍正确。
+
+**关联**  
+- `20260407140000_project_todo_attachments_display_name.sql`、`tax-filing-attachment-display-name.ts`、`firm.ts`、`chat-to-log.tsx`
+
+---
+
+### 2026-04-07（补：Chat 税表附件改名入口图标不可见）
+
+**User（提示词/原意）**  
+- 没有出现编辑名称的入口 icon。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **原因**：标题 **`Text`** 使用 **`flex: 1`** 时在 Web/React Native Web 上易占满行宽，右侧铅笔被挤到 **`minWidth: 0`** 区域外不可见；另 **`voucherType`** 与消息上类型不一致时整块卡片条件不成立。  
+- **修复**：卡片条件改为仅依赖 **`attachmentPreview` 的 tax 形状**（**`id` + `projectId` + `todoId`**）；标题外包 **`attachmentPreviewTitleTextWrap`（flex:1）**；铅笔改为 **`create-outline` + 浅紫底按钮 `attachmentPreviewEditBtn`**。（后续需求已将改名入口从 Chat 迁至 Todos，见下条。）
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/chat-to-log.tsx`
+
+---
+
+### 2026-04-07（附件显示名改名：从 Chat 卡片迁至 Todos 文件行）
+
+**User（提示词/原意）**  
+- 聊天卡片上不宜修改；在 **Todos 列表上展开任务后的文件名称** 增加与 task 名称相同的行内修改交互。
+
+**Assistant（实现前说明，若有）**  
+- 移除 **`chat-to-log.tsx`** 中税表附件卡片的铅笔/行内输入/`persistTaxFilingAttachmentDisplayName` 及相关样式；卡片仅展示标题 + **`Type:`**。  
+- 在 **`TaxFilingTodosView.tsx`** 的 **`TodoTree`** 附件行：Web 且非 catalog 只读时显示改名铅笔；行内 **`TextInput` + 关闭/确认** 对齐 task **`renameInline`**，确认调用 **`updateProjectTodoAttachment({ display_name })`** 后 **`refreshFiles(tree)`**；递归子树透传新 props；task/附件改名互斥（新开一端时清空另一端草稿）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已按上实现。  
+- **验证**：Web 打开税表项目 Todos → 展开任务 → 文件行铅笔 → 改名保存 → 列表与 DB **`display_name`** 一致；Chat 历史卡片仅只读展示名（改名后重进群聊 enrich 仍可对齐）。  
+- **残留**：若在 Todos 改名，已加载的 Chat 本地消息中的 **`attachmentPreview.displayName`** 不会即时变，需依赖重载/重新拉历史。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/chat-to-log.tsx`、`vouchap-app/src/mobile-ui/components/TaxFilingTodosView.tsx`
+
+---
+
+### 2026-04-07（Todos/订单直接上传：不写 chat 历史）
+
+**User（提示词/原意）**  
+- **直接 upload**（非聊天内提交）的文件，**不要出现在聊天记录**里。
+
+**Assistant（实现前说明，若有）**  
+- 直接上传路径在识别成功后调用 **`processTaxFilingAttachmentAfterCreate`**，其内 **`saveTaxFilingAttachmentChatLog`** 会向 **`ai_chat_logs`** 插入与聊天一致的 **`attachmentPreview`**，导致 Tina 历史里出现 Todos/订单上传。  
+- 移除该写入；聊天内税表上传仍由 **`chat-to-log.tsx`** 内 **`saveChatLog`** 负责。删除仅被该链路引用的 **`tax-filing-chat-log.ts`**；**`processTaxFilingAttachmentAfterCreate`** 去掉已无用的 **`orderId`** 参数。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已移除 **`saveTaxFilingAttachmentChatLog`** 调用并删除模块；调用方入参已更新。  
+- **验证**：在 Todos 或订单页任务行上传 → 任务下列表有文件、识别正常 → 打开同项目聊天拉历史 → 无对应 **`attachmentPreview`** 新行；仅在聊天里上传仍有卡片与 **`saveChatLog`**。  
+- **说明**：此前已写入的 **`ai_chat_logs`** 不会自动删除，仅影响新上传。
+
+**关联**  
+- `vouchap-app/src/shared-logic/tax-filing-attachment-followup.ts`、`TaxFilingTodosView.tsx`、`tax-filing/order/[orderId]/index.tsx`（已删 `tax-filing-chat-log.ts`）
+
+---
+
+### 2026-04-07（Todos 附件改名：原位输入框 + 悬停显铅笔）
+
+**User（提示词/原意）**  
+- 修改文件名的输入框要在**阅读状态文件名称的原位**；改名入口 icon 应像 **Todos 任务行**一样**鼠标悬停/触摸热区**出现，而非常显。
+
+**Assistant（实现前说明，若有）**  
+- 原文附件行使用固定宽度 **`fileRenameListInputWidthPx`** 的输入轨，与文件名槽位错位；铅笔始终渲染。  
+- 改为：附件 **`TouchableOpacity`** 上 **`onMouseEnter` / `onMouseLeave`**（与任务标题相同的 **400ms** 延时清除，新建 **`hideFileRowHoverTimeoutRef` + `fileRowHoverKey`**）；仅当 **`fileRowHoverKey`** 匹配 **`todoId + attachmentId`** 时显示 **`create-outline`**，样式对齐任务 **`terminateTaskBtnHotzone`**。行内改名用 **`fileRenameInlineNameRow`**：`TextInput` **`flex:1` + `minWidth:0`** 占据原 **`fileRowName`** 槽位，右侧保留取消/确认。进入任务行内改名时清空附件 hover，避免状态串扰。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改于 **`TaxFilingTodosView.tsx`**（**`TodoTree`** 附件行 + 样式 + 父级 state/callback）；移除 **`fileRenameListInputWidthPx`** 附件改名用法。  
+- **验证**（Web）：展开任务 → 不悬停时无铅笔 → 悬停该行出现铅笔 → 点击后输入框覆盖原文件名区域 → 保存后列表更新。  
+- **限制**：与任务标题一致，**Web** 主要依赖鼠标悬停；纯触摸 Web 端无 hover 时行为与任务行铅笔一致。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/TaxFilingTodosView.tsx`
+
+---
+
+### 2026-04-07（Todos：终止/恢复/提交类操作乐观更新）
+
+**User（提示词/原意）**  
+- Todos 上**终止 task、提交、撤回**等操作要**前端先出结果**，**后端异步写库**，避免点击后延迟像没点上。
+
+**Assistant（实现前说明，若有）**  
+- 原 **`TaxFilingTodosView`** 中 **`onCancelTask` / `onRestoreTask`** 与 **Handoff 浮窗确认** 均 **`await` 写库后再 `refreshTodosPreservingScroll`**，网络慢时 UI 不变。  
+- 抽 **`cloneProjectTodoTree` + `patchProjectTodoInTree`**（**`shared-logic/project-todo-tree-patch.ts`**）。当存在 **`onMergeProjectTodosTree`** 时：先 **`onMergeProjectTodosTree(patch…)`** 乐观改 **`status` / `type`**，再 **fire-and-forget** **`updateProjectTodo` / `changeProjectTodoResponsibleSide`**；失败则用快照 **`onMergeProjectTodosTree(snapshot)`** 回滚并 **`alert`**。无 **`onMergeProjectTodosTree`** 时保持原 **`await` + 全量刷新**（父级未提供本地合并无法乐观）。订单页内嵌 **TodoTree** 同步：**`setTree` 乐观 + 异步写库 + 失败回滚**；成功后仅刷新 **attachments map**（与此前全量拉树相比减轻闪烁）。Handoff：**先关浮窗**再合并树，避免遮罩挡反馈。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已落地于 **`project-todo-tree-patch.ts`**、**`TaxFilingTodosView.tsx`**、**`tax-filing/order/[orderId]/index.tsx`**。  
+- **验证**：有 **`onMergeProjectTodosTree`** 的入口点击终止/恢复/Confirm submit → 列表立即变；断网或故意失败应回滚并弹错。  
+- **残留**：成功路径依赖 **Realtime / 他端** 时仍可能二次刷新；无 merge 回调的挂载点仍为阻塞刷新。
+
+**关联**  
+- `vouchap-app/src/shared-logic/project-todo-tree-patch.ts`、`TaxFilingTodosView.tsx`、`tax-filing/order/[orderId]/index.tsx`
+
+---

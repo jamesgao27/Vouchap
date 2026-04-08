@@ -6,18 +6,17 @@ import {
 import { classificationLabelsForTaxFilingPrompt } from './tax-filing-project-classification-labels';
 import { runTaxFilingRecognition } from './tax-filing-recognition-run';
 import { runWithRecognitionRetry, getUserFacingMessage } from './recognition-retry';
-import { saveTaxFilingAttachmentChatLog } from './tax-filing-chat-log';
+import { buildTaxFilingAttachmentDefaultDisplayName } from './tax-filing-attachment-display-name';
 
 export type TaxFilingAttachmentFollowupResult =
   | { ok: true }
   | { ok: false; alertMessage: string };
 
 /**
- * After createProjectTodoAttachment from Todos / order screens: recognition, DB update, and ai_chat_logs
- * so chat-to-log shows the same submissions as the task list.
+ * After createProjectTodoAttachment from Todos / order screens: recognition and DB update only.
+ * Chat history is written only when the user submits from chat-to-log (see saveChatLog there).
  */
 export async function processTaxFilingAttachmentAfterCreate(params: {
-  orderId: string;
   attachmentId: string;
   todoId: string;
   fileName: string;
@@ -65,28 +64,22 @@ export async function processTaxFilingAttachmentAfterCreate(params: {
   }
 
   const recognition = recognitionResult.result as Awaited<ReturnType<typeof runTaxFilingRecognition>>;
+  const displayName = buildTaxFilingAttachmentDefaultDisplayName({
+    summary: recognition.summary,
+    docType: recognition.doc_type,
+    sourceFileName: params.fileName,
+  });
   const upd = await updateProjectTodoAttachment(params.attachmentId, {
     summary: recognition.summary,
     doc_type: recognition.doc_type,
     extracted_data: recognition.extracted_data,
     status: 'PROCESSED',
     recognition_fail_count: 0,
+    display_name: displayName,
   });
   if ('error' in upd) {
     return { ok: false, alertMessage: upd.error.message ?? 'Could not update attachment.' };
   }
-
-  await saveTaxFilingAttachmentChatLog({
-    orderId: params.orderId,
-    attachmentId: params.attachmentId,
-    todoId: params.todoId,
-    fileUrl: attachment.attachment_url,
-    fileName: params.fileName,
-    isImage: params.isImage,
-    summary: recognition.summary ?? null,
-    docType: recognition.doc_type ?? null,
-    extracted_data: recognition.extracted_data ?? null,
-  });
 
   return { ok: true };
 }

@@ -57,6 +57,7 @@ import {
   renumberTodoTreeSortOrders,
   type TodoDropPosition,
 } from '@/lib/firm';
+import { cloneProjectTodoTree, patchProjectTodoInTree } from '@/lib/project-todo-tree-patch';
 import { getLatestTaxFilingAttachmentPreviewByAttachmentId } from '../../shared-logic/chat-logs';
 import {
   TODO_STATUS_COLOR,
@@ -73,6 +74,7 @@ import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition
 import { processTaxFilingAttachmentAfterCreate } from '@/lib/tax-filing-attachment-followup';
 import { taxFilingTodoUploadIsImageKind } from '@/lib/tax-filing-todo-upload-helpers';
 import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
+import { buildTaxFilingAttachmentDefaultDisplayName } from '@/lib/tax-filing-attachment-display-name';
 
 // ──────────────────────────────────────────────────
 // 常量 & 工具函数
@@ -808,6 +810,15 @@ function TodoTree({
   renameInlineSaving = false,
   onStartRenameInline,
   renameInlineListInputWidthPx = 96,
+  fileRenameInline = null,
+  onFileRenameTitleChange,
+  onCancelFileRename,
+  onConfirmFileRename,
+  fileRenameSaving = false,
+  onStartFileRename,
+  fileRowHoverKey = null,
+  onFileRowHoverIn,
+  onFileRowHoverOut,
 }: {
   nodes: ProjectTodoNode[];
   depth: number;
@@ -886,6 +897,17 @@ function TodoTree({
   onStartRenameInline?: (nodeId: string, currentTitle: string) => void;
   /** Web：由整棵树最长标题算出的统一输入框宽度（px） */
   renameInlineListInputWidthPx?: number;
+  /** Web：task 下附件行内重命名（与 renameInline 同交互） */
+  fileRenameInline?: { attachmentId: string; todoId: string; title: string } | null;
+  onFileRenameTitleChange?: (text: string) => void;
+  onCancelFileRename?: () => void;
+  onConfirmFileRename?: () => void | Promise<void>;
+  fileRenameSaving?: boolean;
+  onStartFileRename?: (attachmentId: string, todoId: string, currentTitle: string) => void;
+  /** Web：与任务行一致，悬停附件行时显示改名铅笔 */
+  fileRowHoverKey?: string | null;
+  onFileRowHoverIn?: (todoId: string, attachmentId: string) => void;
+  onFileRowHoverOut?: (todoId: string, attachmentId: string) => void;
 }) {
   const dragCtx = useContext(TodoDragContext);
   const isWeb = Platform.OS === 'web';
@@ -2106,6 +2128,15 @@ function TodoTree({
                 renameInlineSaving={renameInlineSaving}
                 onStartRenameInline={onStartRenameInline}
                 renameInlineListInputWidthPx={renameInlineListInputWidthPx}
+                fileRenameInline={fileRenameInline}
+                onFileRenameTitleChange={onFileRenameTitleChange}
+                onCancelFileRename={onCancelFileRename}
+                onConfirmFileRename={onConfirmFileRename}
+                fileRenameSaving={fileRenameSaving}
+                onStartFileRename={onStartFileRename}
+                fileRowHoverKey={fileRowHoverKey}
+                onFileRowHoverIn={onFileRowHoverIn}
+                onFileRowHoverOut={onFileRowHoverOut}
               />
             )}
             {pendingParentId === node.id && onConfirmAddChild && onCancelAddChild && (
@@ -2143,19 +2174,85 @@ function TodoTree({
                       {(files as ProjectTodoReceiptSummary[]).map((f, fileIdx) => {
                         const fileRowBg = fileIdx % 2 === 0 ? TREE_ROW_BG_EVEN : TREE_ROW_BG_ODD;
                         const status = f.status ?? 'PENDING_AI';
-                        const isProcessing = status === 'PENDING_AI' || status === 'PROCESSING';
                         const canShowRetryIcon = status === 'FAILED_ONCE' || status === 'FAILED_TWICE';
-                        const displayName =
-                          f.docType ??
-                          (status === 'FAILED_ONCE'
-                            ? 'Recognition failed (1/3)'
-                            : status === 'FAILED_TWICE'
-                            ? 'Recognition failed (2/3)'
-                            : status === 'FAILED_FINAL'
-                            ? 'Recognition failed (3/3)'
-                            : isProcessing
-                            ? 'Processing…'
-                            : 'Attachment');
+                        const displayName = f.name?.trim() || f.docType || 'Attachment';
+                        const fileRowHoverMatchKey = `${node.id}\u001f${f.id}`;
+                        const activeFileRename =
+                          isWeb &&
+                          fileRenameInline != null &&
+                          fileRenameInline.attachmentId === f.id &&
+                          fileRenameInline.todoId === node.id;
+                        const showFileRenamePencil =
+                          isWeb &&
+                          !hideDepsEditor &&
+                          typeof onStartFileRename === 'function' &&
+                          !activeFileRename &&
+                          fileRowHoverKey === fileRowHoverMatchKey;
+                        const fileRowWebHoverHandlers =
+                          isWeb &&
+                          !hideDepsEditor &&
+                          onStartFileRename &&
+                          onFileRowHoverIn &&
+                          onFileRowHoverOut &&
+                          !activeFileRename
+                            ? ({
+                                onMouseEnter: () => onFileRowHoverIn(node.id, f.id),
+                                onMouseLeave: () => onFileRowHoverOut(node.id, f.id),
+                              } as object)
+                            : null;
+                        const fileRenameTrailJsx =
+                          activeFileRename && onFileRenameTitleChange && fileRenameInline ? (
+                            <View style={ts.fileRenameInlineNameRow}>
+                              <TextInput
+                                style={ts.fileRenameNameInput}
+                                value={fileRenameInline.title}
+                                onChangeText={(t) => onFileRenameTitleChange(t)}
+                                placeholder="File name"
+                                placeholderTextColor="#95A5A6"
+                                returnKeyType="done"
+                                editable={!fileRenameSaving}
+                                onSubmitEditing={() => {
+                                  void onConfirmFileRename?.();
+                                }}
+                                blurOnSubmit
+                                autoFocus
+                              />
+                              <View style={ts.renameInlineActions}>
+                                <Pressable
+                                  style={ts.cancelAddBtn}
+                                  onPress={onCancelFileRename}
+                                  hitSlop={8}
+                                  disabled={fileRenameSaving}
+                                  {...(isWeb
+                                    ? ({
+                                        onMouseDown: (e: { preventDefault?: () => void }) => e.preventDefault?.(),
+                                      } as object)
+                                    : {})}
+                                >
+                                  <Ionicons name="close-outline" size={16} color="#95A5A6" />
+                                </Pressable>
+                                <Pressable
+                                  style={ts.confirmAddBtn}
+                                  onPress={() => {
+                                    void onConfirmFileRename?.();
+                                  }}
+                                  hitSlop={8}
+                                  disabled={fileRenameSaving}
+                                  {...(isWeb
+                                    ? ({
+                                        onMouseDown: (e: { preventDefault?: () => void }) => e.preventDefault?.(),
+                                      } as object)
+                                    : {})}
+                                >
+                                  {fileRenameSaving ? (
+                                    <ActivityIndicator size="small" color="#6C5CE7" />
+                                  ) : (
+                                    <Ionicons name="checkmark-outline" size={16} color="#6C5CE7" />
+                                  )}
+                                </Pressable>
+                              </View>
+                            </View>
+                          ) : null;
                         return (
                           <TouchableOpacity
                             key={f.id}
@@ -2165,27 +2262,55 @@ function TodoTree({
                               { backgroundColor: fileRowBg },
                               fileIdx === (files as ProjectTodoReceiptSummary[]).length - 1 && ts.fileRowLast,
                             ]}
-                            onPress={() => onFileRowPress?.(f.id, node.id)}
+                            {...(fileRowWebHoverHandlers ?? {})}
+                            onPress={() => {
+                              if (!activeFileRename) onFileRowPress?.(f.id, node.id);
+                            }}
+                            disabled={!!activeFileRename}
                             activeOpacity={0.8}
                           >
                             <View style={ts.fileColIcon}>
                               <Ionicons name={getFileFormatIcon(f.imageUrl ?? null, f.docType)} size={isWeb ? 18 : 16} color="#6C5CE7" />
                             </View>
                             <View style={ts.fileColNameDesc}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                                <Text style={ts.fileRowName} numberOfLines={1}>{displayName}</Text>
-                                {isWeb && !hideDepsEditor && canShowRetryIcon && (
-                                  <Pressable
-                                    style={ts.restoreTaskBtnHotzone}
-                                    onPress={() => onRetryRecognizeFile?.(f.id)}
-                                    hitSlop={8}
-                                  >
-                                    <View style={ts.restoreTaskBtnIcon}>
-                                      <Ionicons name="refresh-circle-outline" size={14} color="#7DCEA0" />
-                                    </View>
-                                  </Pressable>
-                                )}
-                              </View>
+                              {fileRenameTrailJsx ? (
+                                fileRenameTrailJsx
+                              ) : (
+                                <View
+                                  style={{
+                                    flexDirection: 'row',
+                                    alignItems: 'center',
+                                    gap: 4,
+                                    flex: 1,
+                                    minWidth: 0,
+                                  }}
+                                >
+                                  <Text style={ts.fileRowName} numberOfLines={1}>
+                                    {displayName}
+                                  </Text>
+                                  {isWeb && !hideDepsEditor && canShowRetryIcon && (
+                                    <Pressable
+                                      style={ts.restoreTaskBtnHotzone}
+                                      onPress={() => onRetryRecognizeFile?.(f.id)}
+                                      hitSlop={8}
+                                    >
+                                      <View style={ts.restoreTaskBtnIcon}>
+                                        <Ionicons name="refresh-circle-outline" size={14} color="#7DCEA0" />
+                                      </View>
+                                    </Pressable>
+                                  )}
+                                  {showFileRenamePencil ? (
+                                    <Pressable
+                                      style={ts.terminateTaskBtnHotzone}
+                                      onPress={() => onStartFileRename!(f.id, node.id, displayName)}
+                                      hitSlop={6}
+                                      accessibilityLabel="Rename attachment"
+                                    >
+                                      <Ionicons name="create-outline" size={14} color="#6C5CE7" />
+                                    </Pressable>
+                                  ) : null}
+                                </View>
+                              )}
                             </View>
                             {isWeb && (
                               <View style={ts.fileRowMeta}>
@@ -2203,6 +2328,7 @@ function TodoTree({
                                   style={ts.fileRowActionBtn}
                                   onPress={() => onRemoveFile?.(node.id, f.id)}
                                   hitSlop={8}
+                                  disabled={!!activeFileRename}
                                 >
                                   <Ionicons name="trash-outline" size={18} color="#E74C3C" />
                                 </TouchableOpacity>
@@ -2210,6 +2336,7 @@ function TodoTree({
                                   style={ts.fileRowActionBtn}
                                   onPress={() => onRequestMoveFile?.(f.id, node.id)}
                                   hitSlop={8}
+                                  disabled={!!activeFileRename}
                                 >
                                   {/* 使用更直观的“移动/重新关联”图标 */}
                                   <Ionicons name="swap-horizontal-outline" size={18} color="#6C5CE7" />
@@ -2342,10 +2469,19 @@ export function TaxFilingTodosView({
   // zone2：文件计数列 hover/触摸时显示 Upload 按钮
   const [rowFileColHoverId, setRowFileColHoverId] = useState<string | null>(null);
   const hideFileColTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Web：附件行悬停显示改名铅笔（与任务行 rowIdShowingAdd 同款延时） */
+  const hideFileRowHoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [fileRowHoverKey, setFileRowHoverKey] = useState<string | null>(null);
   // zone3：状态标签点击后，状态 pill 变为动词按钮
   const [rowIdShowingStatusVerb, setRowIdShowingStatusVerb] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState<{ id: string; title: string } | null>(null);
   const [renameSaving, setRenameSaving] = useState(false);
+  const [fileRenameDraft, setFileRenameDraft] = useState<{
+    attachmentId: string;
+    todoId: string;
+    title: string;
+  } | null>(null);
+  const [fileRenameSaving, setFileRenameSaving] = useState(false);
   const [depsPanelNodeId, setDepsPanelNodeId] = useState<string | null>(null);
   /** 前置多选浮窗内勾选的前置 ID 列表（None 外可多选；持久化仍用首项） */
   const [depsPickerSelectedIds, setDepsPickerSelectedIds] = useState<string[]>([]);
@@ -2971,12 +3107,18 @@ export function TaxFilingTodosView({
             projectContext,
             todoContext,
           );
+          const displayName = buildTaxFilingAttachmentDefaultDisplayName({
+            summary: recognition.summary,
+            docType: recognition.doc_type,
+            sourceFileName: latest?.source_file_name ?? null,
+          });
           const result = await updateProjectTodoAttachment(attachmentId, {
             summary: recognition.summary,
             doc_type: recognition.doc_type,
             extracted_data: recognition.extracted_data,
             status: 'PROCESSED',
             recognition_fail_count: 0,
+            display_name: displayName,
           });
           if ('error' in result) {
             const msg = result.error.message ?? 'Could not update attachment.';
@@ -3187,25 +3329,62 @@ export function TaxFilingTodosView({
     [handleConfirmDeletePhase]
   );
 
-  const onCancelTask = useCallback(async (todoId: string) => {
-    const { error: err } = await updateProjectTodo(todoId, { status: 'canceled' });
-    if (err) {
-      if (Platform.OS === 'web') window.alert('Cancel failed: ' + (err.message ?? ''));
-      else Alert.alert('Cancel failed', err.message ?? '');
-      return;
-    }
-    await refreshTodosPreservingScroll();
-  }, [refreshTodosPreservingScroll]);
+  const onCancelTask = useCallback(
+    (todoId: string) => {
+      if (!onMergeProjectTodosTree) {
+        void (async () => {
+          const { error: err } = await updateProjectTodo(todoId, { status: 'canceled' });
+          if (err) {
+            if (Platform.OS === 'web') window.alert('Cancel failed: ' + (err.message ?? ''));
+            else Alert.alert('Cancel failed', err.message ?? '');
+            return;
+          }
+          await refreshTodosPreservingScroll();
+        })();
+        return;
+      }
+      const snapshot = cloneProjectTodoTree(tree);
+      onMergeProjectTodosTree(patchProjectTodoInTree(tree, todoId, { status: 'canceled' }));
+      void (async () => {
+        const { error: err } = await updateProjectTodo(todoId, { status: 'canceled' });
+        if (err) {
+          onMergeProjectTodosTree(snapshot);
+          if (Platform.OS === 'web') window.alert('Cancel failed: ' + (err.message ?? ''));
+          else Alert.alert('Cancel failed', err.message ?? '');
+        }
+      })();
+    },
+    [tree, onMergeProjectTodosTree, refreshTodosPreservingScroll],
+  );
 
-  const onRestoreTask = useCallback(async (todoId: string, initialResponsibleSide: 'client' | 'firm') => {
-    const { error: err } = await updateProjectTodo(todoId, { status: 'to_submit', type: initialResponsibleSide });
-    if (err) {
-      if (Platform.OS === 'web') window.alert('Restore failed: ' + (err.message ?? ''));
-      else Alert.alert('Restore failed', err.message ?? '');
-      return;
-    }
-    await refreshTodosPreservingScroll();
-  }, [refreshTodosPreservingScroll]);
+  const onRestoreTask = useCallback(
+    (todoId: string, initialResponsibleSide: 'client' | 'firm') => {
+      const patch = { status: 'to_submit' as const, type: initialResponsibleSide };
+      if (!onMergeProjectTodosTree) {
+        void (async () => {
+          const { error: err } = await updateProjectTodo(todoId, patch);
+          if (err) {
+            if (Platform.OS === 'web') window.alert('Restore failed: ' + (err.message ?? ''));
+            else Alert.alert('Restore failed', err.message ?? '');
+            return;
+          }
+          await refreshTodosPreservingScroll();
+        })();
+        return;
+      }
+      const snapshot = cloneProjectTodoTree(tree);
+      onMergeProjectTodosTree(patchProjectTodoInTree(tree, todoId, patch));
+      void (async () => {
+        const { error: err } = await updateProjectTodo(todoId, patch);
+        if (err) {
+          onMergeProjectTodosTree(snapshot);
+          if (Platform.OS === 'web') window.alert('Restore failed: ' + (err.message ?? ''));
+          else Alert.alert('Restore failed', err.message ?? '');
+        }
+      })();
+    },
+    [tree, onMergeProjectTodosTree, refreshTodosPreservingScroll],
+  );
 
   /** 单任务责任人流转：按附图改责任方 + 状态；先弹浮窗收集可选 note */
   const onHandoffTask = useCallback(
@@ -3246,6 +3425,7 @@ export function TaxFilingTodosView({
         const createResult = await createProjectTodoAttachment(todoId, fileUrl, {
           status: 'PENDING_AI',
           uploader_name: uploaderName,
+          source_file_name: displayName,
         });
         if ('error' in createResult) {
           const errMsg =
@@ -3260,7 +3440,6 @@ export function TaxFilingTodosView({
         const attachmentId = createResult.id;
 
         const follow = await processTaxFilingAttachmentAfterCreate({
-          orderId,
           attachmentId,
           todoId,
           fileName: displayName,
@@ -3280,7 +3459,7 @@ export function TaxFilingTodosView({
         else Alert.alert('Upload failed', msg);
       }
     },
-    [clientSpaceId, refreshTodosPreservingScroll, orderId]
+    [clientSpaceId, refreshTodosPreservingScroll]
   );
 
   const onRemoveFile = useCallback(async (todoId: string, attachmentId: string) => {
@@ -3331,7 +3510,13 @@ export function TaxFilingTodosView({
       clearTimeout(hideAddTimeoutRef.current);
       hideAddTimeoutRef.current = null;
     }
+    if (hideFileRowHoverTimeoutRef.current) {
+      clearTimeout(hideFileRowHoverTimeoutRef.current);
+      hideFileRowHoverTimeoutRef.current = null;
+    }
+    setFileRowHoverKey(null);
     setRowIdShowingAdd(null);
+    setFileRenameDraft(null);
     setRenameDraft({ id, title });
   }, []);
 
@@ -3362,6 +3547,65 @@ export function TaxFilingTodosView({
     await refreshTodosPreservingScroll();
   }, [renameDraft, onPersistTodoTitle, refreshTodosPreservingScroll]);
 
+  const fileRowHoverKeyFor = useCallback((todoId: string, attachmentId: string) => `${todoId}\u001f${attachmentId}`, []);
+
+  const handleFileRowHoverIn = useCallback((todoId: string, attachmentId: string) => {
+    if (hideFileRowHoverTimeoutRef.current) {
+      clearTimeout(hideFileRowHoverTimeoutRef.current);
+      hideFileRowHoverTimeoutRef.current = null;
+    }
+    setFileRowHoverKey(fileRowHoverKeyFor(todoId, attachmentId));
+  }, [fileRowHoverKeyFor]);
+
+  const handleFileRowHoverOut = useCallback(
+    (todoId: string, attachmentId: string) => {
+      const key = fileRowHoverKeyFor(todoId, attachmentId);
+      hideFileRowHoverTimeoutRef.current = setTimeout(() => {
+        setFileRowHoverKey((k) => (k === key ? null : k));
+        hideFileRowHoverTimeoutRef.current = null;
+      }, 400);
+    },
+    [fileRowHoverKeyFor],
+  );
+
+  const handleStartFileRename = useCallback((attachmentId: string, todoId: string, currentTitle: string) => {
+    if (hideFileRowHoverTimeoutRef.current) {
+      clearTimeout(hideFileRowHoverTimeoutRef.current);
+      hideFileRowHoverTimeoutRef.current = null;
+    }
+    setRenameDraft(null);
+    setFileRenameDraft({ attachmentId, todoId, title: currentTitle });
+  }, []);
+
+  const handleFileRenameTitleChange = useCallback((text: string) => {
+    setFileRenameDraft((prev) => (prev ? { ...prev, title: text } : prev));
+  }, []);
+
+  const handleCancelFileRename = useCallback(() => {
+    if (fileRenameSaving) return;
+    setFileRenameDraft(null);
+  }, [fileRenameSaving]);
+
+  const handleConfirmFileRename = useCallback(async () => {
+    if (!fileRenameDraft) return;
+    const t = fileRenameDraft.title.trim();
+    if (!t) {
+      if (Platform.OS === 'web') window.alert('Name cannot be empty.');
+      else Alert.alert('Invalid name', 'Name cannot be empty.');
+      return;
+    }
+    setFileRenameSaving(true);
+    const res = await updateProjectTodoAttachment(fileRenameDraft.attachmentId, { display_name: t });
+    setFileRenameSaving(false);
+    if ('error' in res) {
+      if (Platform.OS === 'web') window.alert(res.error.message ?? 'Could not save.');
+      else Alert.alert('Save failed', res.error.message ?? '');
+      return;
+    }
+    setFileRenameDraft(null);
+    await refreshFiles(tree);
+  }, [fileRenameDraft, tree, refreshFiles]);
+
   if (tree.length === 0) {
     return (
       <View style={ts.root}>
@@ -3391,7 +3635,7 @@ export function TaxFilingTodosView({
               key={phaseNode.id}
               style={[
                 ts.phaseBlock,
-                Platform.OS === 'web' && renameDraft ? ts.phaseBlockWhileRenaming : null,
+                Platform.OS === 'web' && (renameDraft || fileRenameDraft) ? ts.phaseBlockWhileRenaming : null,
               ]}
             >
               <TodoTree
@@ -3461,6 +3705,17 @@ export function TaxFilingTodosView({
                   Platform.OS === 'web' && onPersistTodoTitle ? handleStartRenameInline : undefined
                 }
                 renameInlineListInputWidthPx={renameInlineListInputWidthPx}
+                fileRenameInline={Platform.OS === 'web' && !catalogPreviewReadOnly ? fileRenameDraft : null}
+                onFileRenameTitleChange={
+                  Platform.OS === 'web' && !catalogPreviewReadOnly ? handleFileRenameTitleChange : undefined
+                }
+                onCancelFileRename={Platform.OS === 'web' && !catalogPreviewReadOnly ? handleCancelFileRename : undefined}
+                onConfirmFileRename={Platform.OS === 'web' && !catalogPreviewReadOnly ? handleConfirmFileRename : undefined}
+                fileRenameSaving={fileRenameSaving}
+                onStartFileRename={Platform.OS === 'web' && !catalogPreviewReadOnly ? handleStartFileRename : undefined}
+                fileRowHoverKey={Platform.OS === 'web' && !catalogPreviewReadOnly ? fileRowHoverKey : null}
+                onFileRowHoverIn={Platform.OS === 'web' && !catalogPreviewReadOnly ? handleFileRowHoverIn : undefined}
+                onFileRowHoverOut={Platform.OS === 'web' && !catalogPreviewReadOnly ? handleFileRowHoverOut : undefined}
               />
             </View>
           ))}
@@ -3962,22 +4217,48 @@ export function TaxFilingTodosView({
               </TouchableOpacity>
               <TouchableOpacity
                 style={ts.handoffPrimaryBtn}
-                onPress={async () => {
+                onPress={() => {
                   if (!handoffDraft) return;
-                  const { error } = await changeProjectTodoResponsibleSide({
-                    todoId: handoffDraft.todoId,
-                    fromSide: handoffDraft.fromSide,
-                    toSide: handoffDraft.toSide,
-                    note: handoffDraft.note,
-                    newStatus: handoffDraft.newStatus,
-                  });
-                  if (error) {
-                    if (Platform.OS === 'web') window.alert(error.message ?? 'Update failed');
-                    else Alert.alert('Update failed', error.message ?? '');
+                  const draft = handoffDraft;
+                  setHandoffDraft(null);
+
+                  const patch: Partial<Pick<ProjectTodoNode, 'status' | 'type'>> = {};
+                  if (draft.fromSide !== draft.toSide) patch.type = draft.toSide;
+                  if (draft.newStatus != null) patch.status = draft.newStatus;
+                  const runApi = () =>
+                    changeProjectTodoResponsibleSide({
+                      todoId: draft.todoId,
+                      fromSide: draft.fromSide,
+                      toSide: draft.toSide,
+                      note: draft.note,
+                      newStatus: draft.newStatus,
+                    });
+
+                  const canOptimistic =
+                    onMergeProjectTodosTree && (patch.type !== undefined || patch.status !== undefined);
+                  if (canOptimistic) {
+                    const snapshot = cloneProjectTodoTree(tree);
+                    onMergeProjectTodosTree(patchProjectTodoInTree(tree, draft.todoId, patch));
+                    void (async () => {
+                      const { error } = await runApi();
+                      if (error) {
+                        onMergeProjectTodosTree(snapshot);
+                        if (Platform.OS === 'web') window.alert(error.message ?? 'Update failed');
+                        else Alert.alert('Update failed', error.message ?? '');
+                      }
+                    })();
                     return;
                   }
-                  setHandoffDraft(null);
-                  await refreshTodosPreservingScroll();
+
+                  void (async () => {
+                    const { error } = await runApi();
+                    if (error) {
+                      if (Platform.OS === 'web') window.alert(error.message ?? 'Update failed');
+                      else Alert.alert('Update failed', error.message ?? '');
+                      return;
+                    }
+                    await refreshTodosPreservingScroll();
+                  })();
                 }}
               >
                 <Text style={ts.handoffPrimaryText}>Confirm submit</Text>
@@ -4160,6 +4441,35 @@ const ts = StyleSheet.create({
     gap: 8,
     ...(Platform.OS === 'web' ? ({ overflow: 'visible' } as object) : {}),
   },
+  /** 附件行内改名：输入框占据原文件名的 flex 槽位 */
+  fileRenameInlineNameRow: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  fileRenameNameInput: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#636E72',
+    paddingVertical: 2,
+    paddingHorizontal: 6,
+    minHeight: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+    borderRadius: 4,
+    backgroundColor: '#FFFFFF',
+    ...(Platform.OS === 'web'
+      ? ({
+          outlineStyle: 'none',
+          outlineWidth: 0,
+          boxSizing: 'border-box',
+        } as object)
+      : {}),
+  } as any,
   /** 取消/确认：在输入框右缘外侧；整行左块在重命名时会 zIndex 抬高，避免 Web 点穿到右列 */
   renameInlineActions: {
     flexDirection: 'row',

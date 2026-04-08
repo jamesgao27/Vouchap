@@ -4,6 +4,7 @@
  * 客户展示状态见 docs/CRM-CLIENT-STATUS.md；订单/SKU/项目见 docs/CRM-ORDERS-SKU-PROJECTS.md。
  */
 import { supabase } from './supabase';
+import { buildTaxFilingAttachmentDefaultDisplayName } from './tax-filing-attachment-display-name';
 import { isSpreadsheetAttachmentUrl, summarySuggestsSpreadsheet } from './spreadsheet-preview-pdf';
 import { isWordAttachmentUrl, summarySuggestsWord } from './word-preview-pdf';
 
@@ -2337,6 +2338,43 @@ export interface ProjectTodoReceiptSummary {
   uploaderName?: string | null;
 }
 
+/** Map DB row → task file list item (shared by single-todo and batch attachment queries). */
+function projectTodoAttachmentRowToSummary(r: Record<string, unknown>): ProjectTodoReceiptSummary {
+  const status: string = (r.status as string) ?? 'PENDING_AI';
+  const failCount: number = typeof r.recognition_fail_count === 'number' ? r.recognition_fail_count : 0;
+  const sourceFile = r.source_file_name != null ? String(r.source_file_name).trim() : '';
+  const display = r.display_name != null ? String(r.display_name).trim() : '';
+  let name: string;
+  if (status === 'PENDING_AI' || status === 'PROCESSING') {
+    name = display || sourceFile || 'Processing...';
+  } else if (status === 'FAILED_ONCE') {
+    name = display || sourceFile || 'Recognition failed (1/3)';
+  } else if (status === 'FAILED_TWICE') {
+    name = display || sourceFile || 'Recognition failed (2/3)';
+  } else if (status === 'FAILED_FINAL') {
+    name = display || sourceFile || 'Recognition failed (3/3)';
+  } else if (display) {
+    name = display;
+  } else {
+    name = buildTaxFilingAttachmentDefaultDisplayName({
+      summary: r.summary != null ? String(r.summary) : null,
+      docType: r.doc_type != null ? String(r.doc_type) : null,
+      sourceFileName: sourceFile || null,
+    });
+  }
+  return {
+    id: String(r.id),
+    name,
+    imageUrl: r.attachment_url != null ? String(r.attachment_url) : null,
+    docType: r.doc_type != null ? String(r.doc_type) : null,
+    status,
+    failCount,
+    extractedPreview: buildExtractedPreview(r.extracted_data),
+    createdAt: r.created_at != null ? String(r.created_at) : null,
+    uploaderName: r.uploader_name != null ? String(r.uploader_name) : null,
+  };
+}
+
 export function buildExtractedPreview(extracted_data: unknown): AttachmentPreviewField[] {
   if (!extracted_data || typeof extracted_data !== 'object') return [];
   const obj = extracted_data as Record<string, unknown>;
@@ -2371,39 +2409,13 @@ export function buildExtractedPreview(extracted_data: unknown): AttachmentPrevie
 export async function getAttachmentsByProjectTodoId(projectTodoId: string): Promise<ProjectTodoReceiptSummary[]> {
   const { data: rows, error } = await supabase
     .from('project_todo_attachments')
-    .select('id, attachment_url, summary, status, doc_type, extracted_data, created_at, uploader_name, recognition_fail_count')
+    .select(
+      'id, attachment_url, summary, status, doc_type, extracted_data, created_at, uploader_name, recognition_fail_count, source_file_name, display_name',
+    )
     .eq('project_todo_id', projectTodoId)
     .order('created_at', { ascending: true });
   if (error || !rows?.length) return [];
-  return (rows as any[]).map((r) => {
-    const status: string = r.status ?? 'PENDING_AI';
-    const failCount: number = typeof r.recognition_fail_count === 'number' ? r.recognition_fail_count : 0;
-    let name: string;
-    if (r.summary && String(r.summary).trim()) {
-      name = String(r.summary).trim();
-    } else if (status === 'PENDING_AI' || status === 'PROCESSING') {
-      name = 'Processing...';
-    } else if (status === 'FAILED_ONCE') {
-      name = 'Recognition failed (1/3)';
-    } else if (status === 'FAILED_TWICE') {
-      name = 'Recognition failed (2/3)';
-    } else if (status === 'FAILED_FINAL') {
-      name = 'Recognition failed (3/3)';
-    } else {
-      name = 'Attachment';
-    }
-    return {
-      id: r.id,
-      name,
-      imageUrl: r.attachment_url ?? null,
-      docType: r.doc_type ?? null,
-      status,
-      failCount,
-      extractedPreview: buildExtractedPreview(r.extracted_data),
-      createdAt: r.created_at ?? null,
-      uploaderName: r.uploader_name ?? null,
-    };
-  });
+  return (rows as any[]).map((r) => projectTodoAttachmentRowToSummary(r as Record<string, unknown>));
 }
 
 /** 批量获取多个 project_todo 关联的附件（key = todoId） */
@@ -2413,42 +2425,20 @@ export async function getAttachmentsByProjectTodoIds(
   if (projectTodoIds.length === 0) return {};
   const { data: rows, error } = await supabase
     .from('project_todo_attachments')
-    .select('id, project_todo_id, attachment_url, summary, status, doc_type, extracted_data, created_at, uploader_name, recognition_fail_count')
+    .select(
+      'id, project_todo_id, attachment_url, summary, status, doc_type, extracted_data, created_at, uploader_name, recognition_fail_count, source_file_name, display_name',
+    )
     .in('project_todo_id', projectTodoIds)
     .order('created_at', { ascending: true });
   if (error || !rows?.length) return {};
   const out: Record<string, ProjectTodoReceiptSummary[]> = {};
-  projectTodoIds.forEach((id) => { out[id] = []; });
+  projectTodoIds.forEach((id) => {
+    out[id] = [];
+  });
   (rows as any[]).forEach((r) => {
     const todoId = r.project_todo_id;
     if (!out[todoId]) out[todoId] = [];
-    const status: string = r.status ?? 'PENDING_AI';
-    const failCount: number = typeof r.recognition_fail_count === 'number' ? r.recognition_fail_count : 0;
-    let name: string;
-    if (r.summary && String(r.summary).trim()) {
-      name = String(r.summary).trim();
-    } else if (status === 'PENDING_AI' || status === 'PROCESSING') {
-      name = 'Processing...';
-    } else if (status === 'FAILED_ONCE') {
-      name = 'Recognition failed (1/3)';
-    } else if (status === 'FAILED_TWICE') {
-      name = 'Recognition failed (2/3)';
-    } else if (status === 'FAILED_FINAL') {
-      name = 'Recognition failed (3/3)';
-    } else {
-      name = 'Attachment';
-    }
-    out[todoId].push({
-      id: r.id,
-      name,
-      imageUrl: r.attachment_url ?? null,
-      docType: r.doc_type ?? null,
-      status,
-      failCount,
-      extractedPreview: buildExtractedPreview(r.extracted_data),
-      createdAt: r.created_at ?? null,
-      uploaderName: r.uploader_name ?? null,
-    });
+    out[todoId].push(projectTodoAttachmentRowToSummary(r as Record<string, unknown>));
   });
   return out;
 }
@@ -2466,8 +2456,16 @@ export type ProjectTodoAttachmentStatus =
 export async function createProjectTodoAttachment(
   projectTodoId: string,
   attachmentUrl: string,
-  opts?: { status?: ProjectTodoAttachmentStatus; summary?: string; doc_type?: string; uploader_name?: string | null }
+  opts?: {
+    status?: ProjectTodoAttachmentStatus;
+    summary?: string;
+    doc_type?: string;
+    uploader_name?: string | null;
+    source_file_name?: string | null;
+    display_name?: string | null;
+  }
 ): Promise<{ id: string } | { error: Error }> {
+  const initialDisplay = opts?.display_name?.trim() || opts?.source_file_name?.trim() || null;
   const { data, error } = await supabase
     .from('project_todo_attachments')
     .insert({
@@ -2477,6 +2475,8 @@ export async function createProjectTodoAttachment(
       summary: opts?.summary ?? null,
       doc_type: opts?.doc_type ?? null,
       uploader_name: opts?.uploader_name ?? null,
+      source_file_name: opts?.source_file_name?.trim() ?? null,
+      display_name: initialDisplay,
     })
     .select('id')
     .single();
@@ -2495,6 +2495,7 @@ export async function updateProjectTodoAttachment(
     status?: ProjectTodoAttachmentStatus;
     project_todo_id?: string;
     recognition_fail_count?: number;
+    display_name?: string | null;
   }
 ): Promise<{ ok: true } | { error: Error }> {
   const payload: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -2504,6 +2505,7 @@ export async function updateProjectTodoAttachment(
   if (updates.status !== undefined) payload.status = updates.status;
   if (updates.project_todo_id !== undefined) payload.project_todo_id = updates.project_todo_id;
   if (updates.recognition_fail_count !== undefined) payload.recognition_fail_count = updates.recognition_fail_count;
+  if (updates.display_name !== undefined) payload.display_name = updates.display_name;
   const { error } = await supabase
     .from('project_todo_attachments')
     .update(payload)
@@ -2538,10 +2540,14 @@ export async function getProjectTodoAttachmentById(
   status: string;
   extracted_data: unknown;
   recognition_fail_count?: number;
+  source_file_name?: string | null;
+  display_name?: string | null;
 } | null> {
   const { data, error } = await supabase
     .from('project_todo_attachments')
-    .select('id, attachment_url, summary, doc_type, status, extracted_data, recognition_fail_count')
+    .select(
+      'id, attachment_url, summary, doc_type, status, extracted_data, recognition_fail_count, source_file_name, display_name',
+    )
     .eq('id', attachmentId)
     .maybeSingle();
   if (error || !data) return null;
@@ -2554,6 +2560,8 @@ export async function getProjectTodoAttachmentById(
     status: r.status ?? 'PENDING_AI',
     extracted_data: r.extracted_data ?? null,
     recognition_fail_count: r.recognition_fail_count ?? 0,
+    source_file_name: r.source_file_name ?? null,
+    display_name: r.display_name ?? null,
   };
 }
 

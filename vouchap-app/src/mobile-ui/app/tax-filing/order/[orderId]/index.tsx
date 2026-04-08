@@ -36,6 +36,7 @@ import {
   type ProjectTodoNode,
   type ProjectTodoReceiptSummary,
 } from '@/lib/firm';
+import { cloneProjectTodoTree, patchProjectTodoInTree } from '@/lib/project-todo-tree-patch';
 import { ProjectDetailView, ORDER_STATUS_CONFIG, type ProjectDetailHeader } from '@/components/ProjectDetailView';
 import type { FirmSkuItem } from '@/types';
 import type { ProjectSkuInfo } from '@/components/ProjectSkuDetail';
@@ -459,37 +460,45 @@ export default function OrderTodosScreen() {
   }, []);
 
   const onCancelTask = useCallback(
-    async (todoId: string) => {
-      const { error: err } = await updateProjectTodo(todoId, { status: 'canceled' });
-      if (err) {
-        if (Platform.OS === 'web') window.alert('Cancel failed: ' + (err.message ?? ''));
-        else Alert.alert('Cancel failed', err.message ?? '');
-        return;
-      }
-      const todosTree = await getProjectTodosTree(orderId);
-      setTree(todosTree);
-      const taskIds = collectTaskIds(todosTree);
-      const filesMap = await getAttachmentsByProjectTodoIds(taskIds);
-      setTaskFilesMap(filesMap);
+    (todoId: string) => {
+      const snapshot = cloneProjectTodoTree(tree);
+      const next = patchProjectTodoInTree(tree, todoId, { status: 'canceled' });
+      setTree(next);
+      void (async () => {
+        const { error: err } = await updateProjectTodo(todoId, { status: 'canceled' });
+        if (err) {
+          setTree(snapshot);
+          if (Platform.OS === 'web') window.alert('Cancel failed: ' + (err.message ?? ''));
+          else Alert.alert('Cancel failed', err.message ?? '');
+          return;
+        }
+        const taskIds = collectTaskIds(next);
+        const filesMap = await getAttachmentsByProjectTodoIds(taskIds);
+        setTaskFilesMap(filesMap);
+      })();
     },
-    [orderId]
+    [tree]
   );
 
   const onRestoreTask = useCallback(
-    async (todoId: string) => {
-      const { error: err } = await updateProjectTodo(todoId, { status: 'to_submit' });
-      if (err) {
-        if (Platform.OS === 'web') window.alert('Restore failed: ' + (err.message ?? ''));
-        else Alert.alert('Restore failed', err.message ?? '');
-        return;
-      }
-      const todosTree = await getProjectTodosTree(orderId);
-      setTree(todosTree);
-      const taskIds = collectTaskIds(todosTree);
-      const filesMap = await getAttachmentsByProjectTodoIds(taskIds);
-      setTaskFilesMap(filesMap);
+    (todoId: string) => {
+      const snapshot = cloneProjectTodoTree(tree);
+      const next = patchProjectTodoInTree(tree, todoId, { status: 'to_submit' });
+      setTree(next);
+      void (async () => {
+        const { error: err } = await updateProjectTodo(todoId, { status: 'to_submit' });
+        if (err) {
+          setTree(snapshot);
+          if (Platform.OS === 'web') window.alert('Restore failed: ' + (err.message ?? ''));
+          else Alert.alert('Restore failed', err.message ?? '');
+          return;
+        }
+        const taskIds = collectTaskIds(next);
+        const filesMap = await getAttachmentsByProjectTodoIds(taskIds);
+        setTaskFilesMap(filesMap);
+      })();
     },
-    [orderId]
+    [tree]
   );
 
   const onUploadFile = useCallback(
@@ -515,6 +524,7 @@ export default function OrderTodosScreen() {
         const createResult = await createProjectTodoAttachment(todoId, fileUrl, {
           status: 'PENDING_AI',
           uploader_name: uploaderName,
+          source_file_name: displayName,
         });
         if ('error' in createResult) {
           const errMsg = createResult.error instanceof Error ? createResult.error.message : String(createResult.error);
@@ -523,7 +533,6 @@ export default function OrderTodosScreen() {
           return;
         }
         const follow = await processTaxFilingAttachmentAfterCreate({
-          orderId,
           attachmentId: createResult.id,
           todoId,
           fileName: displayName,
@@ -1431,14 +1440,16 @@ function TodoTree({
                             </View>
                           )}
                           <View style={styles.attachmentCardBody}>
+                            <Text style={styles.attachmentCardTitle} numberOfLines={2}>
+                              {f.name?.trim() || 'Attachment'}
+                            </Text>
                             {f.docType ? (
-                              <View style={styles.attachmentCardDocType}>
-                                <Text style={styles.attachmentCardDocTypeText} numberOfLines={1}>{f.docType}</Text>
-                              </View>
-                            ) : f.status === 'PENDING_AI' ? (
+                              <Text style={styles.attachmentCardTypeCode} numberOfLines={1}>
+                                {`Type: ${f.docType}`}
+                              </Text>
+                            ) : f.status === 'PENDING_AI' || f.status === 'PROCESSING' ? (
                               <Text style={styles.attachmentCardPending}>Processing…</Text>
                             ) : null}
-                            <Text style={styles.attachmentCardSummary} numberOfLines={2}>{f.name || 'Attachment'}</Text>
                             {(f.extractedPreview?.length ?? 0) > 0 && (
                               <View style={styles.attachmentCardPreview}>
                                 {f.extractedPreview!.slice(0, 4).map((p, i) => (
@@ -1640,6 +1651,8 @@ const styles = StyleSheet.create({
   },
   attachmentCardThumbPlaceholder: { justifyContent: 'center', alignItems: 'center' },
   attachmentCardBody: { flex: 1, minWidth: 0 },
+  attachmentCardTitle: { fontSize: 14, fontWeight: '700', color: '#2D3436', marginBottom: 4 },
+  attachmentCardTypeCode: { fontSize: 10, color: '#95A5A6', marginBottom: 4 },
   attachmentCardDocType: {
     alignSelf: 'flex-start',
     backgroundColor: '#F0EEFF',
