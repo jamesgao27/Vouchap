@@ -9,6 +9,7 @@ import {
   StyleSheet,
   ScrollView,
   TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   Image,
   Platform,
@@ -283,6 +284,13 @@ export function ProjectDetailView({
   const isWeb = Platform.OS === 'web';
   const isMobile = !isWeb;
   const [onboardingOrderInfo, setOnboardingOrderInfo] = useState<Awaited<ReturnType<typeof getOrderById>>>(null);
+  const [hideTodoTasksWithNoFiles, setHideTodoTasksWithNoFiles] = useState(false);
+  const [hideTodoCanceled, setHideTodoCanceled] = useState(false);
+
+  const showTodoToolbarFilters =
+    activeTab === 'todos' &&
+    tree.length > 0 &&
+    !(isOnboarding && (skuItems?.length ?? 0) > 0);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -418,21 +426,61 @@ export function ProjectDetailView({
     <View style={sharedStyles.container}>
       {/* 操作行：Firm onboarding 与已确认态一致，仅 Todos | Info 双 tab，无 Confirm/Edit */}
       <View style={sharedStyles.operationBar}>
-        <View style={sharedStyles.tabGroup}>
-          <TouchableOpacity
-            style={[sharedStyles.tabChip, activeTab === 'todos' && sharedStyles.tabChipActive]}
-            onPress={() => { setActiveTab('todos'); setInfoEditing(false); }}
-            activeOpacity={0.8}
-          >
-            <Text style={[sharedStyles.tabChipText, activeTab === 'todos' && sharedStyles.tabChipTextActive]}>Todos</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[sharedStyles.tabChip, activeTab === 'info' && sharedStyles.tabChipActive]}
-            onPress={() => setActiveTab('info')}
-            activeOpacity={0.8}
-          >
-            <Text style={[sharedStyles.tabChipText, activeTab === 'info' && sharedStyles.tabChipTextActive]}>Info</Text>
-          </TouchableOpacity>
+        <View style={sharedStyles.operationBarTabsWrap}>
+          <View style={sharedStyles.tabGroup}>
+            <TouchableOpacity
+              style={[sharedStyles.tabChip, activeTab === 'todos' && sharedStyles.tabChipActive]}
+              onPress={() => { setActiveTab('todos'); setInfoEditing(false); }}
+              activeOpacity={0.8}
+            >
+              <Text style={[sharedStyles.tabChipText, activeTab === 'todos' && sharedStyles.tabChipTextActive]}>Todos</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[sharedStyles.tabChip, activeTab === 'info' && sharedStyles.tabChipActive]}
+              onPress={() => setActiveTab('info')}
+              activeOpacity={0.8}
+            >
+              <Text style={[sharedStyles.tabChipText, activeTab === 'info' && sharedStyles.tabChipTextActive]}>Info</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={sharedStyles.todoFilterCenterSlot} pointerEvents="box-none">
+          {showTodoToolbarFilters ? (
+            <View style={sharedStyles.todoFilterCheckRow} pointerEvents="auto">
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: hideTodoTasksWithNoFiles }}
+                onPress={() => setHideTodoTasksWithNoFiles((v) => !v)}
+                style={sharedStyles.todoFilterCheck}
+              >
+                <Ionicons
+                  name={hideTodoTasksWithNoFiles ? 'checkbox' : 'square-outline'}
+                  size={16}
+                  color={hideTodoTasksWithNoFiles ? '#6C5CE7' : '#95A5A6'}
+                />
+                <Text style={sharedStyles.todoFilterCheckText} numberOfLines={1} ellipsizeMode="tail">
+                  Hide 0-file
+                </Text>
+              </Pressable>
+              <View style={sharedStyles.todoFilterBetween} />
+              <Pressable
+                accessibilityRole="checkbox"
+                accessibilityState={{ checked: hideTodoCanceled }}
+                onPress={() => setHideTodoCanceled((v) => !v)}
+                style={sharedStyles.todoFilterCheck}
+              >
+                <Ionicons
+                  name={hideTodoCanceled ? 'checkbox' : 'square-outline'}
+                  size={16}
+                  color={hideTodoCanceled ? '#6C5CE7' : '#95A5A6'}
+                />
+                <Text style={sharedStyles.todoFilterCheckText} numberOfLines={1} ellipsizeMode="tail">
+                  Hide Canceled
+                </Text>
+              </Pressable>
+            </View>
+          ) : null}
         </View>
 
         {/* 移动端：状态标签下移到 Todos/Info 行右侧；Web 仍保留在导航栏 */}
@@ -730,6 +778,8 @@ export function ProjectDetailView({
           onTodoTreeOrderSaved={onTodoTreeOrderSaved}
           onPersistTodoTitle={isWeb && !isDetailReadOnly && persistTodoTitle ? persistTodoTitle : undefined}
           onMergeProjectTodosTree={onMergeProjectTodosTree}
+          hideTasksWithNoFiles={hideTodoTasksWithNoFiles}
+          hideCanceledTasks={hideTodoCanceled}
         />
       )}
     </View>
@@ -746,12 +796,46 @@ const sharedStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    height: 52,
+    minHeight: 52,
     paddingHorizontal: 16,
     paddingVertical: 8,
     backgroundColor: '#FFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
+  },
+  operationBarTabsWrap: {
+    flexShrink: 0,
+  },
+  todoFilterCenterSlot: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  todoFilterCheckRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'nowrap',
+    maxWidth: '100%',
+  },
+  todoFilterBetween: {
+    width: Platform.OS === 'web' ? 16 : 10,
+  },
+  todoFilterCheck: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 3,
+    flexShrink: 1,
+    minWidth: 0,
+    paddingHorizontal: 2,
+  },
+  todoFilterCheckText: {
+    fontSize: Platform.OS === 'web' ? 10 : 8,
+    color: '#636E72',
+    fontWeight: '500',
+    flexShrink: 1,
+    minWidth: 0,
   },
   tabGroup: {
     flexDirection: 'row',
@@ -786,6 +870,12 @@ const sharedStyles = StyleSheet.create({
   inlineStatusText: {
     fontSize: 15,
     fontWeight: '700',
+  },
+  /** Web：Todos/Info 行右侧 Terminate / Complete 等 */
+  operationRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexShrink: 0,
   },
   operationBtn: {
     flexDirection: 'row',

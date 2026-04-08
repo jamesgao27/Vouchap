@@ -93,6 +93,36 @@ const TODO_DRAG_HANDLE_SLOT_WIDTH = 22;
 const TODO_DRAG_GHOST_CHEVRON_COL_W = 28;
 const TODO_DRAG_GHOST_WBS_COL_W = 36;
 const TODO_DRAG_GHOST_WBS_COL_MR = 8;
+
+function filterProjectTodoTreeForListDisplay(
+  roots: ProjectTodoNode[],
+  opts: { hideTasksWithNoFiles: boolean; hideCanceledTasks: boolean },
+  taskFilesMap: Record<string, ProjectTodoReceiptSummary[]>,
+): ProjectTodoNode[] {
+  if (!opts.hideTasksWithNoFiles && !opts.hideCanceledTasks) return roots;
+
+  function hideTask(node: ProjectTodoNode): boolean {
+    if (node.itemKind !== 'task') return false;
+    if (opts.hideCanceledTasks && node.status === 'canceled') return true;
+    if (opts.hideTasksWithNoFiles && (taskFilesMap[node.id]?.length ?? 0) === 0) return true;
+    return false;
+  }
+
+  function walk(nodes: ProjectTodoNode[]): ProjectTodoNode[] {
+    const out: ProjectTodoNode[] = [];
+    for (const node of nodes) {
+      if (node.itemKind === 'task') {
+        if (!hideTask(node)) out.push(node);
+        continue;
+      }
+      const children = walk(node.children);
+      if (children.length > 0) out.push({ ...node, children });
+    }
+    return out;
+  }
+
+  return walk(roots);
+}
 const TODO_DRAG_GHOST_SPINE_BASE = 12;
 const TODO_DRAG_GHOST_INDENT_UNIT = 14;
 
@@ -2430,6 +2460,10 @@ export interface TaxFilingTodosViewProps {
    * When set, an edit icon appears after the name (same reveal as +/-); row switches to in-place input + cancel/confirm like PendingAddRow.
    */
   onPersistTodoTitle?: (todoId: string, title: string) => Promise<{ error: Error | null }>;
+  /** Hide tasks with no attachments (non-catalog project todos). */
+  hideTasksWithNoFiles?: boolean;
+  /** Hide tasks in canceled status. */
+  hideCanceledTasks?: boolean;
 }
 
 export function TaxFilingTodosView({
@@ -2450,6 +2484,8 @@ export function TaxFilingTodosView({
   onTodoTreeOrderSaved,
   onPersistTodoTitle,
   onMergeProjectTodosTree,
+  hideTasksWithNoFiles = false,
+  hideCanceledTasks = false,
 }: TaxFilingTodosViewProps) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [taskFilesExpanded, setTaskFilesExpanded] = useState<Set<string>>(new Set());
@@ -2572,7 +2608,30 @@ export function TaxFilingTodosView({
     return { tree: next, active: true };
   }, [tree, todoTreeDragEnabled, todoDraggingId, todoDragOver]);
 
-  const todoDragListTree = todoDragPreview.tree;
+  const displayListTree = useMemo(() => {
+    const sourceTree = todoDragPreview.active ? todoDragPreview.tree : tree;
+    if (
+      catalogMode ||
+      catalogPreviewReadOnly ||
+      (!hideTasksWithNoFiles && !hideCanceledTasks)
+    ) {
+      return sourceTree;
+    }
+    return filterProjectTodoTreeForListDisplay(
+      sourceTree,
+      { hideTasksWithNoFiles, hideCanceledTasks },
+      taskFilesMap,
+    );
+  }, [
+    tree,
+    catalogMode,
+    catalogPreviewReadOnly,
+    hideTasksWithNoFiles,
+    hideCanceledTasks,
+    taskFilesMap,
+    todoDragPreview.active,
+    todoDragPreview.tree,
+  ]);
 
   const todoDragEndAll = useCallback(() => {
     if (todoDragDeferredPaintRef.current) {
@@ -3630,7 +3689,15 @@ export function TaxFilingTodosView({
         scrollEventThrottle={16}
       >
         <View style={ts.phaseBlocksWrap}>
-          {todoDragListTree.map((phaseNode, phaseIndex) => (
+          {displayListTree.length === 0 &&
+          tree.length > 0 &&
+          !catalogMode &&
+          (hideTasksWithNoFiles || hideCanceledTasks) ? (
+            <View style={ts.filterEmptyWrap}>
+              <Text style={ts.filterEmptyText}>No tasks match the current filters.</Text>
+            </View>
+          ) : null}
+          {displayListTree.map((phaseNode, phaseIndex) => (
             <View
               key={phaseNode.id}
               style={[
@@ -4328,6 +4395,13 @@ const ts = StyleSheet.create({
   },
   emptyWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   emptyText: { fontSize: 15, color: '#636E72' },
+  filterEmptyWrap: {
+    paddingVertical: 28,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterEmptyText: { fontSize: 14, color: '#636E72', textAlign: 'center' },
   treeRowWrap: {},
   treeRow: {
     flexDirection: 'row',

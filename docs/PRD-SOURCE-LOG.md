@@ -1496,3 +1496,81 @@
 - **验证**：打开确认浮窗 — 右栏卡片底与左栏按钮底同一水平线；左栏正文过长时仅中间区域滚动。
 
 ---
+
+### 2026-04-08（Engagement Todos 操作行：隐藏 0 文件 / 隐藏 canceled）
+
+**User（提示词/原意）**  
+- engagement 的 todos 列表页，在操作行（Todos/Info 页签、Terminate 等所在行），与文件计数列、状态标签列对齐位置增加复选框：**隐藏 0 文件**、**隐藏 canceled**（产品 UI 文案英文）。
+
+**Assistant（实现前说明，若有）**  
+- 在 **`ProjectDetailView`** 的 **`operationBar`** 内增加两枚筛选（`Pressable` + `Ionicons`），右对齐以贴近列表右侧「文件列 / 状态列」；列宽取自 **`TaxFilingTodosView`** 内与 `progressFilesCol`、`statusCol` 一致的导出常量 **`ENGAGEMENT_TODO_TOOLBAR_FILTER_LAYOUT`**。  
+- 在 **`TaxFilingTodosView`** 增加可选 props **`hideTasksWithNoFiles` / `hideCanceledTasks`**，对 **`itemKind === 'task'`** 递归过滤树（无附件视为 `taskFilesMap[id]` 长度 0；**`status === 'canceled'`**）；空 phase/section 连带移除；与 Web 拖放预览树同一套源树再过滤；catalog 模式不启用。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已实现：`ProjectDetailView.tsx`（状态 + 操作行 UI + 传参）、`TaxFilingTodosView.tsx`（导出布局常量、**`filterProjectTodoTreeForListDisplay`**、**`displayListTree`**、筛选后无行时提示 **「No tasks match the current filters.」**）。  
+- **验证**：Firm engagement / client project 详情、Todos 页签、有真实任务树时，勾选后列表仅隐藏对应 task；全被筛掉时出现提示文案；onboarding SKU 只读 catalog 树不显示筛选。  
+- **已知限制**：移动端下列宽为紧凑近似值，与列表右侧列像素级对齐可能略差于 Web。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`、`TaxFilingTodosView.tsx`
+
+---
+
+### 2026-04-08（Engagement Todos 筛选条与列表列水平对齐修正）
+
+**User（提示词/原意）**  
+- 复选框位置太靠右，与文件列/状态列未对齐。
+
+**Assistant（实现前说明，若有）**  
+- 原实现把筛选放在 `operationBarMain` 内 `flex-end`，会贴在 Web **Terminate** 或移动端 **状态 pill** 左侧，与列表右侧列（相对 Scroll 16 + `treeRow.paddingRight`）不一致。  
+- 改为：`operationBar` `position: 'relative'`，筛选 **`absolute`**，`right` 仅用 **`treeRow` 的 `paddingRight`**（与 `operationBar` 已有 16 内边距衔接）；Web **`operationRight`**、移动端 **pill** 在显示筛选时预留 **`fileCol + gap + statusCol`** 宽度，避免遮挡。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已调整：`ENGAGEMENT_TODO_LIST_ALIGNED_RIGHT_INSET` 改为 12（Web）/ 4（原生）；`ProjectDetailView` 去掉流式筛选区、改为绝对层 + 预留边距。
+
+**关联**  
+- 同上两文件
+
+---
+
+### 2026-04-08（筛选条 right  inset 修正：16 + treeRow padding）
+
+**User（提示词/原意）**  
+- 筛选跑到最右端，比刚才更不对齐。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **原因**：绝对定位的 `right` 相对 `operationBar` **外缘**计量时，仅用 `treeRow.paddingRight`（12/4）会少算与列表一致的 **16**（与 `scrollContent` / bar 相同的横向 padding），筛选项会多靠右约 16px。  
+- **处理**：`ENGAGEMENT_TODO_LIST_ALIGNED_RIGHT_INSET` 恢复为 **`16 + (web ? 12 : 4)`**，并同步 **`components/`** 与 **`src/mobile-ui/components/`** 两份 `TaxFilingTodosView.tsx`（仓库内双份实现）。
+
+**关联**  
+- `TaxFilingTodosView.tsx`（两处）
+
+---
+
+### 2026-04-08（Todos 筛选：操作行中部 + 不挤占 Terminate + 缩小字号）
+
+**User（提示词/原意）**  
+- 筛选仍在 Terminate 右侧，应在**该行中部**；**不影响**右端按钮位置；**字号略小**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ProjectDetailView`**：操作行改为三段 — **左** Todos/Info、`flex:1` **居中**筛选、`flexShrink:0` **右** 状态 pill（移动）或 Web **operationRight**；去掉绝对定位及对 `operationRight` / pill 的 `marginRight` 预留。  
+- 筛选：**Ionicons 16**，文案 **Web 10 / 原生 8** `pt`；项间 `todoFilterBetween`；`todoFilterCheck` 使用 `maxWidth: '48%'` 防窄屏溢出。  
+- 移除不再使用的 **`ENGAGEMENT_TODO_*` 导出**（`components/TaxFilingTodosView.tsx`；`src/mobile-ui` 副本已无该段）。
+
+**关联**  
+- `components/ProjectDetailView.tsx`、`components/TaxFilingTodosView.tsx`（及同步的 `src/mobile-ui/components/ProjectDetailView.tsx`）
+
+---
+
+### 2026-04-08（Todos 筛选文案单行）
+
+**User（提示词/原意）**  
+- 位置可以；**文案不要换行**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `ProjectDetailView` 筛选 `Text`：`numberOfLines={1}`、`ellipsizeMode="tail"`；`todoFilterCheckRow` `flexWrap: 'nowrap'`；`todoFilterCheck` / `todoFilterCheckText` `flexShrink: 1`、`minWidth: 0` 以便极窄时单行省略而非折行。
+
+**关联**  
+- `components/ProjectDetailView.tsx`、`src/mobile-ui/components/ProjectDetailView.tsx`
+
+---
