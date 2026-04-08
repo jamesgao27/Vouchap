@@ -46,11 +46,18 @@ From the provided image, PDF, or extracted text: (1) identify the **exact** docu
 3. Infer currency (CAD/USD) and tax year when visible.
 4. Output ONLY valid JSON (no markdown fence).
 
+# Summary field (required — tuned for product UI lists)
+- **Language: English only** (even if the document text is French or another language).
+- **Lead with substance**: start with the **document kind** or **key label** (form name, slip type, merchant, report title). **Never** start with meta phrases such as: "This document is …", "This is a …", "The following is …", "Here is …", "Below is …", "Image shows …".
+- **Shape**: prefer **one compact sentence**, at most two short sentences. Use a **subject-first** pattern when helpful: \`[What it is] for [party / patient / payer / employer], [critical date or tax year]\` (e.g. *Diagnostic imaging report for GAO, ZHIJIAN, exam dated 2025-12-22*; *T4 from Acme Corp, tax year 2024*).
+- **No padding**: do not restate the same idea twice. Put extra identifiers (account #, case #) only if they help disambiguate; routine fields already captured in \`extracted_data\` need not be repeated verbatim in \`summary\` unless they are the main disambiguator.
+- **Non-tax/supporting docs** (medical letters, imaging, ID scans, misc): same rules — name the artifact directly, then party/date in the same sentence.
+
 # Output schema
 {
   "doc_type": "STRING_IDENTIFIER",
   "confidence_score": 0.00,
-  "summary": "One sentence: form type + key party/year",
+  "summary": "English, subject-first, no “This document…” phrasing — e.g. T4 from Employer Inc., 2024",
   "extracted_data": { },
   "metadata": {
     "currency": "CAD|USD",

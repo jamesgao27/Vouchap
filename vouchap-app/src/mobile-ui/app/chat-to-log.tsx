@@ -48,7 +48,10 @@ import { classifyTaxDocumentAndPickTask, getFallbackTaskId } from '@/lib/tax-fil
 import { classificationLabelsForTaxFilingPrompt } from '@/lib/tax-filing-project-classification-labels';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
 import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
-import { buildTaxFilingAttachmentDefaultDisplayName } from '@/lib/tax-filing-attachment-display-name';
+import {
+  buildTaxFilingAttachmentDefaultDisplayName,
+  taxFilingAttachmentCardSubtitleSummary,
+} from '@/lib/tax-filing-attachment-display-name';
 import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound, ExtractedClient, ClientRecognitionResult } from '@/types';
 import { convertGeminiResultToReceipt, convertGeminiResultToInvoice, convertGeminiResultToInbound, convertGeminiResultToOutbound } from '@/lib/receipt-helpers';
 import { format } from 'date-fns';
@@ -2976,7 +2979,15 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
 
             {message.attachmentPreview?.id &&
               message.attachmentPreview.projectId != null &&
-              message.attachmentPreview.todoId != null && (
+              message.attachmentPreview.todoId != null &&
+              (() => {
+                const ap = message.attachmentPreview!;
+                const attachmentCardTitle = taxFilingAttachmentCardTitle(ap);
+                const attachmentCardSubtitle = taxFilingAttachmentCardSubtitleSummary({
+                  summary: ap.summary,
+                  cardTitle: attachmentCardTitle,
+                });
+                return (
               <View style={styles.receiptPreviewCard}>
                 <View style={styles.receiptPreviewHeader}>
                   <Ionicons name="attach" size={20} color="#6C5CE7" />
@@ -2988,8 +2999,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   <View style={styles.attachmentPreviewRow}>
                     <Pressable onPress={() => handlePreviewDetails(message)}>
                       {(() => {
-                        const isDoc = isPreviewableDoc(message.attachmentPreview.name);
-                        const url = message.attachmentPreview.imageUrl || undefined;
+                        const isDoc = isPreviewableDoc(ap.name);
+                        const url = ap.imageUrl || undefined;
                         if (url && !isDoc) {
                           const imgUrl = url as string;
                           return (
@@ -3014,13 +3025,17 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                     </Pressable>
                     <View style={styles.attachmentPreviewMeta}>
                       <View style={styles.attachmentPreviewTitleRow}>
-                        <Text style={styles.attachmentPreviewSummaryTitle} numberOfLines={2}>
-                          {taxFilingAttachmentCardTitle(message.attachmentPreview)}
+                        <Text
+                          style={styles.attachmentPreviewSummaryTitle}
+                          numberOfLines={2}
+                          ellipsizeMode="tail"
+                        >
+                          {attachmentCardTitle}
                         </Text>
                       </View>
-                      {message.attachmentPreview.docType ? (
+                      {ap.docType ? (
                         <Text style={styles.attachmentPreviewTypeCode} numberOfLines={1}>
-                          {`Type: ${message.attachmentPreview.docType}`}
+                          {`Type: ${ap.docType}`}
                         </Text>
                       ) : null}
                       <Pressable onPress={() => handlePreviewDetails(message)}>
@@ -3028,17 +3043,21 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                           <View style={styles.attachmentPreviewTodoRow}>
                             <Ionicons name="checkmark-circle-outline" size={14} color="#6C5CE7" style={styles.attachmentPreviewTodoIcon} />
                             <Text style={styles.attachmentPreviewTodoName} numberOfLines={1}>
-                              {attachmentTaskOptions.find((t) => t.id === message.attachmentPreview!.todoId)?.title ?? 'Unknown task'}
+                              {attachmentTaskOptions.find((t) => t.id === ap.todoId)?.title ?? 'Unknown task'}
                             </Text>
                           </View>
-                          {message.attachmentPreview.summary ? (
-                            <Text style={styles.attachmentPreviewSummary} numberOfLines={2}>
-                              {message.attachmentPreview.summary}
+                          {attachmentCardSubtitle ? (
+                            <Text
+                              style={styles.attachmentPreviewSummary}
+                              numberOfLines={4}
+                              ellipsizeMode="tail"
+                            >
+                              {attachmentCardSubtitle}
                             </Text>
                           ) : null}
-                          {message.attachmentPreview.extracted_data
+                          {ap.extracted_data
                             ? (() => {
-                                const rows = buildExtractedPreview(message.attachmentPreview!.extracted_data!);
+                                const rows = buildExtractedPreview(ap.extracted_data!);
                                 if (rows.length === 0) return null;
                                 return (
                                   <View style={styles.attachmentPreviewExtracted}>
@@ -3058,7 +3077,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   </View>
                 </View>
               </View>
-            )}
+                );
+              })()}
             
           </View>
         )}

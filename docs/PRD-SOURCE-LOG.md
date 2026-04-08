@@ -1574,3 +1574,71 @@
 - `components/ProjectDetailView.tsx`、`src/mobile-ui/components/ProjectDetailView.tsx`
 
 ---
+
+### 2026-04-08（Tina 附件 display_name：简明、与 summary 解耦）
+
+**User（提示词/原意）**  
+- Tina 识别的文件名此前要更完整可读，现在过于啰嗦，和文件描述一样；要**简明但仍完整可读**。
+
+**Assistant（实现前说明，若有）**  
+- 原逻辑用 `summary` 首行 + 文件名拼 `head — tail`，标题与 `summary` 字段大量重复。  
+- 改为：`buildTaxFilingAttachmentDefaultDisplayName` 以 **`docType` 可读标签**为主；**优先**非泛化**原始文件名 stem**；仅在 IMG_/DSC_ 等泛化名时用 **summary 的短片段**（首句或截断至 ~36 字），整体 cap **~68** 字符；去掉与 type 重复的 tail。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已重写 **`vouchap-app/src/shared-logic/tax-filing-attachment-display-name.ts`**。  
+- **验证**：新识别附件列表标题应短于描述；仍含类型 + 可辨片语。
+
+**关联**  
+- 调用方：`tax-filing-attachment-followup.ts`、`chat-to-log.tsx`、`TaxFilingTodosView.tsx`、`firm.ts`（通过同一函数）
+
+---
+
+### 2026-04-08（Tina display_name：优先摘要可读短语）
+
+**User（提示词/原意）**  
+- 上一版简化过度；示例应显示为 **「Prescription receipt from Greencrest Pharmacy」** 一类，而非 **EXPENSE RECEIPT · 1000092341**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 更新 **`tax-filing-attachment-display-name.ts`**：有 `summary` 时优先 **`readablePhraseFromSummary`**（去 *This is a…* 前缀、在 **「 for 」** 前截断、可再按首句 `. ` 截断），再句首大写；总长 cap **68**。纯数字/仅数字文件名视为泛化，不再与 doc_type 拼成标题。无可用摘要短语时回退 **doc_type · 文件名 / 短摘要片段**。
+
+**关联**  
+- `src/shared-logic/tax-filing-attachment-display-name.ts`
+
+---
+
+### 2026-04-08（附件卡片：避免与标题重复的summary + 通用去前缀）
+
+**User（提示词/原意）**  
+- 反对靠穷举规则的生硬字符截断；举例：标题与灰字 summary 开头重复，且 ellipsis 落在词中间（如 *Decemb…*）。
+
+**Assistant（实现前说明，若有）**  
+- 标题侧：用**一条通用正则**覆盖 *This …（中间 1–4 个词）… is a/an/the …*，与现有 *This is a…* 并列，减少「This document is a …」未剥离问题。  
+- 卡片第二行：新增 **`taxFilingAttachmentCardSubtitleSummary`**，优先展示 **「 for 」之后**的补充信息（与标题上「 for 」前短语对齐），否则尝试去掉与 `cardTitle` 相同前缀，全重复则**不展示**第二行。  
+- UI：`numberOfLines` 放宽、`ellipsizeMode="tail"`，由平台处理省略。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 **`vouchap-app/src/shared-logic/tax-filing-attachment-display-name.ts`**（`stripBoilerplatePrefixes`、`taxFilingAttachmentCardSubtitleSummary` 导出）；**`vouchap-app/src/mobile-ui/app/chat-to-log.tsx`** 附件预览卡用统一 `attachmentCardTitle` / `attachmentCardSubtitle`。  
+- **验证**：tax filing 聊天中带 *… report for GAO…* 的摘要：标题应接近 *Diagnostic imaging report*，副标题以 *GAO,…* 起头且无整句重复；极长仍可能 tail 省略但不再人为 slice。  
+- **限制**：无 *for* 且标题与 summary 结构不一致时，仍可能显示完整 summary；`ellipsizeMode` 在部分平台仍可能非严格词边界。
+
+**关联**  
+- `src/shared-logic/tax-filing-attachment-display-name.ts`、`src/mobile-ui/app/chat-to-log.tsx`
+
+---
+
+### 2026-04-08（报税识别提示词：summary 产出规则）
+
+**User（提示词/原意）**  
+- 应从模型侧优化提示词，让返回内容按合适规则生成（而非仅靠前端修修补补）。
+
+**Assistant（实现前说明，若有）**  
+- 在 **`tax-filing-recognition-prompt.ts`** 的 `BASE_SYSTEM_PROMPT` 增加独立 **# Summary field** 段：英文 only、禁止 *This document is…* 类套话、主体优先句式、一至两句、非税类附件同样规则；同步更新 JSON schema 示例里的 `summary` 说明。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已更新 **`vouchap-app/src/shared-logic/tax-filing-recognition-prompt.ts`**。  
+- **验证**：新跑 `runTaxFilingRecognition` / 上传附件识别后，`summary` 应以表单/报告类型直起句，少见与列表标题整段重复；已有历史行不受迁移影响。
+
+**关联**  
+- `src/shared-logic/tax-filing-recognition-prompt.ts`
+
+---
