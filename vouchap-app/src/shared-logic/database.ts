@@ -15,6 +15,30 @@ import {
 
 const ATTRIBUTION_LOOKUP_CHUNK = 120;
 
+function runReceiptItemTaxAsync(
+  receiptId: string,
+  spaceId: string,
+  currency?: string | null,
+): void {
+  const run = () => {
+    void (async () => {
+      try {
+        await applyReceiptItemTaxesAndReconcile(supabase, receiptId, spaceId);
+        scheduleReceiptTaxRecalcIfNeeded(supabase, receiptId, spaceId, currency);
+      } catch (error) {
+        // Tax split is best-effort and must not block receipt/items recognition or persistence.
+        console.warn('[receipt-tax-async] tax reconcile failed (non-blocking):', {
+          receiptId,
+          spaceId,
+          error,
+        });
+      }
+    })();
+  };
+  if (typeof queueMicrotask === 'function') queueMicrotask(run);
+  else setTimeout(run, 0);
+}
+
 function receiptItemAttributionRefId(item: { attribution_id?: unknown }): string | null {
   const v = item.attribution_id;
   return v != null && v !== '' ? String(v) : null;
@@ -286,8 +310,7 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
       }
     }
 
-    await applyReceiptItemTaxesAndReconcile(supabase, receiptId, spaceId);
-    scheduleReceiptTaxRecalcIfNeeded(supabase, receiptId, spaceId, receipt.currency);
+    runReceiptItemTaxAsync(receiptId, spaceId, receipt.currency);
 
     return receiptId;
   } catch (error) {
@@ -456,8 +479,7 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
     }
 
     if (shouldRecomputeItemTaxes) {
-      await applyReceiptItemTaxesAndReconcile(supabase, receiptId, spaceId);
-      scheduleReceiptTaxRecalcIfNeeded(supabase, receiptId, spaceId, receipt.currency);
+      runReceiptItemTaxAsync(receiptId, spaceId, receipt.currency);
     }
   } catch (error: any) {
     if (error?.code === 'ENTITY_NAME_EXISTS') {

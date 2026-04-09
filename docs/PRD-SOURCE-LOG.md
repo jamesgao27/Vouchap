@@ -1642,3 +1642,41 @@
 - `src/shared-logic/tax-filing-recognition-prompt.ts`
 
 ---
+
+### 2026-04-08（aim.link 旧栈架构梳理 + v2 新仓库初始化）
+
+**User（提示词/原意）**  
+- workspace 中 `aim.link` 约 23 个子项目，需从代码梳理原软件整体功能架构，以便在架构上精简剔除；新栈：后端与数据库 Supabase，Web 部署 Cloudflare，App 为 Expo 原生 React；全新 git 项目 `aim.link(v2)`，不改动现有 5 个 workspace 项目；Supabase 上已建新项目 aim.link。
+
+**Assistant（实现前说明，若有）**  
+- 浏览 `/Users/macbook/aim.link` 顶层目录与关键 `package.xml`/`pom.yml`，归纳：中台微服务 + 多只读 SaaS 业务服务 + 三套前端（PC、独立登录站、Expo）+ CRM（Blade）+ 脚本与 Maven 依赖仓；不在旧仓库内改代码。  
+- 在 `/Users/macbook/aim.link-v2`（目录名避免括号）执行 `git init` 与最小 README + `.gitignore` 的首 commit，与现有 Vouchap 等仓库隔离。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 交付：对用户的中文答复中含**旧栈功能架构图式说明**与 **v2 目标部署对照**；新建 **`/Users/macbook/aim.link-v2`**（`main` 分支，首提交仅为脚手架）。  
+- **验证**：`cd /Users/macbook/aim.link-v2 && git log -1 --oneline`；未触碰 `aim.link`、`aim-link-website` 等现有仓库工作区。  
+- **残留**：v2 尚未添加 `app/`、`web/`、`supabase/migrations`；需在 Supabase Dashboard 绑定本地 CLI 与远程后再补。
+
+**关联**  
+- 旧代码库：`/Users/macbook/aim.link`；新仓库：`/Users/macbook/aim.link-v2`
+
+---
+
+### 2026-04-09（receipt item 拆分税改为异步，不阻塞识别与落库）
+
+**User（提示词/原意）**  
+- `vouchap` 项目近期增加的 item 拆分税影响了 item 本身识别和落库，要求核查优化；拆分税必须采用异步方式，不能影响既有 receipts/items 的识别记录过程。
+
+**Assistant（实现前说明，若有）**  
+- 排查 `vouchap-app/src/shared-logic/database.ts`、`receipt-processor.ts`、`receipt-item-tax.ts` 后确认：`saveReceipt` / `updateReceipt` 中同步 `await applyReceiptItemTaxesAndReconcile(...)` 会把税拆分链路耦合进主事务流程。  
+- 计划将税拆分改为“主数据提交后后台异步执行（microtask）+ 全量异常兜底”，确保 receipts 与 items 识别/保存路径不被拆分税阻断。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已在 `vouchap-app/src/shared-logic/database.ts` 新增 `runReceiptItemTaxAsync(...)`：使用 `queueMicrotask`（降级 `setTimeout(0)`）异步触发 `applyReceiptItemTaxesAndReconcile` 与 `scheduleReceiptTaxRecalcIfNeeded`，并在内部捕获异常，仅记录 warning。  
+- `saveReceipt` 与 `updateReceipt` 已改为调用该异步入口，不再同步等待税拆分计算。  
+- 结果：receipt 主记录与 receipt_items 的识别/落库流程与拆分税解耦；即使拆分税失败也不会反向影响主流程。
+
+**关联**  
+- `vouchap-app/src/shared-logic/database.ts`
+
+---
