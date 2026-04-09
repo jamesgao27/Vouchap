@@ -8,6 +8,15 @@ import { findOrCreateWarehouseByName, findOrCreateLocationByName } from './wareh
 import { findOrCreateSkuByNameAndUnit } from './skus';
 import { normalizeReceiptItemTaxClassCode } from './receipt-item-tax';
 
+function fallbackExpenseItemPrice(totalAmount?: number, tax?: number): number {
+  const total = Number(totalAmount ?? 0);
+  const taxNum = Number(tax ?? 0);
+  const base = total - taxNum;
+  if (Number.isFinite(base) && base > 0) return base;
+  if (Number.isFinite(total) && total > 0) return total;
+  return 0;
+}
+
 // 将 Gemini 识别结果转换为 Receipt 格式
 export async function convertGeminiResultToReceipt(result: GeminiReceiptResult): Promise<Receipt> {
   const user = await getCurrentUser();
@@ -54,11 +63,17 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
     }
   }
 
-  // 处理商品项，匹配分类
-  // 确保 items 存在且是数组
-  if (!result.items || !Array.isArray(result.items)) {
-    console.warn('No items found in Gemini result, using empty array');
-    result.items = [];
+  // 处理商品项，匹配分类。若模型缺失明细，兜底为一条合并行，避免“识别成功但无 item”。
+  if (!result.items || !Array.isArray(result.items) || result.items.length === 0) {
+    console.warn('No valid items found in Gemini result, creating merged fallback item');
+    result.items = [
+      {
+        name: 'Receipt total (merged)',
+        categoryName: 'Other',
+        attributionName: 'Personal',
+        price: fallbackExpenseItemPrice(result.totalAmount, result.tax),
+      } as any,
+    ];
   }
   
   console.log('Processing items:', result.items.length, 'items found');
@@ -66,13 +81,19 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
   const items = await Promise.all(
     result.items.map(async (item) => {
       // 尝试匹配分类名称
-      let category = categories.find((cat) => 
-        cat.name.toLowerCase() === item.categoryName.toLowerCase()
+      const normalizedCategoryName = (
+        item.categoryName ??
+        item.name ??
+        (item as { description?: string }).description ??
+        'Other'
+      ).toString();
+      let category = categories.find((cat) =>
+        cat.name.toLowerCase() === normalizedCategoryName.toLowerCase()
       );
 
       // 如果找不到，尝试使用 findCategoryByName（模糊匹配）
       if (!category) {
-        const foundCategory = await findCategoryByName(item.categoryName, 'expense');
+        const foundCategory = await findCategoryByName(normalizedCategoryName, 'expense');
         category = foundCategory || undefined;
       }
 
@@ -161,6 +182,27 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
       };
     })
   );
+
+  if (items.length === 0) {
+    const defaultCategory =
+      categories.find((c) => c.isDefault) ??
+      categories.find((c) => ['Other', 'Shopping', 'Meal', 'Food', 'Grocery'].includes(c.name)) ??
+      categories[0];
+    if (!defaultCategory) {
+      throw new Error('No category available to create fallback receipt item');
+    }
+    const fallbackAttribution = attributions.find((p) => p.isDefault) ?? attributions[0] ?? null;
+    items.push({
+      name: 'Receipt total (merged)',
+      categoryId: defaultCategory.id,
+      category: defaultCategory,
+      attributionId: fallbackAttribution?.id ?? null,
+      attribution: fallbackAttribution,
+      price: fallbackExpenseItemPrice(result.totalAmount, result.tax),
+      isAsset: false,
+      confidence: result.confidence,
+    });
+  }
 
   // 计算调整后的置信度（基于多个因素）
   let adjustedConfidence = result.confidence || 0.5;

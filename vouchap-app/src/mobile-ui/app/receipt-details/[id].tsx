@@ -683,7 +683,7 @@ export default function ReceiptDetailsScreen() {
     const defaultAttribution = attributions.length > 0 ? attributions[0] : null;
     
     const newItem: ReceiptItem = {
-      name: '',
+      name: 'Receipt item',
       categoryId: defaultCategory.id,
       category: defaultCategory,
       attributionId: defaultAttribution?.id || null,

@@ -1680,3 +1680,125 @@
 - `vouchap-app/src/shared-logic/database.ts`
 
 ---
+
+### 2026-04-09（移动端上传误报 failed + 单行小票 item 兜底）
+
+**User（提示词/原意）**  
+- 移动端上传图片会提示 failed，但列表里又有识别结果；且同一小票反复识别不出唯一一行 item。
+
+**Assistant（实现前说明，若有）**  
+- 排查 `receipts.tsx` 上传链路后，发现上传后立即刷新列表的 `loadReceipts` 若瞬时查询失败会弹 `Failed to load expenses`，容易被误解为上传失败。  
+- 排查 `receipt-helpers.ts` 后，发现 `convertGeminiResultToReceipt` 对空/弱结构 items 容错不足，可能出现“识别结果存在但落库无 item”。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/mobile-ui/app/receipts.tsx`：为 `loadReceipts` 增加 `silentError` 参数；在上传后两次自动刷新（创建占位记录后、后台识别完成后）使用静默模式，避免误报 toast 干扰用户。  
+- `vouchap-app/src/shared-logic/receipt-helpers.ts`：新增 `fallbackExpenseItemPrice`；当模型未返回 items 或为空时自动注入一条 `Receipt total (merged)`；同时对 `categoryName` 增加兜底来源（`categoryName -> name -> description -> Other`），并在映射后仍为空时再补一条默认 item。  
+- 结果：上传后“失败提示但实际已入库”的误导显著降低；单行小票在模型漏提 item 时仍可稳定落一条 item。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipts.tsx`  
+- `vouchap-app/src/shared-logic/receipt-helpers.ts`
+
+---
+
+### 2026-04-09（手动新增 item 保存失败：疑似 Supabase 迁移未完整应用）
+
+**User（提示词/原意）**  
+- 手动在小票里自行添加 item 也保存失败，怀疑是 Supabase 迁移问题。
+
+**Assistant（实现前说明，若有）**  
+- 重点排查 `receipt_items` 相关迁移、触发器函数与前端保存路径，确认是否存在“列已改名但触发器仍引用旧列”的线上漂移。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 高概率根因定位为：`receipt_items` 从 `purpose_id` 改到 `attribution_id` 后，若线上未应用 `20260405120000_receipt_items_usage_trigger_use_attribution_id.sql`，触发器函数 `update_usage_counts_on_item_change` 仍引用旧列，会导致 item 保存时报错。  
+- 已给出建议：在 Supabase 先执行函数定义核查，再执行该迁移（或直接执行函数替换 SQL）恢复。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260403180000_rename_line_item_purpose_id_to_attribution_id.sql`  
+- `vouchap-app/supabase/migrations/20260405120000_receipt_items_usage_trigger_use_attribution_id.sql`
+
+---
+
+### 2026-04-09（跟进诊断结果：usage trigger 已正确，继续排查其余 DB 依赖）
+
+**User（提示词/原意）**  
+- 返回了 SQL 诊断结果：`update_usage_counts_on_item_change` 函数体已使用 `attribution_id`，无旧 `purpose_id` 引用。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已排除该函数为根因；下一步聚焦：  
+  1) 其它触发器/函数是否仍引用 `purpose_id`；  
+  2) `receipt_items` 是否有额外约束（如名称非空白 check）与前端新增空名称 item 冲突；  
+  3) RLS / FK 在 `UPDATE receipts` -> 重建 `receipt_items` 这一路径上的实际报错点。  
+- 已建议用户执行一键巡检 SQL 获取精确失败点，再给出定向修复。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`  
+- `vouchap-app/src/shared-logic/database.ts`
+
+---
+
+### 2026-04-09（用户要求 SQL 落文件，便于执行与倒查）
+
+**User（提示词/原意）**  
+- 不要在对话里散贴 SQL，要求把要执行的 SQL 落到文件，后续便于复用和回溯。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已新增 SQL 脚本文件：`vouchap-app/supabase/receipt-items-save-failure-diagnose-and-fix.sql`。  
+- 内容包含三部分：  
+  1) `receipt_items`/触发器/约束/函数残留 `purpose_id` 诊断；  
+  2) 缺失 `categories.usage_count`、`attributions.usage_count` 的修复；  
+  3) `usage_count` 回填（可选）。
+
+**关联**  
+- `vouchap-app/supabase/receipt-items-save-failure-diagnose-and-fix.sql`
+
+---
+
+### 2026-04-09（修复 SQL 脚本 42809：array_agg aggregate 报错）
+
+**User（提示词/原意）**  
+- 执行 SQL 脚本仍报：`ERROR: 42809: "array_agg" is an aggregate function`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已修复 `vouchap-app/supabase/receipt-items-save-failure-diagnose-and-fix.sql` 中函数扫描段：  
+  - 对 `pg_proc` 增加 `p.prokind in ('f','p')` 过滤，仅扫描普通函数/过程；  
+  - 避免对 aggregate/window 对象调用 `pg_get_functiondef` 引发 42809。  
+- 现在可重新执行脚本，不应再在该位置触发 `array_agg` 报错。
+
+**关联**  
+- `vouchap-app/supabase/receipt-items-save-failure-diagnose-and-fix.sql`
+
+---
+
+### 2026-04-09（发现残留函数 update_all_purpose_usage_counts，补兼容修复）
+
+**User（提示词/原意）**  
+- 诊断结果返回残留函数：`public.update_all_purpose_usage_counts`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已在 `vouchap-app/supabase/receipt-items-save-failure-diagnose-and-fix.sql` 增加兼容修复段：  
+  - `CREATE OR REPLACE FUNCTION public.update_all_purpose_usage_counts()`；  
+  - 逻辑改为基于 `receipt_items.attribution_id` 回填 `attributions.usage_count`，避免旧语义函数残留影响。  
+- 这样即便线上仍有旧函数名调用，也不会再依赖 legacy `purposes/purpose_id`。
+
+**关联**  
+- `vouchap-app/supabase/receipt-items-save-failure-diagnose-and-fix.sql`
+
+---
+
+### 2026-04-09（usage_count 已存在后的兜底修复：新增 item 名称非空）
+
+**User（提示词/原意）**  
+- 诊断结果显示 `attributions.usage_count` 与 `categories.usage_count` 均已存在，继续定位新增 item 保存失败。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 结合前端与落库逻辑，补充“名称非空”防御，规避环境中可能存在的空白名称约束导致保存失败：  
+  - `vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`：新增 item 默认名由空字符串改为 `Receipt item`。  
+  - `vouchap-app/src/shared-logic/database.ts`：新增 `normalizeReceiptItemNameForSave`，在 `saveReceipt` / `updateReceipt` 写入 `receipt_items` 时统一将空白名称兜底为 `Receipt item`。  
+- 已通过相关文件 lint 检查。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`  
+- `vouchap-app/src/shared-logic/database.ts`
+
+---

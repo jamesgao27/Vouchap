@@ -177,8 +177,9 @@ export default function ReceiptsScreen() {
     }).catch(() => {});
   }, []);
 
-  const loadReceipts = useCallback(async (options?: { full?: boolean }) => {
+  const loadReceipts = useCallback(async (options?: { full?: boolean; silentError?: boolean }) => {
     const full = options?.full ?? false;
+    const silentError = options?.silentError ?? false;
     try {
       setFullDataLoaded(false);
       if (full) {
@@ -199,7 +200,9 @@ export default function ReceiptsScreen() {
       }
     } catch (error) {
       console.error('❌ [loadReceipts] 加载失败:', error);
-      showToast('Failed to load expenses', 'error');
+      if (!silentError) {
+        showToast('Failed to load expenses', 'error');
+      }
       setLoading(false);
       setRefreshing(false);
     }
@@ -330,7 +333,7 @@ export default function ReceiptsScreen() {
 
         setLastReceiptId(receiptId);
         console.log('🔄 [processCapturedImage] 刷新小票列表...');
-        loadReceipts();
+        loadReceipts({ silentError: true });
 
         console.log('🔄 [processCapturedImage] 开始后台识别处理...');
         processReceiptInBackground(imageUrl, receiptId, uriForBackground)
@@ -338,7 +341,7 @@ export default function ReceiptsScreen() {
             console.log('✅ [processCapturedImage] 后台识别处理完成');
             // Refresh again after processing
             console.log('🔄 [processCapturedImage] 识别完成后再次刷新列表...');
-            loadReceipts();
+            loadReceipts({ silentError: true });
           })
           .catch(err => {
             console.error('❌ [processCapturedImage] 后台识别处理失败:', err);

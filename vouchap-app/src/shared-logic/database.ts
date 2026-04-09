@@ -14,6 +14,12 @@ import {
 } from './receipt-item-tax';
 
 const ATTRIBUTION_LOOKUP_CHUNK = 120;
+const DEFAULT_RECEIPT_ITEM_NAME = 'Receipt item';
+
+function normalizeReceiptItemNameForSave(name: unknown): string {
+  const v = String(name ?? '').trim();
+  return v.length > 0 ? v : DEFAULT_RECEIPT_ITEM_NAME;
+}
 
 function runReceiptItemTaxAsync(
   receiptId: string,
@@ -284,7 +290,7 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
 
         itemsToInsert.push({
           receipt_id: receiptId,
-          name: item.name,
+          name: normalizeReceiptItemNameForSave(item.name),
           category_id: categoryId,
           attribution_id: item.attributionId ?? null,
           price: item.price,
@@ -457,7 +463,7 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
 
           itemsToInsert.push({
             receipt_id: receiptId,
-            name: item.name,
+            name: normalizeReceiptItemNameForSave(item.name),
             category_id: categoryId,
             attribution_id: item.attributionId ?? null,
             price: item.price,
