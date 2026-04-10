@@ -345,7 +345,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     alignSelf: 'stretch',
     fontSize: 25,
-    fontWeight: '900',
+    fontWeight: '800',
     color: '#1F1402',
     letterSpacing: 0.35,
     ...(Platform.OS === 'web'
@@ -353,7 +353,7 @@ const styles = StyleSheet.create({
           fontFamily: 'Poppins, system-ui, sans-serif',
           // react-native-web → 浏览器：填充色 + 金色描边
           WebkitTextStroke: '1.25px #C9A24D',
-          WebkitTextFillColor: '#0D0D0D',
+          WebkitTextFillColor: '#1F1402',
         } as Record<string, unknown>)
       : {}),
   },
