@@ -1943,3 +1943,17 @@
 - `vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/index.tsx`
 
 ---
+
+### 2026-04-11（发布应用版本 2.5.7 Build 45）
+
+**User（提示词/原意）**  
+- app 版本号更新为 2.5.7。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 按仓库版本同步准则：`package.json` / `package-lock.json` 版本 2.5.7；`app.config.js` 与 Android `versionCode`、iOS `CFBundleVersion` / `CURRENT_PROJECT_VERSION` 统一为 Build **45**；`versionName` / `CFBundleShortVersionString` / `MARKETING_VERSION` 为 **2.5.7**；已更新 `ios/Vouchap.xcodeproj/project.pbxproj`。  
+- 提交信息：`发布版本号 2.5.7 (Build 45)`。
+
+**关联**  
+- `vouchap-app/package.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`、`ios/Vouchap.xcodeproj/project.pbxproj`
+
+---
