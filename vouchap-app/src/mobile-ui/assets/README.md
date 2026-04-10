@@ -1,28 +1,26 @@
 # Assets 目录
 
-此目录用于存放应用的静态资源文件。
+此目录用于存放应用的静态资源文件。`vouchap-app/assets` 为指向本目录的符号链接。
 
-## 必需的文件
+## 品牌图标（当前约定）
 
-根据 `app.json` 配置，你需要准备以下文件：
+1. **logo2.png** — 商店 / 系统桌面图标：`app.config.js` 的 `expo.icon` 与 `expo.android.adaptiveIcon.foregroundImage`。
+2. **logo.png** — 默认主品牌：登录/注册/重置密码等页面、`expo.web.favicon`；与营销站 `public/logo.png` 保持一致。
+3. **logo3.png** — **仅** `WebSidebar.tsx`（Web 端大屏左侧栏品牌区）使用，与全站主图 `logo.png` 区分。
 
-1. **icon.png** - 应用图标 (1024x1024)
-2. **splash.png** - 启动画面 (1242x2436)
-3. **adaptive-icon.png** - Android 自适应图标 (1024x1024)
-4. **favicon.png** - Web 图标 (48x48)
+历史文件 **icon.png** 可保留作备份。
 
-## 临时解决方案
+## 与仓库根目录 `Vouchap/assets` 同步
 
-如果暂时没有这些文件，你可以：
+更新源文件后复制到本目录，例如：
 
-1. 使用在线工具生成图标（如 [App Icon Generator](https://www.appicon.co/)）
-2. 使用占位图片
-3. 或者暂时注释掉 `app.json` 中的相关配置
+```bash
+# 在 monorepo 根目录 Vouchap/ 下：
+cp assets/logo2.png assets/logo3.png assets/logo.png vouchap-app/src/mobile-ui/assets/
+cp assets/logo.png vouchap-website/public/logo.png
+cp assets/logo3.png vouchap-website/public/logo3.png
+```
 
-## 图标要求
+## 其他常见资源
 
-- **icon.png**: 1024x1024 像素，PNG 格式
-- **splash.png**: 1242x2436 像素（或按比例），PNG 格式
-- **adaptive-icon.png**: 1024x1024 像素，PNG 格式，背景色为白色
-- **favicon.png**: 48x48 像素，PNG 格式
-
+- **assistants/** — AI 助手头像等

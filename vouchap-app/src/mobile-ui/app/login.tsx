@@ -142,7 +142,7 @@ export default function LoginScreen() {
             <View style={styles.headerMobile}>
               <View style={styles.logoRowMobile}>
                 <Image
-                  source={require('../../../assets/icon.png')}
+                  source={require('../../../assets/logo.png')}
                   style={styles.logoImgMobile}
                   resizeMode="contain"
                 />
@@ -287,7 +287,7 @@ export default function LoginScreen() {
           <View style={styles.header}>
             <View style={styles.logoRow}>
               <Image
-                source={require('../../../assets/icon.png')}
+                source={require('../../../assets/logo.png')}
                 style={styles.logoImg}
                 resizeMode="contain"
               />

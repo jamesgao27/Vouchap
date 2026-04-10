@@ -287,7 +287,7 @@ export default function RegisterScreen() {
             </TouchableOpacity>
             <View style={stylesWeb.header}>
               <View style={stylesWeb.logoRow}>
-                <Image source={require('../../../assets/icon.png')} style={stylesWeb.logoImg} resizeMode="contain" />
+                <Image source={require('../../../assets/logo.png')} style={stylesWeb.logoImg} resizeMode="contain" />
                 <Text style={stylesWeb.brandName}>Vouchap</Text>
               </View>
               <Text style={stylesWeb.title}>{isFromInvite ? 'Complete your profile' : 'Create Account'}</Text>

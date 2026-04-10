@@ -51,7 +51,7 @@ const IONICONS_FONT_URL =
 
 /** Web：侧栏品牌字用 Google Fonts（与 Ionicons CDN 一致）；bundled TTF + loadAsync 在 dev 下常因字体 URL 失效回退系统字体 */
 const POPPINS_WEB_CSS =
-  'https://fonts.googleapis.com/css2?family=Poppins:wght@700&display=swap';
+  'https://fonts.googleapis.com/css2?family=Poppins:wght@700;900&display=swap';
 
 async function ensurePoppinsWebFontLoaded(): Promise<void> {
   if (typeof document === 'undefined') return;
@@ -75,6 +75,7 @@ async function ensurePoppinsWebFontLoaded(): Promise<void> {
   });
   try {
     await document.fonts.load('700 16px Poppins');
+    await document.fonts.load('900 25px Poppins');
   } catch {
     /* ignore */
   }
@@ -164,7 +165,7 @@ function LayoutContent() {
     if (type) setChatType(type);
   }, [pathname, setChatType]);
 
-  // Web：Google Fonts（Poppins 700）+ Ionicons（CDN）就绪后再渲染主界面
+  // Web：Google Fonts（Poppins 700/900）+ Ionicons（CDN）就绪后再渲染主界面
   const [webFontReady, setWebFontReady] = React.useState(() => Platform.OS !== 'web');
   useEffect(() => {
     if (Platform.OS !== 'web') {

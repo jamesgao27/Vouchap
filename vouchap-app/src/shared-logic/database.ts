@@ -239,7 +239,11 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
 
         // 如果还是没有，尝试通过名称查找（支出分类）
         if (!categoryId) {
-          const category = await findCategoryByName(item.name || 'Other', 'expense');
+          const categoryNameHint =
+            item.category?.name ??
+            (item as { categoryName?: string }).categoryName ??
+            'Other';
+          const category = await findCategoryByName(categoryNameHint, 'expense');
           categoryId = category?.id || null;
         }
 

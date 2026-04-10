@@ -10,7 +10,8 @@ export default {
     owner: "aimlink",
     // 使用 default 以支持大屏/平板旋转，符合 Google Play「移除屏幕方向限制」建议
     orientation: "default",
-    icon: "./assets/icon.png",
+    // logo2: store / launcher icon. logo.png: default in-app & favicon; logo3: Web sidebar only (WebSidebar).
+    icon: "./assets/logo2.png",
     scheme: "vouchap", // 关键：解决邮件跳转的核心配置
     userInterfaceStyle: "light",
     splash: {
@@ -39,7 +40,7 @@ export default {
         "INTERNET"
       ],
       adaptiveIcon: {
-        foregroundImage: "./assets/icon.png",
+        foregroundImage: "./assets/logo2.png",
         backgroundColor: "#ffffff"
       },
       intentFilters: [
@@ -75,12 +76,13 @@ export default {
         {
           "cameraPermission": "Vouchap requires Camera and Photo Library access to scan and upload your receipts for digital tracking."
         }
-      ]
+      ],
+      "expo-document-picker"
     ],
-    // Web 浏览器页签：标题与 favicon 使用应用名和 icon
+    // Web favicon：与全站主品牌 logo.png 一致（大屏左侧栏单独用 logo3，见 WebSidebar）
     web: {
       name: "Vouchap",
-      favicon: "./assets/icon.png"
+      favicon: "./assets/logo.png"
     },
     // 子路径部署（如 Cloudflare Pages 在 /app/）：设置 EXPO_PUBLIC_WEB_BASE_PATH=/app，否则图标/资源可能 404
     ...(process.env.EXPO_PUBLIC_WEB_BASE_PATH

@@ -65,7 +65,7 @@ import {
   getStatusColor,
 } from '@/lib/constants/project-todo-status';
 import { supabase, uploadTaxFilingFile } from '@/lib/supabase';
-import * as DocumentPicker from 'expo-document-picker';
+import { pickTaxFilingDocument } from '@/lib/tax-filing-document-picker';
 import { FileDetailModal } from '@/components/FileDetailModal';
 import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
@@ -3463,7 +3463,7 @@ export function TaxFilingTodosView({
   const onUploadFile = useCallback(
     async (todoId: string) => {
       try {
-        const result = await DocumentPicker.getDocumentAsync({
+        const result = await pickTaxFilingDocument({
           type: '*/*',
           copyToCacheDirectory: true,
           multiple: false,

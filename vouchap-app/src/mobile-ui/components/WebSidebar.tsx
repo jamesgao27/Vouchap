@@ -127,10 +127,10 @@ export default function WebSidebar() {
 
   return (
     <View style={styles.sidebar}>
-      {/* 品牌：大屏 logo 居中 + 下方 Poppins 字标 */}
+      {/* 品牌：仅 Web 大屏左侧栏使用 logo3；其余页面用 logo.png */}
       <View style={styles.brand}>
         <Image
-          source={require('../../../assets/icon.png')}
+          source={require('../../../assets/logo3.png')}
           style={styles.logoImage}
           resizeMode="contain"
         />
@@ -329,26 +329,36 @@ const styles = StyleSheet.create({
     width: '100%',
     alignItems: 'center',
     paddingHorizontal: 4,
-    marginBottom: 12,
-    paddingBottom: 2,
+    marginBottom: 10,
+    paddingBottom: 0,
   },
   logoImage: {
     width: 144,
     height: 144,
     borderRadius: 72,
     alignSelf: 'center',
+    marginBottom: -2,
   },
+  /** 字标与 logo 收紧间距；黑字 + 金边（Web 用 webkit 描边，与 logo3 黑金一致） */
   brandText: {
-    marginTop: 0,
-    fontSize: 26,
-    fontWeight: '700',
-    color: '#6C5CE7',
+    marginTop: -8,
     textAlign: 'center',
     alignSelf: 'stretch',
-    ...(Platform.OS === 'web' ? { fontFamily: 'Poppins' } : {}),
+    fontSize: 25,
+    fontWeight: '900',
+    color: '#1F1402',
+    letterSpacing: 0.35,
+    ...(Platform.OS === 'web'
+      ? ({
+          fontFamily: 'Poppins, system-ui, sans-serif',
+          // react-native-web → 浏览器：填充色 + 金色描边
+          WebkitTextStroke: '1.25px #C9A24D',
+          WebkitTextFillColor: '#0D0D0D',
+        } as Record<string, unknown>)
+      : {}),
   },
   mainNavSection: {
-    marginTop: 4,
+    marginTop: 2,
     flex: 1,
     minHeight: 0,
     flexDirection: 'column',

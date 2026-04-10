@@ -43,6 +43,36 @@ function normalizedItemPosTaxCode(item: any): string | undefined {
   return String(raw).trim().toUpperCase();
 }
 
+/**
+ * 图片/文档路径在 parse 后立刻对 items 做 reduce/map；若模型省略 items 或非数组/空数组会抛错，
+ * 整轮识别失败则无法落库（老版本与文字路径行为不一致）。与 recognizeReceiptFromText 对齐：至少一行。
+ */
+function ensureGeminiParsedReceiptItems(
+  parsedResult: Record<string, unknown>,
+  opts: { categoryNames: string[]; defaultAttributionName: string },
+): void {
+  const pr = parsedResult as Record<string, any>;
+  const defaultCategory = opts.categoryNames.length > 0 ? opts.categoryNames[0] : 'Meal';
+  const defaultAttr = opts.defaultAttributionName || 'Personal';
+  const totalAmount = Number(pr.totalAmount) || 0;
+  const tax = pr.tax !== undefined ? Number(pr.tax) : 0;
+  const fallbackPrice = Math.max(0, totalAmount - tax);
+
+  if (!pr.items || !Array.isArray(pr.items) || pr.items.length === 0) {
+    console.warn(
+      '[gemini] receipt items missing or empty; synthesizing one line from total (image or document path)',
+    );
+    pr.items = [
+      {
+        name: 'General Purchase',
+        categoryName: defaultCategory,
+        attributionName: defaultAttr,
+        price: fallbackPrice,
+      },
+    ];
+  }
+}
+
 // 引用 gemini-helper 中处理好的安全判断逻辑（如果 gemini-helper 导出了 apiKey）
 // 或者直接在此处复制安全获取逻辑：
 const getSafeKey = () => {
@@ -359,6 +389,10 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
       }
 
       const parsedResult: GeminiReceiptResult = JSON.parse(jsonText);
+      ensureGeminiParsedReceiptItems(parsedResult as Record<string, unknown>, {
+        categoryNames,
+        defaultAttributionName: attributionNames[0] || 'Personal',
+      });
 
       // 验证和规范化数据
       const defaultCategory = categoryNames.length > 0 ? categoryNames[0] : 'Meal';
@@ -691,6 +725,10 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
       if (jsonText.startsWith('```json')) jsonText = jsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
       else if (jsonText.startsWith('```')) jsonText = jsonText.replace(/^```\s*/, '').replace(/\s*```$/, '');
       const parsedResult: GeminiReceiptResult = JSON.parse(jsonText);
+      ensureGeminiParsedReceiptItems(parsedResult as Record<string, unknown>, {
+        categoryNames,
+        defaultAttributionName: attributionNames[0] || 'Personal',
+      });
       const paymentAccountName = parsedResult.paymentAccountName || (parsedResult as any).paymentAccount;
       const imageQuality = parsedResult.imageQuality ? {
         clarity: parsedResult.imageQuality.clarity !== undefined ? Number(parsedResult.imageQuality.clarity) : undefined,

@@ -79,7 +79,7 @@ export default function ResetPasswordScreen() {
             <View style={stylesWeb.card}>
               <View style={stylesWeb.header}>
                 <View style={stylesWeb.logoRow}>
-                  <Image source={require('../../../assets/icon.png')} style={stylesWeb.logoImg} resizeMode="contain" />
+                  <Image source={require('../../../assets/logo.png')} style={stylesWeb.logoImg} resizeMode="contain" />
                   <Text style={stylesWeb.brandName}>Vouchap</Text>
                 </View>
                 <View style={stylesWeb.successIconWrap}>
@@ -173,7 +173,7 @@ export default function ResetPasswordScreen() {
             </TouchableOpacity>
             <View style={stylesWeb.header}>
               <View style={stylesWeb.logoRow}>
-                <Image source={require('../../../assets/icon.png')} style={stylesWeb.logoImg} resizeMode="contain" />
+                <Image source={require('../../../assets/logo.png')} style={stylesWeb.logoImg} resizeMode="contain" />
                 <Text style={stylesWeb.brandName}>Vouchap</Text>
               </View>
               <Text style={stylesWeb.title}>Reset Password</Text>

@@ -1802,3 +1802,144 @@
 - `vouchap-app/src/shared-logic/database.ts`
 
 ---
+
+### 2026-04-09（老 app 拍照/文档识别无法落库 items：图片路径缺 items 兜底）
+
+**User（提示词/原意）**  
+- 老的 app 不能识别、不能落库 items；要求检查并修复。
+
+**Assistant（实现前说明，若有）**  
+- 对照 `recognizeReceipt`（图片）与 `recognizeReceiptFromText`：`JSON.parse` 后直接对 `parsedResult.items` 做 `reduce`/`map`，若模型省略 `items` 或非数组/空数组会抛错，整轮识别失败则无法进入 `convertGeminiResultToReceipt` 与 `saveReceipt`。文字路径已有兜底，图片/文档路径缺失，表现为「老流程（拍照为主）」更易失败。  
+- `saveReceipt` 在缺 `categoryId` 时用 `item.name` 去 `findCategoryByName`，易把商品名当成分类名，与分类解析不一致；改为优先 `item.category?.name` / `categoryName`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/shared-logic/gemini.ts`：新增 `ensureGeminiParsedReceiptItems`，在 `recognizeReceipt` 与 `recognizeReceiptFromDocument` 中于 `reduce`/`map` 之前调用，与文字路径一致至少合成一行（`General Purchase` + 默认分类/用途 + `max(0, totalAmount - tax)`）。  
+- `vouchap-app/src/shared-logic/database.ts`：`saveReceipt` 分类兜底查找改为 `categoryNameHint`（category 名 / categoryName），不再误用商品名。  
+- 验证建议：用拍照上传一张小票，或构造模型返回无 `items` 的 JSON（若可），应不再整单报错；保存后 `receipt_items` 至少一行。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini.ts`  
+- `vouchap-app/src/shared-logic/database.ts`
+
+---
+
+### 2026-04-09（撤回 purpose_id 兼容迁移；问题域更正为行税拆分后）
+
+**User（提示词/原意）**  
+- 撤回上一步；现在不是 attribution 兼容问题，app 是改为 attribution 之后构建的；问题是在开发拆分 items 税额之后出现的。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已删除迁移 `20260413120000_receipt_items_legacy_purpose_id_compat.sql`；已从 `receipt-items-save-failure-diagnose-and-fix.sql` 移除 Part D（purpose_id/attribution 兼容说明）。  
+- 与用户结论对齐：后续应聚焦「拆分 items 税额」相关（应用侧如 `receipt-item-tax` / `applyReceiptItemTaxesAndReconcile`、库侧如 `receipt_item_taxes` 与相关迁移/RLS/触发器），而非 purpose_id 列兼容。
+
+**关联**  
+- （撤回）`20260413120000_receipt_items_legacy_purpose_id_compat.sql`、诊断脚本 Part D
+
+---
+
+### 2026-04-10（logo2 商店图标 / logo3 应用内与网站）
+
+**User（提示词/原意）**  
+- `assets` 下增加 `logo2`、`logo3` 两个 PNG：`logo2` 用于构建 app 的市场图标；`logo3` 用于应用内和网站各处展示图标。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 将 `Vouchap/assets/logo2.png`、`logo3.png` 复制入 `vouchap-app/src/mobile-ui/assets/`（经 `assets` 符号链接供 Metro 打包）。  
+- `vouchap-app/app.config.js`：`expo.icon`、`android.adaptiveIcon.foregroundImage` → `logo2.png`；`expo.web.favicon` → `logo3.png`。  
+- 应用内原 `icon.png` 引用改为 `logo3.png`（`WebSidebar`、`login`、`register`、`reset-password`、`set-password`、`setup-space`）。  
+- `vouchap-website`：`public/logo3.png`，`layout.tsx` / `Navbar` / `client-join` / `auth/confirm` 中 `/logo.png` 改为 `/logo3.png`。  
+- 更新 `vouchap-app/src/mobile-ui/assets/README.md` 与 `Vouchap/assets/README.md` 说明同步方式。  
+- 验证：改图标后执行 `npx expo prebuild` 或完整原生构建以刷新商店图标；网站与 Web favicon 以 `public/logo3.png` 为准。
+
+**关联**  
+- `vouchap-app/app.config.js`、`vouchap-app/src/mobile-ui/assets/logo2.png`、`logo3.png`  
+- `vouchap-website/public/logo3.png`
+
+---
+
+### 2026-04-10（logo3 文件更新后同步到 app / 网站）
+
+**User（提示词/原意）**  
+- logo3 文件更新了一下，各处更新。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 无代码变更；自 `Vouchap/assets/logo3.png` 覆盖复制至 `vouchap-app/src/mobile-ui/assets/logo3.png` 与 `vouchap-website/public/logo3.png`。  
+- 验证：Expo 可 `-c` 清缓存重载；Next 站若 CDN 缓存 favicon 需硬刷新或等失效。
+
+---
+
+### 2026-04-10（仅 Web 左侧栏用 logo3，其余用 logo.png）
+
+**User（提示词/原意）**  
+- 应用内和网站内，除了 web 端左侧栏用 logo3，其余各处仍用 logo.png 比较合适。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `WebSidebar.tsx` 保留 `logo3.png`；登录/注册/重置密码、setup-space、Expo `web.favicon` 改回 `logo.png`；营销站 `layout` / `Navbar` / `client-join` / `auth/confirm` 改回 `/logo.png`。  
+- 自 `vouchap-website/public/logo.png` 复制入 `vouchap-app/src/mobile-ui/assets/logo.png` 与 `Vouchap/assets/logo.png` 以便打包。  
+- 已更新 `vouchap-app/src/mobile-ui/assets/README.md` 与 `Vouchap/assets/README.md` 说明分工。
+
+**关联**  
+- `vouchap-app/app.config.js`、`vouchap-app/src/mobile-ui/components/WebSidebar.tsx`  
+- `vouchap-website/app/layout.tsx`、`components/Navbar.tsx` 等
+
+---
+
+### 2026-04-10（Web 左侧栏字标上移 + 黑金色）
+
+**User（提示词/原意）**  
+- web 端左侧栏 logo 下方的 Vouchap，位置上移与 logo 靠近，更换成跟 logo 一样风格的黑金色。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `WebSidebar.tsx`：缩小品牌区与字标间距（`marginTop: -8`、`logoImage` 轻微负下边距、略收 `mainNavSection` 上边距）；字标拆为「Vouch」`#0D0D0D` +「ap」金属金 `#C9A24D`，Poppins 字重 700，金色段加轻 `textShadow` 贴近黑金质感。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/WebSidebar.tsx`
+
+---
+
+### 2026-04-10（侧栏字标 Poppins 加粗至 900）
+
+**User（提示词/原意）**  
+- 字体需进一步加粗。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `WebSidebar` 品牌字 `fontWeight` 由 `700` 改为 `900`；`_layout.tsx` 中 Google Fonts 由仅 `wght@700` 改为 `700;900`，并 `document.fonts.load('900 25px Poppins')` 与字标字号一致。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/WebSidebar.tsx`、`vouchap-app/src/mobile-ui/app/_layout.tsx`
+
+---
+
+### 2026-04-10（字标改为黑色金边，非分段配色）
+
+**User（提示词/原意）**  
+- 黑色金边，而不是部分黑色部分金色。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `WebSidebar.tsx`：整词「Vouchap」统一为填充 `#0D0D0D`，Web 端使用 `WebkitTextStroke: 1.25px #C9A24D` + `WebkitTextFillColor: #0D0D0D` 实现金边黑字；去掉 Vouch/ap 分段。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/WebSidebar.tsx`
+
+---
+
+### 2026-04-09（ExpoDocumentPicker 原生模块未找到：懒加载 + app.config 插件）
+
+**User（提示词/原意）**  
+- 终端报错：`Cannot find native module 'ExpoDocumentPicker'`，栈指向 `TaxFilingTodosView.tsx` 对 `expo-document-picker` 的 import。
+
+**Assistant（实现前说明，若有）**  
+- 依赖已在 package.json 时，顶层 import 会在模块加载时绑定原生桥；当前运行的 Android 二进制（Expo Go 与 SDK 不匹配或 dev client 未包含该模块）会整屏崩溃。  
+- 改为按需 `import('expo-document-picker')` 通过封装 `pickTaxFilingDocument`，避免进入含 TaxFilingTodosView 的路由即崩；并在 `app.config.js` 增加 `expo-document-picker` 插件，便于 `prebuild`/`run:android` 正确链接。彻底修复需本地重建原生：`npx expo run:android`（或 iOS）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `pickTaxFilingDocument` 封装；`TaxFilingTodosView.tsx` 与 `tax-filing/order/[orderId]/index.tsx` 改为调用之。  
+- `app.config.js` 的 `plugins` 增加 `"expo-document-picker"`。  
+- **更正路径**：`@/lib/*` 在 tsconfig 中映射到 `src/shared-logic/*`，实现文件须在 `src/shared-logic/tax-filing-document-picker.ts`（非 `mobile-ui/lib`），否则 Metro 报 SHA-1 / 找不到文件。
+
+**关联**  
+- `vouchap-app/src/shared-logic/tax-filing-document-picker.ts`  
+- `vouchap-app/app.config.js`  
+- `vouchap-app/src/mobile-ui/components/TaxFilingTodosView.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/index.tsx`
+
+---

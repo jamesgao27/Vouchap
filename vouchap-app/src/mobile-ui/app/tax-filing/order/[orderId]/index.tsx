@@ -47,7 +47,7 @@ import { processTaxFilingAttachmentAfterCreate } from '@/lib/tax-filing-attachme
 import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
 import { showToast } from '@/lib/toast';
 import { getTaxSeasonColor } from '@/lib/tax-season-colors';
-import * as DocumentPicker from 'expo-document-picker';
+import { pickTaxFilingDocument } from '@/lib/tax-filing-document-picker';
 import { taxFilingTodoUploadIsImageKind } from '@/lib/tax-filing-todo-upload-helpers';
 import EngagementConsentModal from '@/components/EngagementConsentModal';
 
@@ -504,7 +504,7 @@ export default function OrderTodosScreen() {
   const onUploadFile = useCallback(
     async (todoId: string) => {
       try {
-        const result = await DocumentPicker.getDocumentAsync({
+        const result = await pickTaxFilingDocument({
           type: '*/*',
           copyToCacheDirectory: true,
           multiple: false,
