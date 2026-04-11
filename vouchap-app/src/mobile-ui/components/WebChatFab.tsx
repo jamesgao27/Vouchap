@@ -28,9 +28,14 @@ import {
   chatStagedFilesOverflowLabel,
 } from '../lib/chat-staged-files-display';
 
-const FAB_SIZE = 100;
-const FAB_BOTTOM = 52;
-const FAB_RIGHT = 40;
+/** 与嵌入式页面 `fabContainerWeb` 必须一致，否则折叠态与悬停展开态头像垂直位置错位 */
+export const WEB_CHAT_FAB_SIZE = 100;
+export const WEB_CHAT_FAB_BOTTOM = 52;
+export const WEB_CHAT_FAB_RIGHT = 40;
+
+const FAB_SIZE = WEB_CHAT_FAB_SIZE;
+const FAB_BOTTOM = WEB_CHAT_FAB_BOTTOM;
+const FAB_RIGHT = WEB_CHAT_FAB_RIGHT;
 const CHAT_ICON_SIZE = 36;
 const LEAVE_DELAY_MS = 280;
 

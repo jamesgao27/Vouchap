@@ -1957,3 +1957,61 @@
 - `vouchap-app/package.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`、`ios/Vouchap.xcodeproj/project.pbxproj`
 
 ---
+
+### 2026-04-10（全平台 production 构建：Web 导出 + EAS iOS/Android）
+
+**User（提示词/原意）**  
+- 全平台构建 production。
+
+**Assistant（实现前说明，若有）**  
+- 无代码变更。在 `vouchap-app` 执行：`NODE_ENV=production npx expo export -p web`；`npx eas build -p all --profile production --non-interactive --no-wait`（提交云端队列，不阻塞等待完成）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **Web**：`expo export -p web` 成功，产物目录 `vouchap-app/dist/`。  
+- **EAS（production）**：Android、iOS 均已上传并排队构建；CLI 显示远程 **autoIncrement**：Android `versionCode` 46→**47**，iOS `buildNumber` 28→**29**（与本地曾提交的 2.5.7 / Build 45 可能不一致，以 EAS/商店侧为准）。  
+- **构建日志**：Android https://expo.dev/accounts/aimlink/projects/vouchap/builds/f239a8f6-6bab-4f0f-a3f0-fc4e97dd5d84 ；iOS https://expo.dev/accounts/aimlink/projects/vouchap/builds/ebba0ae5-49e4-44aa-a30f-0d6e523015b9 。  
+- **验证**：Web 检查 `dist/`；移动端在 Expo 控制台等待绿勾后下载 artifact。归档体积约 334 MB，后续可考虑 `.easignore` 减小上传。
+
+**关联**  
+- `vouchap-app/dist/`、EAS profile `production`
+
+---
+
+### 2026-04-11（Web Expenses：Eric 气泡位置与 Line items 双气泡）
+
+**User（提示词/原意）**  
+- Web 端 expenses：关闭聊天右栏后 Eric 头像气泡偏下，触摸出现输入区时头像跳动；进入 line items 列表后两个头像气泡重叠。
+
+**Assistant（实现前说明，若有）**  
+- 根因 1：`receipt-items` 页内嵌 `WebChatFab embedded`，但 `_layout` 仅排除 `/receipts`，未排除 `/receipt-items`，全局绝对定位 FAB 仍渲染 → 双气泡。  
+- 根因 2：嵌入式 `fabContainerWeb` 为 80×80、bottom/right 40，而 `WebChatFab` 实际为 100×100 且展开态头像锚点为 bottom 52 → 折叠态视觉更靠下，悬停展开时头像上移跳动。  
+- 计划：`_layout` 增加 `receipt-items` 排除；导出 `WEB_CHAT_FAB_*` 常量，`receipts` / `receipt-items` / `invoices` 的 `fabContainerWeb` 与组件内边距一致。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改：`_layout.tsx` 条件增加 `!pathname?.startsWith('/receipt-items')`；`WebChatFab.tsx` 导出 `WEB_CHAT_FAB_SIZE` / `WEB_CHAT_FAB_BOTTOM` / `WEB_CHAT_FAB_RIGHT`；三处列表页 `fabContainerWeb` 使用该常量。  
+- **验证**：Web 在 `/receipts` 关右栏 → 悬停 FAB，头像与展开态对齐无跳变；进入 `/receipt-items` 仅单气泡。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/_layout.tsx`、`WebChatFab.tsx`、`receipts.tsx`、`receipt-items.tsx`、`invoices.tsx`
+
+---
+
+### 2026-04-11（核实 App Store 图标：app.config 的 logo2 vs 裸工程原生资源）
+
+**User（提示词/原意）**  
+- 新 production 构建在 App Store 发布仍显示旧 logo；核实是否已正确替换为 logo2 用于 build。
+
+**Assistant（实现前说明，若有）**  
+- `app.config.js` 的 `icon` / `android.adaptiveIcon.foregroundImage` 已指向 `./assets/logo2.png`，但存在裸 `ios/`、`android/` 时 EAS/Xcode 实际打包 **Images.xcassets AppIcon** 与 **mipmap**，与 `expo.icon` 可脱节。  
+- 核对：`App-Icon-1024x1024@1x.png` 与 `assets/icon.png` 哈希一致，均**非** logo2（旧图）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已从 `assets/logo2.png` 用 ImageMagick 生成 1024×1024 RGB PNG，覆盖 `ios/…/AppIcon.appiconset/App-Icon-1024x1024@1x.png`，并同步 `assets/icon.png`、`src/mobile-ui/assets/icon.png`。  
+- 已按各 density 从 logo2 重生成 Android `ic_launcher_foreground.webp`、`ic_launcher.webp`、`ic_launcher_round.webp`（mipmap-mdpi 至 xxxhdpi）。  
+- `app.config.js` 增加简短注释说明裸工程以原生资源为准。  
+- **验证**：重新 EAS `production` iOS 构建并提审；App Store Connect 图标更新可能有缓存延迟。若 logo2 需透明底而非白底，需改 magick 参数后重做 iOS 1024。
+
+**关联**  
+- `vouchap-app/app.config.js`、`assets/logo2.png`、`assets/icon.png`、`ios/Vouchap/Images.xcassets/AppIcon.appiconset/`、`android/app/src/main/res/mipmap-*`
+
+---

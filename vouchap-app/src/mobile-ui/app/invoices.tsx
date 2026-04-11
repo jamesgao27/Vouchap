@@ -27,7 +27,7 @@ import { SwipeableRow } from './SwipeableRow';
 import { getLocalDateString } from '@/lib/date-utils';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '@/lib/alertWeb';
-import WebChatFab from '@/components/WebChatFab';
+import WebChatFab, { WEB_CHAT_FAB_BOTTOM, WEB_CHAT_FAB_RIGHT, WEB_CHAT_FAB_SIZE } from '@/components/WebChatFab';
 import DataTable, { WEB_POPOVER } from '@/components/DataTable';
 import { getInvoiceColumns } from '@/components/voucher-table-columns';
 
@@ -1201,7 +1201,12 @@ const styles = StyleSheet.create({
   date: { fontSize: 14, color: '#636E72' },
   createdDate: { fontSize: 14, color: '#636E72', marginLeft: 'auto' },
   fabContainer: { position: 'absolute', right: 20, bottom: 20, alignItems: 'flex-end' },
-  fabContainerWeb: { right: 40, bottom: 40, width: 80, height: 80 },
+  fabContainerWeb: {
+    right: WEB_CHAT_FAB_RIGHT,
+    bottom: WEB_CHAT_FAB_BOTTOM,
+    width: WEB_CHAT_FAB_SIZE,
+    height: WEB_CHAT_FAB_SIZE,
+  },
   fabActionsContainer: { alignItems: 'flex-end' },
   fabMain: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#6C5CE7', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 6, elevation: 6 },
   fabAction: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', borderWidth: 1, borderColor: '#E5E7EB', shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.18, shadowRadius: 4, elevation: 4 },

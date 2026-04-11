@@ -21,7 +21,7 @@ import { sortScopeTagsForDisplay } from '@/lib/sort-scope-tags-for-display';
 import type { ReceiptLineItemListRow, Category, Attribution } from '@/types';
 import { showToast } from '@/lib/toast';
 import { confirmThen } from '@/lib/alertWeb';
-import WebChatFab from '@/components/WebChatFab';
+import WebChatFab, { WEB_CHAT_FAB_BOTTOM, WEB_CHAT_FAB_RIGHT, WEB_CHAT_FAB_SIZE } from '@/components/WebChatFab';
 import DataTable, { WEB_POPOVER, type DataTableSection } from '@/components/DataTable';
 import { getReceiptLineItemColumns } from '@/components/voucher-table-columns';
 
@@ -1206,10 +1206,10 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   fabContainerWeb: {
-    right: 40,
-    bottom: 40,
-    width: 80,
-    height: 80,
+    right: WEB_CHAT_FAB_RIGHT,
+    bottom: WEB_CHAT_FAB_BOTTOM,
+    width: WEB_CHAT_FAB_SIZE,
+    height: WEB_CHAT_FAB_SIZE,
   },
   popoverOptionRow: {
     flexDirection: 'row',
