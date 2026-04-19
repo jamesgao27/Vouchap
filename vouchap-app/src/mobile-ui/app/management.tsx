@@ -922,6 +922,21 @@ export default function ManagementScreen() {
           </View>
         </View>
 
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => router.push('/space-orders' as any)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.menuItemIcon}>
+            <Ionicons name="receipt-outline" size={20} color="#6C5CE7" />
+          </View>
+          <View style={styles.menuItemContent}>
+            <Text style={styles.menuItemTitle}>Order management</Text>
+            <Text style={styles.menuItemDescription}>Subscription and billing orders for this space</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
+        </TouchableOpacity>
+
         {/* Menu Items */}
         {visibleMenuItems.map((item) => (
           <TouchableOpacity

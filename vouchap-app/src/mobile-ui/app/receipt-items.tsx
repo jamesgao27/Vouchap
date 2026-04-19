@@ -15,6 +15,8 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { format, parseISO } from 'date-fns';
 import { getAllReceiptLineItemsForList, updateReceiptItem } from '@/lib/database';
+import { getCurrentUser } from '@/lib/auth';
+import { supabase } from '@/lib/supabase';
 import { getCategories } from '@/lib/categories';
 import { getAttributions } from '@/lib/attributions';
 import { sortScopeTagsForDisplay } from '@/lib/sort-scope-tags-for-display';
@@ -164,6 +166,45 @@ export default function ReceiptLineItemsScreen() {
       load();
     }, [load])
   );
+
+  // Realtime：Web 端 DataTable 不启用；移动端行项列表启用。
+  useEffect(() => {
+    if (Platform.OS === 'web') return;
+    let receiptsCh: ReturnType<typeof supabase.channel> | null = null;
+    let itemsCh: ReturnType<typeof supabase.channel> | null = null;
+    let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+    const setup = async () => {
+      try {
+        const user = await getCurrentUser();
+        const spaceId = user?.currentSpaceId || user?.spaceId;
+        if (!spaceId) return;
+        const debounced = () => {
+          if (refreshTimeout) clearTimeout(refreshTimeout);
+          refreshTimeout = setTimeout(() => load(), 300);
+        };
+        receiptsCh = supabase
+          .channel(`receipt-items-screen-rcpt-${spaceId}`)
+          .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'receipts', filter: `space_id=eq.${spaceId}` },
+            debounced
+          )
+          .subscribe();
+        itemsCh = supabase
+          .channel(`receipt-items-screen-ri-${spaceId}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'receipt_items' }, debounced)
+          .subscribe();
+      } catch (e) {
+        console.warn('Receipt line items realtime setup failed', e);
+      }
+    };
+    void setup();
+    return () => {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      if (receiptsCh) void supabase.removeChannel(receiptsCh);
+      if (itemsCh) void supabase.removeChannel(itemsCh);
+    };
+  }, [load]);
 
   useEffect(() => {
     getCategories('expense').then(setCategories).catch(() => {});

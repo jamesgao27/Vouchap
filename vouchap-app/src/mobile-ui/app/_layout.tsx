@@ -16,7 +16,7 @@ import { getWebStackHeaderLeftScreenOptions } from '../lib/web-stack-header-left
 /** 基础数据设置页：这些页不显示 chat-to-log 气泡（已打开的右栏保留） */
 function isSettingsPage(pathname: string): boolean {
   const base = pathname?.replace(/^\//, '').split('/')[0] || '';
-  return ['entities-manage', 'accounts-manage', 'categories-manage', 'purposes-manage', 'attributions-manage', 'skus-manage', 'warehouse-manage', 'management', 'space-manage'].includes(base);
+  return ['entities-manage', 'accounts-manage', 'categories-manage', 'purposes-manage', 'attributions-manage', 'skus-manage', 'warehouse-manage', 'management', 'space-manage', 'space-orders'].includes(base);
 }
 
 /** 某些页面完全不显示 chat-to-log（右栏 + 气泡都关掉） */
@@ -494,6 +494,14 @@ textarea:focus-within {
           options={{ 
             title: 'Space Information'
           }} 
+        />
+        <Stack.Screen
+          name="space-orders"
+          options={{
+            title: 'Order management',
+            headerBackTitle: 'Back',
+            headerBackButtonVisible: true,
+          }}
         />
         <Stack.Screen 
           name="chat-to-log" 

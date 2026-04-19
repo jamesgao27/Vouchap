@@ -145,7 +145,7 @@ export default function InboundScreen() {
     }, [load, list.length])
   );
 
-  // Supabase Realtime：后端数据变更时自动局部刷新列表（仅移动端；Web 端表格视图不启用）
+  // Supabase Realtime：Web 端 DataTable 列表不启用；移动端列表启用。
   useEffect(() => {
     if (Platform.OS === 'web') return;
     let inboundChannel: ReturnType<typeof supabase.channel> | null = null;

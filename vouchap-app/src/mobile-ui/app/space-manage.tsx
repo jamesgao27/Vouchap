@@ -237,6 +237,19 @@ export default function SpaceManageScreen() {
           </View>
         )}
 
+        <TouchableOpacity
+          style={styles.linkCard}
+          onPress={() => router.push('/space-orders' as any)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="receipt-outline" size={22} color="#6C5CE7" />
+          <View style={styles.linkCardTextWrap}>
+            <Text style={styles.linkCardTitle}>Order management</Text>
+            <Text style={styles.linkCardHint}>View subscription and billing orders</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
+        </TouchableOpacity>
+
         {space && (
           <View style={styles.infoCard}>
             <View style={styles.infoRow}>
@@ -300,6 +313,30 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     padding: 16,
+  },
+  linkCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    gap: 12,
+  },
+  linkCardTextWrap: {
+    flex: 1,
+  },
+  linkCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2D3436',
+  },
+  linkCardHint: {
+    fontSize: 13,
+    color: '#636E72',
+    marginTop: 2,
   },
   card: {
     backgroundColor: '#fff',

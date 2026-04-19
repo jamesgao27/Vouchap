@@ -52,6 +52,10 @@ import {
   buildTaxFilingAttachmentDefaultDisplayName,
   taxFilingAttachmentCardSubtitleSummary,
 } from '@/lib/tax-filing-attachment-display-name';
+import {
+  assertClientRecognitionAllowed,
+  recordClientRecognitionSuccessIfEnforced,
+} from '@/lib/client-recognition-quota';
 import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound, ExtractedClient, ClientRecognitionResult } from '@/types';
 import { convertGeminiResultToReceipt, convertGeminiResultToInvoice, convertGeminiResultToInbound, convertGeminiResultToOutbound } from '@/lib/receipt-helpers';
 import { format } from 'date-fns';
@@ -1495,6 +1499,23 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 let docType: string | null = null;
                 let extracted_data: unknown = null;
 
+                const quotaGate = await assertClientRecognitionAllowed(clientSpaceId);
+                if (!quotaGate.allowed) {
+                  await updateProjectTodoAttachment(attachmentId, {
+                    status: 'FAILED_ONCE',
+                    recognition_fail_count: 1,
+                  });
+                  const capMsg = quotaGate.message ?? 'Recognition limit reached.';
+                  setMessages((prev) =>
+                    prev.map((m) =>
+                      m.id === loadingCardId
+                        ? { id: m.id, text: `Limit: ${capMsg}`, isUser: false, timestamp: new Date() }
+                        : m
+                    )
+                  );
+                  return;
+                }
+
                 // 标记为处理中
                 await updateProjectTodoAttachment(attachmentId, { status: 'PROCESSING' });
 
@@ -1607,6 +1628,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   success: true,
                   attachmentUrl: fileUrl,
                 });
+                await recordClientRecognitionSuccessIfEnforced(clientSpaceId);
               })();
             } else if (voucherType === 'receipt' || voucherType === 'invoice') {
               const name = file.name ?? `File ${i + 1}`;
@@ -1631,6 +1653,24 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 // 上传完成后更新用户消息，补充 documentUrl 以支持点击打开
                 setMessages((prev) => prev.map((m) => (m.id === `img-user-${file.id}` ? { ...m, documentUrl: fileUrl } : m)));
               }
+              const voucherGate = await assertClientRecognitionAllowed(clientSpaceId);
+              if (!voucherGate.allowed) {
+                const msg = voucherGate.message ?? 'Recognition limit reached.';
+                setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: `Limit: ${msg}`, isUser: false, timestamp: new Date() } : m)));
+                await saveChatLog({
+                  receiptId: undefined,
+                  voucherType,
+                  type: isImage ? 'image' : (file.mimeType ? 'document' : 'attachment'),
+                  modelName: 'gemini',
+                  prompt: name,
+                  response: msg,
+                  requestData: { imageUrl: fileUrl, mimeType: file.mimeType, rawText: text || undefined },
+                  responseData: { quota: 'blocked' },
+                  success: false,
+                  attachmentUrl: fileUrl,
+                });
+                continue;
+              }
               const recognizeFn = voucherType === 'receipt'
                 ? () => (isImage ? recognizeReceipt(fileUrl) : recognizeReceiptFromDocument(fileUrl, file.mimeType))
                 : () => (isImage ? recognizeReceipt(fileUrl) : recognizeInvoiceFromDocument(fileUrl, file.mimeType));
@@ -1640,7 +1680,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: errText, isUser: false, timestamp: new Date() } : m)));
                 // 识别失败也保留 chat log 记录（type=document/attachment），便于历史追溯
                 await saveChatLog({
-                  receiptId: voucherType === 'receipt' ? receiptId : undefined,
+                  receiptId: undefined,
                   voucherType,
                   type: isImage ? 'image' : (file.mimeType ? 'document' : 'attachment'),
                   modelName: 'gemini',
@@ -1664,6 +1704,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 const previewMessage: Message = { id: `img-preview-${file.id}`, text: '', isUser: false, timestamp: new Date(), invoicePreview: { ...invoiceToSave, id: invoiceId, status: invoice.status, account: (first.result as any).paymentAccountName ? { id: invoice.accountId || '', spaceId: invoice.spaceId, name: (first.result as any).paymentAccountName!, isAiRecognized: true } : undefined } as Invoice, voucherType: 'invoice' };
                 setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMessage : m)));
                 await saveChatLog({ receiptId: undefined, voucherType: 'invoice', type: 'image', modelName: 'gemini', prompt: name, response: '', requestData: { imageUrl: fileUrl }, responseData: { invoicePreview: previewMessage.invoicePreview }, success: true });
+                await recordClientRecognitionSuccessIfEnforced(clientSpaceId);
               } else {
                 const receipt = await convertGeminiResultToReceipt(first.result);
                 const receiptToSave = { ...receipt, inputType: (isImage ? 'image' : 'document') as 'image' | 'document', imageUrl: fileUrl };
@@ -1680,6 +1721,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 const previewMessage: Message = { id: `img-preview-${file.id}`, text: '', isUser: false, timestamp: new Date(), receiptPreview: { ...receiptToSave, id: receiptId, status: receiptStatus, account: (first.result as any).paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: (first.result as any).paymentAccountName!, isAiRecognized: true } : undefined } };
                 setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMessage : m)));
                 await saveChatLog({ receiptId, voucherType: 'receipt', type: 'image', modelName: 'gemini', prompt: name, response: '', requestData: { imageUrl: fileUrl }, responseData: { receiptPreview: previewMessage.receiptPreview }, success: true });
+                await recordClientRecognitionSuccessIfEnforced(clientSpaceId);
               }
             } else if (voucherType === 'inbound' || voucherType === 'outbound') {
               const name = file.name ?? `File ${i + 1}`;
@@ -1703,6 +1745,12 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 fileUrl = await uploadReceiptImageTempWithSpace(file.uri, tempFileName, clientSpaceId, { fileName: file.name, mimeType: file.mimeType });
                 setMessages((prev) => prev.map((m) => (m.id === `img-user-${file.id}` ? { ...m, documentUrl: fileUrl } : m)));
               }
+              const ioGate = await assertClientRecognitionAllowed(clientSpaceId);
+              if (!ioGate.allowed) {
+                const msg = ioGate.message ?? 'Recognition limit reached.';
+                setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: `Limit: ${msg}`, isUser: false, timestamp: new Date() } : m)));
+                continue;
+              }
               try {
                 if (voucherType === 'inbound') {
                   const recognizedData = isImage ? await recognizeInboundFromImage(fileUrl) : await recognizeInboundFromDocument(fileUrl, file.mimeType);
@@ -1712,6 +1760,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   const previewMessage: Message = { id: `img-preview-${file.id}`, text: '', isUser: false, timestamp: new Date(), inboundPreview: { ...inboundToSave, id: inboundId } as Inbound, voucherType: 'inbound' };
                   setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMessage : m)));
                   await saveChatLog({ receiptId: undefined, voucherType: 'inbound', type: 'image', modelName: 'gemini', prompt: name, response: '', requestData: { imageUrl: fileUrl }, responseData: { inboundPreview: previewMessage.inboundPreview }, success: true });
+                  await recordClientRecognitionSuccessIfEnforced(clientSpaceId);
                 } else {
                   const recognizedData = isImage ? await recognizeOutboundFromImage(fileUrl) : await recognizeOutboundFromDocument(fileUrl, file.mimeType);
                   const outbound = await convertGeminiResultToOutbound(recognizedData);
@@ -1720,6 +1769,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   const previewMessage: Message = { id: `img-preview-${file.id}`, text: '', isUser: false, timestamp: new Date(), outboundPreview: { ...outboundToSave, id: outboundId } as Outbound, voucherType: 'outbound' };
                   setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMessage : m)));
                   await saveChatLog({ receiptId: undefined, voucherType: 'outbound', type: 'image', modelName: 'gemini', prompt: name, response: '', requestData: { imageUrl: fileUrl }, responseData: { outboundPreview: previewMessage.outboundPreview }, success: true });
+                  await recordClientRecognitionSuccessIfEnforced(clientSpaceId);
                 }
               } catch (err) {
                 const errText = err instanceof Error ? err.message : 'Recognition failed.';
@@ -1839,6 +1889,23 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       return;
     }
 
+    let textQuotaSpace = await getCurrentSpace(false);
+    if (!textQuotaSpace?.id) textQuotaSpace = await getCurrentSpace(true);
+    const textSpaceId = textQuotaSpace?.id ?? '';
+    const textGate = await assertClientRecognitionAllowed(textSpaceId);
+    if (!textGate.allowed) {
+      const errLine = textGate.message ?? 'Recognition limit reached.';
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: `Limit: ${errLine}`,
+        isUser: false,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [errorMessage, ...prev]);
+      setIsProcessing(false);
+      return;
+    }
+
     const recognizeFn = () => {
       if (voucherType === 'invoice') return recognizeVoucherFromText(text, 'invoice');
       if (voucherType === 'inbound') return recognizeInboundFromText(text);
@@ -1900,6 +1967,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         setMessages(prev => [previewMessage, ...prev]);
         await saveChatLog({ receiptId, voucherType: 'receipt', type: 'text', modelName: 'gemini', prompt: text, response: previewMessage.text, requestData: { rawText: text }, responseData: { receiptPreview: previewMessage.receiptPreview }, success: true });
       }
+      let qs = await getCurrentSpace(false);
+      if (!qs?.id) qs = await getCurrentSpace(true);
+      if (qs?.id) await recordClientRecognitionSuccessIfEnforced(qs.id);
       scrollToBottom();
     };
 
@@ -2078,6 +2148,22 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         msg.id === userMessageId ? { ...msg, audioUrl } : msg
       ));
 
+      let voiceQuotaSpace = await getCurrentSpace(false);
+      if (!voiceQuotaSpace?.id) voiceQuotaSpace = await getCurrentSpace(true);
+      const voiceSpaceId = voiceQuotaSpace?.id ?? '';
+      const voiceGate = await assertClientRecognitionAllowed(voiceSpaceId);
+      if (!voiceGate.allowed) {
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: `Limit: ${voiceGate.message ?? 'Recognition limit reached.'}`,
+          isUser: false,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => [errorMessage, ...prev]);
+        setIsProcessing(false);
+        return;
+      }
+
       // 识别：先试一次，可重试错误则后台静默重试直至成功；内容质量差则直接提示重新提交
       const recognizeFn = () => {
         if (voucherType === 'invoice') return recognizeVoucherFromAudio(localUri, 'invoice');
@@ -2140,6 +2226,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
           setMessages(prev => [previewMessage, ...prev]);
           await saveChatLog({ receiptId, voucherType: 'receipt', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: previewMessage.text, requestData: { audioDurationSeconds: duration }, responseData: { receiptPreview: previewMessage.receiptPreview }, success: true, attachmentUrl: audioUrl });
         }
+        let vqs = await getCurrentSpace(false);
+        if (!vqs?.id) vqs = await getCurrentSpace(true);
+        if (vqs?.id) await recordClientRecognitionSuccessIfEnforced(vqs.id);
         scrollToBottom();
       };
 

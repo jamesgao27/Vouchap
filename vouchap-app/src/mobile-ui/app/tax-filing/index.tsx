@@ -33,6 +33,7 @@ import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '../../../shared-logic/alertWeb';
 import { ServiceCatalogAddEntryTile } from '@/components/ServiceCatalogShared';
 import { PinToTopIcon } from '@/components/ProjectListCardAndRow';
+import { useClientSpaceTaxFilingListRealtime } from '../../lib/engagement-realtime';
 
 const PINNED_ORDER_IDS_KEY = 'tax_filing_pinned_order_ids';
 
@@ -78,7 +79,7 @@ const STAGE_SOLID: Record<string, string> = {
   cancelled: '#B2BEC3',
 };
 
-import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors';
+import { deriveTaxSeasonYear, getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors';
 
 /** 税季标签颜色（与报税项目 Info、订单详情、WEB 列表一致） */
 
@@ -98,15 +99,18 @@ function getTaxSeasonYear(order: FirmOrderForClient): number | null {
   }
   const d = order.dueAt || order.createdAt || null;
   if (!d) return null;
-  try {
-    return new Date(d).getFullYear();
-  } catch {
-    return null;
-  }
+  return deriveTaxSeasonYear(d);
 }
 
 function getOrderDisplayName(order: FirmOrderForClient, isOnboarding: boolean): string {
   return isOnboarding ? (order.skuName ?? 'Service order') : (order.projectName ?? order.skuName ?? 'Project');
+}
+
+function isAwaitingFirmConfirmation(order: FirmOrderForClient): boolean {
+  return (
+    order.status === 'onboarding' &&
+    String((order as any).requestOrigin ?? 'firm_manual') === 'client_marketplace'
+  );
 }
 
 export default function TaxFilingScreen() {
@@ -135,6 +139,12 @@ function TaxFilingMobileScreen() {
     if (!space?.id) return [];
     return getClientOrdersForClientSpace(space.id);
   }, []);
+
+  const refreshOrdersFromRealtime = useCallback(async () => {
+    const next = await loadOrders();
+    setOrders(next);
+  }, [loadOrders]);
+  useClientSpaceTaxFilingListRealtime(showTaxFiling, refreshOrdersFromRealtime);
 
   useEffect(() => {
     if (!showTaxFiling) {
@@ -287,6 +297,7 @@ function TaxFilingMobileScreen() {
       const isHiddenSection = section.monthKey === 'hidden';
       if (isHiddenSection && hiddenCollapsed) return null;
       const isOnboarding = order.status === 'onboarding';
+      const awaitingFirmConfirmation = isAwaitingFirmConfirmation(order);
       const isCancelled = order.status === 'cancelled';
       const displayName = getOrderDisplayName(order, isOnboarding);
       const taxSeasonYear = getTaxSeasonYear(order);
@@ -368,33 +379,41 @@ function TaxFilingMobileScreen() {
                       {progress.completed}/{progress.total} • {progressPercent}%
                     </Text>
                   </View>
+                ) : awaitingFirmConfirmation ? (
+                  <View style={[styles.progressRow, styles.progressRowCentered]}>
+                    <View style={styles.progressLabelPill}>
+                      <Text style={styles.progressLabelPillText}>Awaiting firm confirmation</Text>
+                    </View>
+                  </View>
                 ) : null}
               </View>
             </Pressable>
-            {isOnboarding && !isCancelled && !isHiddenSection ? (
+            {isOnboarding && !isCancelled && !isHiddenSection && !awaitingFirmConfirmation ? (
               <View style={styles.actionRow}>
-                <TouchableOpacity
-                  style={styles.rejectBtn}
-                  onPress={() => handleRejectOrder(order)}
-                  disabled={rejectingId === order.id}
-                >
-                  {rejectingId === order.id ? (
-                    <ActivityIndicator size="small" color="#636E72" />
-                  ) : (
-                    <Text style={styles.rejectBtnText}>Reject</Text>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.acceptBtn, confirmingId === order.id && styles.acceptBtnDisabled]}
-                  onPress={() => handleConfirmOrder(order)}
-                  disabled={confirmingId === order.id}
-                >
-                  {confirmingId === order.id ? (
-                    <ActivityIndicator size="small" color="#fff" />
-                  ) : (
-                    <Text style={styles.acceptBtnText}>Accept and Start</Text>
-                  )}
-                </TouchableOpacity>
+                <>
+                  <TouchableOpacity
+                    style={styles.rejectBtn}
+                    onPress={() => handleRejectOrder(order)}
+                    disabled={rejectingId === order.id}
+                  >
+                    {rejectingId === order.id ? (
+                      <ActivityIndicator size="small" color="#636E72" />
+                    ) : (
+                      <Text style={styles.rejectBtnText}>Reject</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.acceptBtn, confirmingId === order.id && styles.acceptBtnDisabled]}
+                    onPress={() => handleConfirmOrder(order)}
+                    disabled={confirmingId === order.id}
+                  >
+                    {confirmingId === order.id ? (
+                      <ActivityIndicator size="small" color="#fff" />
+                    ) : (
+                      <Text style={styles.acceptBtnText}>Accept and Start</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
               </View>
             ) : null}
             {!isHiddenSection && isCancelled ? (
@@ -460,12 +479,13 @@ function TaxFilingMobileScreen() {
           onPress={() => setHiddenCollapsed((v) => !v)}
           activeOpacity={0.8}
         >
-          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+          <View style={styles.recycleBinHeaderRow}>
             <Text style={styles.sectionTitle}>{section.title}</Text>
             <Ionicons
               name={hiddenCollapsed ? 'chevron-down' : 'chevron-up'}
               size={18}
               color="#636E72"
+              style={styles.recycleBinChevron}
             />
           </View>
         </TouchableOpacity>
@@ -660,9 +680,9 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   taxSeasonPill: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
     backgroundColor: '#F3F4FF',
   },
   taxSeasonText: {
@@ -681,7 +701,7 @@ const styles = StyleSheet.create({
   footerText: {
     fontSize: 12,
     color: '#636E72',
-    marginLeft: 'auto',
+    flexShrink: 1,
   },
   progressText: {
     fontSize: 14,
@@ -709,6 +729,9 @@ const styles = StyleSheet.create({
     gap: 8,
     minHeight: 30,
   },
+  progressRowCentered: {
+    justifyContent: 'center',
+  },
   progressBarTrack: {
     flex: 1,
     height: 6,
@@ -725,6 +748,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#636E72',
     fontWeight: '500',
+  },
+  progressLabelPill: {
+    maxWidth: '90%',
+    borderRadius: 999,
+    backgroundColor: '#E5E7EB',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  progressLabelPillText: {
+    fontSize: 12,
+    color: '#636E72',
+    fontWeight: '600',
   },
   acceptBtn: {
     paddingHorizontal: 12,
@@ -777,6 +814,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  recycleBinHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+  },
+  recycleBinChevron: {
+    marginTop: 1,
   },
   sectionTitle: {
     fontSize: 16,
@@ -914,6 +960,12 @@ function TaxFilingWebScreen() {
     if (!space?.id) return [];
     return getClientOrdersForClientSpace(space.id);
   }, []);
+
+  const refreshOrdersFromRealtimeWeb = useCallback(async () => {
+    const next = await loadOrders();
+    setOrders(next);
+  }, [loadOrders]);
+  useClientSpaceTaxFilingListRealtime(showTaxFiling, refreshOrdersFromRealtimeWeb);
 
   useEffect(() => {
     if (!showTaxFiling) {
@@ -1162,6 +1214,7 @@ function TaxFilingWebScreen() {
                     name={hiddenCollapsedWeb ? 'chevron-down' : 'chevron-up'}
                     size={18}
                     color="#636E72"
+                    style={stylesWeb.recycleBinChevron}
                   />
                 </View>
               </TouchableOpacity>
@@ -1232,11 +1285,7 @@ function getTaxSeasonYearWeb(order: FirmOrderForClient): number | null {
   }
   const d = order.dueAt || order.createdAt || null;
   if (!d) return null;
-  try {
-    return new Date(d).getFullYear();
-  } catch {
-    return null;
-  }
+  return deriveTaxSeasonYear(d);
 }
 
 function getOrderDisplayNameWeb(order: FirmOrderForClient, isOnboarding: boolean): string {
@@ -1252,6 +1301,7 @@ function orderToItemWeb(
   opts?: { recycleBinRestore?: boolean },
 ): ProjectListCardItemWeb {
   const isOnboarding = order.status === 'onboarding';
+  const awaitingFirmConfirmation = isAwaitingFirmConfirmation(order);
   const taxSeasonYear = getTaxSeasonYearWeb(order);
   const isCancelled = order.status === 'cancelled';
   return {
@@ -1268,14 +1318,17 @@ function orderToItemWeb(
       !isOnboarding && !isCancelled && (order.taskTotal ?? 0) > 0
         ? { completed: order.taskCompleted ?? 0, total: order.taskTotal ?? 0 }
         : null,
+    progressLabel: awaitingFirmConfirmation ? 'Awaiting firm confirmation' : null,
     action: isOnboarding && !isCancelled
-      ? {
-          label: 'Accept and Start',
-          onPress: () => onConfirm(order),
-          confirming: confirmingId === order.id,
-          onReject: () => onReject(order),
-          rejecting: rejectingId === order.id,
-        }
+      ? awaitingFirmConfirmation
+        ? null
+        : {
+            label: 'Accept and Start',
+            onPress: () => onConfirm(order),
+            confirming: confirmingId === order.id,
+            onReject: () => onReject(order),
+            rejecting: rejectingId === order.id,
+          }
       : null,
     settingsIconOverride: opts?.recycleBinRestore ? 'arrow-undo-outline' : undefined,
   };
@@ -1294,9 +1347,17 @@ const stylesWeb = StyleSheet.create({
   emptySectionText: { fontSize: 14, color: '#95A5A6' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: GRID_GAP_WEB },
   hiddenSection: { marginTop: 24 },
-  hiddenSectionTitle: { fontSize: 14, fontWeight: '600', color: '#636E72', marginBottom: 12 },
+  hiddenSectionTitle: { fontSize: 14, fontWeight: '600', color: '#636E72' },
   recycleBinHeader: { width: '100%' },
-  recycleBinHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  recycleBinHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+  },
+  recycleBinChevron: {
+    marginTop: 1,
+  },
   listWrapper: {
     borderRadius: 12,
     borderColor: '#E5E7EB',

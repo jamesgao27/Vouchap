@@ -30,11 +30,14 @@ import {
   type ProjectTodoNode,
 } from '@/lib/firm';
 import { showToast } from '@/lib/toast';
+import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import { ProjectInfoTab, type ProjectInfoTabHandle } from './info';
 import type { FirmSkuItem } from '@/types';
 import type { ProjectSkuInfo } from '@/components/ProjectSkuDetail';
 import { ProjectDetailView, type ProjectDetailHeader, ORDER_STATUS_CONFIG } from '@/components/ProjectDetailView';
 import EngagementConsentModal from '@/components/EngagementConsentModal';
+import { deriveTaxSeasonYear } from '@/lib/tax-season-colors';
+import { useEngagementOrderProjectRealtime } from '../../../../lib/engagement-realtime';
 
 export default function ProjectTodosScreen() {
   const { projectId, tab, edit } = useLocalSearchParams<{
@@ -77,7 +80,7 @@ export default function ProjectTodosScreen() {
         return;
       }
       setClientSpaceId(order.clientSpaceId ?? '');
-      const headerData = await getOrderHeaderForClient(orderIdVal);
+      const headerData = await getOrderHeaderForClient(orderIdVal, { preloadedOrder: order });
       setHeader(headerData ?? null);
       if (order.status === 'onboarding') {
         setTree([]);
@@ -111,6 +114,21 @@ export default function ProjectTodosScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /** Info 保存后立刻刷新顶栏税季/名称（父级 state 不随子组件 load 更新） */
+  const refreshEngagementChrome = useCallback(async () => {
+    if (!orderId) return;
+    try {
+      const ord = await getOrderById(orderId);
+      if (!ord) return;
+      const headerData = await getOrderHeaderForClient(orderId, { preloadedOrder: ord });
+      setHeader(headerData ?? null);
+    } catch {
+      /* keep existing */
+    }
+  }, [orderId]);
+
+  useEngagementOrderProjectRealtime(orderId, normalizedProjectId ?? null, load, Boolean(normalizedProjectId));
 
   const chatPanel = useChatPanel();
   // 进入/切换报税项目时：仅更新附件上下文，不再自动打开/关闭 chat-to-log
@@ -178,15 +196,12 @@ export default function ProjectTodosScreen() {
 
   const handleAbort = useCallback(async () => {
     if (!orderId) return;
-    if (Platform.OS === 'web' && !window.confirm('Terminate this engagement? You can\'t undo this.')) return;
-    if (Platform.OS !== 'web') {
-      Alert.alert('Terminate engagement', 'Terminate this engagement? You can\'t undo this.', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Terminate', style: 'destructive', onPress: () => doAbort() },
-      ]);
-      return;
-    }
-    await doAbort();
+    showConfirmDestructiveDialog(
+      'Terminate engagement',
+      'Terminate this engagement? You can\'t undo this.',
+      () => void doAbort(),
+      { confirmLabel: 'Terminate' }
+    );
     async function doAbort() {
       setAbortLoading(true);
       const { error } = await updateOrderStatus(orderId, 'cancelled');
@@ -241,7 +256,7 @@ export default function ProjectTodosScreen() {
   const explicitTaxSeasonYear = header?.taxSeasonYear ?? null;
   const taxSeasonYear = explicitTaxSeasonYear != null
     ? explicitTaxSeasonYear
-    : (dateForYear ? new Date(dateForYear).getFullYear() : null);
+    : deriveTaxSeasonYear(dateForYear);
   const detailHeader: ProjectDetailHeader = {
     title: header?.projectName ?? '',
     subtitle: header?.firmName ? `by ${header.firmName}` : '',
@@ -322,6 +337,7 @@ export default function ProjectTodosScreen() {
             ? (todoId, title) => updateProjectTodo(todoId, { title })
             : undefined
         }
+        onProjectInfoSaved={refreshEngagementChrome}
       />
       {showTinaFab && (
         <TouchableOpacity

@@ -2,7 +2,7 @@
  * 项目/订单详情统一界面：client 的 project 详情与 firm 的 order 详情共用。
  * 同一套布局与样式，仅根据 viewerRole 做少量差异（header 副标题/状态 pill、操作栏右侧按钮、onboarding 内容）。
  */
-import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -13,6 +13,8 @@ import {
   ActivityIndicator,
   Image,
   Platform,
+  Modal,
+  Dimensions,
 } from 'react-native';
 import { useNavigation } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -40,6 +42,8 @@ function getTagColor(tag: string): [string, string] {
   for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) & 0xffff;
   return TAG_PALETTE[hash % TAG_PALETTE.length];
 }
+
+const TODO_FILTER_MENU_WIDTH = 232;
 
 /** 将 sku_items 转为 TaxFilingTodosView 所需的 ProjectTodoNode 树（与 firm/sku/[skuId] 一致） */
 function skuItemsToProjectTodoTree(items: FirmSkuItem[]): ProjectTodoNode[] {
@@ -93,6 +97,41 @@ export function ProjectDetailHeaderTitle({
   header: ProjectDetailHeader;
 }) {
   const { title, subtitle, taxSeasonYear, status } = header;
+  const isWeb = Platform.OS === 'web';
+  if (!isWeb) {
+    return (
+      <View style={headerStyles.wrapMobile}>
+        <View style={headerStyles.mobileLine}>
+          {taxSeasonYear != null ? (
+            <View style={[headerStyles.pillCompact, { backgroundColor: getTaxSeasonBgColor(taxSeasonYear) }]}>
+              <Text style={[headerStyles.pillTextCompact, { color: getTaxSeasonColor(taxSeasonYear) }]}>
+                {taxSeasonYear}
+              </Text>
+            </View>
+          ) : (
+            <View style={headerStyles.mobilePillPlaceholder} />
+          )}
+          <Text style={headerStyles.title} numberOfLines={1} ellipsizeMode="tail">{title}</Text>
+        </View>
+        <View style={headerStyles.mobileLine}>
+          {status ? (
+            <View style={[headerStyles.statusPillCompact, { backgroundColor: status.bg }]}>
+              <Text style={[headerStyles.statusPillCompactText, { color: status.color }]} numberOfLines={1}>
+                {status.label}
+              </Text>
+            </View>
+          ) : (
+            <View style={headerStyles.mobilePillPlaceholder} />
+          )}
+          {subtitle ? (
+            <Text style={headerStyles.subInline} numberOfLines={1} ellipsizeMode="tail">{subtitle}</Text>
+          ) : (
+            <View style={headerStyles.mobileSubPlaceholder} />
+          )}
+        </View>
+      </View>
+    );
+  }
   return (
     <View style={headerStyles.wrap}>
       {taxSeasonYear != null ? (
@@ -130,6 +169,21 @@ export function ProjectDetailHeaderTitle({
 }
 
 const headerStyles = StyleSheet.create({
+  wrapMobile: {
+    flex: 1,
+    minWidth: 0,
+    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingRight: 8,
+    gap: 3,
+    minHeight: 56,
+  },
+  mobileLine: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+    gap: 6,
+  },
   wrap: {
     flex: 1,
     minWidth: 0,
@@ -152,9 +206,43 @@ const headerStyles = StyleSheet.create({
     alignItems: 'center',
   },
   pillText: { fontSize: 15, fontWeight: '700', lineHeight: 20 },
+  pillCompact: {
+    minWidth: 44,
+    maxHeight: 24,
+    borderRadius: 12,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pillTextCompact: { fontSize: 12, fontWeight: '700', lineHeight: 14 },
+  mobilePillPlaceholder: {
+    minHeight: 24,
+  },
+  mobileSubPlaceholder: {
+    minHeight: 16,
+  },
   textCol: { flex: 1, minWidth: 0, justifyContent: 'center' },
   title: { fontSize: 15, fontWeight: '600', color: '#2D3436', lineHeight: 20 },
+  subRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minWidth: 0,
+    marginTop: 2,
+    gap: 6,
+  },
+  statusPillCompact: {
+    minWidth: 50,
+    maxWidth: 130,
+    borderRadius: 11,
+    paddingVertical: 2,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  statusPillCompactText: { fontSize: 11, fontWeight: '700', lineHeight: 14 },
   sub: { fontSize: 12, color: '#95A5A6', lineHeight: 16, marginTop: 4 },
+  subInline: { flex: 1, minWidth: 0, fontSize: 12, color: '#95A5A6', lineHeight: 16 },
 });
 
 /** Firm onboarding：WBS 预览表格 */
@@ -240,6 +328,8 @@ export interface ProjectDetailViewProps {
   persistTodoTitle?: (todoId: string, title: string) => Promise<{ error: Error | null }>;
   /** 新建 phase/section/task 后本地合并树，避免整表 onRefresh（连续添加时不丢滚动） */
   onMergeProjectTodosTree?: (roots: ProjectTodoNode[]) => void;
+  /** Info 保存成功后刷新父级顶栏（税季、名称等），不依赖 Realtime */
+  onProjectInfoSaved?: () => void | Promise<void>;
 }
 
 export function ProjectDetailView({
@@ -278,6 +368,7 @@ export function ProjectDetailView({
   onTodoTreeOrderSaved,
   persistTodoTitle,
   onMergeProjectTodosTree,
+  onProjectInfoSaved,
 }: ProjectDetailViewProps) {
   const navigation = useNavigation();
 
@@ -286,6 +377,24 @@ export function ProjectDetailView({
   const [onboardingOrderInfo, setOnboardingOrderInfo] = useState<Awaited<ReturnType<typeof getOrderById>>>(null);
   const [hideTodoTasksWithNoFiles, setHideTodoTasksWithNoFiles] = useState(false);
   const [hideTodoCanceled, setHideTodoCanceled] = useState(false);
+  const [showTodoFilterModal, setShowTodoFilterModal] = useState(false);
+  const [todoFilterPopover, setTodoFilterPopover] = useState<{ top: number; left: number } | null>(null);
+  const filterIconRef = useRef<View | null>(null);
+
+  const openTodoFilterPopover = useCallback(() => {
+    filterIconRef.current?.measureInWindow((x, y, width, height) => {
+      const winW = Dimensions.get('window').width;
+      let left = x + width - TODO_FILTER_MENU_WIDTH;
+      left = Math.max(8, Math.min(left, winW - TODO_FILTER_MENU_WIDTH - 8));
+      setTodoFilterPopover({ top: y + height + 4, left });
+      setShowTodoFilterModal(true);
+    });
+  }, []);
+
+  const closeTodoFilterPopover = useCallback(() => {
+    setShowTodoFilterModal(false);
+    setTodoFilterPopover(null);
+  }, []);
 
   const showTodoToolbarFilters =
     activeTab === 'todos' &&
@@ -296,10 +405,10 @@ export function ProjectDetailView({
     navigation.setOptions({
       headerBackButtonVisible: true,
       // Web 保持原设计：税季 + 标题 + 状态 pill 都在导航栏
-      // 移动端：状态 pill 下移到 Todos/Info 行，只在 header 中渲染税季 + 标题
+      // 移动端：状态 + firm 名在顶栏第二行（与列表卡片布局一致）
       headerTitle: () => (
         <ProjectDetailHeaderTitle
-          header={isWeb ? header : { ...header, status: undefined }}
+          header={header}
         />
       ),
     });
@@ -321,6 +430,7 @@ export function ProjectDetailView({
   }, [isOnboarding, activeTab, projectId, orderId]);
 
   const showOnboardingActions = Boolean(isOnboarding && onAcceptAndStart && (viewerRole === 'client' || viewerRole === 'firm'));
+  const showOnboardingTerminateOnly = Boolean(isOnboarding && !onAcceptAndStart && onAbort);
   /** Detail content (Todos + Info) is read-only when onboarding, cancelled, or completed — same as onboarding. */
   const isDetailReadOnly = isOnboarding || orderStatus === 'cancelled' || orderStatus === 'completed';
   const firmNameFromHeader = (() => {
@@ -359,6 +469,23 @@ export function ProjectDetailView({
                 <Ionicons name="checkmark-circle" size={18} color="#fff" />
                 <Text style={sharedStyles.bottomAcceptBtnText}>{headerAcceptLabel}</Text>
               </>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
+    ) : showOnboardingTerminateOnly && onAbort ? (
+      <View style={sharedStyles.bottomActionBar}>
+        <View style={sharedStyles.bottomActionRow}>
+          <TouchableOpacity
+            onPress={onAbort}
+            disabled={abortLoading || completeLoading}
+            style={sharedStyles.bottomAbortBtn}
+            activeOpacity={0.85}
+          >
+            {abortLoading ? (
+              <ActivityIndicator size="small" color="#D35400" />
+            ) : (
+              <Text style={sharedStyles.bottomAbortBtnText}>Terminate</Text>
             )}
           </TouchableOpacity>
         </View>
@@ -446,8 +573,8 @@ export function ProjectDetailView({
         </View>
 
         <View style={sharedStyles.todoFilterCenterSlot} pointerEvents="box-none">
-          {showTodoToolbarFilters ? (
-            <View style={sharedStyles.todoFilterCheckRow} pointerEvents="auto">
+          {isWeb && showTodoToolbarFilters ? (
+            <View style={sharedStyles.todoFilterCheckRow}>
               <Pressable
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: hideTodoTasksWithNoFiles }}
@@ -456,12 +583,10 @@ export function ProjectDetailView({
               >
                 <Ionicons
                   name={hideTodoTasksWithNoFiles ? 'checkbox' : 'square-outline'}
-                  size={16}
+                  size={18}
                   color={hideTodoTasksWithNoFiles ? '#6C5CE7' : '#95A5A6'}
                 />
-                <Text style={sharedStyles.todoFilterCheckText} numberOfLines={1} ellipsizeMode="tail">
-                  Hide 0-file
-                </Text>
+                <Text style={sharedStyles.todoFilterCheckText}>Hide 0-file</Text>
               </Pressable>
               <View style={sharedStyles.todoFilterBetween} />
               <Pressable
@@ -472,23 +597,33 @@ export function ProjectDetailView({
               >
                 <Ionicons
                   name={hideTodoCanceled ? 'checkbox' : 'square-outline'}
-                  size={16}
+                  size={18}
                   color={hideTodoCanceled ? '#6C5CE7' : '#95A5A6'}
                 />
-                <Text style={sharedStyles.todoFilterCheckText} numberOfLines={1} ellipsizeMode="tail">
-                  Hide Canceled
-                </Text>
+                <Text style={sharedStyles.todoFilterCheckText}>Hide Canceled</Text>
               </Pressable>
             </View>
           ) : null}
         </View>
 
-        {/* 移动端：状态标签下移到 Todos/Info 行右侧；Web 仍保留在导航栏 */}
-        {isMobile && header.status ? (
-          <View style={[sharedStyles.inlineStatusPill, { backgroundColor: header.status.bg }]}>
-            <Text style={[sharedStyles.inlineStatusText, { color: header.status.color }]} numberOfLines={1}>
-              {header.status.label}
-            </Text>
+        {showTodoToolbarFilters && isMobile ? (
+          <View ref={filterIconRef} collapsable={false} style={sharedStyles.filterIconWrap}>
+            <TouchableOpacity
+              style={sharedStyles.filterIconBtn}
+              activeOpacity={0.85}
+              onPress={() => {
+                if (showTodoFilterModal) closeTodoFilterPopover();
+                else openTodoFilterPopover();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Open todo filters"
+            >
+              <Ionicons
+                name={(hideTodoTasksWithNoFiles || hideTodoCanceled) ? 'filter' : 'filter-outline'}
+                size={18}
+                color={(hideTodoTasksWithNoFiles || hideTodoCanceled) ? '#6C5CE7' : '#636E72'}
+              />
+            </TouchableOpacity>
           </View>
         ) : null}
 
@@ -524,6 +659,21 @@ export function ProjectDetailView({
                       <Ionicons name="checkmark-circle" size={18} color="#fff" />
                       <Text style={sharedStyles.headerAcceptBtnText}>{headerAcceptLabel}</Text>
                     </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            ) : showOnboardingTerminateOnly && onAbort ? (
+              <View style={sharedStyles.headerActionsWrap}>
+                <TouchableOpacity
+                  onPress={onAbort}
+                  disabled={abortLoading || completeLoading}
+                  style={sharedStyles.headerAbortBtn}
+                  activeOpacity={0.85}
+                >
+                  {abortLoading ? (
+                    <ActivityIndicator size="small" color="#D35400" />
+                  ) : (
+                    <Text style={sharedStyles.headerAbortBtnText}>Terminate</Text>
                   )}
                 </TouchableOpacity>
               </View>
@@ -581,6 +731,58 @@ export function ProjectDetailView({
           </View>
         )}
       </View>
+      <Modal
+        visible={showTodoFilterModal && isMobile}
+        transparent
+        animationType="fade"
+        onRequestClose={closeTodoFilterPopover}
+      >
+        <View style={sharedStyles.todoFilterModalRoot} pointerEvents="box-none">
+          <Pressable style={StyleSheet.absoluteFill} onPress={closeTodoFilterPopover} accessibilityRole="button" accessibilityLabel="Dismiss filters" />
+          {todoFilterPopover ? (
+            <View
+              style={[
+                sharedStyles.todoFilterPopover,
+                {
+                  top: todoFilterPopover.top,
+                  left: todoFilterPopover.left,
+                  width: TODO_FILTER_MENU_WIDTH,
+                },
+              ]}
+              pointerEvents="box-none"
+            >
+              <View style={sharedStyles.todoFilterPopoverInner}>
+                <Pressable
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: hideTodoTasksWithNoFiles }}
+                  onPress={() => setHideTodoTasksWithNoFiles((v) => !v)}
+                  style={sharedStyles.todoFilterModalCheck}
+                >
+                  <Ionicons
+                    name={hideTodoTasksWithNoFiles ? 'checkbox' : 'square-outline'}
+                    size={18}
+                    color={hideTodoTasksWithNoFiles ? '#6C5CE7' : '#95A5A6'}
+                  />
+                  <Text style={sharedStyles.todoFilterModalCheckText}>Hide 0-file</Text>
+                </Pressable>
+                <Pressable
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: hideTodoCanceled }}
+                  onPress={() => setHideTodoCanceled((v) => !v)}
+                  style={sharedStyles.todoFilterModalCheck}
+                >
+                  <Ionicons
+                    name={hideTodoCanceled ? 'checkbox' : 'square-outline'}
+                    size={18}
+                    color={hideTodoCanceled ? '#6C5CE7' : '#95A5A6'}
+                  />
+                  <Text style={sharedStyles.todoFilterModalCheckText}>Hide Canceled</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+        </View>
+      </Modal>
 
       {/* 内容区：client onboarding 无 sku 数据时仅提示接受订单；有 sku 或 firm onboarding 时展示只读 Todos + Info */}
       {isOnboarding && viewerRole === 'client' && !(skuItems && skuItems.length > 0) ? (
@@ -612,6 +814,7 @@ export function ProjectDetailView({
             projectId={projectId}
             mode={viewerRole === 'firm' ? 'firm' : undefined}
             footer={mobileFooterActions}
+            onSaved={onProjectInfoSaved}
           />
         ) : (
           <ScrollView style={sharedStyles.scroll} contentContainerStyle={sharedStyles.scrollContent}>
@@ -759,6 +962,7 @@ export function ProjectDetailView({
             projectId={projectId}
             mode={viewerRole === 'firm' ? 'firm' : undefined}
             footer={mobileFooterActions}
+            onSaved={onProjectInfoSaved}
           />
         ) : (
           <View style={sharedStyles.centered}>
@@ -809,6 +1013,19 @@ const sharedStyles = StyleSheet.create({
   todoFilterCenterSlot: {
     flex: 1,
     minWidth: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  filterIconWrap: {
+    marginLeft: 10,
+  },
+  filterIconBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -870,6 +1087,39 @@ const sharedStyles = StyleSheet.create({
   inlineStatusText: {
     fontSize: 15,
     fontWeight: '700',
+  },
+  todoFilterModalRoot: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.22)',
+  },
+  todoFilterPopover: {
+    position: 'absolute',
+    zIndex: 10,
+  },
+  todoFilterPopoverInner: {
+    backgroundColor: '#FFF',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    gap: 4,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  todoFilterModalCheck: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    minHeight: 36,
+  },
+  todoFilterModalCheckText: {
+    fontSize: 14,
+    color: '#2D3436',
+    fontWeight: '500',
   },
   /** Web：Todos/Info 行右侧 Terminate / Complete 等 */
   operationRight: {

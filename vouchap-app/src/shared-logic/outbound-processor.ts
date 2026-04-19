@@ -3,6 +3,7 @@ import { recognizeOutboundFromImage } from './gemini';
 import { convertGeminiResultToOutbound } from './receipt-helpers';
 import { saveOutbound, getOutboundById } from './outbound';
 import { uploadOutboundImage, supabase } from './supabase';
+import { assertClientRecognitionAllowed, recordClientRecognitionSuccessIfEnforced } from './client-recognition-quota';
 
 const STORAGE_BUCKET = 'receipts';
 
@@ -42,6 +43,11 @@ export async function processOutboundInBackground(
   try {
     const existing = await getOutboundById(outboundId);
     const spaceId = existing?.spaceId ?? '';
+    const gate = await assertClientRecognitionAllowed(spaceId);
+    if (!gate.allowed) {
+      console.warn('[outbound-processor] recognition blocked by quota:', gate.message);
+      return;
+    }
     console.log('[出库单处理] 步骤1: 调用AI识别图片...');
     const recognizedData = await recognizeOutboundFromImage(imageUrl);
     console.log('[出库单处理] AI识别完成，结果:', JSON.stringify(recognizedData, null, 2));
@@ -67,6 +73,7 @@ export async function processOutboundInBackground(
       confidence: recognizedData.confidence,
       inputType: 'image',
     });
+    await recordClientRecognitionSuccessIfEnforced(spaceId);
     console.log('[出库单处理] ✅ 处理完成！');
   } catch (error) {
     console.error('[出库单处理] ❌ 后台处理出库单失败:');

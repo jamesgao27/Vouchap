@@ -69,6 +69,10 @@ import { pickTaxFilingDocument } from '@/lib/tax-filing-document-picker';
 import { FileDetailModal } from '@/components/FileDetailModal';
 import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
+import {
+  assertClientRecognitionAllowed,
+  recordClientRecognitionSuccessIfEnforced,
+} from '@/lib/client-recognition-quota';
 import { classificationLabelsForTaxFilingPrompt } from '@/lib/tax-filing-project-classification-labels';
 import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition-retry';
 import { processTaxFilingAttachmentAfterCreate } from '@/lib/tax-filing-attachment-followup';
@@ -3157,6 +3161,14 @@ export function TaxFilingTodosView({
           ...(classificationLabels.length > 0 ? { classificationLabels } : {}),
         };
 
+        const quotaSpaceId = ctx.project.clientSpaceId ?? '';
+        const gate = await assertClientRecognitionAllowed(quotaSpaceId);
+        if (!gate.allowed) {
+          if (Platform.OS === 'web') window.alert(gate.message ?? 'Recognition is not available for this account.');
+          else Alert.alert('Recognition limit', gate.message ?? 'Recognition is not available for this account.');
+          return;
+        }
+
         // 标记为处理中
         await updateProjectTodoAttachment(attachmentId, { status: 'PROCESSING' });
 
@@ -3185,6 +3197,7 @@ export function TaxFilingTodosView({
             else Alert.alert('Retry failed', msg);
             return;
           }
+          await recordClientRecognitionSuccessIfEnforced(quotaSpaceId);
         } catch (e) {
           const failCount = Math.min(currentFailCount + 1, 3);
           const failStatus =

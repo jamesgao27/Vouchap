@@ -39,6 +39,7 @@ import { supabase, uploadProjectCover } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors';
 import { getCurrentSpace } from '@/lib/auth';
+import { subscribeFirmOrderAndLinkedProject } from '../../../../lib/engagement-realtime';
 
 // ── Stage display configs（4 态，与 firm.orders.status 一致） ──
 const STAGE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -86,8 +87,10 @@ export interface ProjectInfoTabHandle {
   saveEditing: () => Promise<boolean>;
 }
 
-export const ProjectInfoTab = forwardRef<ProjectInfoTabHandle, { projectId: string; mode?: 'client' | 'firm'; footer?: React.ReactNode }>(
-function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
+export const ProjectInfoTab = forwardRef<
+  ProjectInfoTabHandle,
+  { projectId: string; mode?: 'client' | 'firm'; footer?: React.ReactNode; onSaved?: () => void | Promise<void> }
+>(function ProjectInfoTabInner({ projectId, mode = 'client', footer, onSaved }, ref) {
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
   const [error, setError]               = useState<string | null>(null);
@@ -168,6 +171,16 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    if (!order?.id) return;
+    return subscribeFirmOrderAndLinkedProject(
+      { orderId: order.id, projectId: project?.id ?? null },
+      () => {
+        void load();
+      }
+    );
+  }, [order?.id, project?.id, load]);
+
   const handlePickImage = useCallback(async () => {
     if (!editingHero || uploadingCover) return;
     try {
@@ -187,12 +200,13 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
       if (saveErr) throw saveErr;
       setEditImageUrl(imageUrl);
       showToast('Cover updated', 'success');
+      void Promise.resolve(onSaved?.()).catch(() => {});
     } catch {
       showToast('Failed to update cover', 'error');
     } finally {
       setUploadingCover(false);
     }
-  }, [editingHero, uploadingCover, project?.id, order?.clientSpaceId]);
+  }, [editingHero, uploadingCover, project?.id, order?.clientSpaceId, onSaved]);
 
   /** 保存全部字段（供外部 ref 使用的兜底入口） */
   const handleSaveAll = useCallback(async (): Promise<boolean> => {
@@ -256,7 +270,8 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
       setEditingHero(false);
       setEditingClassification(false);
       showToast('Saved', 'success');
-      load();
+      await load();
+      await Promise.resolve(onSaved?.());
       return true;
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Failed to save', 'error');
@@ -264,7 +279,7 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
     } finally {
       setSaving(false);
     }
-  }, [project?.id, project?.name, editName, editDesc, editImageUrl, editTaxCountry, editTaxScenario, editTags, editTaxSeasonYear, tagInput, load, mode, order]);
+  }, [project?.id, project?.name, editName, editDesc, editImageUrl, editTaxCountry, editTaxScenario, editTags, editTaxSeasonYear, tagInput, load, mode, order, onSaved]);
 
   /** 仅保存 Hero 卡片字段（名称 / 描述 / 封面） */
   const handleSaveHero = useCallback(async (): Promise<void> => {
@@ -279,13 +294,14 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
       if (err) throw err;
       setEditingHero(false);
       showToast('Saved', 'success');
-      load();
+      await load();
+      await Promise.resolve(onSaved?.());
     } catch {
       showToast('Failed to save', 'error');
     } finally {
       setSaving(false);
     }
-  }, [project?.id, project?.name, editName, editDesc, editImageUrl, load]);
+  }, [project?.id, project?.name, editName, editDesc, editImageUrl, load, onSaved]);
 
   /** 仅保存 Classification 卡片字段（税季 / 国别 / 场景 / 标签） */
   const handleSaveClassification = useCallback(async (): Promise<void> => {
@@ -341,13 +357,14 @@ function ProjectInfoTabInner({ projectId, mode = 'client', footer }, ref) {
       }
       setEditingClassification(false);
       showToast('Saved', 'success');
-      load();
+      await load();
+      await Promise.resolve(onSaved?.());
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Failed to save', 'error');
     } finally {
       setSaving(false);
     }
-  }, [project?.id, editTaxCountry, editTaxScenario, editTags, editTaxSeasonYear, load, mode, order?.id, order?.firmSpaceId]);
+  }, [project?.id, editTaxCountry, editTaxScenario, editTags, editTaxSeasonYear, load, mode, order?.id, order?.firmSpaceId, onSaved]);
 
   const handleCancelEditAll = useCallback(() => {
     if (!project) return;

@@ -45,6 +45,9 @@ import { ProjectInfoTab, type ProjectInfoTabHandle } from '../../tax-filing/proj
 import { useChatPanel } from '../../../contexts/ChatPanelContext';
 import { showToast } from '@/lib/toast';
 import EngagementConsentModal from '@/components/EngagementConsentModal';
+import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
+import { deriveTaxSeasonYear } from '@/lib/tax-season-colors';
+import { useEngagementOrderProjectRealtime } from '../../../lib/engagement-realtime';
 
 // ── 订单状态：与 firm.orders.status（4 态）及类型 FirmOrderStatus 一致；深底色 + 白字色 ──
 const ORDER_STATUS_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
@@ -58,11 +61,13 @@ const ORDER_STATUS_CONFIG: Record<string, { label: string; color: string; bg: st
 const ACTIVE_ORDER_STATUSES = ['processing'] as const;
 
 export default function FirmEngagementDetailScreen() {
-  const { id: orderId, tab, edit } = useLocalSearchParams<{
+  const { id: orderIdParam, tab, edit } = useLocalSearchParams<{
     id: string;
     tab?: string | string[];
     edit?: string | string[];
   }>();
+  const orderId =
+    typeof orderIdParam === 'string' ? orderIdParam : Array.isArray(orderIdParam) ? orderIdParam[0] : undefined;
   const router = useRouter();
   const chatPanel = useChatPanel();
 
@@ -95,64 +100,119 @@ export default function FirmEngagementDetailScreen() {
   const [restartLoading, setRestartLoading] = useState(false);
   const [showTinaFab, setShowTinaFab]   = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
+  const [secondaryLoading, setSecondaryLoading] = useState(false);
+  const loadSeqRef = useRef(0);
 
   const loadData = useCallback(async () => {
     if (!orderId) return;
+    const seq = ++loadSeqRef.current;
+    const isStale = () => loadSeqRef.current !== seq;
     setLoading(true);
+    setSecondaryLoading(false);
     setError(null);
+    setProjectId(null);
+    setTree([]);
+    setSkuInfo(null);
+    setSkuTodos([]);
+    setSkuItems([]);
+    setSkuDetailForInfo(null);
+    setClientName('');
+    setClientHeaderForDetail(null);
     try {
-      const space = await getCurrentSpace(true);
+      const [space, ord] = await Promise.all([
+        getCurrentSpace(true),
+        getOrderById(orderId),
+      ]);
+      if (isStale()) return;
       const role: 'client' | 'firm' = space?.kind === 'firm' ? 'firm' : 'client';
       setViewerRole(role);
 
-      const ord = await getOrderById(orderId);
-      if (!ord) { setError('Engagement not found'); setLoading(false); return; }
+      if (!ord) {
+        setError('Engagement not found');
+        setLoading(false);
+        return;
+      }
       setOrder(ord);
       setClientSpaceId(ord.clientSpaceId ?? '');
+      // 第一阶段：只要拿到 order 就先渲染页面，避免整页阻塞。
+      setLoading(false);
+      setSecondaryLoading(true);
 
-      if (role === 'client') {
-        const clientHdr = await getOrderHeaderForClient(orderId);
-        setClientHeaderForDetail(clientHdr);
-      } else {
-        setClientHeaderForDetail(null);
-      }
+      void (async () => {
+        try {
+          const [clientHdr] = await Promise.all([
+            role === 'client'
+              ? getOrderHeaderForClient(orderId, { preloadedOrder: ord })
+              : Promise.resolve(null),
+          ]);
+          if (isStale()) return;
+          setClientHeaderForDetail(clientHdr);
 
-      if (ord.status === 'onboarding') {
-        const [sku, items, clientDisplayName] = await Promise.all([
-          getSkuById(ord.skuId, orderId!),
-          getSkuItems(ord.skuId, orderId!),
-          role === 'firm' && ord.clientSpaceId && ord.firmSpaceId
-            ? getClientDisplayName(ord.clientSpaceId, ord.firmSpaceId)
-            : Promise.resolve(null),
-        ]);
-        setSkuInfo(sku ? { name: sku.name, description: sku.description, imageUrl: sku.imageUrl } : { name: 'Service' });
-        setSkuDetailForInfo(sku ? { taxCountry: sku.taxCountry ?? null, taxScenario: sku.taxScenario ?? null } : null);
-        setSkuTodos(withWbsCodes(items));
-        setSkuItems(items);
-        setClientName(clientDisplayName ?? '');
-      } else {
-        const detail = await getProjectDetail(orderId, { order: ord });
-        if (detail) {
-          if (role === 'firm') {
-            setClientName(detail.clientName ?? '');
+          if (ord.status === 'onboarding') {
+            const [sku, items, clientDisplayName] = await Promise.all([
+              getSkuById(ord.skuId, orderId),
+              getSkuItems(ord.skuId, orderId),
+              role === 'firm' && ord.clientSpaceId && ord.firmSpaceId
+                ? getClientDisplayName(ord.clientSpaceId, ord.firmSpaceId)
+                : Promise.resolve(null),
+            ]);
+            if (isStale()) return;
+            setSkuInfo(sku ? { name: sku.name, description: sku.description, imageUrl: sku.imageUrl } : { name: 'Service' });
+            setSkuDetailForInfo(sku ? { taxCountry: sku.taxCountry ?? null, taxScenario: sku.taxScenario ?? null } : null);
+            setSkuTodos(withWbsCodes(items));
+            setSkuItems(items);
+            setClientName(clientDisplayName ?? '');
           } else {
-            setClientName('');
+            const [detail, todosTree] = await Promise.all([
+              getProjectDetail(orderId, { order: ord }),
+              getProjectTodosTree(orderId),
+            ]);
+            if (isStale()) return;
+            if (detail) {
+              if (role === 'firm') {
+                setClientName(detail.clientName ?? '');
+              } else {
+                setClientName('');
+              }
+              if (detail.project) {
+                setProjectId(detail.project.id);
+                setTree(todosTree);
+              }
+            }
           }
-          if (detail.project) {
-            setProjectId(detail.project.id);
-            const todosTree = await getProjectTodosTree(orderId);
-            setTree(todosTree);
+        } catch (e) {
+          if (!isStale()) {
+            showToast(e instanceof Error ? e.message : 'Failed to load details', 'error');
           }
+        } finally {
+          if (!isStale()) setSecondaryLoading(false);
         }
-      }
+      })();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
-      setLoading(false);
+      if (!isStale()) setLoading(false);
     }
   }, [orderId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  const refreshEngagementChrome = useCallback(async () => {
+    if (!orderId) return;
+    try {
+      const ord = await getOrderById(orderId);
+      if (!ord) return;
+      setOrder(ord);
+      if (viewerRole === 'client') {
+        const h = await getOrderHeaderForClient(orderId, { preloadedOrder: ord });
+        setClientHeaderForDetail(h);
+      }
+    } catch {
+      /* keep existing */
+    }
+  }, [orderId, viewerRole]);
+
+  useEngagementOrderProjectRealtime(orderId ?? null, projectId, loadData, Boolean(orderId));
 
   /** Web：从 tax-filing 列表「Info」入口带入 tab=info&edit=1 */
   useEffect(() => {
@@ -180,7 +240,7 @@ export default function FirmEngagementDetailScreen() {
     try {
       const { error } = await confirmOrderAndCreateProjectTodos(orderId);
       if (error) return;
-      if (viewerRole === 'client') showToast('Engagement accepted', 'success');
+      if (viewerRole === 'client') showToast('Request submitted', 'success');
       await loadData();
     } finally {
       setAcceptLoading(false);
@@ -238,15 +298,12 @@ export default function FirmEngagementDetailScreen() {
         setAbortLoading(false);
       }
     };
-    if (Platform.OS === 'web') {
-      if (typeof window !== 'undefined' && !window.confirm('Terminate this engagement? You can\'t undo this.')) return;
-      void run();
-      return;
-    }
-    Alert.alert('Terminate engagement', 'Terminate this engagement? You can\'t undo this.', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Terminate', style: 'destructive', onPress: () => void run() },
-    ]);
+    showConfirmDestructiveDialog(
+      'Terminate engagement',
+      'Terminate this engagement? You can\'t undo this.',
+      () => void run(),
+      { confirmLabel: 'Terminate' }
+    );
   }, [orderId, router]);
 
   const handleAbort = useCallback(async () => {
@@ -344,7 +401,7 @@ export default function FirmEngagementDetailScreen() {
       </View>
     );
   }
-  if (error || !order) {
+  if (!order) {
     return (
       <View style={s.centered}>
         <Text style={s.errorText}>{error ?? 'Not found'}</Text>
@@ -357,12 +414,16 @@ export default function FirmEngagementDetailScreen() {
   }
 
   const isOnboarding = order.status === 'onboarding';
+  const isClientMarketplaceOnboarding =
+    viewerRole === 'client' &&
+    isOnboarding &&
+    String((order as any).requestOrigin ?? 'firm_manual') === 'client_marketplace';
   const statusCfg = ORDER_STATUS_CONFIG[order.status] ?? ORDER_STATUS_CONFIG.onboarding;
   const dateForYear = order.dueAt || order.createdAt;
   const explicitTaxSeasonYear = (order as any).taxSeasonYear ?? null;
   const taxYear = explicitTaxSeasonYear != null
     ? explicitTaxSeasonYear
-    : (dateForYear ? new Date(dateForYear).getFullYear() : null);
+    : deriveTaxSeasonYear(dateForYear);
 
   const detailHeader: ProjectDetailHeader =
     viewerRole === 'client' && clientHeaderForDetail
@@ -372,7 +433,7 @@ export default function FirmEngagementDetailScreen() {
           const ty =
             h.taxSeasonYear ??
             explicitTaxSeasonYear ??
-            (d ? new Date(d).getFullYear() : null);
+            deriveTaxSeasonYear(d);
           const title =
             order.status === 'onboarding' && (order.skuName ?? '').trim()
               ? (order.skuName as string)
@@ -402,14 +463,22 @@ export default function FirmEngagementDetailScreen() {
         infoEditing={infoEditing}
         setInfoEditing={setInfoEditing}
         infoTabRef={infoTabRef}
-        onReject={isOnboarding ? (viewerRole === 'firm' ? handleTerminal : handleClientReject) : undefined}
+        onReject={
+          isOnboarding && !isClientMarketplaceOnboarding
+            ? (viewerRole === 'firm' ? handleTerminal : handleClientReject)
+            : undefined
+        }
         rejectLoading={rejectLoading}
-        onAcceptAndStart={isOnboarding ? handleStart : undefined}
+        onAcceptAndStart={isOnboarding && !isClientMarketplaceOnboarding ? handleStart : undefined}
         acceptAndStartLoading={acceptLoading}
-        headerRejectLabel={viewerRole === 'firm' ? 'Terminate' : 'Reject'}
+        headerRejectLabel={viewerRole === 'firm' || isClientMarketplaceOnboarding ? 'Terminate' : 'Reject'}
         headerAcceptLabel={viewerRole === 'firm' ? 'Start service' : 'Accept and Start'}
         orderStatus={order.status}
-        onAbort={ACTIVE_ORDER_STATUSES.includes(order.status) ? (viewerRole === 'firm' ? handleAbort : handleClientAbort) : undefined}
+        onAbort={
+          ACTIVE_ORDER_STATUSES.includes(order.status) || isClientMarketplaceOnboarding
+            ? (viewerRole === 'firm' ? handleAbort : handleClientAbort)
+            : undefined
+        }
         abortLoading={abortLoading}
         onComplete={
           viewerRole === 'firm' && ACTIVE_ORDER_STATUSES.includes(order.status) ? handleComplete : undefined
@@ -445,6 +514,7 @@ export default function FirmEngagementDetailScreen() {
             ? (todoId, title) => updateProjectTodo(todoId, { title })
             : undefined
         }
+        onProjectInfoSaved={refreshEngagementChrome}
       />
       <EngagementConsentModal
         visible={showConsentModal}
@@ -457,6 +527,12 @@ export default function FirmEngagementDetailScreen() {
           void doStart();
         }}
       />
+      {secondaryLoading ? (
+        <View style={s.secondaryLoadingBadge}>
+          <ActivityIndicator size="small" color="#6C5CE7" />
+          <Text style={s.secondaryLoadingText}>Syncing details...</Text>
+        </View>
+      ) : null}
       {showTinaFab && (
         <TouchableOpacity
           activeOpacity={0.9}
@@ -481,6 +557,31 @@ const s = StyleSheet.create({
   errorText: { fontSize: 15, color: '#636E72', marginBottom: 16 },
   backBtn:   { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12, paddingHorizontal: 16 },
   backBtnText: { fontSize: 16, color: '#6C5CE7', fontWeight: '500' },
+  secondaryLoadingBadge: {
+    position: 'absolute',
+    right: 16,
+    top: 12,
+    zIndex: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  secondaryLoadingText: {
+    fontSize: 12,
+    color: '#636E72',
+    fontWeight: '600',
+  },
   tinaFab: {
     position: 'absolute',
     right: 24,

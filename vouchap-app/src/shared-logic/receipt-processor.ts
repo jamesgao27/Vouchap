@@ -7,6 +7,7 @@ import { checkDuplicateReceipt } from './receipt-duplicate-checker';
 import { findOrCreateEntity, updateEntity } from './entities';
 import { runWithRecognitionRetry } from './recognition-retry';
 import { getCurrentUser } from './auth';
+import { assertClientRecognitionAllowed, recordClientRecognitionSuccessIfEnforced } from './client-recognition-quota';
 
 // 从公共 URL 提取 bucket 与对象路径。URL 格式: .../storage/v1/object/public/{bucket_id}/{path}
 function extractBucketAndPathFromUrl(url: string): { bucket: string; filePath: string } | null {
@@ -62,6 +63,15 @@ export async function processReceiptInBackground(
     console.log('使用处理后的图片进行识别，URL:', imageUrl);
     console.log('处理后的图片本地 URI:', processedImageUri);
 
+    const existingForQuota = await getReceiptById(receiptId);
+    const quotaSpaceId = existingForQuota?.spaceId ?? '';
+    const gate = await assertClientRecognitionAllowed(quotaSpaceId);
+    if (!gate.allowed) {
+      console.warn('[receipt-processor] recognition blocked by quota:', gate.message);
+      await updateReceipt(receiptId, { status: 'needs_retake' }, true);
+      return;
+    }
+
     // 1. 使用处理后的图片 URL 识别小票（失败时后台静默重试直至成功或判定为内容质量差）
     const ret = await runWithRecognitionRetry(() => recognizeReceipt(imageUrl), { maxAttempts: 5, delayMs: 2000 });
     if (!ret.success) {
@@ -114,6 +124,8 @@ export async function processReceiptInBackground(
       imageUrl: finalImageUrl,
       confidence: receipt.confidence,
     }, true); // autoResolveDuplicate = true，自动处理重复名称
+
+    await recordClientRecognitionSuccessIfEnforced(receipt.spaceId || quotaSpaceId);
 
     // Line taxes + reconciliation run inside updateReceipt (database.ts); avoid duplicate apply here.
 

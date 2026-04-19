@@ -14202,3 +14202,138 @@ iOS 生成时用了 **白底去透明**（`-background white -alpha remove`）�
 _**User**_
 
 android要重新构建么？
+
+---
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The user wants to know if rebuilding Android is necessary after making icon changes.</details></think>
+
+_**Agent (default)**_
+
+要。**Play 商店图标和手机桌面图标**都来自打包进 **AAB/APK** 里的 `android/app/src/main/res/mipmap-*`（我们已按 `logo2` 重生成过那些 `webp`）。  
+不重新打 Android 包，线上/用户手里的还是**旧二进制里的旧图**。
+
+和 iOS 一样：再跑一遍 **`eas build -p android --profile production`**（或你们平时的 Android production 流程），用新产物上架即可。
+
+---
+
+_**User**_
+
+需要开发多语言版，需要哪些准备？你会用什么架构来做多语言支持？
+
+---
+
+_**Agent (default)**_
+
+下面分「要准备什么」和「常见架构怎么选」说，并结合你们 **Expo / React Native + Web** 的技术栈。
+
+## 一、上线多语言前要准备什么
+
+1. **产品与文案策略**  
+   - 首批语言列表、默认语言、是否按系统语言自动切换、是否允许用户在设置里改语言。  
+   - **文案来源**：谁维护翻译（内部 / LSP）、更新频率、未翻译时的降级（回退英文 / 显示 key）。
+
+2. **文案与代码分离**  
+   - 禁止在业务里硬编码长句；统一走 **key + 参数**（如 `Hello, {{name}}`）。  
+   - 约定 **命名空间**（如 `common`、`receipts`、`errors`），避免一个巨大 JSON。
+
+3. **设计 / UI**  
+   - 德文、法文等往往比英文长，按钮、列表要预留 **弹性布局**。  
+   - 若含阿拉伯语、希伯来语，要规划 **RTL**（布局镜像、`I18nManager`、Web 的 `dir`）。
+
+4. **格式与合规**  
+   - **日期、时间、货币、数字** 用 `Intl` 或专用库按 **locale** 格式化，不要手写拼接。  
+   -隐私政策、条款等法律文案通常要 **分语言版本**，不单是 UI翻译。
+
+5. **工程与流程**  
+   - CI 里可加：**缺 key / 未翻译 key** 检查；可选与 **Phrase / Lokalise / Crowdin** 同步。  
+   - **E2E / 快照**：至少抽几条关键路径看各语言是否截断、乱码。
+
+6. **后端与推送（若有）**  
+   - 服务端错误信息：用 **错误码** + 客户端翻译，或 `Accept-Language` 返回已翻译文案（二选一要有规范）。  
+   - 推送、邮件模板是否要多语言模板。
+
+---
+
+## 二、我会用什么架构做多语言（RN + Expo + Web）
+
+在 React Native / Expo 里，最常用、生态最稳的是：
+
+**`i18next` + `react-i18next` + `expo-localization`（或 `react-native-localize`）**
+
+- **`i18next`**：核心（资源加载、插值、复数、命名空间、懒加载语言包）。  
+- **`react-i18next`**：`useTranslation`、`Trans`、与 React 生命周期配合。  
+- **`expo-localization`**：读系统 `locale`、`isRTL` 等，作为默认语言的输入。
+
+**资源组织示例（思路）**  
+- `locales/en/common.json`、`locales/zh-Hans/receipts.json` …  
+- 可按路由或领域拆文件，`i18next` 里用 `ns`（namespace）按需加载，减轻首包（Web 尤其重要）。
+
+**与你们仓库的契合点**  
+- 你们已有 **`src/shared-logic`**：适合放 **语言检测、持久化用户选择的 locale、与 Supabase profile 同步** 等非 UI 逻辑；**UI 层**只用 hook取文案。  
+- **Web**：同一套 `i18n` 实例；注意 SSR/静态导出时若有，要在入口初始化一次并保证 **hydration 一致**（避免首屏英文、客户端闪成中文）。  
+- **`.cursorrules` 里产品 UI 当前要求英文**：多语言阶段可以改为「开发默认 en，资源文件补其它语言」，或保留 en 为 fallback。
+
+**可选增强**  
+- 复杂复数、性别：`i18next` 已支持 ICU风格或通过插件接 **ICU MessageFormat**。  
+- 大项目：**类型安全的 key**（`typesafe-i18n` 或代码生成）减少拼错 key。
+
+---
+
+## 三、简要对比其它方案（为何不优先）
+
+| 方案 | 说明 |
+|------|------|
+|只用 `Intl` + 自建 JSON | 小项目可行，复数、嵌套、懒加载、工具链都要自己补，长期成本高。 |
+| `react-intl` (FormatJS) | Web 很强，RN 也能用，但团队若已统一 Expo，**i18next 在 RN 侧资料更多**。 |
+| 各平台原生字符串（iOS/Android 分开） | 不适合 **RN单代码库**，除非极少数原生模块文案。 |
+
+---
+
+**总结**：准备上重点是 **文案流程、设计弹性、locale格式化、RTL 是否要、错误码与后端约定**；架构上我会选 **`i18next` + `react-i18next` + `expo-localization`**，资源按命名空间拆分，共享逻辑放 `shared-logic`，Web 与 App 共用同一套配置并注意首屏一致性。
+
+若你希望针对 **Vouchap 仓库里具体目录**（例如从 `receipts` 模块试点）列迁移步骤，可以说明首选语言（如 `zh-Hans` + `en`），我可以按「只读」方式帮你在 Agent 模式外列一版检查清单；当前是 Ask 模式，我无法直接改仓库。
+
+---
+
+_**User**_
+
+需要我自行翻译文案么？
+
+---
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The user wants to know if they must handle translation themselves when implementing multilingual support.</details></think>
+
+_**Agent (default)**_
+
+不一定，取决于你们预算、质量要求和节奏。
+
+## 常见做法
+
+1. **自己/团队翻译**  
+   - 适合：早期、文案量不大、有双语同事、对领域术语（税务/收据）很熟。  
+   - 风险：非母语或不懂产品容易语气不统一；要有人做 **术语表（glossary）**。
+
+2. **外包译员 / 翻译公司（LSP）**  
+   - 适合：正式上架、合规要求高、多语言同时开。  
+   - 通常提供 **TM（翻译记忆）**、审校；你们提供 **上下文截图或说明**，减少误译。
+
+3. **机翻 + 人工审校（推荐作起点）**  
+   - 用 DeepL /等先出初稿，产品或母语者 **只改关键屏**（登录、支付、错误提示、法律文案）。  
+   - 成本低，比纯机翻上线更安全。
+
+4. **只译部分语言**  
+   - 例如先做 **英文 + 简体中文**，其余语言用 **英文 fallback**，逐步补。
+
+## 工程上你需要提供什么
+
+- 开发侧只要把文案做成 **可抽取的 key + 语言文件**；**谁填翻译**是流程问题。  
+- 你可以：**自己填**、**请人填**、或 **先英文占位 + 外包填 JSON/PO**。  
+- **法律类、金额/税务表述**：建议 **专业译员或律师审**，不要只依赖机翻。
+
+**结论**：不强制你亲自翻译；小团队常是 **自己译主语言 + 外包/机翻+审校** 混用。若你只做中英且团队能驾驭，自行翻译完全可行，关键是 **术语一致** 和 **关键路径有人校对**。

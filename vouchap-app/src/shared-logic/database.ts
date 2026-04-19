@@ -7,11 +7,7 @@ import { updateEntity, getEntityMergeMap, getEntityById, resolveEntityId, findOr
 import { getEntityOptionsForDuplicateCheck } from './entity-list';
 import { normalizeNameForCompare } from './name-utils';
 import { isMissingNestedAttributionEmbedError } from './postgrest-embed-errors';
-import {
-  applyReceiptItemTaxesAndReconcile,
-  normalizeReceiptItemTaxClassCode,
-  scheduleReceiptTaxRecalcIfNeeded,
-} from './receipt-item-tax';
+import { applyReceiptItemTaxesAndReconcile, scheduleReceiptTaxRecalcIfNeeded } from './receipt-item-tax';
 
 const ATTRIBUTION_LOOKUP_CHUNK = 120;
 const DEFAULT_RECEIPT_ITEM_NAME = 'Receipt item';
@@ -295,12 +291,12 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
         itemsToInsert.push({
           receipt_id: receiptId,
           name: normalizeReceiptItemNameForSave(item.name),
+          item_alias: item.itemAlias?.trim() || null,
           category_id: categoryId,
           attribution_id: item.attributionId ?? null,
           price: item.price,
           is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
           confidence: item.confidence,
-          tax_class_code: normalizeReceiptItemTaxClassCode(item.taxClassCode) ?? null,
           pos_tax_code: item.posTaxCode?.trim() ? item.posTaxCode.trim().toUpperCase() : null,
         });
       }
@@ -468,12 +464,12 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
           itemsToInsert.push({
             receipt_id: receiptId,
             name: normalizeReceiptItemNameForSave(item.name),
+            item_alias: item.itemAlias?.trim() || null,
             category_id: categoryId,
             attribution_id: item.attributionId ?? null,
             price: item.price,
             is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
             confidence: item.confidence,
-            tax_class_code: normalizeReceiptItemTaxClassCode(item.taxClassCode) ?? null,
             pos_tax_code: item.posTaxCode?.trim() ? item.posTaxCode.trim().toUpperCase() : null,
           });
         }
@@ -939,6 +935,7 @@ export async function getAllReceipts(): Promise<Receipt[]> {
           return {
           id: item.id,
           name: item.name,
+          itemAlias: item.item_alias ?? undefined,
           categoryId: item.category_id,
           category: item.categories ? {
             id: item.categories.id,
@@ -962,7 +959,6 @@ export async function getAllReceipts(): Promise<Receipt[]> {
           price: item.price,
           isAsset: item.is_asset,
           confidence: item.confidence,
-          taxClassCode: item.tax_class_code ?? undefined,
           posTaxCode: item.pos_tax_code ?? undefined,
         };
         }),
@@ -1343,6 +1339,7 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
         return {
         id: item.id,
         name: item.name,
+        itemAlias: item.item_alias ?? undefined,
         categoryId: item.category_id,
         category: item.categories ? {
           id: item.categories.id,
@@ -1366,7 +1363,6 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
         price: item.price,
         isAsset: item.is_asset,
         confidence: item.confidence,
-        taxClassCode: item.tax_class_code ?? undefined,
         posTaxCode: item.pos_tax_code ?? undefined,
       };
       }),

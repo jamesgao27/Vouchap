@@ -35,6 +35,7 @@ import DataTable, { type DataTableColumn } from '@/components/DataTable';
 import { buildEngagementTableColumns } from '@/components/engagementTableColumns';
 import CenterModal from '../../../components/CenterModal';
 import SkuPreview from '../../../components/SkuPreview';
+import { supabase } from '@/lib/supabase';
 
 type TabKey = 'info' | 'orders';
 
@@ -101,6 +102,35 @@ export default function FirmClientDetailScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Realtime：移动端订单列表（Web 端该 tab 为 DataTable，不订阅以避免协作抖动）
+  useEffect(() => {
+    if (Platform.OS === 'web' || !resolvedClientSpaceId) return;
+    let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
+    const debouncedRefresh = () => {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      refreshTimeout = setTimeout(() => {
+        void load();
+      }, 300);
+    };
+    const ch = supabase
+      .channel(`firm-client-detail-orders-${resolvedClientSpaceId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'firm',
+          table: 'orders',
+          filter: `client_space_id=eq.${resolvedClientSpaceId}`,
+        },
+        debouncedRefresh
+      )
+      .subscribe();
+    return () => {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      void supabase.removeChannel(ch);
+    };
+  }, [resolvedClientSpaceId, load]);
 
   useEffect(() => {
     if (!client?.firmSpaceId) return;

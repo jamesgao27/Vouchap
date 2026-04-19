@@ -39,12 +39,18 @@ From the provided image, PDF, or extracted text: (1) identify the **exact** docu
 - Distinguish close forms: T4 vs T4A vs T4A(OAS) vs T4PS vs T4E vs T2202; 1099-INT vs 1099-DIV vs 1099-NEC vs 1099-R; employment slips vs bank statements vs generic receipts.
 - If “current task” context conflicts with the visible form, **trust the document** and set suggested_task_id to the correct task from the list (when a list is provided).
 - doc_type must be a specific code when possible (e.g. CANADA_T4, CANADA_T4A, US_W2, US_1099_INT), not vague labels like “tax paper”.
+- Build doc_type using the most specific visible identifier hierarchy:
+  1) jurisdiction + exact form/slip code (required when visible),
+  2) variant/family when visible (e.g., OAS, NEC, DIV),
+  3) optional qualifier (summary/page/schedule) only when explicit on document.
+- If exact form code is visible, never fall back to a generic category.
 
 # General rules
 1. Dates: YYYY-MM-DD.
 2. Amounts: numeric floats; strip symbols and thousands separators.
 3. Infer currency (CAD/USD) and tax year when visible.
 4. Output ONLY valid JSON (no markdown fence).
+5. Favor completeness over brevity inside extracted_data: include all high-signal identity clues useful for downstream task matching.
 
 # Summary field (required — tuned for product UI lists)
 - **Language: English only** (even if the document text is French or another language).
@@ -56,9 +62,28 @@ From the provided image, PDF, or extracted text: (1) identify the **exact** docu
 # Output schema
 {
   "doc_type": "STRING_IDENTIFIER",
+  "doc_type_keywords": ["ARRAY_OF_FORM_AND_VARIANT_KEYWORDS_FOR_MATCHING"],
   "confidence_score": 0.00,
   "summary": "English, subject-first, no “This document…” phrasing — e.g. T4 from Employer Inc., 2024",
-  "extracted_data": { },
+  "extracted_data": {
+    "document_identity": {
+      "form_title": "Visible full title",
+      "form_code": "Exact visible code when present (e.g. T4A, 1099-INT, RL-1)",
+      "issuer_or_agency": "CRA / IRS / employer / payer / institution",
+      "variant_or_schedule": "OAS / NEC / Schedule K-1 / etc when visible",
+      "page_or_part": "Page/Part/Schedule markers when visible"
+    },
+    "parties": {
+      "recipient_or_taxpayer": "Name if visible",
+      "payer_or_employer_or_institution": "Entity if visible"
+    },
+    "period": {
+      "tax_year": "YYYY when visible",
+      "statement_period": "date range when visible"
+    },
+    "key_amounts": {},
+    "raw_identification_tokens": ["Short list of exact strings seen on the document used to decide doc_type"]
+  },
   "metadata": {
     "currency": "CAD|USD",
     "tax_year": "YYYY",

@@ -228,13 +228,13 @@ export async function getAllInvoicesWithItems(): Promise<Invoice[]> {
   if (ids.length === 0) return invoices;
   const { data: itemRows } = await supabase
     .from('invoice_items')
-    .select('id, name, price, invoice_id, category_id')
+    .select('id, name, item_alias, price, invoice_id, category_id')
     .in('invoice_id', ids)
     .order('id', { ascending: true });
   const itemsByInvoice = new Map<string, InvoiceItem[]>();
   (itemRows || []).forEach((r: any) => {
     const list = itemsByInvoice.get(r.invoice_id) ?? [];
-    list.push({ id: r.id, name: r.name, price: r.price });
+    list.push({ id: r.id, name: r.name, itemAlias: r.item_alias ?? undefined, price: r.price });
     itemsByInvoice.set(r.invoice_id, list);
   });
   return invoices.map(inv =>
@@ -409,6 +409,7 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
     return {
     id: r.id,
     name: r.name,
+    itemAlias: r.item_alias ?? undefined,
     categoryId: r.category_id ?? undefined,
     category: r.categories ? {
       id: r.categories.id,
@@ -566,6 +567,7 @@ export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolea
         invoice.items.map((it) => ({
           invoice_id: invoice.id,
           name: it.name,
+          item_alias: it.itemAlias?.trim() || null,
           category_id: it.categoryId ?? null,
           attribution_id: it.attributionId ?? null,
           price: it.price,
@@ -603,6 +605,7 @@ export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolea
       invoice.items.map((it) => ({
         invoice_id: id,
         name: it.name,
+        item_alias: it.itemAlias?.trim() || null,
         category_id: it.categoryId ?? null,
         attribution_id: it.attributionId ?? null,
         price: it.price,

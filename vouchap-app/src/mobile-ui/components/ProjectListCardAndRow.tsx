@@ -46,6 +46,8 @@ export interface ProjectListCardItem {
   classificationTags?: { label: string; bg: string; fg: string }[] | null;
   /** 有则显示进度条（非 action 时） */
   progress?: { completed: number; total: number } | null;
+  /** 非 action 且无数值进度时，显示在进度区域的状态文案（如 Awaiting firm confirmation）。 */
+  progressLabel?: string | null;
   /** 有则显示底部/右侧行动按钮；onReject 有则左侧显示方形 reject 图标按钮 */
   action?: {
     label: string;
@@ -110,6 +112,7 @@ export function ProjectListCard({
     ? Math.round((item.progress.completed / item.progress.total) * 100)
     : 0;
   const showProgress = !item.action && item.progress && item.progress.total > 0;
+  const showProgressLabel = !item.action && !showProgress && !!item.progressLabel;
   const canLongPressPin = Platform.OS !== 'web' && onTogglePin != null && !item.isMuted;
 
   return (
@@ -281,6 +284,13 @@ export function ProjectListCard({
               </Text>
             </View>
           )}
+          {showProgressLabel ? (
+            <View style={s.cardRowProgressCentered}>
+              <View style={s.progressLabelPill}>
+                <Text style={s.progressLabelPillText}>{item.progressLabel}</Text>
+              </View>
+            </View>
+          ) : null}
         </View>
         {(item.action || item.isMuted) && (
           <View style={s.acceptBtnWrap}>
@@ -376,7 +386,7 @@ export function ProjectListRow({
   const progress = item.progress && item.progress.total > 0
     ? Math.round((item.progress.completed / item.progress.total) * 100)
     : 0;
-  const hasRightContent = !!item.action || (!!item.progress && item.progress.total > 0);
+  const hasRightContent = !!item.action || (!!item.progress && item.progress.total > 0) || !!item.progressLabel;
   /** Status pill slot is empty when corner badge or client Marketplace hides badge — don't reserve 92px. */
   const showListStatusPill = !item.statusCorner && !item.hideStatusBadge;
 
@@ -602,6 +612,12 @@ export function ProjectListRow({
                   {item.progress.completed}/{item.progress.total} · {progress}%
                 </Text>
               </View>
+            ) : item.progressLabel ? (
+              <View style={[s.listProgressBlock, s.listProgressBlockCentered]}>
+                <View style={s.progressLabelPill}>
+                  <Text style={s.progressLabelPillText}>{item.progressLabel}</Text>
+                </View>
+              </View>
             ) : null}
           </View>
         ) : null}
@@ -768,9 +784,29 @@ const s = StyleSheet.create({
     marginBottom: 0,
     minHeight: ACTION_ROW_HEIGHT,
   },
+  cardRowProgressCentered: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+    marginBottom: 0,
+    minHeight: ACTION_ROW_HEIGHT,
+  },
   progressBarTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#E9ECEF', overflow: 'hidden' },
   progressBarFill: { height: '100%', backgroundColor: '#00B894', borderRadius: 3 },
   progressTextRight: { fontSize: 12, color: '#636E72', marginLeft: 4 },
+  progressLabelPill: {
+    backgroundColor: '#E9ECEF',
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  progressLabelPillText: {
+    fontSize: 12,
+    color: '#636E72',
+    fontWeight: '600',
+    textAlign: 'center',
+  },
   classificationRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1029,6 +1065,9 @@ const s = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+  },
+  listProgressBlockCentered: {
+    justifyContent: 'center',
   },
   listProgressTrack: { flex: 1, height: 6, borderRadius: 3, backgroundColor: '#E9ECEF', overflow: 'hidden' },
   listProgressText: { fontSize: 12, color: '#636E72' },

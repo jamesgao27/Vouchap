@@ -46,10 +46,12 @@ import { supabase, uploadTaxFilingFile } from '@/lib/supabase';
 import { processTaxFilingAttachmentAfterCreate } from '@/lib/tax-filing-attachment-followup';
 import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
 import { showToast } from '@/lib/toast';
-import { getTaxSeasonColor } from '@/lib/tax-season-colors';
+import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
+import { deriveTaxSeasonYear, getTaxSeasonColor } from '@/lib/tax-season-colors';
 import { pickTaxFilingDocument } from '@/lib/tax-filing-document-picker';
 import { taxFilingTodoUploadIsImageKind } from '@/lib/tax-filing-todo-upload-helpers';
 import EngagementConsentModal from '@/components/EngagementConsentModal';
+import { useEngagementOrderProjectRealtime } from '../../../../lib/engagement-realtime';
 
 /** 将 sku_items 转成 TaxFilingTodosView 需要的 ProjectTodoNode 树结构（与 firm 侧预览一致） */
 function skuItemsToProjectTodoTree(items: FirmSkuItem[]): ProjectTodoNode[] {
@@ -241,17 +243,20 @@ export default function OrderTodosScreen() {
       }
       setOrder(order);
       setClientSpaceId(order.clientSpaceId ?? '');
-      const headerData = await getOrderHeaderForClient(orderId);
+      const headerData = await getOrderHeaderForClient(orderId, { preloadedOrder: order });
       setHeader(headerData ?? null);
       if (order.status === 'onboarding') {
         setTree([]);
-        const items = order.skuId ? await getSkuItems(order.skuId, orderId) : [];
-        setSkuItems(items);
         if (order.skuId) {
-          const sku = await getSkuById(order.skuId, orderId);
+          const [items, sku] = await Promise.all([
+            getSkuItems(order.skuId, orderId),
+            getSkuById(order.skuId, orderId),
+          ]);
+          setSkuItems(items);
           setSkuInfo(sku ? { name: sku.name, description: sku.description, imageUrl: sku.imageUrl } : { name: 'Service' });
           setSkuDetailForInfo(sku ? { taxCountry: sku.taxCountry ?? null, taxScenario: sku.taxScenario ?? null } : null);
         } else {
+          setSkuItems([]);
           setSkuInfo(null);
           setSkuDetailForInfo(null);
         }
@@ -273,6 +278,8 @@ export default function OrderTodosScreen() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEngagementOrderProjectRealtime(typeof orderId === 'string' ? orderId : null, null, load, Boolean(orderId));
 
   // Realtime：他人或他端上传/删除附件时刷新任务文件计数（与 TaxFilingTodosView 一致，订单页独立维护 taskFilesMap）
   useEffect(() => {
@@ -642,15 +649,12 @@ export default function OrderTodosScreen() {
   const [restartLoading, setRestartLoading] = useState(false);
   const handleAbortOrder = useCallback(async () => {
     if (!orderId) return;
-    if (Platform.OS === 'web' && !window.confirm('Terminate this engagement? You can\'t undo this.')) return;
-    if (Platform.OS !== 'web') {
-      Alert.alert('Terminate engagement', 'Terminate this engagement? You can\'t undo this.', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Terminate', style: 'destructive', onPress: () => doAbort() },
-      ]);
-      return;
-    }
-    await doAbort();
+    showConfirmDestructiveDialog(
+      'Terminate engagement',
+      'Terminate this engagement? You can\'t undo this.',
+      () => void doAbort(),
+      { confirmLabel: 'Terminate' }
+    );
     async function doAbort() {
       setAbortLoading(true);
       const { error } = await updateOrderStatus(orderId, 'cancelled');
@@ -682,9 +686,11 @@ export default function OrderTodosScreen() {
   const explicitTaxSeasonYear = (order as any)?.taxSeasonYear ?? null;
   const taxSeasonYear = explicitTaxSeasonYear != null
     ? explicitTaxSeasonYear
-    : (dateForYear ? new Date(dateForYear).getFullYear() : null);
+    : deriveTaxSeasonYear(dateForYear);
   const navigation = useNavigation();
   const isOnboarding = (order?.status === 'onboarding') || (header?.status === 'onboarding');
+  const isClientMarketplaceOnboarding =
+    isOnboarding && String((order as any)?.requestOrigin ?? 'firm_manual') === 'client_marketplace';
   const onboardingSkuTitle = (order?.skuName ?? '').trim();
   const isProcessing = order?.status === 'processing';
   const isCancelled = order?.status === 'cancelled';
@@ -707,6 +713,23 @@ export default function OrderTodosScreen() {
       ),
       headerRight: () => {
         if (isOnboarding) {
+          if (isClientMarketplaceOnboarding) {
+            return (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginRight: 6 }}>
+                <TouchableOpacity
+                  onPress={handleAbortOrder}
+                  disabled={abortLoading}
+                  style={{ paddingVertical: 8, paddingHorizontal: 14, borderRadius: 10, backgroundColor: '#FFF3E0' }}
+                >
+                  {abortLoading ? (
+                    <ActivityIndicator size="small" color="#D35400" />
+                  ) : (
+                    <Text style={{ color: '#D35400', fontWeight: '600', fontSize: 15 }}>Terminate</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            );
+          }
           return (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
               <TouchableOpacity onPress={goToInfo} style={{ padding: 8 }} hitSlop={8}>
@@ -777,7 +800,7 @@ export default function OrderTodosScreen() {
         );
       },
     });
-  }, [navigation, header, order, taxSeasonYear, isOnboarding, onboardingSkuTitle, isProcessing, isCancelled, goToInfo, handleRejectOrder, handleAcceptOrder, rejecting, accepting, handleAbortOrder, abortLoading, handleRestartOrder, restartLoading]);
+  }, [navigation, header, order, taxSeasonYear, isOnboarding, isClientMarketplaceOnboarding, onboardingSkuTitle, isProcessing, isCancelled, goToInfo, handleRejectOrder, handleAcceptOrder, rejecting, accepting, handleAbortOrder, abortLoading, handleRestartOrder, restartLoading]);
 
   if (loading) {
     return (

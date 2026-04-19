@@ -7,6 +7,7 @@ import { supabase } from './supabase';
 import { buildTaxFilingAttachmentDefaultDisplayName } from './tax-filing-attachment-display-name';
 import { isSpreadsheetAttachmentUrl, summarySuggestsSpreadsheet } from './spreadsheet-preview-pdf';
 import { isWordAttachmentUrl, summarySuggestsWord } from './word-preview-pdf';
+import { deriveTaxSeasonYear } from './tax-season-colors';
 
 export { isSpreadsheetAttachmentUrl, summarySuggestsSpreadsheet } from './spreadsheet-preview-pdf';
 export { isWordAttachmentUrl, summarySuggestsWord } from './word-preview-pdf';
@@ -183,7 +184,7 @@ function getTaxSeasonContext(): { currentYear: number; lastYear: number; taxSeas
 function getOrderYear(order: { dueAt?: string | null; createdAt?: string | null }): number {
   const d = order.dueAt || order.createdAt;
   if (!d) return new Date().getFullYear();
-  return new Date(d).getFullYear();
+  return deriveTaxSeasonYear(d) ?? new Date().getFullYear();
 }
 
 type OrderForStatus = {
@@ -320,6 +321,9 @@ export interface FirmOrderById {
   clientSpaceId: string;
   skuId: string;
   status: string;
+  requestOrigin?: 'firm_manual' | 'client_marketplace' | string;
+  clientConfirmedAt?: string | null;
+  firmConfirmedAt?: string | null;
   taxCountry?: string | null;
   taxScenario?: string | null;
   tags?: string[] | null;
@@ -345,12 +349,25 @@ export interface FirmOrderById {
 
 /** 根据 orderId 获取订单（用于 engagement 详情）；附带查询关联 SKU 基本信息 */
 export async function getOrderById(orderId: string): Promise<FirmOrderById | null> {
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .schema('firm')
     .from('orders')
-    .select('id, firm_space_id, client_space_id, sku_id, status, tax_country, tax_scenario, tags, tax_country_label_id, tax_scenario_label_id, tax_season_label_id, custom_label_ids, tax_season_year, due_at, created_at, updated_at')
+    .select('id, firm_space_id, client_space_id, sku_id, status, request_origin, client_confirmed_at, firm_confirmed_at, tax_country, tax_scenario, tags, tax_country_label_id, tax_scenario_label_id, tax_season_label_id, custom_label_ids, tax_season_year, due_at, created_at, updated_at')
     .eq('id', orderId)
     .maybeSingle();
+
+  // Backward compatibility: if DB migration for marketplace confirmation columns is not applied yet,
+  // retry with legacy select so detail page still opens.
+  if (error && /request_origin|client_confirmed_at|firm_confirmed_at/i.test(error.message || '')) {
+    const fallback = await supabase
+      .schema('firm')
+      .from('orders')
+      .select('id, firm_space_id, client_space_id, sku_id, status, tax_country, tax_scenario, tags, tax_country_label_id, tax_scenario_label_id, tax_season_label_id, custom_label_ids, tax_season_year, due_at, created_at, updated_at')
+      .eq('id', orderId)
+      .maybeSingle();
+    data = fallback.data;
+    error = fallback.error;
+  }
 
   if (error || !data) return null;
   const row = data as any;
@@ -412,6 +429,9 @@ export async function getOrderById(orderId: string): Promise<FirmOrderById | nul
     clientSpaceId: row.client_space_id,
     skuId: row.sku_id,
     status: row.status ?? 'onboarding',
+    requestOrigin: row.request_origin ?? 'firm_manual',
+    clientConfirmedAt: row.client_confirmed_at ?? null,
+    firmConfirmedAt: row.firm_confirmed_at ?? null,
     taxCountry: resolvedCountry,
     taxScenario: resolvedScenario,
     tags: resolvedTags,
@@ -445,7 +465,10 @@ export async function getClientDisplayName(
 }
 
 /** 订单顶行展示（与列表页卡片一致）：projectName、firmName、dueAt、createdAt，用于 todos/info 页顶栏；税季用 dueAt ?? createdAt */
-export async function getOrderHeaderForClient(orderId: string): Promise<{
+export async function getOrderHeaderForClient(
+  orderId: string,
+  options?: { preloadedOrder?: FirmOrderById | null }
+): Promise<{
   projectName: string;
   firmName: string;
   dueAt: string | null;
@@ -454,7 +477,7 @@ export async function getOrderHeaderForClient(orderId: string): Promise<{
   /** 来自 project.tax_season_year，用于客户端项目详情顶行 Tax season pill */
   taxSeasonYear?: number | null;
 } | null> {
-  const order = await getOrderById(orderId);
+  const order = options?.preloadedOrder ?? (await getOrderById(orderId));
   if (!order) return null;
   const isOnboarding = order.status === 'onboarding';
   let projectName = 'Service order';
@@ -836,6 +859,9 @@ export async function getClientOrdersForClientSpace(clientSpaceId: string): Prom
       clientSpaceId: row.client_space_id,
       skuId: row.sku_id,
       status: row.status,
+      requestOrigin: row.request_origin ?? 'firm_manual',
+      clientConfirmedAt: row.client_confirmed_at ?? null,
+      firmConfirmedAt: row.firm_confirmed_at ?? null,
       dueAt: row.due_at ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -931,7 +957,7 @@ const FIRM_ORDERS_FOR_CLIENT_ROSTER_SELECT =
 
 /** Firm engagements list row — explicit columns instead of select('*'). */
 const FIRM_ORDER_LIST_SELECT =
-  'id, firm_space_id, client_space_id, client_id, sku_id, status, tax_country, tax_scenario, tags, tax_country_label_id, tax_scenario_label_id, tax_season_label_id, custom_label_ids, tax_season_year, due_at, created_at, updated_at, created_by';
+  'id, firm_space_id, client_space_id, client_id, sku_id, status, request_origin, client_confirmed_at, firm_confirmed_at, tax_country, tax_scenario, tags, tax_country_label_id, tax_scenario_label_id, tax_season_label_id, custom_label_ids, tax_season_year, due_at, created_at, updated_at, created_by';
 
 /** Single fetch: client rows + order count maps (replaces parallel getFirmOrders for Clients / Insights). */
 export type FirmClientsListBundle = {
@@ -1208,6 +1234,9 @@ export async function getFirmOrders(
     clientId: row.client_id ?? null,
     skuId: row.sku_id,
     status: row.status,
+    requestOrigin: row.request_origin ?? 'firm_manual',
+    clientConfirmedAt: row.client_confirmed_at ?? null,
+    firmConfirmedAt: row.firm_confirmed_at ?? null,
     taxCountry: row.tax_country ?? null,
     taxScenario: row.tax_scenario ?? null,
     tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
@@ -1478,6 +1507,22 @@ export async function createFirmOrder(
   skuId: string,
   dueAt: string | null = null
 ): Promise<{ id: string | null; error: Error | null }> {
+  const { error: capErr } = await supabase.schema('crm').rpc('assert_firm_can_create_engagement', {
+    p_firm_space_id: firmSpaceId,
+  });
+  if (capErr) {
+    const msg = capErr.message || '';
+    if (/ENGAGEMENT_CAPACITY_EXCEEDED|P0001/i.test(msg)) {
+      return {
+        id: null,
+        error: new Error(
+          'This firm has reached its engagement limit. Complete or cancel an engagement, or ask ops to add capacity in CRM.',
+        ),
+      };
+    }
+    return { id: null, error: capErr as Error };
+  }
+
   const { data: user } = await supabase.auth.getUser();
 
   const { data, error } = await supabase
@@ -1500,7 +1545,7 @@ export async function createFirmOrder(
   return { id: (data as any)?.id ?? null, error: null };
 }
 
-/** 客户端确认订单：复制 sku -> project，复制 sku_items -> project_todos，并将订单标记为 processing */
+/** 客户端/服务端确认订单：复制 sku -> project、sku_items -> project_todos；marketplace 客户单需 firm 二次确认后才进入 processing。 */
 export async function confirmOrderAndCreateProjectTodos(
   orderId: string
 ): Promise<{ error: Error | null }> {
@@ -1521,6 +1566,26 @@ export async function confirmOrderAndCreateProjectTodos(
     return { error: null };
   }
 
+  // Marketplace 自助单：client 同意后仅记录 client_confirmed_at，需 firm 侧再次确认才能进入 processing。
+  const uid = (await supabase.auth.getUser()).data.user?.id ?? null;
+  let isFirmMember = false;
+  let isClientMember = false;
+  if (uid) {
+    const candidateSpaceIds = [String((order as any).firm_space_id)];
+    if ((order as any).client_space_id) candidateSpaceIds.push(String((order as any).client_space_id));
+    const { data: membershipRows } = await supabase
+      .from('user_spaces')
+      .select('space_id')
+      .eq('user_id', uid)
+      .in('space_id', candidateSpaceIds);
+    const membershipSet = new Set((membershipRows || []).map((r: any) => String(r.space_id)));
+    isFirmMember = membershipSet.has(String((order as any).firm_space_id));
+    isClientMember = !!((order as any).client_space_id && membershipSet.has(String((order as any).client_space_id)));
+  }
+  const requiresFirmConfirmation =
+    String((order as any).request_origin ?? 'firm_manual') === 'client_marketplace';
+  const deferToFirmConfirmation = requiresFirmConfirmation && isClientMember && !isFirmMember;
+
   const { data: sku, error: skuErr } = await supabase
     .schema('firm')
     .from('skus')
@@ -1540,12 +1605,8 @@ export async function confirmOrderAndCreateProjectTodos(
       : (() => {
           const d = (order as any).due_at || (order as any).created_at || null;
           if (!d) return undefined;
-          try {
-            const y = new Date(d).getFullYear();
-            return Number.isNaN(y) ? undefined : y;
-          } catch {
-            return undefined;
-          }
+          const y = deriveTaxSeasonYear(d);
+          return y == null ? undefined : y;
         })();
 
   const { data: projectRow, error: projectErr } = await supabase
@@ -1588,6 +1649,24 @@ export async function confirmOrderAndCreateProjectTodos(
     return { error: new Error(existingTodoErr.message) };
   }
   if ((existingTodoRows?.length ?? 0) > 0) {
+    if (deferToFirmConfirmation) {
+      const { error: markErr } = await supabase
+        .schema('firm')
+        .from('orders')
+        .update({
+          client_confirmed_at: (order as any).client_confirmed_at ?? new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', orderId);
+      return { error: markErr ? new Error(markErr.message) : null };
+    }
+    const patch: Record<string, any> = {};
+    if (requiresFirmConfirmation && isFirmMember && !(order as any).firm_confirmed_at) {
+      patch.firm_confirmed_at = new Date().toISOString();
+    }
+    if (Object.keys(patch).length > 0) {
+      await supabase.schema('firm').from('orders').update(patch).eq('id', orderId);
+    }
     const { error: updateErr } = await updateOrderStatus(orderId, 'processing');
     return { error: updateErr };
   }
@@ -1669,6 +1748,25 @@ export async function confirmOrderAndCreateProjectTodos(
     }
   }
 
+  if (deferToFirmConfirmation) {
+    const { error: markErr } = await supabase
+      .schema('firm')
+      .from('orders')
+      .update({
+        client_confirmed_at: (order as any).client_confirmed_at ?? new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', orderId);
+    return { error: markErr ? new Error(markErr.message) : null };
+  }
+
+  if (requiresFirmConfirmation && isFirmMember && !(order as any).firm_confirmed_at) {
+    await supabase
+      .schema('firm')
+      .from('orders')
+      .update({ firm_confirmed_at: new Date().toISOString() })
+      .eq('id', orderId);
+  }
   const { error: updateErr } = await updateOrderStatus(orderId, 'processing');
   return { error: updateErr };
 }
@@ -2081,10 +2179,15 @@ export async function updateProject(
   if (payload.taxScenario !== undefined) updates.tax_scenario = payload.taxScenario;
   if (payload.tags !== undefined) updates.tags = payload.tags;
   if (payload.taxSeasonYear !== undefined) updates.tax_season_year = payload.taxSeasonYear;
-  const { error } = await supabase.from('projects').update(updates).eq('id', projectId);
+  const { data, error } = await supabase.from('projects').update(updates).eq('id', projectId).select('id');
   if (error) {
     console.error('updateProject:', error);
     return { error: error as Error };
+  }
+  if (!data?.length) {
+    const blocked = new Error('Project could not be updated (no matching row or insufficient permission).');
+    console.error('updateProject:', blocked.message);
+    return { error: blocked };
   }
   await touchFirmOrderUpdatedAtByProjectId(projectId);
   return { error: null };
@@ -2569,6 +2672,7 @@ export async function getProjectTodoAttachmentById(
 export async function getProjectTodoAttachmentWithContext(attachmentId: string): Promise<{
   attachment: { id: string; attachment_url: string; status: string; recognition_fail_count?: number };
   project: {
+    clientSpaceId: string | null;
     taxCountry: string | null;
     taxScenario: string | null;
     tags: string[];
@@ -2592,7 +2696,7 @@ export async function getProjectTodoAttachmentWithContext(attachmentId: string):
   const projectId = (todo as any).project_id;
   const { data: proj, error: projErr } = await supabase
     .from('projects')
-    .select('tax_country, tax_scenario, tags, tax_season_year')
+    .select('client_space_id, tax_country, tax_scenario, tags, tax_season_year')
     .eq('id', projectId)
     .maybeSingle();
   if (projErr || !proj) return null;
@@ -2621,6 +2725,7 @@ export async function getProjectTodoAttachmentWithContext(attachmentId: string):
   return {
     attachment: { id: (att as any).id, attachment_url: (att as any).attachment_url, status: (att as any).status },
     project: {
+      clientSpaceId: typeof p.client_space_id === 'string' ? p.client_space_id : null,
       taxCountry: p.tax_country ?? null,
       taxScenario: p.tax_scenario ?? null,
       tags: Array.isArray(p.tags) ? (p.tags as string[]) : [],

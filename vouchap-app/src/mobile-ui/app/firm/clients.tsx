@@ -328,7 +328,7 @@ export default function FirmClientsScreen() {
   }, [loadData]);
 
   useEffect(() => {
-    if (!firmSpaceId) return;
+    if (Platform.OS === 'web' || !firmSpaceId) return;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
     const debouncedRefresh = () => {
       if (refreshTimeout) clearTimeout(refreshTimeout);

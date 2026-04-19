@@ -24,18 +24,10 @@ import {
 } from './gemini-helper';
 import { getMostFrequentCurrency, getCurrenciesByUsage } from './database';
 import { normalizeShortDate, getLocalDateString } from './date-utils';
-import { normalizeReceiptItemTaxClassCode } from './receipt-item-tax';
 import { supabase } from './supabase';
 import { isSpreadsheetMime, spreadsheetBase64ToPlainText } from './spreadsheet-to-text';
 import { isWordDocumentMime, wordDocumentBase64ToPlainText } from './word-document-to-text';
-
-/** Normalize per-line tax class from model JSON (camelCase or snake_case). */
-function normalizedItemTaxClassCode(item: any): string | undefined {
-  const n = normalizeReceiptItemTaxClassCode(
-    item?.taxClassCode ?? item?.tax_class_code ?? item?.taxClass,
-  );
-  return n ?? undefined;
-}
+import { aliasDistinctFromLineName, pickReceiptLineItemAlias } from './receipt-item-alias';
 
 function normalizedItemPosTaxCode(item: any): string | undefined {
   const raw = item?.posTaxCode ?? item?.pos_tax_code ?? item?.taxCode ?? item?.tax_code;
@@ -71,6 +63,22 @@ function ensureGeminiParsedReceiptItems(
       },
     ];
   }
+}
+
+/** De-emphasize frequency order bias: provide stable deduped alphabetical options to the model. */
+function toUnrankedOptionList(names: string[]): string[] {
+  return [...new Set((names || []).map((n) => String(n || '').trim()).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }));
+}
+
+function resolveReadableItemName(item: any): { name: string; itemAlias?: string } {
+  const rawName = String(item?.name ?? item?.description ?? 'Unknown Item').trim();
+  const alias = aliasDistinctFromLineName(
+    rawName,
+    pickReceiptLineItemAlias(item as Record<string, unknown>),
+  );
+  if (!rawName) return { name: 'Unknown Item', ...(alias ? { itemAlias: alias } : {}) };
+  return { name: rawName, ...(alias ? { itemAlias: alias } : {}) };
 }
 
 // 引用 gemini-helper 中处理好的安全判断逻辑（如果 gemini-helper 导出了 apiKey）
@@ -114,13 +122,13 @@ function clearModelCacheIfUnavailable(err: unknown) {
 
 /** 小票识别统一 JSON 输出规范：所有录入方式（图片/文字/语音/文档）必须使用同一套字段，便于下游一致解析 */
 const RECEIPT_JSON_ITEMS_RULE =
-  'Each item MUST have: "name" (string), "categoryName" (string), "attributionName" (string), "price" (number), "taxClassCode" (string) when known: "STANDARD_TAXABLE" | "EXEMPT" | "ZERO_RATED", and "posTaxCode" (string or omit): the short tax code printed on the receipt line when visible (e.g. single letter like D, H, N, X). Do not invent posTaxCode if the ticket does not show one.';
+  'Each item MUST have: "name" (string), "categoryName" (string), "attributionName" (string), "price" (number), and "itemAlias" (string) when it adds clarity: REQUIRED if the printed line is a SKU, PLU, dept code, register shorthand, truncated code, mostly digits/symbols, or not self-explanatory to an end user. Use plain English Title Case (avoid ALL CAPS), max ~8 words; never put currency amounts or unit prices in itemAlias. Omit itemAlias only when "name" is already a clear, normal product description (e.g. "Organic milk 2L"). If the ticket shows both a code and a readable phrase on one line, keep full OCR in "name" and put the clearest shopper-facing label in "itemAlias". Optional "posTaxCode" (string or omit): the short tax code printed on the receipt line when visible (e.g. D, H, N, X). Do not invent posTaxCode if the ticket does not show one.';
 const RECEIPT_JSON_ITEMS_EXAMPLE = {
-  name: 'Item Name',
+  name: 'FD BRKFST 4729',
+  itemAlias: 'Breakfast sandwich combo',
   categoryName: 'Food',
   attributionName: 'Personal',
   price: 12.99,
-  taxClassCode: 'STANDARD_TAXABLE',
   posTaxCode: 'H',
 };
 
@@ -142,6 +150,11 @@ function buildReceiptExtractionRules(opts: {
 }): string {
   const { supplierListImg, categoryList, attributionNamesCsv, paymentAccountList, defaultCurrency, currencyList, defaultAttributionName } = opts;
   return `Existing Suppliers (pick from list if match else return new name, will create): [${supplierListImg || 'None'}]. Same rule for categoryName, attributionName, paymentAccountName: match from injected lists or return new value (will create).
+
+Selection priority for categoryName and attributionName:
+- Choose the MOST semantically accurate option from the provided lists.
+- Treat the list order as unranked suggestions; DO NOT assume earlier options are preferred.
+- Use frequency/popularity only as a weak tie-breaker when two options are equally good.
 
 1. Supplier name (supplierName): Extract the complete merchant/store name from the receipt header (usually the most prominent text at the top). 
    - Pick from Existing Suppliers above if it matches; else return the extracted name (will create new supplier).
@@ -172,7 +185,8 @@ function buildReceiptExtractionRules(opts: {
    - Canada: city Winnipeg or postal codes starting with R → MB. If the receipt shows **separate GST (5%) and PST or RST (e.g. 7%)** lines, the province is **not** an HST-only province (not NS, NB, NL, PE, ON for that receipt); use MB, BC, SK, or QC as appropriate — **Manitoba** uses **RST** (often labeled PST on receipts) with GST, not HST.
 
 8. Detailed item list (items). ${RECEIPT_JSON_ITEMS_RULE}
-   - name, categoryName (pick from [${categoryList}]), attributionName (pick from [${attributionNamesCsv}], default "${defaultAttributionName}"), price (number), taxClassCode, posTaxCode when printed on the line.
+   - name, categoryName (pick from [${categoryList}]), attributionName (pick from [${attributionNamesCsv}], default "${defaultAttributionName}"), price (number), posTaxCode when printed on the line.
+   - Prefer verbatim receipt text in "name"; put the clearest shopper-facing label in "itemAlias" whenever the printed line is not already obvious (codes, SKUs, dept numbers, cryptic abbreviations). Never put currency amounts in itemAlias.
 
 9. Image quality assessment (imageQuality): clarity and completeness (0.0–1.0), clarityComment, completenessComment. For documents, rate readability and completeness of content.
 
@@ -191,7 +205,7 @@ Return ONLY valid JSON, no markdown. Format:
   "tax": number,
   "taxJurisdictionCountry": "string or null",
   "taxJurisdictionRegion": "string or null",
-  "items": [ { "name": "string", "categoryName": "string", "attributionName": "string", "price": number, "taxClassCode": "STANDARD_TAXABLE or EXEMPT or ZERO_RATED or omit", "posTaxCode": "string or omit" } ],
+  "items": [ { "name": "string", "itemAlias": "string or omit", "categoryName": "string", "attributionName": "string", "price": number, "posTaxCode": "string or omit" } ],
   "imageQuality": { "clarity": number, "completeness": number, "clarityComment": "string", "completenessComment": "string" },
   "dataConsistency": { "itemsSum": number, "itemsSumMatchesTotal": boolean, "missingItems": boolean, "consistencyComment": "string" },
   "confidence": number
@@ -292,8 +306,8 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
     console.warn('Failed to fetch suppliers:', e);
   }
 
-  const categoryList = categoryNames.join(', ');
-  const attributionNamesCsv = attributionNames.join(', ');
+  const categoryList = toUnrankedOptionList(categoryNames).join(', ');
+  const attributionNamesCsv = toUnrankedOptionList(attributionNames).join(', ');
   const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
   const supplierListImg = supplierNamesImg.length > 0 ? supplierNamesImg.join(', ') : '';
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
@@ -306,7 +320,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
     paymentAccountList,
     defaultCurrency,
     currencyList,
-    defaultAttributionName: attributionNames[0] || 'Personal',
+    defaultAttributionName: 'Personal',
   });
   const prompt = RECEIPT_IMAGE_PARSE_INTRO + extractionRules;
 
@@ -391,7 +405,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
       const parsedResult: GeminiReceiptResult = JSON.parse(jsonText);
       ensureGeminiParsedReceiptItems(parsedResult as Record<string, unknown>, {
         categoryNames,
-        defaultAttributionName: attributionNames[0] || 'Personal',
+        defaultAttributionName: 'Personal',
       });
 
       // 验证和规范化数据
@@ -440,16 +454,14 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
         taxJurisdictionRegion:
           parsedResult.taxJurisdictionRegion ?? pj.tax_jurisdiction_region ?? null,
         items: parsedResult.items.map((item: any) => {
-          const tcc = normalizedItemTaxClassCode(item);
           const ptc = normalizedItemPosTaxCode(item);
           return {
-            name: item.name ?? item.description ?? 'Unknown Item',
+            ...resolveReadableItemName(item),
             categoryName: item.categoryName ?? item.category ?? defaultCategory,
             price: Number(item.price ?? item.amount ?? 0),
             attributionName: item.attributionName ?? item.purposeName ?? item.purpose ?? 'Personal',
             isAsset: item.isAsset !== undefined ? Boolean(item.isAsset) : false,
             confidence: item.confidence !== undefined ? Number(item.confidence) : 0.8,
-            ...(tcc ? { taxClassCode: tcc } : {}),
             ...(ptc ? { posTaxCode: ptc } : {}),
           };
         }),
@@ -681,8 +693,8 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
   const currencyList = userCurrencies.length > 0 ? userCurrencies.slice(0, 3).join(', ') : 'USD, CAD, MXN';
   const supplierListImg = supplierNamesImg.join(', ');
-  const categoryList = categoryNames.join(', ');
-  const attributionNamesCsv = attributionNames.join(', ');
+  const categoryList = toUnrankedOptionList(categoryNames).join(', ');
+  const attributionNamesCsv = toUnrankedOptionList(attributionNames).join(', ');
   const paymentAccountList = paymentAccountNames.join(', ');
 
   const extractionRules = buildReceiptExtractionRules({
@@ -692,7 +704,7 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
     paymentAccountList,
     defaultCurrency,
     currencyList,
-    defaultAttributionName: attributionNames[0] || 'Personal',
+    defaultAttributionName: 'Personal',
   });
   const prompt = RECEIPT_DOCUMENT_PARSE_INTRO + extractionRules;
 
@@ -727,7 +739,7 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
       const parsedResult: GeminiReceiptResult = JSON.parse(jsonText);
       ensureGeminiParsedReceiptItems(parsedResult as Record<string, unknown>, {
         categoryNames,
-        defaultAttributionName: attributionNames[0] || 'Personal',
+        defaultAttributionName: 'Personal',
       });
       const paymentAccountName = parsedResult.paymentAccountName || (parsedResult as any).paymentAccount;
       const imageQuality = parsedResult.imageQuality ? {
@@ -765,16 +777,14 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
         taxJurisdictionRegion:
           parsedResult.taxJurisdictionRegion ?? pj.tax_jurisdiction_region ?? null,
         items: parsedResult.items.map((item: any) => {
-          const tcc = normalizedItemTaxClassCode(item);
           const ptc = normalizedItemPosTaxCode(item);
           return {
-            name: item.name ?? item.description ?? 'Unknown Item',
+            ...resolveReadableItemName(item),
             categoryName: item.categoryName ?? item.category ?? defaultCategory,
             price: Number(item.price ?? item.amount ?? 0),
             attributionName: item.attributionName ?? item.purposeName ?? item.purpose ?? 'Personal',
             isAsset: item.isAsset !== undefined ? Boolean(item.isAsset) : false,
             confidence: item.confidence !== undefined ? Number(item.confidence) : 0.8,
-            ...(tcc ? { taxClassCode: tcc } : {}),
             ...(ptc ? { posTaxCode: ptc } : {}),
           };
         }),
@@ -1020,8 +1030,8 @@ export async function recognizeReceiptFromText(text: string): Promise<GeminiRece
     console.warn('Failed to fetch suppliers:', e);
   }
 
-  const categoryList = categoryNames.join(', ');
-  const attributionNamesCsv = attributionNames.join(', ');
+  const categoryList = toUnrankedOptionList(categoryNames).join(', ');
+  const attributionNamesCsv = toUnrankedOptionList(attributionNames).join(', ');
   const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
   const supplierList = supplierNames.length > 0 ? supplierNames.join(', ') : '';
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
@@ -1038,12 +1048,12 @@ export async function recognizeReceiptFromText(text: string): Promise<GeminiRece
 
   const prompt = `Extract receipt/purchase from text. Return ONLY valid JSON, no markdown.
 
-Rules: Gibberish/no real content → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, attributionName, paymentAccountName: pick from injected lists if match, else return new value (will create). Dates YYYY-MM-DD; categoryName and attributionName from lists. Relative: today=${today}, yesterday=day before ${today}, 上周五/last Friday=${lastFridayStr}. Ambiguous dates → closest to ${today}; year missing → ${currentYear} or ${currentYear - 1}.
+Rules: Gibberish/no real content → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, attributionName, paymentAccountName: pick from injected lists if match, else return new value (will create). For categoryName/attributionName, prioritize semantic fit, not list position/frequency (frequency is only weak tie-breaker). Dates YYYY-MM-DD; categoryName and attributionName from lists. Relative: today=${today}, yesterday=day before ${today}, 上周五/last Friday=${lastFridayStr}. Ambiguous dates → closest to ${today}; year missing → ${currentYear} or ${currentYear - 1}.
 Items: at least one. ${RECEIPT_JSON_ITEMS_RULE} Example item: ${JSON.stringify(RECEIPT_JSON_ITEMS_EXAMPLE)}. Infer single item from total if needed.
 
-Data: today=${today}, 上周五=${lastFridayStr}. Suppliers [${supplierList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "${attributionNames[0]}".
+Data: today=${today}, 上周五=${lastFridayStr}. Suppliers [${supplierList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Personal".
 
-Output JSON keys: supplierName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), taxJurisdictionCountry (optional ISO country or null), taxJurisdictionRegion (optional state/province or null), items (array of { name, categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
+Output JSON keys: supplierName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), taxJurisdictionCountry (optional ISO country or null), taxJurisdictionRegion (optional state/province or null), items (array of { name, itemAlias (required when name is code-like), categoryName, attributionName, price, posTaxCode optional }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
 
 User text:
 "${text}"`;
@@ -1126,23 +1136,22 @@ User text:
           }];
         }
 
-        // 统一 item 字段：与图片/语音同一套 schema（name, categoryName, attributionName, price, taxClassCode, posTaxCode）
+        // 统一 item 字段：与图片/语音同一套 schema（name, categoryName, attributionName, price, posTaxCode）
         parsedResult.items = parsedResult.items.map((item: any) => {
-          const name = item.name ?? item.description;
+          const readable = resolveReadableItemName(item);
           const price = item.price !== undefined && item.price !== null ? Number(item.price) : Number(item.amount);
           const attributionName = item.attributionName ?? item.purposeName ?? item.purpose ?? 'Personal';
           const categoryName = item.categoryName ?? item.category;
-          const tcc = normalizedItemTaxClassCode(item);
           const ptc = normalizedItemPosTaxCode(item);
           const base: any = {
-            name,
+            name: readable.name,
             price,
             attributionName,
             categoryName,
           };
+          if (readable.itemAlias) base.itemAlias = readable.itemAlias;
           if (item.isAsset !== undefined) base.isAsset = Boolean(item.isAsset);
           if (item.confidence !== undefined) base.confidence = Number(item.confidence);
-          if (tcc) base.taxClassCode = tcc;
           if (ptc) base.posTaxCode = ptc;
           return base;
         }).filter((item: any) => {
@@ -1303,8 +1312,8 @@ export async function recognizeReceiptFromAudio(audioUri: string): Promise<Gemin
     console.warn('Failed to fetch suppliers:', e);
   }
 
-  const categoryList = categoryNames.join(', ');
-  const attributionNamesCsv = attributionNames.join(', ');
+  const categoryList = toUnrankedOptionList(categoryNames).join(', ');
+  const attributionNamesCsv = toUnrankedOptionList(attributionNames).join(', ');
   const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
   const supplierListAudio = supplierNamesAudio.length > 0 ? supplierNamesAudio.join(', ') : '';
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
@@ -1318,12 +1327,12 @@ export async function recognizeReceiptFromAudio(audioUri: string): Promise<Gemin
 
   const prompt = `Extract receipt/purchase from this audio. Return ONLY valid JSON, no markdown.
 
-Rules: Unclear/noise-only audio → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, attributionName, paymentAccountName: pick from injected lists if match, else return new value (will create). Only extract what you actually hear.
+Rules: Unclear/noise-only audio → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, attributionName, paymentAccountName: pick from injected lists if match, else return new value (will create). For categoryName/attributionName, prioritize semantic fit, not list position/frequency (frequency is only weak tie-breaker). Only extract what you actually hear.
 Items: at least one. ${RECEIPT_JSON_ITEMS_RULE} Example item: ${JSON.stringify(RECEIPT_JSON_ITEMS_EXAMPLE)}.
 
-Data: today=${todayStr}, yesterday=${yesterdayStr}. Suppliers [${supplierListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "${attributionNames[0]}".
+Data: today=${todayStr}, yesterday=${yesterdayStr}. Suppliers [${supplierListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Personal".
 
-Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymentAccountName (optional), tax (default 0), taxJurisdictionCountry (optional or null), taxJurisdictionRegion (optional or null), items (array of { name, categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
+Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymentAccountName (optional), tax (default 0), taxJurisdictionCountry (optional or null), taxJurisdictionRegion (optional or null), items (array of { name, itemAlias(optional), categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
 
   try {
     // 读取音频文件
@@ -1387,19 +1396,18 @@ Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymen
           throw new Error('Missing required fields in response');
         }
 
-        // 统一 item 字段：与图片/文字同一套 schema（name, categoryName, attributionName, price）
+        // 统一 item 字段：与图片/文字同一套 schema（name, categoryName, attributionName, price, posTaxCode）
         if (parsedResult.items && Array.isArray(parsedResult.items)) {
           parsedResult.items = parsedResult.items.map((item: any) => {
-            const name = item.name ?? item.description;
+            const readable = resolveReadableItemName(item);
             const price = item.price !== undefined && item.price !== null ? Number(item.price) : Number(item.amount ?? 0);
             const attributionName = item.attributionName ?? item.purposeName ?? item.purpose ?? 'Personal';
             const categoryName = item.categoryName ?? item.category;
-            const tcc = normalizedItemTaxClassCode(item);
             const ptc = normalizedItemPosTaxCode(item);
-            const base: any = { name, price, attributionName, categoryName };
+            const base: any = { name: readable.name, price, attributionName, categoryName };
+            if (readable.itemAlias) base.itemAlias = readable.itemAlias;
             if (item.isAsset !== undefined) base.isAsset = Boolean(item.isAsset);
             if (item.confidence !== undefined) base.confidence = Number(item.confidence);
-            if (tcc) base.taxClassCode = tcc;
             if (ptc) base.posTaxCode = ptc;
             return base;
           }).filter((item: any) => item.name != null && item.name !== '' && !isNaN(item.price) && item.categoryName);
@@ -1505,8 +1513,8 @@ async function recognizeInvoiceFromText(text: string): Promise<GeminiVoucherResu
   } catch (e) {
     console.warn('Failed to fetch customers:', e);
   }
-  const categoryList = categoryNames.join(', ');
-  const attributionNamesCsv = attributionNames.join(', ');
+  const categoryList = toUnrankedOptionList(categoryNames).join(', ');
+  const attributionNamesCsv = toUnrankedOptionList(attributionNames).join(', ');
   const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
   const customerList = customerNames.length > 0 ? customerNames.join(', ') : '';
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
@@ -1517,11 +1525,11 @@ async function recognizeInvoiceFromText(text: string): Promise<GeminiVoucherResu
 
   const prompt = `Extract INVOICE (sales / money received) from text. Return ONLY valid JSON, no markdown.
 
-Rules: Gibberish/no real content → confidence 0.1, customerName "Unknown", totalAmount 0, items []. For customerName, categoryName, attributionName, paymentAccountName: pick from injected lists if match, else return new value (will create). Dates YYYY-MM-DD; use ${today} if not mentioned.
+Rules: Gibberish/no real content → confidence 0.1, customerName "Unknown", totalAmount 0, items []. For customerName, categoryName, attributionName, paymentAccountName: pick from injected lists if match, else return new value (will create). For categoryName/attributionName, prioritize semantic fit, not list position/frequency (frequency is only weak tie-breaker). Dates YYYY-MM-DD; use ${today} if not mentioned.
 
-Data: today=${today}. Customers [${customerList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "${attributionNames[0]}".
+Data: today=${today}. Customers [${customerList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Employer".
 
-Output: customerName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[], dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
+Output: customerName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[] where each item includes name, itemAlias(optional), categoryName, attributionName, price, dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
 
 User input:
 "${text}"`;
@@ -1548,9 +1556,10 @@ User input:
       if (parsed.totalAmount === undefined) parsed.totalAmount = 0;
       if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Sales', attributionName: attributionNames[0] || 'Employer', price: parsed.totalAmount || 0 }];
       parsed.items = parsed.items.map((item: any) => {
+        const readable = resolveReadableItemName(item);
         const attributionName =
           (item.attributionName ?? item.purposeName ?? item.purpose ?? attributionNames[0]) || 'Employer';
-        return { ...item, attributionName };
+        return { ...item, name: readable.name, ...(readable.itemAlias ? { itemAlias: readable.itemAlias } : {}), attributionName };
       }).filter((item: any) => item.name != null && item.price !== undefined && item.categoryName);
       if (parsed.items.length === 0) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Sales', attributionName: attributionNames[0] || 'Employer', price: parsed.totalAmount || 0 }];
       if (!parsed.currency) parsed.currency = defaultCurrency;
@@ -1605,19 +1614,19 @@ export async function recognizeInvoiceFromDocument(fileUrl: string, mimeHint?: s
     customerNames = entities.map((e) => e.name);
   } catch {}
   const customerList = customerNames.length > 0 ? customerNames.join(', ') : 'None';
-  const categoryList = categoryNames.join(', ');
-  const attributionNamesCsv = attributionNames.join(', ');
+  const categoryList = toUnrankedOptionList(categoryNames).join(', ');
+  const attributionNamesCsv = toUnrankedOptionList(attributionNames).join(', ');
   const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : 'None';
   const userCurrencies = await getCurrenciesByUsage();
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
   const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, CNY';
   const today = getLocalDateString();
 
-  const rulesAndData = `Rules: Gibberish/no real content → confidence 0.1, customerName "Unknown", totalAmount 0, items []. For customerName, categoryName, attributionName, paymentAccountName: pick from injected lists if match, else return new value (will create). Dates YYYY-MM-DD; use ${today} if not mentioned.
+  const rulesAndData = `Rules: Gibberish/no real content → confidence 0.1, customerName "Unknown", totalAmount 0, items []. For customerName, categoryName, attributionName, paymentAccountName: pick from injected lists if match, else return new value (will create). For categoryName/attributionName, prioritize semantic fit, not list position/frequency (frequency is only weak tie-breaker). Dates YYYY-MM-DD; use ${today} if not mentioned.
 
-Data: today=${today}. Customers [${customerList}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "${attributionNames[0]}".
+Data: today=${today}. Customers [${customerList}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Employer".
 
-Output: customerName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[], dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
+Output: customerName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[] where each item includes name, itemAlias(optional), categoryName, attributionName, price, dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
 
   const prompt = INVOICE_DOCUMENT_PARSE_INTRO + rulesAndData;
   const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
@@ -1655,9 +1664,10 @@ Output: customerName, date, totalAmount, currency, paymentAccountName (optional)
       if (parsed.totalAmount === undefined) parsed.totalAmount = 0;
       if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Sales', attributionName: attributionNames[0] || 'Employer', price: parsed.totalAmount || 0 }];
       parsed.items = parsed.items.map((item: any) => {
+        const readable = resolveReadableItemName(item);
         const attributionName =
           (item.attributionName ?? item.purposeName ?? item.purpose ?? attributionNames[0]) || 'Employer';
-        return { ...item, attributionName };
+        return { ...item, name: readable.name, ...(readable.itemAlias ? { itemAlias: readable.itemAlias } : {}), attributionName };
       }).filter((item: any) => item.name != null && item.price !== undefined && item.categoryName);
       if (parsed.items.length === 0) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Sales', attributionName: attributionNames[0] || 'Employer', price: parsed.totalAmount || 0 }];
       if (!parsed.currency) parsed.currency = defaultCurrency;
@@ -1728,8 +1738,8 @@ async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVouche
   } catch (e) {
     console.warn('Failed to fetch customers:', e);
   }
-  const categoryList = categoryNames.join(', ');
-  const attributionNamesCsv = attributionNames.join(', ');
+  const categoryList = toUnrankedOptionList(categoryNames).join(', ');
+  const attributionNamesCsv = toUnrankedOptionList(attributionNames).join(', ');
   const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
   const customerListAudio = customerNamesAudio.length > 0 ? customerNamesAudio.join(', ') : '';
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
@@ -1738,9 +1748,9 @@ async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVouche
 
   const prompt = `Extract INVOICE (sales / money received) from this audio. Return ONLY valid JSON, no markdown.
 
-Rules: Unclear/noise-only audio → confidence 0.1, customerName "Unknown", totalAmount 0, items []. For customerName, categoryName, attributionName, paymentAccountName: pick from injected lists if match, else return new value (will create). Only extract what you actually hear.
+Rules: Unclear/noise-only audio → confidence 0.1, customerName "Unknown", totalAmount 0, items []. For customerName, categoryName, attributionName, paymentAccountName: pick from injected lists if match, else return new value (will create). For categoryName/attributionName, prioritize semantic fit, not list position/frequency (frequency is only weak tie-breaker). Only extract what you actually hear.
 
-Data: today=${today}. Customers [${customerListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "${attributionNames[0]}". Return ONLY valid JSON: customerName, date (YYYY-MM-DD), totalAmount, currency, tax, paymentAccountName, items (name, categoryName, attributionName, price), dataConsistency (itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment), confidence(0-1).`;
+Data: today=${today}. Customers [${customerListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Employer". Return ONLY valid JSON: customerName, date (YYYY-MM-DD), totalAmount, currency, tax, paymentAccountName, items (name, itemAlias(optional), categoryName, attributionName, price), dataConsistency (itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment), confidence(0-1).`;
 
   const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
   let availableModel: string | null = null;
@@ -1771,9 +1781,10 @@ Data: today=${today}. Customers [${customerListAudio || 'None'}]. Currencies [${
       if (parsed.totalAmount === undefined) parsed.totalAmount = 0;
       if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Sales', attributionName: attributionNames[0] || 'Employer', price: parsed.totalAmount || 0 }];
       parsed.items = parsed.items.map((item: any) => {
+        const readable = resolveReadableItemName(item);
         const attributionName =
           (item.attributionName ?? item.purposeName ?? item.purpose ?? attributionNames[0]) || 'Employer';
-        return { ...item, attributionName };
+        return { ...item, name: readable.name, ...(readable.itemAlias ? { itemAlias: readable.itemAlias } : {}), attributionName };
       }).filter((item: any) => item.name != null && item.price !== undefined && item.categoryName);
       if (parsed.items.length === 0) parsed.items = [{ name: 'Sale', categoryName: categoryNames[0] || 'Sales', attributionName: attributionNames[0] || 'Employer', price: parsed.totalAmount || 0 }];
       if (!parsed.currency) parsed.currency = defaultCurrency;

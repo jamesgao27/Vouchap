@@ -3,9 +3,8 @@
  * POS meaning: public.entity_pos_tax_code (global catalog by receipts.merchant_entity_id) first, then crm.tax_pos_code_rule.
  * Reconcile sum(lines) vs receipts.tax. Ticket total tax stays as stored on receipt.tax.
  *
- * Modeling: receipt_items.tax_class_code is the **supply / rate-bundle** label (STANDARD_TAXABLE | EXEMPT | ZERO_RATED)
- * used to choose which jurisdiction × class rows from CRM apply to the line — not a single tax kind. The 1:N split per
- * item is receipt_item_taxes (one row per tax_kind_code for that item).
+ * Per-line **tax class** for rate lookup comes from POS/entity rules when present, otherwise **STANDARD_TAXABLE**.
+ * The 1:N split per item is receipt_item_taxes (one row per tax_kind_code for that item).
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import Decimal from 'decimal.js';
@@ -16,7 +15,7 @@ Decimal.set({ rounding: Decimal.ROUND_HALF_UP, precision: 28 });
 
 export const DEFAULT_TAX_CLASS = 'STANDARD_TAXABLE';
 
-/** Allowed per-line tax_class_code on receipt_items (matches crm.tax_rate_standard.tax_class_code). */
+/** Allowed supply-class labels from POS rules / CRM (matches crm.tax_rate_standard.tax_class_code dimension). */
 const RECEIPT_ITEM_TAX_CLASS_CODES = new Set(['STANDARD_TAXABLE', 'EXEMPT', 'ZERO_RATED']);
 
 const TAX_CLASS_ALIASES: Record<string, string> = {
@@ -698,7 +697,7 @@ function finalizeReconciliation(
       auditComment: null,
     };
   }
-  const comment = `Line tax sum ${finalSum.toFixed(2)} vs receipt ${receiptTax.toFixed(2)} (diff ${v.toFixed(2)}). Check tax_jurisdiction, pos_tax_code / tax_class_code, and entity or CRM POS rules.`;
+  const comment = `Line tax sum ${finalSum.toFixed(2)} vs receipt ${receiptTax.toFixed(2)} (diff ${v.toFixed(2)}). Check tax_jurisdiction, pos_tax_code, and entity or CRM POS rules.`;
   return {
     status: 'variance',
     variance: v.toDecimalPlaces(4).toNumber(),
@@ -724,7 +723,6 @@ export async function getApplicableTaxRules(
     region: string;
     asOf: string;
     merchantEntityId?: string | null;
-    lineTaxClassOverride?: string | null;
     posTaxCode?: string | null;
     merchantName?: string | null;
   },
@@ -735,7 +733,6 @@ export async function getApplicableTaxRules(
       ? fetchEntityPosTaxCodesForMerchantEntity(supabase, params.merchantEntityId, params.country)
       : Promise.resolve([] as EntityPosTaxCodeRow[]),
   ]);
-  const lineOverride = normalizeReceiptItemTaxClassCode(params.lineTaxClassOverride);
   const posRes = resolveLinePosTaxResolution(
     catalogRules,
     posRules,
@@ -745,10 +742,7 @@ export async function getApplicableTaxRules(
     params.posTaxCode,
     params.asOf,
   );
-  let taxClass: string;
-  if (posRes.taxClass) taxClass = posRes.taxClass;
-  else if (lineOverride) taxClass = lineOverride;
-  else taxClass = DEFAULT_TAX_CLASS;
+  const taxClass: string = posRes.taxClass ?? DEFAULT_TAX_CLASS;
   const rateMap = await resolveRateRows(supabase, params.country, params.region, taxClass, params.asOf);
   let rows = [...rateMap.values()];
   if (posRes.includedTaxKinds && posRes.includedTaxKinds.length > 0) {
@@ -772,7 +766,6 @@ type ReceiptItemRow = {
   id: string;
   price: unknown;
   category_id?: string;
-  tax_class_code?: string | null;
   pos_tax_code?: string | null;
 };
 
@@ -781,9 +774,6 @@ type LineMeta = {
   posCode: string | null;
   posRuleMatched: boolean;
   taxClass: string;
-  fromLineOverride: boolean;
-  /** Model/OCR wrote a non-empty receipt_items.tax_class_code */
-  lineTaxClassFromModel: boolean;
 };
 
 const POS_CLASS_FIT_TRIAD: Array<'STANDARD_TAXABLE' | 'ZERO_RATED' | 'EXEMPT'> = [
@@ -1012,7 +1002,6 @@ async function ensureSingleMergedLineItem(
     attribution_id: null,
     price,
     is_asset: false,
-    tax_class_code: null,
     pos_tax_code: null,
   });
   if (error) {
@@ -1113,7 +1102,7 @@ async function greedyFitPosLineClassesToReceiptTax(
 }
 
 /**
- * Deletes prior rows, recomputes item taxes from catalog + line category tax class,
+ * Deletes prior rows, recomputes item taxes from catalog + POS rules (default taxable),
  * writes receipt_item_taxes and updates receipts tax reconciliation columns.
  */
 export async function applyReceiptItemTaxesAndReconcile(
@@ -1230,7 +1219,7 @@ export async function applyReceiptItemTaxesAndReconcile(
 
   let { data: items, error: iErr } = await supabase
     .from('receipt_items')
-    .select('id, price, category_id, tax_class_code, pos_tax_code')
+    .select('id, price, category_id, pos_tax_code')
     .eq('receipt_id', receiptId);
 
   if (!iErr && (!items || items.length === 0)) {
@@ -1238,7 +1227,7 @@ export async function applyReceiptItemTaxesAndReconcile(
     if (inserted) {
       const again = await supabase
         .from('receipt_items')
-        .select('id, price, category_id, tax_class_code, pos_tax_code')
+        .select('id, price, category_id, pos_tax_code')
         .eq('receipt_id', receiptId);
       items = again.data ?? [];
       iErr = again.error;
@@ -1360,14 +1349,8 @@ export async function applyReceiptItemTaxesAndReconcile(
   const taxKindFilterByItemId = new Map<string, Set<string> | null>();
   const entityPosTaxCodeByItemId = new Map<string, string | null>();
   const lineMetas: LineMeta[] = [];
-  /** Align DB line tax_class with POS resolution (entity or CRM rule). */
-  const taxClassPersistFromPosRule: Array<{ id: string; tax_class_code: string }> = [];
 
   for (const item of receiptItems) {
-    const rawTaxClassOnLine = item.tax_class_code as string | null;
-    const lineTaxClassFromModel =
-      rawTaxClassOnLine != null && String(rawTaxClassOnLine).trim() !== '';
-    const lineOverride = normalizeReceiptItemTaxClassCode(rawTaxClassOnLine);
     const posRes = resolveLinePosTaxResolution(
       entityPosRules,
       posRules,
@@ -1378,23 +1361,7 @@ export async function applyReceiptItemTaxesAndReconcile(
       asOf,
     );
     const posClass = posRes.taxClass;
-    let taxClass: string;
-    let fromLineOverride = false;
-    /**
-     * Ticket POS letter + entity/CRM rule wins over model line taxClassCode (all taxable default flood).
-     */
-    if (posClass) {
-      taxClass = posClass;
-      const prev = normalizeReceiptItemTaxClassCode(item.tax_class_code as string | null);
-      if (prev !== posClass) {
-        taxClassPersistFromPosRule.push({ id: item.id as string, tax_class_code: posClass });
-      }
-    } else if (lineOverride) {
-      taxClass = lineOverride;
-      fromLineOverride = true;
-    } else {
-      taxClass = DEFAULT_TAX_CLASS;
-    }
+    const taxClass: string = posClass ?? DEFAULT_TAX_CLASS;
     const id = item.id as string;
     taxClassByItemId.set(id, taxClass);
     entityPosTaxCodeByItemId.set(id, posRes.entityPosTaxCodeId);
@@ -1412,8 +1379,6 @@ export async function applyReceiptItemTaxesAndReconcile(
       posCode: posCodeNorm,
       posRuleMatched: posClass != null,
       taxClass,
-      fromLineOverride,
-      lineTaxClassFromModel,
     });
   }
 
@@ -1504,40 +1469,6 @@ export async function applyReceiptItemTaxesAndReconcile(
     });
   }
 
-  if (taxClassPersistFromPosRule.length > 0) {
-    const upRows = await Promise.all(
-      taxClassPersistFromPosRule.map((row) =>
-        supabase.from('receipt_items').update({ tax_class_code: row.tax_class_code }).eq('id', row.id),
-      ),
-    );
-    for (const u of upRows) {
-      if (u.error) console.warn('[receipt-item-tax] persist pos-rule tax_class_code:', u.error.message);
-    }
-  }
-
-  if (receiptTaxFitApplied) {
-    const fitRows = receiptItems.filter((it) => {
-      const want = taxClassByItemId.get(it.id as string);
-      if (!want) return false;
-      const had =
-        normalizeReceiptItemTaxClassCode(it.tax_class_code as string | null) ?? DEFAULT_TAX_CLASS;
-      return want !== had;
-    });
-    if (fitRows.length > 0) {
-      const upFit = await Promise.all(
-        fitRows.map((it) =>
-          supabase
-            .from('receipt_items')
-            .update({ tax_class_code: taxClassByItemId.get(it.id as string) as string })
-            .eq('id', it.id as string),
-        ),
-      );
-      for (const u of upFit) {
-        if (u.error) console.warn('[receipt-item-tax] persist receipt.tax fit tax_class_code:', u.error.message);
-      }
-    }
-  }
-
   if (finalized.status === 'variance') {
     console.warn('[receipt-item-tax] Line tax sum vs receipt.tax out of tolerance', {
       receiptId,
@@ -1600,14 +1531,8 @@ export async function applyReceiptItemTaxesAndReconcile(
   ) {
     for (const meta of lineMetas) {
       if (!meta.posCode || meta.posRuleMatched) continue;
-      if (!receiptTaxFitApplied) {
-        if (
-          !meta.fromLineOverride &&
-          !meta.lineTaxClassFromModel &&
-          meta.taxClass === DEFAULT_TAX_CLASS
-        ) {
-          continue;
-        }
+      if (!receiptTaxFitApplied && meta.taxClass === DEFAULT_TAX_CLASS) {
+        continue;
       }
       const { error: learnErr } = await supabase.rpc('record_entity_pos_tax_learning_and_maybe_promote', {
         p_space_id: spaceId,
@@ -1635,7 +1560,7 @@ export async function applyReceiptItemTaxesAndReconcile(
       new Decimal(Math.abs(finalized.variance)).gt(RECONCILE_ROUNDING_EPS)
     ) {
       showToast(
-        `Tax check: lines total ${sumDec.toFixed(2)} vs receipt ${receiptTaxDec.toFixed(2)}. Adjust item tax class or POS code if needed.`,
+        `Tax check: lines total ${sumDec.toFixed(2)} vs receipt ${receiptTaxDec.toFixed(2)}. Adjust POS code or CRM POS rules if needed.`,
         'info',
         7000,
       );

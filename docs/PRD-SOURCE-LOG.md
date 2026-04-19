@@ -8,6 +8,794 @@
 
 ---
 
+### 2026-04-16（aim.link-v2：第二批20项连续执行（ProjectDetail/ProjectList/Task/Messages收口））
+
+**User（提示词/原意）**  
+- 要求继续并新增 20 项待办；强调“列 todo 是为了让助手连续工作”，并要求持续推进。
+
+**Assistant（实现前说明，若有）**  
+- 新建第二批 20 项复刻任务（replica2-01 ~ replica2-20），优先顺序：  
+  1) Project Detail 二级导航/工具条/TaskList结构；  
+  2) Project List list/card 细节；  
+  3) Task list 头部与行内信息；  
+  4) Messages 未读样式与时间布局；  
+  5) 全局 icon/圆角/gap 收口与构建验证。  
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已完整执行并完成第二批 20 项，核心结果：  
+  - `ProjectDetailPage`：新增旧版风格二级 subnav（WBS/Gantt/Process/Table/Kanban/TaskList/Overview/Files）；TaskList 增加列头与元信息图标（执行/审核/截止），行尾加入更多+进入动作；Table/Kanban/Files/MindMap/Overview 均加紧凑样式类并统一密度。  
+  - `ProjectListPage`：list 模式加入列头条；每行增加左侧缩略占位块；右侧指标区尺寸/字段间距/进度条宽度精修；card 模式列宽、卡片高度与文字层级进一步贴近旧版。  
+  - `TasksPage`：标题列改为“主标题 + 次级 chip（state/due）”双层信息，表格行高继续压缩。  
+  - `MessagesPage`：未读行加 `news-box-item--unread`，标题字重与时间对齐更突出；dot 偏移位置调整。  
+  - 全局：导航菜单与 operator item 圆角统一收口为 2px。  
+- 质量：`npm run build -w @aimlink/web` 多次验证通过；lints 无新增报错。  
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/ProjectDetailPage.tsx`  
+- `aim.link-v2/apps/web/src/pages/ProjectListPage.tsx`  
+- `aim.link-v2/apps/web/src/pages/TasksPage.tsx`  
+- `aim.link-v2/apps/web/src/pages/MessagesPage.tsx`  
+- `aim.link-v2/apps/web/src/styles/saas-pc4-project-port.scss`  
+- `aim.link-v2/apps/web/src/styles/saas-pc4-task-port.scss`  
+- `aim.link-v2/apps/web/src/styles/saas-pc4-news-port.scss`  
+- `aim.link-v2/apps/web/src/styles/saas-pc4-app-shell.scss`
+
+---
+
+### 2026-04-16（aim.link-v2：20项复刻清单执行（导航/Todo/Task/Project/Timeline/Map））
+
+**User（提示词/原意）**  
+- 要求不要停下来，先按代码复刻实现；并要求助手自己列出 20 项待办后逐项完成。
+
+**Assistant（实现前说明，若有）**  
+- 建立 20 项执行清单并按模块推进：  
+  1) 顶部导航与右侧工具区；  
+  2) 左侧菜单统一密度；  
+  3) Todo/Task/Project 的工具栏与列表结构；  
+  4) Messages/Search/Timeline/Project map 页面骨架与信息流密度；  
+  5) 最后进行 lint 与构建验证。  
+- 计划触及：`components/pc40/*`、`pages/*`、`styles/saas-pc4-*.scss`、`styles/pc40-app.scss`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已执行并完成该 20 项清单，核心落地如下：  
+  - 顶部导航补齐独立 `Timeline` 入口；`More` 菜单去重；右侧加入 `Help` / `Settings` 快捷图标并统一 icon/search 密度。  
+  - Todo：左侧文案改为 `My To-Do / Pending execute / Pending review / Pending assign / Pending approve`；标题区、搜索/排序控件和列表行高进一步压缩到旧版密度。  
+  - Task：工具栏收敛为 `Earliest End time / No Grouping / View / Save View / Search / Filter / Refresh / More` 的同层结构，列表行字体与内边距进一步紧凑。  
+  - Activity（Timeline）：改为紧凑工具栏 + 自定义信息流列表（非 antd List 默认密度）。  
+  - Project map：页面头部、Collapse、list card/tree 区统一紧凑布局与字号。  
+- 质量验证：已执行 `npm run build -w @aimlink/web`，构建通过；lints 无新增报错。  
+
+**关联**  
+- `aim.link-v2/apps/web/src/components/pc40/Pc40NavHeader.tsx`  
+- `aim.link-v2/apps/web/src/components/pc40/TodoLeftRail.tsx`  
+- `aim.link-v2/apps/web/src/components/pc40/TaskOperateBlock.tsx`  
+- `aim.link-v2/apps/web/src/pages/TodoPage.tsx`  
+- `aim.link-v2/apps/web/src/pages/ActivityPage.tsx`  
+- `aim.link-v2/apps/web/src/pages/ProjectMapPage.tsx`  
+- `aim.link-v2/apps/web/src/styles/saas-pc4-app-shell.scss`  
+- `aim.link-v2/apps/web/src/styles/saas-pc4-todo-port.scss`  
+- `aim.link-v2/apps/web/src/styles/saas-pc4-task-port.scss`  
+- `aim.link-v2/apps/web/src/styles/saas-pc4-dynamic-port.scss`  
+- `aim.link-v2/apps/web/src/styles/pc40-app.scss`
+
+---
+
+### 2026-04-16（aim.link-v2：Timeline 主导航 + Activity 紧凑流 + Todo 侧栏文案）
+
+**User（提示词/原意）**  
+- 要求直接继续推进对齐。
+
+**Assistant（实现前说明，若有）**  
+- 对照旧版主导航结构：增加独立 **Timeline** 入口；**Activity** 页首 tab 改为 Timeline 并改为紧凑信息流；**Todo** 左侧与主区标题文案对齐截图中的英文菜单命名。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `Pc40NavHeader`：在 `Project` 与 `More` 之间增加 `Timeline`（`/app/activity`，`LineChartOutlined`），并从 `More` 菜单移除重复的 Activity 项。  
+- `ActivityPage`：首 tab 文案改为 `Timeline`，内容区改为 `ant4-activity-workspace` 工具栏 + 自定义 `ant4-activity-feed` 列表行（hover、字号、边线）；样式追加在 `saas-pc4-dynamic-port.scss`。  
+- `TodoLeftRail` / `TodoPage`：侧栏与 `NAV_TITLE` 更新为 `My To-Do`、`Pending execute/review/assign/approve`、`Work report`；占位提示文案同步。  
+- `npm run build -w @aimlink/web` 已通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/components/pc40/Pc40NavHeader.tsx`  
+- `aim.link-v2/apps/web/src/pages/ActivityPage.tsx`  
+- `aim.link-v2/apps/web/src/styles/saas-pc4-dynamic-port.scss`  
+- `aim.link-v2/apps/web/src/components/pc40/TodoLeftRail.tsx`  
+- `aim.link-v2/apps/web/src/pages/TodoPage.tsx`
+
+---
+
+### 2026-04-16（aim.link-v2：Messages / Search 页结构继续对齐 pc4.0）
+
+**User（提示词/原意）**  
+- 要求直接继续推进逐页对齐，不停顿。
+
+**Assistant（实现前说明，若有）**  
+- 在已完成 Projects 卡片收敛基础上，继续处理 `/app/messages` 与 `/app/search`：消息页增加紧凑变体类并收紧标题栏与列表行；搜索页从居中 Card+List 改为全宽双栏工作台布局与自定义结果行。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `MessagesPage` 根节点增加 `news-content--pc40-tight`，在 `saas-pc4-news-port.scss` 中覆盖标题栏高度、边距、字号及列表行内边距与详情字号。  
+- `SearchPage` 移除 Ant `Card`/`List`，改为 `ant4-search-workspace` 双栏面板 + 结果列表行（hover、边框、链接样式）；样式写入 `pc40-app.scss`。  
+- 已执行 `npm run build -w @aimlink/web`，构建通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/MessagesPage.tsx`  
+- `aim.link-v2/apps/web/src/styles/saas-pc4-news-port.scss`  
+- `aim.link-v2/apps/web/src/pages/SearchPage.tsx`  
+- `aim.link-v2/apps/web/src/styles/pc40-app.scss`
+
+---
+
+### 2026-04-16（aim.link-v2：Projects 卡片视图按对照图收敛）
+
+**User（提示词/原意）**  
+- 继续具体对比当前与目标截图，指出差距依然很大，要求继续推进细化对齐。
+
+**Assistant（实现前说明，若有）**  
+- 重点收敛 `/app/projects` 的 card 模式结构差异：从“图文卡片墙”调整为目标图中的“紧凑纯文本项目卡”，并同步顶部操作栏文案细节（`Save View`）。  
+- 修改 `ProjectListPage` 卡片 DOM 与 `saas-pc4-project-port.scss` 卡片样式体系。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已将 project card 视图改为小尺寸纯文本卡：标题、摘要占位、时间、右上角设置按钮；收紧边框、阴影、字号与间距，去除原先大图感的视觉风格。  
+- 已在项目操作栏左侧补 `Save View` 占位项，接近目标图工具条信息结构。  
+- 本地构建验证通过（`npm run build -w @aimlink/web`），无新增 lint 报错。  
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/ProjectListPage.tsx`  
+- `aim.link-v2/apps/web/src/components/pc40/ProjectOperatorBlock.tsx`  
+- `aim.link-v2/apps/web/src/styles/saas-pc4-project-port.scss`
+
+---
+
+### 2026-04-16（aim.link-v2：修复 Cloudflare 构建失败）
+
+**User（提示词/原意）**  
+- 提供 Cloudflare Pages 构建日志，报错为 `src/pages/ProjectDetailPage.tsx` 从 `antd` 导入了 `CaretRightOutlined`，导致打包失败，要求继续推进并修复。
+
+**Assistant（实现前说明，若有）**  
+- 先定位 `ProjectDetailPage` 导入源，将图标改为从 `@ant-design/icons` 导入，再执行 `npm run build -w @aimlink/web` 复现验证。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已修复导入错误：`CaretRightOutlined` 从 `antd` 移除，改为 `@ant-design/icons` 正确来源。  
+- 本地已验证 `@aimlink/web` 构建通过（Vite build 成功，产物输出完成）；当前仅剩 Sass legacy-js-api 的 deprecation warning，不影响发布。  
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/ProjectDetailPage.tsx`
+
+---
+
+### 2026-04-16（aim.link-v2：Web 端 pc4.0 逐页对齐持续改造）
+
+**User（提示词/原意）**  
+- 继续把 UI 往 pc4.0 靠紧，默认先细抠 `/app/tasks`、`/app/projects`、`/app/messages`、`/app/search`；并明确反馈“菜单结构、文案、页面结构差距巨大”，要求助手不要停，自己逐页检查推进。  
+- 用户提供多张对照截图（Task 主列表、Project 列表、Project 详情 TaskList）作为目标样式基准。
+
+**Assistant（实现前说明，若有）**  
+- 计划分两层推进：  
+  1) 全局壳层（顶部导航、左侧菜单、操作栏密度）先做结构和文案收敛；  
+  2) 逐页补列表行结构、信息层级和 hover/间距细节，优先 Project 列表与 Project 详情 TaskList。  
+- 触及模块：`apps/web/src/components/pc40/*`、`pages/*` 与 `styles/saas-pc4-*.scss`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已完成并持续推进以下改造（本轮）：  
+  - 顶部导航与左栏菜单结构重排（`Todo/Task/Project/More` + Task/Project 左栏分组文案收敛）。  
+  - `ProjectDetailPage` 增加更接近截图的紧凑 TaskList 行：序号、标题、状态标签、逾期标签、执行人信息与右侧进入按钮。  
+  - `ProjectDetailPage` 操作栏补齐 Search/Filter/More 入口占位，压缩间距与字号。  
+  - `ProjectListPage` 列表行新增右侧指标区：Overdue、Completed/All 与进度条，向旧版项目行结构靠拢。  
+  - 样式层新增 `ant4-project-detail` 与任务行密度规则，统一小字号、紧凑行高与 hover。  
+- 已运行 lints，当前无新增 lint 报错。  
+- 后续继续：按同样方式完成 `messages/search` 结构对齐，并继续做项目页细节收口（图标、间距、字段顺序、次级文字样式）。
+
+**关联**  
+- `aim.link-v2/apps/web/src/components/pc40/Pc40NavHeader.tsx`  
+- `aim.link-v2/apps/web/src/components/pc40/TasksLeftRail.tsx`  
+- `aim.link-v2/apps/web/src/components/pc40/ProjectLeftRail.tsx`  
+- `aim.link-v2/apps/web/src/components/pc40/TaskOperateBlock.tsx`  
+- `aim.link-v2/apps/web/src/components/pc40/ProjectOperatorBlock.tsx`  
+- `aim.link-v2/apps/web/src/pages/TasksPage.tsx`  
+- `aim.link-v2/apps/web/src/pages/ProjectListPage.tsx`  
+- `aim.link-v2/apps/web/src/pages/ProjectDetailPage.tsx`  
+- `aim.link-v2/apps/web/src/styles/saas-pc4-app-shell.scss`  
+- `aim.link-v2/apps/web/src/styles/saas-pc4-project-port.scss`
+
+---
+
+### 2026-04-14（Web：Todos 操作行 Hide 0-file / Hide Canceled 平铺居中）
+
+**User（提示词/原意）**  
+- Web 端的两个 hide，不需跟移动端一样收起到浮层，仍应平铺在操作行居中位置。
+
+**Assistant（实现前说明，若有）**  
+- `ProjectDetailView` 中 Todos 筛选当前为统一「筛选图标 + Modal」；Web 改为在 `todoFilterCenterSlot` 内联两个 checkbox行，移动端保持图标与浮层。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`：Web 且展示筛选时在中栏渲染 Hide 0-file / Hide Canceled；筛选图标与 `Modal` 仅 `isMobile`；Web 文案字号 12。  
+- **验证**：Web 详情 Todos 操作行中间可见两项勾选；移动端仍为漏斗浮层。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`
+
+### 2026-04-14（Engagement Info 改税季后顶栏税季不刷新）
+
+**User（提示词/原意）**  
+- 在 engagement 详情 Info 页修改税季标签后，页面顶部标签未实时更新。
+
+**Assistant（实现前说明，若有）**  
+- Info 内 `ProjectInfoTab` 保存后会 `load()` 仅刷新卡片内状态；顶栏 `detailHeader` 依赖父组件的 `header` / `order` / `clientHeaderForDetail`，与 Realtime 无关时不会立刻重算。拟增加 `onSaved` 回调，在保存成功后由父级轻量拉取 `getOrderById` + `getOrderHeaderForClient` 更新顶栏。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `ProjectInfoTab` 增加可选 `onSaved`；保存 Hero / Classification / SaveAll及封面更新成功后 `await load()` 再 `onSaved`。  
+- `ProjectDetailView` 增加 `onProjectInfoSaved` 并传入 `ProjectInfoTab`。  
+- `tax-filing/project/[projectId]/index` 与 `firm/engagement/[id]` 实现 `refreshEngagementChrome` 并传入。  
+- **验证**：Info 保存税季后无需整页刷新，顶栏税季 pill 应立即一致。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx`  
+- `vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/project/[projectId]/index.tsx`  
+- `vouchap-app/src/mobile-ui/app/firm/engagement/[id].tsx`
+
+### 2026-04-14（Realtime：除 Web DataTable 列表外尽量全覆盖）
+
+**User（提示词/原意）**  
+- 应用内各处，除了 web 端表格视图外，各处内容应都实现 realtime；核查各处并优化到位。
+
+**Assistant（实现前说明，若有）**  
+- 盘点已有 `postgres_changes`（收据/发票/库存、事务所 engagements 订单、TaxFilingTodosView 等）。缺口主要在：客户端报税首页列表、项目/订单详情顶栏与 Info、统一 engagement 路由、Line items 列表；并明确 Web 端 `DataTable` 列表不订阅（与费用等页一致），事务所 Engagements/Clients 列表在 Web 上关闭原始终端订阅。抽取共用订阅逻辑到 `engagement-realtime.ts` 减少重复。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `vouchap-app/src/mobile-ui/lib/engagement-realtime.ts`：`subscribeFirmOrderAndLinkedProject`、`useEngagementOrderProjectRealtime`、`subscribeClientSpaceTaxFilingOrders`、`useClientSpaceTaxFilingListRealtime`。  
+- 报税客户端首页（移动 + Web网格/列表）：订阅 `firm.orders`（`client_space_id`）与 `public.projects`（`client_space_id`），防抖刷新列表。  
+- `tax-filing/project/[projectId]/index`、`tax-filing/order/[orderId]/index`、`firm/engagement/[id]`：订单 + 关联 project 变更时防抖 `load`/`loadData`；`project/.../info`（ProjectInfoTab）额外订阅以便 Info 卡片与协作同步。  
+- `firm/client/[clientSpaceId]`：仅 **非 Web** 且存在 `resolvedClientSpaceId` 时订阅该 client 的 `firm.orders`。  
+- `firm/engagements`、`firm/clients`：Realtime 改为 **仅非 Web**（Web DataTable 不订阅）。  
+- `receipt-items`：非 Web 下按空间订阅 `receipts` + `receipt_items` 防抖 `load`。  
+- 费用/收入/库存列表注释统一为「Web DataTable 不启用」。  
+- **验证**：两终端打开同一报税项目，一方改税季/状态，另一方列表与详情应约 300ms 内刷新；Web 事务所 Engagements/Clients 表格不因他人改单自动重排。  
+- **残留**：`space-orders`（CRM RPC）、`chat-to-log`、Service Catalog SKU 库等未接 Realtime；若需可再按表加订阅。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/lib/engagement-realtime.ts`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/project/[projectId]/index.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/index.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx`  
+- `vouchap-app/src/mobile-ui/app/firm/engagement/[id].tsx`  
+- `vouchap-app/src/mobile-ui/app/firm/client/[clientSpaceId].tsx`  
+- `vouchap-app/src/mobile-ui/app/firm/engagements.tsx`  
+- `vouchap-app/src/mobile-ui/app/firm/clients.tsx`  
+- `vouchap-app/src/mobile-ui/app/receipt-items.tsx`  
+- `vouchap-app/src/mobile-ui/app/receipts.tsx`（注释）  
+- `vouchap-app/src/mobile-ui/app/invoices.tsx`、`inbound.tsx`、`outbound.tsx`（注释）
+
+### 2026-04-14（客户端改税季保存无效：projects UPDATE RLS）
+
+**User（提示词/原意）**  
+- 已启动的项目，client 侧手动改税季标签，保存提示 Saved，刷新后标签未改。
+
+**Assistant（实现前说明，若有）**  
+- 核对保存链路与读回一致后，定位为 `public.projects` 的 `UPDATE` 策略仅允许 `firm.can_access_order(..., true)`，与已存在的 client 确认插入策略不对称；纯客户成员更新时 PostgREST 常表现为0 行更新且无 error，应用仍 toast Saved。拟补充 RLS 中与 `public_projects_insert` 客户端分支对称的 UPDATE 条件，并在 `updateProject` 用 `select` 校验影响行数。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增迁移 `vouchap-app/supabase/migrations/20260414173000_public_projects_update_client_space.sql`：扩展 `public_projects_update` 的 USING / WITH CHECK，允许「所属 client_space 成员 +订单与该 space 一致」的更新（与 insert 客户端路径一致）。  
+- `vouchap-app/src/shared-logic/firm.ts` 中 `updateProject`：`.update(...).select('id')`，若返回空数组则返回明确错误，避免静默失败。  
+- **验证**：对 processing 订单在客户端 Info 修改 Tax season 年份后刷新应持久；若未跑迁移则应看到权限类错误提示而非假 Saved。  
+- **风险**：客户侧现可更新其项目行上凡策略允许的列（与 insert 范围一致）；若需列级收紧可后续拆策略或改用 RPC。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260414173000_public_projects_update_client_space.sql`  
+- `vouchap-app/src/shared-logic/firm.ts`
+
+### 2026-04-14（税季默认归属修正：5/1~次年4/30 归前一年）
+
+**User（提示词/原意）**  
+- 税季标签默认计算有误：`2025-05-01` 到 `2026-04-30` 启动的，应归属 `2025` 税季。
+
+**Assistant（实现前说明，若有）**  
+- 增加统一税季推导函数，替换各页面用 `new Date(...).getFullYear()` 的默认兜底，确保移动端列表、详情页以及创建项目的默认税季写入一致。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增统一规则函数：`deriveTaxSeasonYear()`（`vouchap-app/src/shared-logic/tax-season-colors.ts`）：  
+  - `5/1 ~ 12/31 => 当年税季`  
+  - `1/1 ~ 4/30 => 上一年税季`  
+  - 示例：`2026-04-30 => 2025`，`2026-05-01 => 2026`。  
+- 已替换默认税季兜底计算位置：  
+  - `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`（mobile + web 列表）  
+  - `vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/index.tsx`  
+  - `vouchap-app/src/mobile-ui/app/tax-filing/project/[projectId]/index.tsx`  
+  - `vouchap-app/src/mobile-ui/app/firm/engagement/[id].tsx`  
+  - `vouchap-app/src/shared-logic/firm.ts`（`getOrderYear` 与创建 project 时 `tax_season_year` 兜底）。  
+- 已执行 lint 检查，相关文件无新增报错。
+
+**关联**  
+- `vouchap-app/src/shared-logic/tax-season-colors.ts`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/index.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/project/[projectId]/index.tsx`  
+- `vouchap-app/src/mobile-ui/app/firm/engagement/[id].tsx`  
+- `vouchap-app/src/shared-logic/firm.ts`
+
+### 2026-04-14（移动端详情顶行再微调：名称跟随税季标签）
+
+**User（提示词/原意）**  
+- 详情页顶行，engagement 名称跟随税季标签，不必与 firm 名称对齐。
+
+**Assistant（实现前说明，若有）**  
+- 调整 `ProjectDetailHeaderTitle` 的移动端布局，从“左右两列对齐”改为“按行跟随”：第一行税季+名称，第二行状态+firm 名称。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`：  
+  - 移动端 `wrapMobile` 改为纵向两行结构；  
+  - 第1行：`taxSeason` pill + `engagement title`；  
+  - 第2行：`status` pill + `firm subtitle`；  
+  - 因此 engagement 名称与税季标签同一行跟随显示，不再与 firm 名称做列对齐。  
+- 已执行 lint 检查，无新增报错。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`
+
+### 2026-04-14（移动端列表标签规格统一：税季与状态同高同字号）
+
+**User（提示词/原意）**  
+- 税季标签和状态标签保持一样的高度和字号。
+
+**Assistant（实现前说明，若有）**  
+- 调整移动端 engagement 列表的 `taxSeasonPill` 规格，使其与 `statusBadge` 的高度/字号体系一致（同 `paddingVertical` 与相近圆角/内边距）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`：  
+  - `taxSeasonPill` 从 `paddingHorizontal: 8, paddingVertical: 2, borderRadius: 999` 调整为  
+    `paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12`；  
+  - `taxSeasonText` 原本已为 `fontSize: 12, fontWeight: 600`，与状态标签文字规格一致，保持不变。  
+- 已执行 lint 检查，无新增报错。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`
+
+### 2026-04-14（移动端列表二行对齐：firm 名称紧随状态标签）
+
+**User（提示词/原意）**  
+- 列表上的 firm 名称也左端对齐，跟随状态标签。
+
+**Assistant（实现前说明，若有）**  
+- 检查 `tax-filing/index.tsx` 的 mobile 列表第二行样式，移除使 `footerText` 右对齐的样式，改为自然跟随 `statusBadge` 左对齐排列。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`：`footerText` 去掉 `marginLeft: 'auto'`，并保留 `flexShrink: 1`，使 `by {firmName}` 紧随状态标签显示且可在窄屏时收缩。  
+- 已执行 lint 检查，无新增报错。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`
+
+### 2026-04-14（移动端列表留白修正：Awaiting 标签仅替换进度条位）
+
+**User（提示词/原意）**  
+- 仍有额外高度，`Awaiting firm confirmation` 下方留空较大；应保持卡片高度一致，且标签替换 processing 状态进度条。
+
+**Assistant（实现前说明，若有）**  
+- 检查 mobile 列表渲染分支，定位 `awaitingFirmConfirmation` 情况下是否还渲染空的 `actionRow` 占位；改为该状态下不渲染 action 行，仅保留 progress 行中的 awaiting pill。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`：  
+  - onboarding 操作区渲染条件调整为 `!awaitingFirmConfirmation`，避免 `actionRow` 空容器造成额外留白；  
+  - `Awaiting firm confirmation` 仅占据 progress 区域（即原 processing 进度条位置）。  
+- 已执行 lint 检查，无新增报错。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`
+
+### 2026-04-14（移动端 engagement 列表：Awaiting firm confirmation 进度位 pill 化）
+
+**User（提示词/原意）**  
+- 移动端 engagement 列表页，`Awaiting firm confirmation` 也需灰色 pill 样式，居中占据进度条位置。
+
+**Assistant（实现前说明，若有）**  
+- 在 `tax-filing/index.tsx` 的 mobile `renderItem` 分支中，将 `awaitingFirmConfirmation` 的纯文本替换为灰色 pill，并保持占位在 progress 行区域且居中。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`：  
+  - `awaitingFirmConfirmation` 分支由文本改为 `progressLabelPill` + `progressLabelPillText`；  
+  - 进度行增加 `progressRowCentered`，使该 pill 在原进度条位置居中显示。  
+- 视觉与 Web 卡片中的灰色 pill 语义一致（灰底、圆角、居中）。  
+- 已执行 lint 检查，无新增报错。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`
+
+### 2026-04-14（移动端详情顶栏二次微调：双列两行严格对齐）
+
+**User（提示词/原意）**  
+- 税季标签与状态标签左端对齐成两行，其右分别是 engagement 名称和 firm 名称。
+
+**Assistant（实现前说明，若有）**  
+- 继续在 `ProjectDetailHeaderTitle`（移动端分支）调整为明确网格：左列固定两枚标签（税季/状态）上下排列并左对齐；右列固定两行文本（名称/firm）上下对应。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`：  
+  - 移动端标题区新增 `wrapMobile + mobileLeftCol + mobileRightCol` 结构；  
+  - 左列：第一行税季标签、第二行状态标签（左端严格对齐）；  
+  - 右列：第一行 engagement 名称、第二行 firm 名称（与左列两行一一对应）；  
+  - 缺省场景加入占位高度，避免两行错位抖动。  
+- Web 顶栏结构保持原样。  
+- 已执行 lint 检查，无新增报错。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`
+
+### 2026-04-14（移动端 Engagement 详情：顶栏状态位置与 Todo 筛选浮窗）
+
+**User（提示词/原意）**  
+- 移动端 engagement 详情页：  
+  1）engagement 状态标签放在顶行 firm 名称左端，与缩小的税季标签成两行（与列表页卡片布局一致）；  
+  2）两个 hide 改为一个筛选 icon，点击后浮窗显示两个复选框。
+
+**Assistant（实现前说明，若有）**  
+- 仅改 `ProjectDetailView`：  
+  - 调整 `ProjectDetailHeaderTitle` 的移动端结构与样式；  
+  - 将操作栏中内联的两个 hide 复选项合并为 filter 图标入口；  
+  - 新增轻量 modal 承载两个复选框，复用原筛选状态逻辑。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 顶栏（移动端）调整：  
+  - 状态标签从 Todos/Info 行移除，放入导航标题第二行；  
+  - 第二行布局为「状态标签 + firm 名称」，状态位于名称左端；  
+  - 税季标签缩小为 compact 尺寸，与两行标题结构协调。  
+- 筛选交互调整：  
+  - 原 `Hide 0-file` / `Hide Canceled` 内联显示改为单一 `filter` 图标按钮；  
+  - 点击后弹出 `Todo filters` 浮窗，内含两个复选框（状态与原逻辑一致）。  
+- 代码文件：`vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`。  
+- 已执行 lint 检查，无新增报错。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`
+
+### 2026-04-14（Engagement 详情二次优化：先渲染后补数 + 减少重复查询）
+
+**User（提示词/原意）**  
+- 感知优化有必要按你的思路实现，数据加载本身还需进一步找办法优化。
+
+**Assistant（实现前说明，若有）**  
+- 在 `firm/engagement/[id]` 落地两阶段加载：首屏仅依赖最小数据（order）先渲染，次要数据（header/todos/sku）后台补齐；并增加并发与去重，避免重复 `getOrderById`。  
+- 同步把 client 侧详情路径中 `getOrderHeaderForClient` 的重复订单查询去掉，并把 onboarding SKU 请求并发化。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/mobile-ui/app/firm/engagement/[id].tsx`：  
+  - 新增两阶段加载（`loading` + `secondaryLoading`）；拿到 `order` 后立即渲染页面，后续数据异步补齐；  
+  - 新增加载序列防抖（`loadSeqRef`）防止快速切换时旧请求回写；  
+  - 非关键数据失败不再整页阻塞，改 toast 提示；  
+  - 增加轻量角标 `Syncing details...` 反馈后台补数状态。  
+- `vouchap-app/src/shared-logic/firm.ts`：  
+  - `getOrderHeaderForClient(orderId, options)` 支持 `preloadedOrder`，避免重复订单读取。  
+- `vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/index.tsx`：  
+  - `getOrderHeaderForClient` 复用已加载 order；  
+  - onboarding 下 `getSkuItems` 与 `getSkuById` 改并发。  
+- `vouchap-app/src/mobile-ui/app/tax-filing/project/[projectId]/index.tsx`：  
+  - `getOrderHeaderForClient` 复用已加载 order。  
+- 已完成 lint 检查，以上文件无新增报错。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/firm/engagement/[id].tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/index.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/project/[projectId]/index.tsx`  
+- `vouchap-app/src/shared-logic/firm.ts`
+
+### 2026-04-14（Engagement 详情页加载提速：并发与去重）
+
+**User（提示词/原意）**  
+- 打开 engagement 详情页加载速度很慢，需优化避免等待。
+
+**Assistant（实现前说明，若有）**  
+- 先定位阻塞点：`firm/engagement/[id].tsx` 的 `loadData` 存在串行请求与重复查询（client 路径下 `getOrderById` 被间接重复调用）。  
+- 计划将可独立请求并发化，并让 `getOrderHeaderForClient` 支持复用已加载订单，减少一次重查询。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/mobile-ui/app/firm/engagement/[id].tsx`：  
+  - `getCurrentSpace` 与 `getOrderById` 改为并发请求；  
+  - client 角色下调用 `getOrderHeaderForClient(orderId, { preloadedOrder: ord })`，避免重复读取同一订单；  
+  - 非 onboarding 场景将 `getProjectDetail` 与 `getProjectTodosTree` 改为并发。  
+- `vouchap-app/src/shared-logic/firm.ts`：  
+  - `getOrderHeaderForClient` 新增可选参数 `options.preloadedOrder`，优先复用已获取的 `FirmOrderById`。  
+- 已完成 lint 检查，修改文件无新增报错。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/firm/engagement/[id].tsx`  
+- `vouchap-app/src/shared-logic/firm.ts`
+
+### 2026-04-14（Terminate engagement 二次确认改为统一浮窗）
+
+**User（提示词/原意）**  
+- terminate engagement 的二次确认，应采用我们设计的浮窗组件，不用系统的 alert。
+
+**Assistant（实现前说明，若有）**  
+- 仅替换「Terminate engagement」确认链路，不改 Reject 等其他确认流程；将 `window.confirm` / `Alert.alert` 分支统一为 `showConfirmDestructiveDialog`，确保 Web 与移动端一致走 `ConfirmModalHost`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已在以下页面将 terminate 二次确认切换为统一浮窗：  
+  - `vouchap-app/src/mobile-ui/app/firm/engagement/[id].tsx`  
+  - `vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/index.tsx`  
+  - `vouchap-app/src/mobile-ui/app/tax-filing/project/[projectId]/index.tsx`  
+- 交互文案保持不变（`Terminate this engagement? You can't undo this.`），确认按钮为 destructive 样式且标签为 `Terminate`。  
+- 已完成目标文件 lint 检查，无新增报错。
+
+**关联**  
+- `vouchap-app/src/shared-logic/confirmDialog.ts`  
+- `vouchap-app/src/mobile-ui/components/ConfirmModalHost.tsx`
+
+### 2026-04-14（Recycle bin 图标与标题垂直对齐微调）
+
+**User（提示词/原意）**  
+- icon 需与 Recycle bin 名称垂直对齐。
+
+**Assistant（实现前说明，若有）**  
+- 在 `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx` 的 mobile/web 回收站标题行中，检查文字外边距与 icon 样式；通过去除标题底部外边距并给 chevron 做轻量位移，保证视觉垂直居中。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- mobile 与 web 的回收站 chevron 都增加 `recycleBinChevron` 样式（`marginTop: 1`），用于修正字体与图标字形基线差异。  
+- web 端 `hiddenSectionTitle` 去掉 `marginBottom: 12`，避免标题文本外边距干扰同一行的垂直对齐。  
+- 已做 lint 检查，目标文件无新增报错。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`
+
+### 2026-04-14（Recycle bin 折叠图标位置：跟随标题）
+
+**User（提示词/原意）**  
+- engagement 回收站展开/收起 icon 需跟随在 `Recycle bin` 名称之后，不要单独靠右。
+
+**Assistant（实现前说明，若有）**  
+- 调整 mobile 与 web 的 recycle bin header 行布局：从两端对齐改为左侧紧凑排列（title + chevron），保持可点击区域不变。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `tax-filing/index.tsx`：  
+- mobile：`renderSectionHeader` 内回收站头部从 inline `space-between` 改为 `styles.recycleBinHeaderRow` 左对齐 + 间距；  
+- web：`stylesWeb.recycleBinHeaderRow` 同步改为左侧紧凑布局。  
+- 现在 icon 紧跟在 `Recycle bin` 文案后显示。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`
+
+---
+
+### 2026-04-14（Awaiting firm confirmation 视觉：灰底 pill + 居中）
+
+**User（提示词/原意）**  
+- `Awaiting firm confirmation` 需加与进度条灰色一致底色，显示为 pill，并在卡片上居中。
+
+**Assistant（实现前说明，若有）**  
+- 在复用进度位渲染的基础上，将纯文本改为灰底 pill；样式颜色与进度轨道 `#E9ECEF` 对齐，并在 card/list 进度容器中居中布局。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `ProjectListCardAndRow.tsx`：  
+- 新增 `progressLabelPill` / `progressLabelPillText` 样式（灰底 `#E9ECEF`）；  
+- card 端新增 `cardRowProgressCentered`，在进度区水平居中显示 pill；  
+- list 端新增 `listProgressBlockCentered`，同样在右侧进度位居中显示 pill。  
+- 数值进度条样式与行为不受影响，仅 `progressLabel` 场景显示 pill。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/ProjectListCardAndRow.tsx`
+
+---
+
+### 2026-04-14（Awaiting firm confirmation 展示位微调：不覆盖 firm 名称、保持卡片高度）
+
+**User（提示词/原意）**  
+- `Awaiting firm confirmation` 需替换进度条位置，不替换原 firm 名称，且卡片高度保持不变。
+
+**Assistant（实现前说明，若有）**  
+- Web 共用组件 `ProjectListCardAndRow` 原本只有数值进度条，不支持“纯文案进度位”；临时放到 footer 会覆盖 `By firm`。  
+- 计划新增 `progressLabel` 字段，复用原进度容器（cardRowProgress / listProgressBlock）渲染文案，以维持相同布局高度。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `ProjectListCardAndRow.tsx`：新增 `progressLabel`，在“无 action 且无数值进度”时，用原进度区容器显示该文案；列表右侧 `hasRightContent` 也纳入该字段。  
+- `tax-filing/index.tsx`（web 映射）：`footerText` 恢复为 `By {firmName}`；将 `Awaiting firm confirmation` 通过 `progressLabel` 输出到进度区。  
+- 结果：firm 名称保留，等待文案在原进度条位置显示，卡片/列表高度由原容器维持不变。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/ProjectListCardAndRow.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`
+
+---
+
+### 2026-04-14（二次修复：详情页 onboarding 动作区与列表区展示位对齐）
+
+**User（提示词/原意）**  
+- 新创建单已有部分效果，但仍有问题：  
+- 1）详情页内原双按钮位置应显示 `Terminate`；  
+- 2）卡片/列表页原双按钮位置（processing 进度条区域）应显示标签 `Awaiting firm confirmation`。
+
+**Assistant（实现前说明，若有）**  
+- 定位到 `ProjectDetailView` 的通用动作渲染只支持 onboarding 双按钮或 processing terminate，缺少 onboarding-only-terminate 分支。  
+- 列表页 `tax-filing/index.tsx` 里 marketplace onboarding 仍在 action 行渲染按钮，需要改为仅文字标签并放在进度区位置。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `ProjectDetailView.tsx` 新增 `showOnboardingTerminateOnly` 分支：在 onboarding 且无 `onAcceptAndStart` 但有 `onAbort` 时，web 顶栏与 mobile 底部都显示 `Terminate`。  
+- `tax-filing/index.tsx`：  
+- marketplace onboarding（`requestOrigin=client_marketplace`）不再渲染 action 按钮区；  
+- 在原进度区位置显示 `Awaiting firm confirmation`；  
+- web 卡片/列表映射同步改为 `action: null` 且 `footerText` 显示该文案。  
+- 同时清理了中间引入的无用 `handleTerminateOrder` 分支，避免后续维护混淆。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`  
+- `vouchap-app/src/shared-logic/firm.ts`
+
+---
+
+### 2026-04-14（修复：详情页 Engagement not found + 列表仍双按钮）
+
+**User（提示词/原意）**  
+- 改出问题：卡片/列表仍双按钮；详情页进不去提示 Engagement not found。  
+- 卡片/列表进度条区域需显示 `Awaiting firm confirmation`。
+
+**Assistant（实现前说明，若有）**  
+- 判断为两类问题：  
+- 1）详情页读取 `firm.orders` 新字段时，若 DB 尚未迁移会因列不存在返回空，导致 `Engagement not found`；  
+- 2）列表页（mobile/web）尚未按 `requestOrigin=client_marketplace + onboarding` 分支渲染按钮与进度区文案。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `getOrderById` 增加向后兼容 fallback：若新列不存在，自动回退 legacy select，确保详情页可打开。  
+- `tax-filing/index.tsx`（mobile/web）新增 `isAwaitingFirmConfirmation(order)`：  
+- 该类单在 onboarding 时改为 **单按钮 Terminate**；  
+- 原 `Reject + Accept and Start` 仅保留给非该类 onboarding；  
+- 进度条区域（无 task 进度时）显示 `Awaiting firm confirmation`。  
+- Web 列表映射 `orderToItemWeb` 同步了上述分支。
+
+**关联**  
+- `vouchap-app/src/shared-logic/firm.ts`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`
+
+---
+
+### 2026-04-14（client 侧 marketplace onboarding 操作按钮改为仅 Terminate）
+
+**User（提示词/原意）**  
+- 这类 onboarding 在 client 侧不应再显示 reject / accept and start，应类同 processing 状态显示 terminate。
+
+**Assistant（实现前说明，若有）**  
+- 目标仅针对 `request_origin=client_marketplace` 的 onboarding 单；保留其它 onboarding（例如非 marketplace 场景）现有行为。  
+- 详情页涉及两处：`/firm/engagement/[id]` 与 `tax-filing/order/[orderId]` 的头部动作区。需补齐 `getOrderById` / client 列表模型中的 `request_origin` 映射。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `firm.ts`：`FirmOrderById`、`getOrderById`、`getClientOrdersForClientSpace` 增加 `requestOrigin/clientConfirmedAt/firmConfirmedAt` 映射。  
+- `firm/engagement/[id].tsx`：若 `viewerRole=client && status=onboarding && requestOrigin=client_marketplace`，隐藏 `Reject` / `Accept and Start`，显示 `Terminate`（复用 `onAbort`）。  
+- `tax-filing/order/[orderId]/index.tsx`：同条件下，header 右侧从 `Reject + Accept` 改为单个 `Terminate`。  
+- **验证**：client 打开 marketplace 创建的 onboarding 单时仅见 `Terminate`；processing 仍为 `Terminate`；其余 onboarding 场景不受影响。
+
+**关联**  
+- `vouchap-app/src/shared-logic/firm.ts`  
+- `vouchap-app/src/mobile-ui/app/firm/engagement/[id].tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/index.tsx`
+
+---
+
+### 2026-04-14（Marketplace 客户自助创建 engagement 需 firm 二次确认）
+
+**User（提示词/原意）**  
+- client 端通过 service marketplace 自行创建的 engagement，需要 firm 侧确认后才能进入 processing；client 侧流程不变（浏览 marketplace → 选择并确认 → 同意协议）。
+
+**Assistant（实现前说明，若有）**  
+- 新增 `firm.orders` 来源字段区分 `client_marketplace` 与 `firm_manual`；客户端同意后只做 client-confirm 标记，不直接切到 processing。  
+- 加 DB 触发器兜底：`client_marketplace` 订单从 onboarding 到 processing 必须由 firm 空间成员执行；并重写 `firm.client_create_onboarding_order_from_published_sku` 写入来源字段。  
+- App 侧 `confirmOrderAndCreateProjectTodos` 保持现有入口与调用路径不变，仅改状态推进规则。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增迁移：`vouchap-app/supabase/migrations/20260414171000_client_marketplace_requires_firm_confirmation.sql`：  
+- `firm.orders` 增加 `request_origin`、`client_confirmed_at`、`firm_confirmed_at`；  
+- marketplace RPC 插入订单时写 `request_origin='client_marketplace'`；  
+- 新触发器 `firm.enforce_marketplace_order_firm_confirmation`：拦截 client 将 marketplace 单直接改为 processing。  
+- App 逻辑：`confirmOrderAndCreateProjectTodos` 在 `client_marketplace + client身份` 场景仅写入 `client_confirmed_at`（保持 onboarding）；firm 再次点击 Start 才推进 processing，并写 `firm_confirmed_at`。  
+- UI 文案微调：client 成功后 toast 由 `Engagement accepted` 改为 `Request submitted`。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260414171000_client_marketplace_requires_firm_confirmation.sql`  
+- `vouchap-app/src/shared-logic/firm.ts`、`vouchap-app/src/shared-logic/types/index.ts`、`vouchap-app/src/mobile-ui/app/firm/engagement/[id].tsx`
+
+---
+
+### 2026-04-14（更正 itemAlias 语义：保留原始 name，别称独立入库）
+
+**User（提示词/原意）**  
+- 指出「item 可读别称」需求应为：原始 item 名称保留识别结果，另拟别称并保存入库，不应替换原始名称。
+
+**Assistant（实现前说明，若有）**  
+- 调整方向：把 `itemAlias` 从“可能覆盖 name”改为“独立字段”；补 DB 字段与读写链路（receipt + invoice），确保 name 原样保留。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 语义修正：`resolveReadableItemName` 改为始终保留原始 `name`，仅在识别到可读别称时附带 `itemAlias`。  
+- 数据库迁移：新增 `receipt_items.item_alias`、`invoice_items.item_alias`（`20260414170000_add_item_alias_to_receipt_invoice_items.sql`）。  
+- 写入链路：`database.ts`（receipt）与 `invoices.ts`（invoice）保存 `item_alias`。  
+- 读取链路：`database.ts` 与 `invoices.ts` 返回 `itemAlias` 到前端模型。  
+- 转换层：`receipt-helpers.ts` 保留原始 item `name`，并传递 `itemAlias`。  
+- 验证：相关改动文件 lint 通过，无新增报错。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260414170000_add_item_alias_to_receipt_invoice_items.sql`  
+- `vouchap-app/src/shared-logic/gemini.ts`  
+- `vouchap-app/src/shared-logic/receipt-helpers.ts`  
+- `vouchap-app/src/shared-logic/database.ts`  
+- `vouchap-app/src/shared-logic/invoices.ts`
+
+---
+
+### 2026-04-14（专项优化：Receipt/Invoice 选项匹配、明细别称、Tax Filing 识别完整度）
+
+**User（提示词/原意）**  
+- 要求专项优化大模型 prompt，并按结果效果提出三点：  
+  1) receipt/invoice 的 items.category 与 attribution 更准确匹配候选列表，降低“按频次排序”造成的偏置；  
+  2) 对可读性弱的 receipt item（SKU/缩写）增加可读别称输出；  
+  3) tax filing 识别更完整，提升 doc_type 关键词质量与 task 匹配度。  
+- 要求分析后直接改代码，并兼顾模型效率与稳定性。
+
+**Assistant（实现前说明，若有）**  
+- 方案：优先做“低成本高稳定”改动，不引入额外模型调用轮次。  
+- 实施路径：  
+  - 在 `gemini.ts` 强化 prompt 指令与输出 schema，并增加轻量后处理（排序去偏、可读名称兜底）；  
+  - 在 `types/index.ts` 扩展 `itemAlias` 字段类型；  
+  - 在 `receipt-helpers.ts` 兼容 `itemAlias`，在名称疑似编码时优先采用别称；  
+  - 在 `tax-filing-recognition-prompt.ts` 与 `tax-filing-recognition-run.ts` 提升 doc_type 识别颗粒度与关键字结构化输出。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已完成三项优化并落地代码：  
+  1. **category/attribution 匹配优化**：  
+     - Prompt 增加“语义优先、列表顺序非优先、频次仅弱 tie-breaker”规则；  
+     - 候选列表改为去重+字母序（`toUnrankedOptionList`），降低 usage 频次排序诱导。  
+  2. **item 可读别称**：  
+     - 增加 `itemAlias` 输出约束（receipt/invoice）；  
+     - 新增 `resolveReadableItemName` / `looksCrypticItemName`，对编码化 item 名称自动采用可读别称；  
+     - `receipt-helpers.ts` 保存前做兼容兜底。  
+  3. **tax filing 完整性增强**：  
+     - Prompt 强化 doc_type 分层识别规则（辖区+精确表单+变体）；  
+     - 输出 schema 增加 `doc_type_keywords`，并要求 `extracted_data` 包含 `document_identity/parties/period/raw_identification_tokens`；  
+     - 运行层将 `doc_type_keywords` 归一并回填到 `extracted_data`（若缺失）。  
+- 稳定性/效率：未新增模型轮次，仅调整单次提示词与本地轻量后处理，延迟增量可控。  
+- 已检查改动文件 lint：无新增报错。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini.ts`  
+- `vouchap-app/src/shared-logic/receipt-helpers.ts`  
+- `vouchap-app/src/shared-logic/tax-filing-recognition-prompt.ts`  
+- `vouchap-app/src/shared-logic/tax-filing-recognition-run.ts`  
+- `vouchap-app/src/shared-logic/types/index.ts`
+
+---
+
+### 2026-04-14（识别类 Prompt 种类盘点：receipt / tax filing 及其他）
+
+**User（提示词/原意）**  
+- 追问「我问的是有多少种提示词，比如 receipt 识别和 tax filing 文件识别是分别的，还有否其他的。」
+
+**Assistant（实现前说明，若有）**  
+- 无代码变更；在 `vouchap-app/src/shared-logic` 检索所有实际构造 AI prompt 的入口，区分「独立模板」与「同模板多入口（图/文/音/文档）」。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 识别/抽取相关 prompt 可归纳为 9 类：Receipt 主识别、SupplierInfo 补充识别、Invoice 主识别、TaxFiling 结构化识别、Tax task matcher（任务归类）、Inbound 主识别、Outbound 主识别、Inbound/Outbound 文档引导、语音转写（供入/出库语音前置）。  
+- 其中存在明显组合关系：如 Receipt=Intro+Rules（图片/文档共用规则）、TaxFiling=Base+Scenario+Context/TaskList/UserInstructions、Inbound/Outbound 文档=DocumentIntro+Rules+Example；语音场景部分是独立 prompt，部分走“先转写后复用文字 prompt”。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini.ts`  
+- `vouchap-app/src/shared-logic/tax-filing-recognition-prompt.ts`  
+- `vouchap-app/src/shared-logic/tax-filing-recognition-run.ts`  
+- `vouchap-app/src/shared-logic/tax-filing-task-matcher.ts`
+
+---
+
+### 2026-04-14（系统内 Prompt 结构与组合关系分析）
+
+**User（提示词/原意）**  
+- 「给我分析一下现在系统内prompt的结构，分多少处提示词，相互之间有否组合？」
+
+**Assistant（实现前说明，若有）**  
+- 无代码变更；基于本轮会话注入上下文，按层级梳理提示词来源、优先级与组合执行方式。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 结论：当前会话内可识别为约 7 类提示来源（系统层、开发者工具层、开发者执行规范层、工作区常驻规则层、用户规则层、运行时上下文层、用户当前请求层）。  
+- 组合方式并非字符串拼接，而是「分层约束叠加 + 优先级裁决」：高优先级（系统/开发者）约束执行边界，中低层（工作区规则/用户规则）约束风格与项目习惯，运行时上下文动态补充事实，最终由本轮用户请求触发具体任务。
+- 已向用户输出结构化说明（含各层作用、冲突时处理顺序、当前会话实例）。
+
+**关联**  
+- `docs/PRD-SOURCE-LOG.md`
+
+---
+
 ## 书写格式（复制以下块追加到「记录」区）
 
 ```markdown
@@ -2013,5 +2801,322 @@
 
 **关联**  
 - `vouchap-app/app.config.js`、`assets/logo2.png`、`assets/icon.png`、`ios/Vouchap/Images.xcassets/AppIcon.appiconset/`、`android/app/src/main/res/mipmap-*`
+
+---
+
+### 2026-04-13（Firm/Client 订阅与识别配额：实现方案分析，待确认后开发）
+
+**User（提示词/原意）**  
+- 开发版本控制与订阅定价：Firm $99/年含 50 engagements，分档增购单价；Client 月 10 次识别，超出 $0.1/credit；与 firm 有关联 engagement 且 processing 的 client 月上限 100 次；控制需在 CRM 可通过订单配置。要求先分析实现方案，讨论确定再动手。
+
+**Assistant（实现前说明，若有）**  
+- 无代码变更；对照 `vouchap-crm/sql/crm-schema.sql`（`sku_edition`、`sku_addon`、`space_orders`）、`crm-sku-seed.sql`、`SpaceOrders.tsx` 评估与目标定价的缺口。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 交付：中文方案分析（数据模型、CRM 配置方式、运行时 enforcement、与 Stripe 分期、待澄清业务规则）。待用户确认歧义后再实现。
+
+**关联**  
+- `vouchap-crm/sql/crm-schema.sql`、`crm-sku-seed.sql`、`src/pages/SpaceOrders.tsx`
+
+---
+
+### 2026-04-13（Firm/Client 订阅与识别配额：歧义确认后落地实现）
+
+**User（提示词/原意）**  
+- 整包定价；processing 关联时每月 100 次封顶（含 included与 credit）；失败不计入、重试成功计入；processing 按现有系统逻辑；space 单角色。按先前5 步计划直接改代码。
+
+**Assistant（实现前说明，若有）**  
+- DB：`crm` 扩展 `sku_edition.price_yearly`、`space_orders.metadata`；新表 `client_recognition_monthly_usage`、`space_billing_state`；RPC `get_client_recognition_quota`、`record_client_recognition_success`、`assert_firm_can_create_engagement`、`user_may_act_for_client_space`；触发器按 `metadata.recognition_credits_added` 加 credit；`firm.client_create_onboarding_order_from_published_sku` 内调用 firm 容量断言。种子 `FIRM_ANNUAL`/`CLIENT_SUB` 与整包 addon。  
+- CRM：`SpaceOrders` 新建订单可选 metadata 字段；`Skus` 展示年价；`crm-schema`/`crm-sku-seed` 同步。  
+- App：`client-recognition-quota.ts`；`createFirmOrder` 前 assert；报税附件/聊天/语音/收据与入出库处理链路在成功识别后 `record`，关键路径预检 `assert`；`getProjectTodoAttachmentWithContext` 增加 `clientSpaceId`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已提交上述迁移（`vouchap-app/supabase/migrations/20260413140000_*`、`20260413141000_*`）、CRM 与 `vouchap-app` 联动改动。Client 侧仅当存在有效 `CLIENT_SUB` 的 `space_orders` 时 enforcement；否则与旧空间行为一致。Firm 侧仅当存在 `FIRM_ANNUAL` 时限制新建 `firm.orders`（非 cancelled、非 completed 计数 + metadata 增购槽位）。  
+- **验证**：Supabase 执行迁移与种子；CRM 为客户空间建 `CLIENT_SUB`、为 firm 空间建 `FIRM_ANNUAL` 并设 metadata；客户端走 chat-to-log / 报税附件识别，观察 `client_recognition_monthly_usage` 与 `space_billing_state`；超额与无 credit 应返回英文提示（部分 UI 为 `Limit: …`）。新建 engagement 超限时 `createFirmOrder` / client catalog RPC 应失败。  
+- **残留**：Stripe 自助下单未接；`record` 与 AI 成功之间极端竞态下偶发「已识别成功但 record 失败」未做回滚；CRM 订单列表未展示 metadata 列。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260413140000_crm_subscription_quotas_client_firm.sql`、`20260413141000_crm_seed_firm_client_subscription_skus.sql`  
+- `vouchap-app/src/shared-logic/client-recognition-quota.ts`、`firm.ts`、`tax-filing-attachment-followup.ts`、`receipt-processor.ts`、`inbound-processor.ts`、`outbound-processor.ts`、`chat-to-log.tsx`、`TaxFilingTodosView.tsx`  
+- `vouchap-crm/sql/crm-schema.sql`、`crm-sku-seed.sql`、`src/pages/SpaceOrders.tsx`、`Skus.tsx`
+
+---
+
+### 2026-04-13（Space information：订单管理入口与页面）
+
+**User（提示词/原意）**  
+- space information 中需要增加订单管理的入口和页面。
+
+**Assistant（实现前说明，若有）**  
+- `crm.space_orders` 对 App 用户无 SELECT（RLS 仅 ops），需新增 `SECURITY DEFINER` RPC：校验 `public.user_spaces` 成员后返回该 space 的订单列表（含 SKU code/name、状态、起止与创建时间、source、metadata）。  
+- App：`@/lib/space-orders.ts` 调用 RPC；新路由 `space-orders`；在 `management`的 Space Information 区块下增加与菜单一致的入口行；`space-manage` 增加跳转卡片；`_layout` 注册屏幕并将 `space-orders` 纳入 Web 侧「设置页」chat 气泡隐藏列表。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 迁移：`vouchap-app/supabase/migrations/20260413142000_crm_list_space_orders_for_member.sql`（`crm.list_space_orders_for_space_member`、`GRANT EXECUTE` 给 `authenticated`）。  
+- 页面：`src/mobile-ui/app/space-orders.tsx`（英文文案，列表展示订单与 metadata 摘要，支持下拉刷新）。  
+- 入口：`management.tsx`、`space-manage.tsx`；`_layout.tsx` 标题「Order management」。  
+- **验证**：部署迁移后，以空间成员账号打开 Management → Order management，应能看到该 space 的 `crm.space_orders` 列表；非成员或非当前 space 的 id 调用 RPC 应返回空集。  
+- **残留**：仅列表只读；支付/续费仍走 CRM 或后续自助流程。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260413142000_crm_list_space_orders_for_member.sql`  
+- `vouchap-app/src/shared-logic/space-orders.ts`、`src/mobile-ui/app/space-orders.tsx`、`management.tsx`、`space-manage.tsx`、`src/mobile-ui/app/_layout.tsx`
+
+---
+
+### 2026-04-13（CRM 既有 SKU 查询与计费模式整合说明）
+
+**User（提示词/原意）**  
+- 查询 CRM 中此前设计的 SKU，整合计费模式。
+
+**Assistant（实现前说明，若有）**  
+- 无代码变更；阅读 `vouchap-crm/sql/crm-schema.sql`、`crm-order-design.md`、`crm-sku-seed.sql` 及 `vouchap-app/supabase/migrations/20260413141000_crm_seed_firm_client_subscription_skus.sql`，归纳订单生效规则、通用 VCH 档位、增购包与 Firm/Client 订阅层。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 见对用户回复正文：**统一计费骨架**（`space_orders` → `sku_edition` + 可选 `metadata` / `sku_addon`）+ **两套并行产品线**（①通用客户档位 VCH_* 以凭证/月与模块为主；② Firm/Client 以年费 engagement与 AI 识别配额/credit 为主）。并注明 `CLIENT_SUB` 标价在种子中为 NULL、由 CRM/运营配置；Firm 增购槽位与 Client credit 依赖 `space_orders.metadata`。
+
+**关联**  
+- `vouchap-crm/sql/crm-order-design.md`、`crm-sku-seed.sql`、`crm-schema.sql`
+
+---
+
+### 2026-04-13（计费收敛：仅 Firm 年费+engagement credit / Client 免费+credit 增购 / 签约赠送 credit）
+
+**User（提示词/原意）**  
+- 去掉之前的计价，只保留：1）firm 年费 + engagement credit；2）client 基础 credit（免费）+ 增购 credit；3）firm 签约 client 的增量 credit。
+
+**Assistant（实现前说明，若有）**  
+- 移除 VCH 档位与旧 addon 目录依赖；`CLIENT_SUB` 不再作为识别 enforcement 开关。  
+- DB：迁移重写 `assert_firm_can_create_engagement`（`engagement_credits_included` + `metadata.engagement_credits_added`，兼容旧 `engagements_included` / `engagement_addon_slots`）、`get_client_recognition_quota` / `record_client_recognition_success`（client 一律 enforcement，included 来自 `CLIENT_RECOGNITION_BASE`）；新增 `firm.orders` 触发器按 `FIRM_CLIENT_SIGNING_BONUS` 在首单时给 client 加 recognition credits；`on_space_created` 去掉 VCH_TRIAL 订单。  
+- 种子：`crm-sku-seed.sql`、`crm-schema.sql` 区块 8、`crm-app-integration.sql`；CRM `SpaceOrders` 写 `engagement_credits_added` 并隐藏目录-only SKU；文档 `crm-order-design.md`、`crm-space-orders-trial-bulk.sql` 标注废弃。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 迁移：`vouchap-app/supabase/migrations/20260413143000_crm_billing_model_firm_client_credits.sql`（含 catalog 清理/重建，删除未引用的 VCH/CLIENT_SUB 等 edition 行；addon 改为 ENGAGEMENT_CREDITS_REF / CLIENT_RECOGNITION_CREDITS_REF参考包，标价 0）。  
+- **行为变化**：所有 client 空间均走识别配额；新注册空间不再自动插入试用 `space_orders`。  
+- **验证**：应用迁移后检查 `sku_edition` 仅含新模型相关 code；建 `FIRM_ANNUAL` 订单后 engagement 上限；client 识别超 included 需 credit；首条 `firm.orders`（某 firm+client）应增加 `space_billing_state`。  
+- **残留**：主应用若仍有基于 VCH 的凭证/月模块 gating，需另行下线或改读新目录（本任务未全库搜索）。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260413143000_crm_billing_model_firm_client_credits.sql`  
+- `vouchap-crm/sql/crm-sku-seed.sql`、`crm-schema.sql`、`crm-app-integration.sql`、`crm-order-design.md`、`src/pages/SpaceOrders.tsx`  
+- `vouchap-app/src/shared-logic/client-recognition-quota.ts`
+
+---
+
+### 2026-04-13（VCH_TRIAL 仍存原因说明 + 清理迁移与 CRM 标价展示）
+
+**User（提示词/原意）**  
+- VCH_TRIAL 还在，是什么逻辑；其他 SKU 定价都显示免费是否有问题。
+
+**Assistant（实现前说明，若有）**  
+- 143000 删除 VCH_* 的条件是 **无 space_orders 引用**；历史注册试用订单仍指向 VCH_TRIAL 时会阻止删除。CRM「月价」列对 `NULL` 显示「免费」会把 **仅年付**（FIRM_ANNUAL）与 **目录策略行**（无标价）误导成免费。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增迁移 `20260413144000_crm_drop_legacy_vch_orders_then_skus.sql`：先删指向 VCH_* / CLIENT_SUB 的 `space_orders`，再删对应 `sku_edition`（会丢掉旧订单历史行，计费已不再依赖）。  
+- `Skus.tsx`：月价无值改显示「—」；年价列统一「—」；addon 价0 显示为 reference/quote。  
+- **验证**：跑迁移后 `sku_edition` 无 VCH_TRIAL；FIRM_ANNUAL 年价列仍为 USD 99。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260413144000_crm_drop_legacy_vch_orders_then_skus.sql`、`vouchap-crm/src/pages/Skus.tsx`
+
+---
+
+### 2026-04-14（Todo 筛选：锚定图标展开，点击空白关闭）
+
+**User（提示词/原意）**  
+- 筛选浮窗不要居中 alert；在 icon 位置直接展开；不要 Done 按钮和标题；点击页面其他位置即关闭。
+
+**Assistant（实现前说明，若有）**  
+- 在 `ProjectDetailView` 用 `measureInWindow` 记录筛选按钮屏幕坐标，将菜单 `absolute` 定位在图标下方（右缘与图标对齐并做屏幕边界夹紧）；全屏半透明 `Pressable` 仅负责点击关闭。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`：移除居中卡片、标题与 Done；新增 `todoFilterPopover` 锚点布局；筛选按钮外包 `View ref + collapsable={false}` 保证测量稳定；再次点击图标可关闭。  
+- 已执行 lint，无新增报错。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`
+
+---
+
+### 2026-04-17（aim.link-v2：本地启动 Web 开发/测试服务）
+
+**User（提示词/原意）**  
+- aim.link-v2 测试服务器跑起来。
+
+**Assistant（实现前说明，若有）**  
+- 无 Vouchap 代码变更。在 **`/Users/macbook/aim.link-v2`** 根目录执行 **`npm run dev`**（workspace → **`apps/web`** 的 **Vite**），后台进程便于本机浏览器访问。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 服务已就绪：**`http://localhost:5173/`**；终端可能出现 **Sass legacy-js-api** 弃用警告，不影响当前开发访问。若需局域网访问可加 **`--host`**。  
+- **验证**：本机浏览器打开上述地址。
+
+**关联**  
+- `aim.link-v2/package.json`、`aim.link-v2/apps/web/package.json`
+
+---
+
+### 2026-04-17（aim.link-v2：/signin 密码标签与校验提示对齐、底栏 Sign up 顺序）
+
+**User（提示词/原意）**  
+- password tag 应始终跟输入框垂直对齐，即使有错误提示时。  
+- 这个页面的 Sign up 要放 don’t 问句之后。
+
+**Assistant（实现前说明，若有）**  
+- 无 Vouchap 代码变更。拟在 **`aim.link-v2`**：**`login-panel.scss`** 调整 **`aimlink-login-panel-user-field`** / **`user-label`**；**`AuthLoginPanel`** 底栏结构 + **`tips-signup`** 样式，抵消 **`header-tips-resend`** 的 **`float: left`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`user-field`**：**`align-items: flex-start`**；**`user-label`**：**`padding-top`** 与输入行对齐。  
+- 底栏：**`tips-signup`** + **`tips-signup-lead`**，问句在 **`Sign up`** 前且问句不为链接蓝。  
+- **`docs/PRD.md`**、**`docs/PROMPTS-LOG.md`**（**aim.link-v2**）已同步。  
+- **验证**：**`npm run typecheck`**（**aim.link-v2**）；浏览器 **/signin** 人工看布局与底栏顺序。
+
+**关联**  
+- `aim.link-v2/apps/web/src/styles/login-panel.scss`  
+- `aim.link-v2/apps/web/src/pages/AuthLoginPanel.tsx`  
+- `aim.link-v2/docs/PRD.md`、`aim.link-v2/docs/PROMPTS-LOG.md`
+
+---
+
+### 2026-04-17（aim.link-v2：/signin 占位符刷新与失焦不闪动）
+
+**User（提示词/原意）**  
+- 用户名和密码输入框内的预填文字，在刷新页面和点击页面空白时，会变化大小和闪动。
+
+**Assistant（实现前说明，若有）**  
+- 无 Vouchap 代码变更。拟在 **`aim.link-v2`** 的 **`login-form-native.scss`** 覆盖 Ant Design 默认 **`transition: all`**，统一 **`.ant-input-affix-wrapper`** 与内层字号，并处理 **autofill** 字阶。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已收窄登录表单 **`Input` / `Input.Password`** 相关 **`transition`**，为 **affix wrapper** 设置与内层一致的 **`font-size` / `line-height`**，占位符 **`transition: none`**，**`-webkit-autofill`** 锁定字阶。  
+- **`aim.link-v2`** 的 **`docs/PRD.md`**、**`docs/PROMPTS-LOG.md`** 已同步。  
+- **验证**：**`npm run typecheck`**；浏览器 **/signin** 刷新与失焦目测。
+
+**关联**  
+- `aim.link-v2/apps/web/src/styles/login-form-native.scss`  
+- `aim.link-v2/docs/PRD.md`、`aim.link-v2/docs/PROMPTS-LOG.md`
+
+---
+
+### 2026-04-17（aim.link-v2：/signin 对齐与居中贴近原设计稿）
+
+**User（提示词/原意）**  
+- 原设计的对齐和居中方式更美观一点（附图）。
+
+**Assistant（实现前说明，若有）**  
+- 无 Vouchap 代码变更。拟在 **`aim.link-v2`**：登录行改 **栅格**（标签列 + 主输入列）、**Forgot** 与输入左对齐、**divider** 与主列同宽、**`AuthLoginPanel`** 登录态 **user** 宽度 **400px**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`AuthLoginPanel`**：**`user-labelCell` / `user-control` / `user-forgotRow`**；**Forgot** 去 **float**。  
+- **`login-panel.scss`**：**Grid**、**CSS 变量**、**`user > divider` 100%**；**`&-user` 宽 400**。  
+- **`docs/PRD.md`**、**`PROMPTS-LOG.md`** 已同步。  
+- **验证**：**`npm run typecheck`**；**/signin** 目视。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/AuthLoginPanel.tsx`  
+- `aim.link-v2/apps/web/src/styles/login-panel.scss`  
+- `aim.link-v2/docs/PRD.md`、`aim.link-v2/docs/PROMPTS-LOG.md`
+
+---
+
+### 2026-04-17（aim.link-v2：/signin 对照说明 + 修复 Form explain 被 height:0 压没）
+
+**User（提示词/原意）**  
+- 截图给了仍不到位；问刚三个问题都改成什么了。
+
+**Assistant（实现前说明，若有）**  
+- 无 Vouchap 业务代码变更。复查 **`aim.link-v2`** **`login-panel.scss`** 中 **`.ant-form-item-explain`** 层叠。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 移除 **`height:0 !important`** 相关规则，**`.aimlink-login-panel-user .ant-form-item-explain`** 改为 **`auto`**；**`PROMPTS-LOG`** 追加用户对照说明条。  
+- **验证**：**/signin** 密码校验文案应正常显示。
+
+**关联**  
+- `aim.link-v2/apps/web/src/styles/login-panel.scss`、`aim.link-v2/docs/PROMPTS-LOG.md`
+
+---
+
+### 2026-04-17（aim.link-v2：/signin 与用户 1:2 图对位 — Forgot、输入、标题、底栏）
+
+**User（提示词/原意）**  
+- 1 图为当前效果，2 图为希望的原版效果，问能否对比出来。
+
+**Assistant（实现前说明，若有）**  
+- 无 Vouchap 代码变更。对比后拟修 **`tips-forgot`** BEM 选择器、输入垂直居中、标题与页签 **`Log In`**、底栏无 **`?` 与 Sign up 之间空隙**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`aim.link-v2`**：**`login-panel.scss`**、**`login-form-native.scss`**、**`AuthLoginPanel.tsx`**、**`document-meta.ts`**、**`index.html`**、**`SignInPage.tsx`**、**`docs/PRD.md`**、**`PROMPTS-LOG.md`**、**`README.md`**。  
+- **验证**：**`npm run typecheck`**。
+
+**关联**  
+- `aim.link-v2/apps/web/src/styles/login-panel.scss`  
+- `aim.link-v2/apps/web/src/styles/login-form-native.scss`  
+- `aim.link-v2/apps/web/src/pages/AuthLoginPanel.tsx`  
+- `aim.link-v2/apps/web/src/lib/document-meta.ts`、`apps/web/index.html`  
+- `aim.link-v2/docs/PRD.md`、`aim.link-v2/docs/PROMPTS-LOG.md`、`aim.link-v2/apps/web/README.md`
+
+---
+
+### 2026-04-18（Vouchap：小票 item_alias 识别与写库 — 兼容模型 snake_case）
+
+**User（提示词/原意）**  
+- 识别小票的 `item_alias` 字段并没有识别和写库。
+
+**Assistant（实现前说明，若有）**  
+- 排查链路：**Gemini 解析** `resolveReadableItemName` 与 **`convertGeminiResultToReceipt`** 仅读取 **`itemAlias`（camelCase）**；若模型返回 **`item_alias`** 等 snake_case，别名在解析阶段丢失，**`database.ts` 插入的 `item_alias` 恒为 null**。拟在 **`gemini.ts`** 集中规范化别名来源，并在 **`receipt-helpers.ts`**（receipt/invoice 转换）做相同兜底。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`gemini.ts`**：新增 **`normalizedItemAliasFromModel`**，在 **`resolveReadableItemName`** 中合并 **`item_alias` / `display_name` / `readable_name`** 等与税字段一致的命名兼容。  
+- **`receipt-helpers.ts`**：新增 **`pickItemAliasFromModelItem`**，**`convertGeminiResultToReceipt`** 与 **`convertGeminiResultToInvoice`** 写入行项时统一取别名。  
+- **验证建议**：走一遍拍照识别，在 Supabase **`receipt_items.item_alias`** 或 App 明细中确认非空；若远端未跑迁移 **`20260414170000_add_item_alias_to_receipt_invoice_items.sql`**，插入仍可能报错或列不存在，需单独部署 DB。  
+- **残留风险**：若模型把可读名称只写在其它未约定字段，仍可能不落别名。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini.ts`  
+- `vouchap-app/src/shared-logic/receipt-helpers.ts`  
+- `vouchap-app/supabase/migrations/20260414170000_add_item_alias_to_receipt_invoice_items.sql`
+
+---
+
+### 2026-04-18（Vouchap：小票 item_alias 覆盖率与可读性 — 解析启发式 + 提示词）
+
+**User（提示词/原意）**  
+- 部分有写入了，但正确性和可读性明显还是不足；有部分仍然为空。
+
+**Assistant（实现前说明，若有）**  
+- 空值：模型未产出或产出在非约定字段；**仅 camelCase `itemAlias`** 时部分场景已修，但仍会漏 **`description` / `lineDescription` 等作可读说明** 与 **`productName` / `label`** 等键。  
+- 可读性：**提示词**对 `itemAlias` 仍偏「可选」，示例行不像真实 SKU。  
+- 拟新增 **`receipt-item-alias.ts`** 统一 **`pickReceiptLineItemAlias`**（多键 + 当 **`name` 像代码** 时用 **`description` 类字段** 作别名）与 **`aliasDistinctFromLineName`**（去重、**过滤像金额的字符串**）；**`gemini.ts`** / **`receipt-helpers.ts`** 共用；收紧 **`RECEIPT_JSON_ITEMS_RULE`** 与示例。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新模块 **`vouchap-app/src/shared-logic/receipt-item-alias.ts`**：**显式别名键**扩展；**代码行名**时从 **description / details / memo / notes** 等提升为别名；**与行名相同**或**疑似纯金额**的别名丢弃。  
+- **`gemini.ts`**：`resolveReadableItemName` 改为调用上述逻辑；**`RECEIPT_JSON_ITEMS_RULE`**、**规则 8 子条**、**`RECEIPT_JSON_ITEMS_EXAMPLE`**、**文字识别 Output JSON** 说明已加强。  
+- **`receipt-helpers.ts`**：小票/发票行项 **`itemAlias`** 与 **`itemName`** 对齐去重。  
+- **验证**：`npx tsc --noEmit`；实机多类小票（纯数字行、SKU、双语小票）看 **`item_alias`** 是否仍大量为空。  
+- **残留**：模型完全不返回可读语义且行上无第二描述时，**无法凭空编造**别名；若需更高覆盖只能接受 **二次 LLM 精炼** 或 **人工规则库**（未做）。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-item-alias.ts`  
+- `vouchap-app/src/shared-logic/gemini.ts`  
+- `vouchap-app/src/shared-logic/receipt-helpers.ts`
+
+---
+
+### 2026-04-18（Vouchap：移除小票行 `tax_class_code` 及行级拆税依赖）
+
+**User（提示词/原意）**  
+- 清理 **`tax_class_code`** 相关代码与数据库各表字段；原行级拆税方案有问题。（续作：补全 **`receipt-item-tax.ts`** 等残留。）
+
+**Assistant（实现前说明，若有）**  
+- 此前已新增迁移 **`20260418140000_drop_receipt_items_tax_class_code.sql`** 及 **`database.ts` / `types` / `receipt-helpers` / `gemini`** 侧去掉行字段与模型字段。  
+- 本轮：**`receipt-item-tax.ts`** 去掉对 **`receipt_items.tax_class_code`** 的 select、行覆盖逻辑、POS 命中与 **receipt.tax fit** 后的回写；**`getApplicableTaxRules`** 去掉 **`lineTaxClassOverride`**，仅 **POS 规则解析类 + 默认 `STANDARD_TAXABLE`**；**`LineMeta`** 去掉 **`fromLineOverride` / `lineTaxClassFromModel`**；实体 POS 学习条件收紧为 **fit 后或非默认可税类**；**`gemini.ts`** 文字识别 Output JSON 行说明补 **`posTaxCode optional`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 行税计算与对账不再读写 **`public.receipt_items.tax_class_code`**；CRM 维度的 **`tax_class_code` / `maps_to_tax_class_code`**（税率表、POS 规则）保留。  
+- **验证**：部署迁移后跑一笔识别 → **`applyReceiptItemTaxesAndReconcile`** 无列不存在错误；`grep vouchap-app` 无 **`receipt_items`** 侧 **`tax_class_code`** 写入。全仓 **`npx tsc --noEmit`** 仍有大量历史无关错误，**`receipt-item-tax.ts`** 本轮无新增报错。  
+- **残留**：未改 **vouchap-crm** 等独立仓库中的税类目录命名。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260418140000_drop_receipt_items_tax_class_code.sql`  
+- `vouchap-app/src/shared-logic/receipt-item-tax.ts`  
+- `vouchap-app/src/shared-logic/gemini.ts`
 
 ---

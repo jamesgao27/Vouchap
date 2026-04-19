@@ -7,6 +7,7 @@ import { classificationLabelsForTaxFilingPrompt } from './tax-filing-project-cla
 import { runTaxFilingRecognition } from './tax-filing-recognition-run';
 import { runWithRecognitionRetry, getUserFacingMessage } from './recognition-retry';
 import { buildTaxFilingAttachmentDefaultDisplayName } from './tax-filing-attachment-display-name';
+import { assertClientRecognitionAllowed, recordClientRecognitionSuccessIfEnforced } from './client-recognition-quota';
 
 export type TaxFilingAttachmentFollowupResult =
   | { ok: true }
@@ -30,6 +31,15 @@ export async function processTaxFilingAttachmentAfterCreate(params: {
   }
 
   const { attachment, project, todoContext } = ctx;
+  const quotaSpaceId = project.clientSpaceId ?? '';
+  const gate = await assertClientRecognitionAllowed(quotaSpaceId);
+  if (!gate.allowed) {
+    await updateProjectTodoAttachment(params.attachmentId, {
+      status: 'FAILED_ONCE',
+      recognition_fail_count: 1,
+    });
+    return { ok: false, alertMessage: gate.message ?? 'Recognition is not available for this account right now.' };
+  }
   const classificationLabels = classificationLabelsForTaxFilingPrompt(project);
   const projectContext = {
     country: (project.taxCountry === 'USA' ? 'USA' : 'CANADA') as 'CANADA' | 'USA',
@@ -81,5 +91,6 @@ export async function processTaxFilingAttachmentAfterCreate(params: {
     return { ok: false, alertMessage: upd.error.message ?? 'Could not update attachment.' };
   }
 
+  await recordClientRecognitionSuccessIfEnforced(quotaSpaceId);
   return { ok: true };
 }

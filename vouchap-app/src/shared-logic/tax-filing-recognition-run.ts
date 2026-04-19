@@ -77,6 +77,8 @@ async function downloadFileToBase64(fileUrl: string, mimeHint?: string): Promise
 export interface TaxFilingRecognitionResult {
   summary: string;
   doc_type: string;
+  /** High-signal tokens for downstream task matching/debugging. */
+  doc_type_keywords?: string[];
   extracted_data: Record<string, unknown>;
   confidence_score?: number;
   /** 当 AI 判断该文档应归属的 task 与当前分类不一致时返回，用于纠正关联 */
@@ -143,10 +145,21 @@ export async function runTaxFilingRecognition(
       const parsed = JSON.parse(jsonMatch[0]) as {
         summary?: string;
         doc_type?: string;
+        doc_type_keywords?: unknown;
         extracted_data?: Record<string, unknown>;
         confidence_score?: number;
         suggested_task_id?: string;
       };
+      const docTypeKeywords = Array.isArray(parsed.doc_type_keywords)
+        ? parsed.doc_type_keywords.map((v) => String(v).trim()).filter(Boolean)
+        : [];
+      const extractedData =
+        parsed.extracted_data && typeof parsed.extracted_data === 'object'
+          ? { ...parsed.extracted_data }
+          : {};
+      if (docTypeKeywords.length > 0 && extractedData.doc_type_keywords === undefined) {
+        extractedData.doc_type_keywords = docTypeKeywords;
+      }
       const suggestedTaskId =
         typeof parsed.suggested_task_id === 'string' && validTaskIds?.has(parsed.suggested_task_id)
           ? parsed.suggested_task_id
@@ -154,7 +167,8 @@ export async function runTaxFilingRecognition(
       return {
         summary: typeof parsed.summary === 'string' ? parsed.summary : 'Tax document',
         doc_type: typeof parsed.doc_type === 'string' ? parsed.doc_type : 'UNKNOWN',
-        extracted_data: parsed.extracted_data && typeof parsed.extracted_data === 'object' ? parsed.extracted_data : {},
+        doc_type_keywords: docTypeKeywords.length > 0 ? docTypeKeywords : undefined,
+        extracted_data: extractedData,
         confidence_score: typeof parsed.confidence_score === 'number' ? parsed.confidence_score : undefined,
         suggested_task_id: suggestedTaskId,
       };

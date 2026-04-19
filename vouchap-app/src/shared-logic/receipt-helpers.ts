@@ -6,7 +6,7 @@ import { findOrCreateAccount } from './accounts';
 import { findOrCreateEntity } from './entities';
 import { findOrCreateWarehouseByName, findOrCreateLocationByName } from './warehouse';
 import { findOrCreateSkuByNameAndUnit } from './skus';
-import { normalizeReceiptItemTaxClassCode } from './receipt-item-tax';
+import { aliasDistinctFromLineName, pickReceiptLineItemAlias } from './receipt-item-alias';
 
 function fallbackExpenseItemPrice(totalAmount?: number, tax?: number): number {
   const total = Number(totalAmount ?? 0);
@@ -156,11 +156,12 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
 
       // 兼容 API 返回 description 而非 name（如语音识别返回 "description": "租车"）
       const itemName = item.name ?? (item as { description?: string }).description ?? 'Unknown Item';
+      const itemAlias = aliasDistinctFromLineName(
+        String(itemName),
+        pickReceiptLineItemAlias(item as Record<string, unknown>),
+      );
       // 兼容 API 返回 amount 而非 price（如语音识别返回 "amount": 1200）
       const itemPrice = Number((item as { price?: number; amount?: number }).price ?? (item as { amount?: number }).amount ?? 0);
-      const taxClassCode = normalizeReceiptItemTaxClassCode(
-        (item as { taxClassCode?: string | null }).taxClassCode,
-      );
       const posTaxCodeRaw = (item as { posTaxCode?: string | null }).posTaxCode;
       const posTaxCode =
         posTaxCodeRaw != null && String(posTaxCodeRaw).trim() !== ''
@@ -168,6 +169,7 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
           : undefined;
       return {
         name: itemName,
+        itemAlias,
         categoryId: category.id,
         category: category,
         attributionId,
@@ -177,7 +179,6 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
         price: itemPrice,
         isAsset: item.isAsset || false,
         confidence: item.confidence,
-        ...(taxClassCode ? { taxClassCode } : {}),
         ...(posTaxCode ? { posTaxCode } : {}),
       };
     })
@@ -376,8 +377,13 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
 
       const itemName = item.name ?? (item as { description?: string }).description ?? 'Unknown Item';
       const itemPrice = Number((item as { price?: number; amount?: number }).price ?? (item as { amount?: number }).amount ?? 0);
+      const itemAlias = aliasDistinctFromLineName(
+        String(itemName),
+        pickReceiptLineItemAlias(item as Record<string, unknown>),
+      );
       return {
         name: itemName,
+        itemAlias,
         categoryId: category.id,
         category,
         attributionId,

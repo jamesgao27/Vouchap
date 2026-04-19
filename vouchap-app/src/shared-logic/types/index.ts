@@ -90,6 +90,8 @@ export interface Customer {
 export interface ReceiptItem {
   id?: string;
   name: string;
+  /** Human-friendly alias inferred from OCR/AI when original line text is cryptic SKU/abbreviation. */
+  itemAlias?: string;
   categoryId: string;
   category?: Category; // 关联的分类对象
   /** 对应 DB receipt_items.attribution_id → attributions.id */
@@ -98,11 +100,6 @@ export interface ReceiptItem {
   price: number;
   isAsset: boolean;
   confidence?: number; // AI识别置信度
-  /**
-   * Optional per-line supply / rate-bundle (receipt_items.tax_class_code): which CRM rate set applies to the line.
-   * STANDARD_TAXABLE | EXEMPT | ZERO_RATED when set/normalized. Not one tax kind; see receipt_item_taxes.
-   */
-  taxClassCode?: string | null;
   /** Retailer POS line tax code (receipt_items.pos_tax_code): public.entity_pos_tax_code (via receipt merchant_entity_id) first, then crm.tax_pos_code_rule. */
   posTaxCode?: string | null;
 }
@@ -286,6 +283,8 @@ export type VoucherStatus = 'pending' | 'processing' | 'confirmed' | 'needs_reta
 export interface InvoiceItem {
   id?: string;
   name: string;
+  /** Human-friendly alias inferred from OCR/AI when original line text is cryptic SKU/abbreviation. */
+  itemAlias?: string;
   categoryId?: string | null;
   category?: Category;
   /** 对应 DB invoice_items.attribution_id → attributions.id */
@@ -449,13 +448,13 @@ export interface GeminiReceiptResult {
   taxJurisdictionRegion?: string | null;
   items: Array<{
     name: string;
+    /** Readable alias for cryptic merchant SKU/abbreviation line names. */
+    itemAlias?: string;
     categoryName: string; // 分类名称，从[食品,外餐, 居家, 交通, 购物, 医疗, 教育]中选择
     price: number;
     attributionName?: string; // 映射到 attributions.name（模型若仍返回 purposeName，解析层会兼容）
     isAsset?: boolean; // 可选
     confidence?: number; // 可选
-    /** STANDARD_TAXABLE (default), EXEMPT (e.g. tax-free groceries), ZERO_RATED */
-    taxClassCode?: string | null;
     /** Single-letter or short POS tax code printed on the line (e.g. D, H, N, X) when visible */
     posTaxCode?: string | null;
   }>;
@@ -643,6 +642,12 @@ export interface FirmOrder {
   clientId?: string | null;
   skuId: string;
   status: FirmOrderStatus;
+  /** 订单来源：firm_manual / client_marketplace（默认 firm_manual） */
+  requestOrigin?: 'firm_manual' | 'client_marketplace' | string;
+  /** Client 在 marketplace 同意协议后的时间（需 firm 侧再确认进入 processing） */
+  clientConfirmedAt?: string | null;
+  /** Firm 侧确认进入 processing 的时间 */
+  firmConfirmedAt?: string | null;
   /** 报税辖区（与 project 双向同步） */
   taxCountry?: string | null;
   /** 报税场景（与 project 双向同步） */
@@ -727,6 +732,8 @@ export interface GeminiVoucherResult {
   tax?: number;
   items: Array<{
     name: string;
+    /** Readable alias for cryptic merchant SKU/abbreviation line names. */
+    itemAlias?: string;
     categoryName: string;
     price: number;
     attributionName?: string;

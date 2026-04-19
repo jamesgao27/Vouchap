@@ -42,4 +42,19 @@ export function getTaxSeasonBgColor(year: number | null | undefined): string {
   return TAX_SEASON_BG_COLORS[idx] ?? TAX_SEASON_BG_COLORS[0];
 }
 
+/**
+ * 默认税季归属规则：
+ * - 5/1 ~ 12/31 => 当年税季
+ * - 1/1 ~ 4/30 => 上一年税季
+ * 例：2026-04-30 -> 2025；2026-05-01 -> 2026
+ */
+export function deriveTaxSeasonYear(dateLike: string | number | Date | null | undefined): number | null {
+  if (!dateLike) return null;
+  const d = new Date(dateLike);
+  if (Number.isNaN(d.getTime())) return null;
+  const year = d.getFullYear();
+  const month = d.getMonth() + 1; // 1-based
+  return month >= 5 ? year : year - 1;
+}
+
 
