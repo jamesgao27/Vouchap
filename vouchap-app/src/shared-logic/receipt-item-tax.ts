@@ -5,6 +5,9 @@
  *
  * Per-line **tax class** for rate lookup comes from POS/entity rules when present, otherwise **STANDARD_TAXABLE**.
  * The 1:N split per item is receipt_item_taxes (one row per tax_kind_code for that item).
+ *
+ * **Invocation:** app save path only calls `enqueue_receipt_tax_reconcile` (see `receipt-tax-queue-client.ts`).
+ * Run `npm run receipt-tax-worker` (service role) to drain `receipt_tax_recalc_queue` and execute this module.
  */
 import type { SupabaseClient } from '@supabase/supabase-js';
 import Decimal from 'decimal.js';

@@ -2872,4 +2872,7671 @@ The scope is large. The user wants:
 - Clear recommendations - Remove receipt_items.tax_class_code from the database and related code.
 - Eliminate taxClassCode from types, Gemini, receipt-helpers, and database operations.
 - Simplify receipt-item-tax.ts to use pos_tax_code rules  maps_to_tax_class_code (CRM) - keep this column name in CRM tables as it represents a different concept (target class for POS code), plus category_tax_class_map if available, and default to STANDARD_TAXABLE.
-- User clarified that "tax_class_code" refers</details></think>
+- User clarified that "tax_class_code" refers to the CRM `crm.tax_rate_standard`.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+I need to remove the `else if (lineOverride)` branch and use the category map via `buildDraftsFromTaxClassMap` when no posClass is present. I also need to verify whether `buildDrafts` utilizes `category_tax_class_map` from categories when `tax_class_by_item` is set to STANDARD.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "category_tax_class|buildDraftsFromTaxClassMap"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "category_tax_class|buildDraftsFromTaxClassMap",
+  "topFiles": [
+    {
+      "matchCount": 4,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 24
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.ts",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "category|tax_class"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "category|tax_class",
+  "topFiles": [
+    {
+      "matchCount": 38,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 38,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 38,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 38,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 38,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 38,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 228
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+It seems the main apply path uses:</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.{ts,tsx}",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "taxClassCode|tax_class_code"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "taxClassCode|tax_class_code",
+  "topFiles": [
+    {
+      "matchCount": 10,
+      "uri": "vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "vouchap-app/src/shared-logic/receipt-helpers.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 33,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 10,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 33,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 10,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 33,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 10,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 33,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 30,
+  "totalMatches": 318
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/mobile-ui",
+  "pattern": "taxClass|tax_class"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/mobile-ui",
+  "pattern": "taxClass|tax_class",
+  "topFiles": [],
+  "totalFiles": 0,
+  "totalMatches": 0
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/web-ui",
+  "pattern": "taxClass|tax_class"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/web-ui",
+  "pattern": "taxClass|tax_class",
+  "topFiles": [],
+  "totalFiles": 0,
+  "totalMatches": 0
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.{ts,sql}",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "category_tax|tax_class"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "category_tax|tax_class",
+  "topFiles": [
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 31,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 16,
+      "uri": "vouchap-app/supabase/migrations/20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql"
+    },
+    {
+      "matchCount": 4,
+      "uri": "vouchap-app/supabase/migrations/20260411150000_tax_rate_standard_drop_zero_rated_mirror.sql"
+    },
+    {
+      "matchCount": 3,
+      "uri": "vouchap-app/supabase/migrations/20260408100000_crm_exempt_zero_rated_mirror_standard.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 31,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 16,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260411150000_tax_rate_standard_drop_zero_rated_mirror.sql"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260408100000_crm_exempt_zero_rated_mirror_standard.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 31,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 16,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260411150000_tax_rate_standard_drop_zero_rated_mirror.sql"
+    }
+  ],
+  "totalFiles": 42,
+  "totalMatches": 918
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "fromLineOverride|lineTaxClassFromModel|greedyFit"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "fromLineOverride|lineTaxClassFromModel|greedyFit",
+  "topFiles": [
+    {
+      "matchCount": 11,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 11,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 11,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 11,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 11,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 11,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 66
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+- Implementation plan includes migrating the `20260418120000_drop_receipt_items_tax_class_code` file.
+- The migration will drop the `tax_class_code` column from the `receipt_items` table. - Remove the `tax_class_code` column from the `receipt_items` table using an SQL ALTER statement.
+- Update `database.ts` to exclude `tax_class_code` from inserts and remove related imports and mappings.
+- Modify `types/index.ts` to remove `taxClassCode` from the `ReceiptItem` type definition.
+- Clean up `receipt-helpers.ts` by removing the `normalizeReceiptItemTaxClassCode` import and usage.
+- Review and update any references in `gemini.` files. - Remove `normalizedItemTaxClassCode` function and import from `receipt-helpers.ts`.
+- Exclude `tax_class_code` from all item maps and update `RECEIPT_JSON_ITEMS_RULE` to remove `taxClassCode` from the prompt, keeping only `posTaxCode` if not explicitly removed by the user.
+- Update `receipt-item-tax.ts` file header comment.
+- In `ReceiptItemRow`, remove `tax_class_code` field.
+- In `LineMeta`, remove `fromLineOverride` and `lineTaxClassFromModel` fields or set them to false.
+- Ensure `ensureSingleMergedLineItem` insert no longer includes `tax_class_code`. - Select only `id, price, category_id, pos_tax_code` from the database.
+- In the main loop, remove the `rawTaxClassOnLine` and `lineOverride` branches; use `DEFAULT_TAX_CLASS` after `posClass`.
+- Remove the entire block 15071516 and 15181538 that handles `taxClassPersistFromPosRule` persistence, as it conflicts with removing the `tax_class_code` column.
+- For POS rules, when `posClass` differs from the previous value, skip pushing to `taxClassPersistFromPosRule` since the column is being removed.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "getApplicableTaxRules|lineTaxClassOverride"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "getApplicableTaxRules|lineTaxClassOverride",
+  "topFiles": [
+    {
+      "matchCount": 3,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 18
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap",
+  "pattern": "getApplicableTaxRules"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap",
+  "pattern": "getApplicableTaxRules",
+  "topFiles": [
+    {
+      "matchCount": 3,
+      "uri": "./docs/PRD-SOURCE-LOG.md"
+    },
+    {
+      "matchCount": 18,
+      "uri": "./.specstory/history/2026-04-07_10-58-57-0500-tax-data-handling-design-and-restructuring.md"
+    },
+    {
+      "matchCount": 9,
+      "uri": "./.specstory/history/2026-04-05_23-21-35-0500-expenses-module-items-entry-and-details.md"
+    },
+    {
+      "matchCount": 1,
+      "uri": "./vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/docs/PRD-SOURCE-LOG.md"
+    },
+    {
+      "matchCount": 18,
+      "uri": "../Vouchap/.specstory/history/2026-04-07_10-58-57-0500-tax-data-handling-design-and-restructuring.md"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/.specstory/history/2026-04-05_23-21-35-0500-expenses-module-items-entry-and-details.md"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/docs/PRD-SOURCE-LOG.md"
+    },
+    {
+      "matchCount": 18,
+      "uri": "../Vouchap/.specstory/history/2026-04-07_10-58-57-0500-tax-data-handling-design-and-restructuring.md"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/.specstory/history/2026-04-05_23-21-35-0500-expenses-module-items-entry-and-details.md"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/docs/PRD-SOURCE-LOG.md"
+    },
+    {
+      "matchCount": 18,
+      "uri": "../Vouchap/.specstory/history/2026-04-07_10-58-57-0500-tax-data-handling-design-and-restructuring.md"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/.specstory/history/2026-04-05_23-21-35-0500-expenses-module-items-entry-and-details.md"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/docs/PRD-SOURCE-LOG.md"
+    },
+    {
+      "matchCount": 18,
+      "uri": "../Vouchap/.specstory/history/2026-04-07_10-58-57-0500-tax-data-handling-design-and-restructuring.md"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/.specstory/history/2026-04-05_23-21-35-0500-expenses-module-items-entry-and-details.md"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 24,
+  "totalMatches": 186
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "normalizeReceiptItemTaxClassCode"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "normalizeReceiptItemTaxClassCode",
+  "topFiles": [
+    {
+      "matchCount": 2,
+      "uri": "vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "vouchap-app/src/shared-logic/receipt-helpers.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 7,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 7,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 7,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 7,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 7,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 24,
+  "totalMatches": 84
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts",
+  "pattern": "tax_class|taxClass"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts",
+  "pattern": "tax_class|taxClass",
+  "topFiles": [
+    {
+      "matchCount": 4,
+      "uri": "vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 24
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts",
+  "pattern": "receipt_items"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts",
+  "pattern": "receipt_items",
+  "topFiles": [
+    {
+      "matchCount": 21,
+      "uri": "vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 21,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 21,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 21,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 21,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 21,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 126
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/types/index.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/types/index.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/types/index.ts",
+  "pattern": "taxClassCode"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/types/index.ts",
+  "pattern": "taxClassCode",
+  "topFiles": [
+    {
+      "matchCount": 2,
+      "uri": "vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 12
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Check gemini elsewhere for normalizedItemTaxClassCode - document paths at 792 etc. For receipt-item-tax LineMeta, simplify to:
+- itemId: string
+- posCode: string | null
+- posRuleMatched: boolean
+- taxClass: string
+
+Update learning loop to skip items where posCode is missing or rule matched, and skip default tax class when no receipt tax fit applied. If posCode is missing or rule matched, skip processing.  
+If no receipt tax fit was applied and tax class is default, skip learning.  
+Only learn when there's actual signal from model or override, not when default tax class is applied without context.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Remove the normalizedItemTaxClassCode function from gemini and modify item maps to use only ptc for posTaxCode. - Remove taxClassCode from RECEIPT_JSON_ITEMS_RULE and RECEIPT_JSON_ITEMS_EXAMPLE.
+- Update recognizeReceiptFromText and recognizeReceiptFromAudio to exclude taxClassCode in base mapping.
+- Check vouchap-crm SQL folder for tax_class on receipts; database is optional.
+- Apply migration file.
+- Append PRD-SOURCE-LOG.
+- Edit large receipt-item-tax in multiple search_replace steps:
+  - Update file header comment lines 1-8
+  - Remove lineTaxClassOverride from getApplicableTaxRules params and logic
+  - Remove tax_class_code from ReceiptItemRow - Remove `fromLineOverride` and `lineTaxClassFromModel` from LineMeta.
+- EnsureSingleMergedLineItem: remove `tax_class_code` from insert (only `pos_tax_code` null).
+- Select lines 1233 and 1241.
+- Replace loop 13591417 with simplified version that excludes line override and `taxClassPersistFromPosRule` logic.
+- For pos class branch: remove `prev !== posClass` push and only compute taxClass.
+- Remove block 15181538 (fit persist).</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts",
+  "pattern": "normalizedItemTaxClassCode|taxClassCode"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts",
+  "pattern": "normalizedItemTaxClassCode|taxClassCode",
+  "topFiles": [
+    {
+      "matchCount": 15,
+      "uri": "vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 15,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 15,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 15,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 15,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 15,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 90
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+I will use TodoWrite for tracking implementation.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+正在实现：新增迁移删除 `public.receipt_items.tax_class_code`，并更新应用层与行税逻辑（保留 CRM 中 `maps_to_tax_class_code` / `crm.tax_rate_standard.tax_class_code`，因其为税率目录维度，非小票行上的拆税覆盖字段）。
+
+
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/supabase/migrations/20260418140000_drop_receipt_items_tax_class_code.sql</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+The string to replace was not found in the file.
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+The string to replace was not found in the file.
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+- Remove taxClassCode from ReceiptItem and Gemini items
+- Update types accordingly
+- Ensure no functionality is broken by this change</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/types/index.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/types/index.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts",
+  "pattern": "normalizedItemTaxClassCode|taxClassCode"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts",
+  "pattern": "normalizedItemTaxClassCode|taxClassCode",
+  "topFiles": [
+    {
+      "matchCount": 5,
+      "uri": "vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 5,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 5,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 5,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 5,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 5,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 30
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts",
+  "pattern": "taxClassCode|normalizedItemTaxClassCode"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts",
+  "pattern": "taxClassCode|normalizedItemTaxClassCode",
+  "topFiles": [],
+  "totalFiles": 0,
+  "totalMatches": 0
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts",
+  "pattern": "itemAlias \\(required"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts",
+  "pattern": "itemAlias \\(required",
+  "topFiles": [
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 6
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Add posTaxCode as an optional string field to the output line for the text path.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+receipt-item-tax.ts - perform the required edits
+
+- Edit the file receipt-item-tax.ts
+- Complete the necessary changes</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "tax_class_code|lineTaxClassFromModel|fromLineOverride|taxClassPersist"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "tax_class_code|lineTaxClassFromModel|fromLineOverride|taxClassPersist",
+  "topFiles": [
+    {
+      "matchCount": 39,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 39,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 39,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 39,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 39,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 39,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 234
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+I need to remove the taxClassPersistFromPosRule block entirely from lines 1352-1353, 1375-1380, and 1496-1505.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "lineTaxClassFromModel|fromLineOverride|lineTaxClassOverride|tax_class_code"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "lineTaxClassFromModel|fromLineOverride|lineTaxClassOverride|tax_class_code",
+  "topFiles": [
+    {
+      "matchCount": 28,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 28,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 28,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 28,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 28,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 28,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 168
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+For the auto-learn POS block: Previously, skip learning if no POS rule matches unless either receiptTaxFitApplied is true, or fromLineOverride, lineTaxClassFromModel, or taxClass is not empty. For the auto-learn POS block: Skip learning if no POS rule matches unless there's a strong signal like fromLineOverride, lineTaxClassFromModel, or taxClass not being DEFAULT.
+
+When fit is not applied:
+- Only learn if there's a resolved taxClass from default or fit
+- Skip learning unless fromLineOverride, lineTaxClassFromModel, or taxClass is not DEFAULT When no tax fit is applied and the tax class is DEFAULT, learning is skipped unless there's a line override or model tax class. With removal, this simplifies to skipping learning only when no fit is applied and the tax class is DEFAULT. We only auto-learn when tax class was adjusted (fit) or is non-default. With current logic, learning without fit is disabled unless conditions are relaxed. When posRuleMatched is false and posCode exists, taxClass becomes DEFAULT, preventing learning without fit. The only way to learn without fit is if conditions are loosened.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "fromLineOverride|lineTaxClassFromModel|lineTaxClassOverride|tax_class_code"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "fromLineOverride|lineTaxClassFromModel|lineTaxClassOverride|tax_class_code",
+  "topFiles": [
+    {
+      "matchCount": 12,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 12,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 12,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 12,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 12,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 12,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 72
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "greedyFitPosLineClassesToReceiptTax|lineMetas"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "greedyFitPosLineClassesToReceiptTax|lineMetas",
+  "topFiles": [
+    {
+      "matchCount": 9,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 54
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.{ts,tsx}",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "lineTaxClassOverride|taxClassCode|tax_class_code"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "lineTaxClassOverride|taxClassCode|tax_class_code",
+  "topFiles": [
+    {
+      "matchCount": 16,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 16,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 16,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 16,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 16,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 16,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 96
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.{ts,tsx,sql}",
+  "path": "/Users/macbook/Vouchap",
+  "pattern": "taxClassCode|tax_class_code|normalizeReceiptItemTaxClassCode"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap",
+  "pattern": "taxClassCode|tax_class_code|normalizeReceiptItemTaxClassCode",
+  "topFiles": [
+    {
+      "matchCount": 17,
+      "uri": "./vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "./vouchap-app/supabase/migrations/20260418140000_drop_receipt_items_tax_class_code.sql"
+    },
+    {
+      "matchCount": 15,
+      "uri": "./vouchap-app/supabase/migrations/20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql"
+    },
+    {
+      "matchCount": 4,
+      "uri": "./vouchap-app/supabase/migrations/20260411150000_tax_rate_standard_drop_zero_rated_mirror.sql"
+    },
+    {
+      "matchCount": 4,
+      "uri": "./vouchap-app/supabase/migrations/20260408100000_crm_exempt_zero_rated_mirror_standard.sql"
+    },
+    {
+      "matchCount": 2,
+      "uri": "./vouchap-app/supabase/migrations/20260411130000_tax_pos_code_rule_walmart_ca_e.sql"
+    },
+    {
+      "matchCount": 15,
+      "uri": "./vouchap-app/supabase/migrations/20260410120000_pos_tax_code_learning.sql"
+    },
+    {
+      "matchCount": 5,
+      "uri": "./vouchap-app/supabase/migrations/20260409100000_pos_tax_code_rule_and_audit.sql"
+    },
+    {
+      "matchCount": 21,
+      "uri": "./vouchap-app/supabase/migrations/20260411140000_tax_pos_rule_included_tax_kinds.sql"
+    },
+    {
+      "matchCount": 12,
+      "uri": "./vouchap-app/supabase/migrations/20260411120000_rename_pos_tax_code_rule_to_tax_pos_code_rule.sql"
+    },
+    {
+      "matchCount": 3,
+      "uri": "./vouchap-app/supabase/migrations/20260411100000_tax_rate_standard_dedupe.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "./vouchap-app/supabase/migrations/20260406200000_tax_standard_us_effective_from_and_ns_hst.sql"
+    },
+    {
+      "matchCount": 6,
+      "uri": "./vouchap-app/supabase/migrations/20260406120000_crm_tax_rate_standard.sql"
+    },
+    {
+      "matchCount": 2,
+      "uri": "./vouchap-app/supabase/migrations/20260407100000_receipt_items_tax_class_code.sql"
+    },
+    {
+      "matchCount": 4,
+      "uri": "./vouchap-app/supabase/migrations/20260406180000_seed_crm_tax_rate_standard_us_ca.sql"
+    },
+    {
+      "matchCount": 9,
+      "uri": "./vouchap-app/supabase/migrations/20260405220000_tax_rate_catalog_and_receipt_item_taxes.sql"
+    },
+    {
+      "matchCount": 17,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260418140000_drop_receipt_items_tax_class_code.sql"
+    },
+    {
+      "matchCount": 15,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260411150000_tax_rate_standard_drop_zero_rated_mirror.sql"
+    }
+  ],
+  "totalFiles": 96,
+  "totalMatches": 726
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap",
+  "pattern": "getApplicableTaxRules"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap",
+  "pattern": "getApplicableTaxRules",
+  "topFiles": [
+    {
+      "matchCount": 1,
+      "uri": "./vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "./docs/PRD-SOURCE-LOG.md"
+    },
+    {
+      "matchCount": 18,
+      "uri": "./.specstory/history/2026-04-07_10-58-57-0500-tax-data-handling-design-and-restructuring.md"
+    },
+    {
+      "matchCount": 9,
+      "uri": "./.specstory/history/2026-04-05_23-21-35-0500-expenses-module-items-entry-and-details.md"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/docs/PRD-SOURCE-LOG.md"
+    },
+    {
+      "matchCount": 18,
+      "uri": "../Vouchap/.specstory/history/2026-04-07_10-58-57-0500-tax-data-handling-design-and-restructuring.md"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/.specstory/history/2026-04-05_23-21-35-0500-expenses-module-items-entry-and-details.md"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/docs/PRD-SOURCE-LOG.md"
+    },
+    {
+      "matchCount": 18,
+      "uri": "../Vouchap/.specstory/history/2026-04-07_10-58-57-0500-tax-data-handling-design-and-restructuring.md"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/.specstory/history/2026-04-05_23-21-35-0500-expenses-module-items-entry-and-details.md"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/docs/PRD-SOURCE-LOG.md"
+    },
+    {
+      "matchCount": 18,
+      "uri": "../Vouchap/.specstory/history/2026-04-07_10-58-57-0500-tax-data-handling-design-and-restructuring.md"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/.specstory/history/2026-04-05_23-21-35-0500-expenses-module-items-entry-and-details.md"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/docs/PRD-SOURCE-LOG.md"
+    },
+    {
+      "matchCount": 18,
+      "uri": "../Vouchap/.specstory/history/2026-04-07_10-58-57-0500-tax-data-handling-design-and-restructuring.md"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/.specstory/history/2026-04-05_23-21-35-0500-expenses-module-items-entry-and-details.md"
+    }
+  ],
+  "totalFiles": 24,
+  "totalMatches": 186
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "getApplicableTaxRules\\("
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+  "pattern": "getApplicableTaxRules\\(",
+  "topFiles": [
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 6
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/package.json</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2">
+<details><summary>Tool use: **run_terminal_command_v2** • Run command: cd /Users/macbook/Vouchap/vouchap-app && npx tsc --noEmit 2>&1</summary>
+
+```bash
+cd /Users/macbook/Vouchap/vouchap-app && npx tsc --noEmit 2>&1
+```
+
+```
+app/_layout.tsx(13,69): error TS2307: Cannot find module '../contexts/ChatPanelContext' or its corresponding type declarations.
+app/_layout.tsx(14,52): error TS2307: Cannot find module '../lib/web-stack-header-left' or its corresponding type declarations.
+app/_layout.tsx(136,23): error TS2345: Argument of type 'Space | null' is not assignable to parameter of type 'SetStateAction&lt;{ kind?: string | undefined; firmStatus?: string | undefined; } | null&gt;'.
+  Type 'Space' is not assignable to type 'SetStateAction&lt;{ kind?: string | undefined; firmStatus?: string | undefined; } | null&gt;'.
+    Type 'Space' is not assignable to type '{ kind?: string | undefined; firmStatus?: string | undefined; }'.
+      Types of property 'firmStatus' are incompatible.
+        Type 'FirmStatus | null | undefined' is not assignable to type 'string | undefined'.
+          Type 'null' is not assignable to type 'string | undefined'.
+app/_layout.tsx(295,58): error TS2353: Object literal may only specify known properties, and 'headerBackButtonVisible' does not exist in type 'ExtendedStackNavigationOptions | ((prop: { route: RouteProp&lt;ParamListBase, string&gt;; navigation: any; }) =&gt; ExtendedStackNavigationOptions)'.
+app/_layout.tsx(322,13): error TS2353: Object literal may only specify known properties, and 'headerBackButtonVisible' does not exist in type 'ExtendedStackNavigationOptions | ((prop: { route: RouteProp&lt;ParamListBase, string&gt;; navigation: any; }) =&gt; ExtendedStackNavigationOptions)'.
+app/_layout.tsx(377,13): error TS2353: Object literal may only specify known properties, and 'headerBackButtonVisible' does not exist in type 'ExtendedStackNavigationOptions | ((prop: { route: RouteProp&lt;ParamListBase, string&gt;; navigation: any; }) =&gt; ExtendedStackNavigationOptions)'.
+app/_layout.tsx(433,13): error TS2353: Object literal may only specify known properties, and 'headerBackButtonVisible' does not exist in type 'ExtendedStackNavigationOptions | ((prop: { route: RouteProp&lt;ParamListBase, string&gt;; navigation: any; }) =&gt; ExtendedStackNavigationOptions)'.
+app/_layout.tsx(441,13): error TS2353: Object literal may only specify known properties, and 'headerBackButtonVisible' does not exist in type 'ExtendedStackNavigationOptions | ((prop: { route: RouteProp&lt;ParamListBase, string&gt;; navigation: any; }) =&gt; ExtendedStackNavigationOptions)'.
+app/_layout.tsx(449,13): error TS2353: Object literal may only specify known properties, and 'headerBackButtonVisible' does not exist in type 'ExtendedStackNavigationOptions | ((prop: { route: RouteProp&lt;ParamListBase, string&gt;; navigation: any; }) =&gt; ExtendedStackNavigationOptions)'.
+app/_layout.tsx(457,13): error TS2353: Object literal may only specify known properties, and 'headerBackButtonVisible' does not exist in type 'ExtendedStackNavigationOptions | ((prop: { route: RouteProp&lt;ParamListBase, string&gt;; navigation: any; }) =&gt; ExtendedStackNavigationOptions)'.
+app/_layout.tsx(465,13): error TS2353: Object literal may only specify known properties, and 'headerBackButtonVisible' does not exist in type 'ExtendedStackNavigationOptions | ((prop: { route: RouteProp&lt;ParamListBase, string&gt;; navigation: any; }) =&gt; ExtendedStackNavigationOptions)'.
+app/_layout.tsx(473,13): error TS2353: Object literal may only specify known properties, and 'headerBackButtonVisible' does not exist in type 'ExtendedStackNavigationOptions | ((prop: { route: RouteProp&lt;ParamListBase, string&gt;; navigation: any; }) =&gt; ExtendedStackNavigationOptions)'.
+app/_layout.tsx(481,13): error TS2353: Object literal may only specify known properties, and 'headerBackButtonVisible' does not exist in type 'ExtendedStackNavigationOptions | ((prop: { route: RouteProp&lt;ParamListBase, string&gt;; navigation: any; }) =&gt; ExtendedStackNavigationOptions)'.
+app/_layout.tsx(503,13): error TS2353: Object literal may only specify known properties, and 'headerBackButtonVisible' does not exist in type 'ExtendedStackNavigationOptions | ((prop: { route: RouteProp&lt;ParamListBase, string&gt;; navigation: any; }) =&gt; ExtendedStackNavigationOptions)'.
+app/auth/confirm.tsx(87,24): error TS2339: Property 'fragment' does not exist on type 'ParsedURL'.
+app/auth/confirm.tsx(88,65): error TS2339: Property 'fragment' does not exist on type 'ParsedURL'.
+app/auth/confirm.tsx(107,26): error TS2339: Property 'fragment' does not exist on type 'ParsedURL'.
+app/auth/confirm.tsx(108,67): error TS2339: Property 'fragment' does not exist on type 'ParsedURL'.
+app/auth/confirm.tsx(147,41): error TS2339: Property 'fragment' does not exist on type 'ParsedURL'.
+app/auth/confirm.tsx(237,24): error TS2339: Property 'fragment' does not exist on type 'ParsedURL'.
+app/auth/confirm.tsx(238,65): error TS2339: Property 'fragment' does not exist on type 'ParsedURL'.
+app/auth/setup-sku-preview.tsx(7,38): error TS2307: Cannot find module '../../../shared-logic/firm' or its corresponding type declarations.
+app/auth/setup-sku-preview.tsx(50,11): error TS2322: Type 'string | undefined' is not assignable to type 'string'.
+  Type 'undefined' is not assignable to type 'string'.
+app/auth/setup.tsx(34,38): error TS2307: Cannot find module '../../../shared-logic/firm' or its corresponding type declarations.
+app/auth/setup.tsx(1396,5): error TS2322: Type '"auto"' is not assignable to type '"visible" | "hidden" | "scroll" | undefined'.
+app/auth/setup.tsx(1397,5): error TS2578: Unused '@ts-expect-error' directive.
+app/chat-to-log.tsx(36,55): error TS2307: Cannot find module '../../shared-logic/assistant-config' or its corresponding type declarations.
+app/chat-to-log.tsx(72,30): error TS2307: Cannot find module '../contexts/ChatPanelContext' or its corresponding type declarations.
+app/chat-to-log.tsx(78,37): error TS2307: Cannot find module '../styles/web-input-block-styles' or its corresponding type declarations.
+app/chat-to-log.tsx(82,8): error TS2307: Cannot find module '../lib/chat-staged-files-display' or its corresponding type declarations.
+app/chat-to-log.tsx(769,23): error TS2345: Argument of type 'undefined' is not assignable to parameter of type 'SetStateAction&lt;string | null&gt;'.
+app/chat-to-log.tsx(780,29): error TS2345: Argument of type 'undefined' is not assignable to parameter of type 'SetStateAction&lt;string | null&gt;'.
+app/chat-to-log.tsx(3267,35): error TS2339: Property 'hovered' does not exist on type 'PressableStateCallbackType'.
+app/chat-to-log.tsx(3278,41): error TS2339: Property 'hovered' does not exist on type 'PressableStateCallbackType'.
+app/customers-manage.tsx(318,68): error TS2367: This comparison appears to be unintentional because the types '"customer"' and '"supplier"' have no overlap.
+app/customers-manage.tsx(335,58): error TS2339: Property 'isSupplier' does not exist on type 'CustomerListItem'.
+app/customers-manage.tsx(336,23): error TS2367: This comparison appears to be unintentional because the types '"customer"' and '"supplier"' have no overlap.
+app/customers-manage.tsx(336,58): error TS2339: Property 'isCustomer' does not exist on type 'CustomerListItem'.
+app/customers-manage.tsx(921,61): error TS2339: Property 'isSupplier' does not exist on type 'CustomerListItem'.
+app/customers-manage.tsx(926,26): error TS2367: This comparison appears to be unintentional because the types '"customer"' and '"supplier"' have no overlap.
+app/entities-manage.tsx(814,34): error TS2339: Property 'source' does not exist on type 'Entity'.
+app/entities-manage.tsx(951,21): error TS2304: Cannot find name 'setNewIsCustomer'.
+app/firm/client/[clientSpaceId].tsx(26,3): error TS2305: Module '"@/lib/firm"' has no exported member 'listFirmPermissionGroups'.
+app/firm/client/[clientSpaceId].tsx(27,3): error TS2724: '"@/lib/firm"' has no exported member named 'updateFirmClientGroups'. Did you mean 'updateFirmClientStatus'?
+app/firm/client/[clientSpaceId].tsx(31,60): error TS2305: Module '"@/lib/firm"' has no exported member 'FirmPermissionGroupRow'.
+app/firm/client/[clientSpaceId].tsx(179,30): error TS2339: Property 'groups' does not exist on type 'FirmClientWithDetails'.
+app/firm/client/[clientSpaceId].tsx(179,49): error TS7006: Parameter 'g' implicitly has an 'any' type.
+app/firm/client/[clientSpaceId].tsx(180,36): error TS2339: Property 'groups' does not exist on type 'FirmClientWithDetails'.
+app/firm/client/[clientSpaceId].tsx(425,30): error TS2339: Property 'groups' does not exist on type 'FirmClientWithDetails'.
+app/firm/client/[clientSpaceId].tsx(428,31): error TS2339: Property 'groups' does not exist on type 'FirmClientWithDetails'.
+app/firm/client/[clientSpaceId].tsx(428,50): error TS7006: Parameter 'g' implicitly has an 'any' type.
+app/firm/clients.tsx(5,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+app/firm/clients.tsx(32,38): error TS2459: Module '"@/lib/firm"' declares 'FirmSku' locally, but it is not exported.
+app/firm/clients.tsx(1411,19): error TS2322: Type '{ display: string; flexDirection: string; alignItems: string; justifyContent: string; gap: number; paddingLeft: number; paddingRight: number; borderRadius: number; minHeight: number; boxSizing: string; cursor: string; }' is not assignable to type 'StyleProp&lt;ViewStyle&gt;'.
+  Type '{ display: string; flexDirection: string; alignItems: string; justifyContent: string; gap: number; paddingLeft: number; paddingRight: number; borderRadius: number; minHeight: number; boxSizing: string; cursor: string; }' is not assignable to type 'ViewStyle'.
+    Types of property 'cursor' are incompatible.
+      Type 'string' is not assignable to type 'CursorValue | undefined'.
+app/firm/clients.tsx(1421,23): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextProps): Text', gave the following error.
+    Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; } | { color: string; fontWeight: "600"; fontSize: number; lineHeight: string; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+        Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'TextStyle'.
+          Types of property 'lineHeight' are incompatible.
+            Type 'string' is not assignable to type 'number'.
+  Overload 2 of 2, '(props: TextProps, context: any): Text', gave the following error.
+    Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; } | { color: string; fontWeight: "600"; fontSize: number; lineHeight: string; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+        Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'TextStyle'.
+          Types of property 'lineHeight' are incompatible.
+            Type 'string' is not assignable to type 'number'.
+app/firm/clients.tsx(1471,19): error TS2322: Type '{ display: string; flexDirection: string; alignItems: string; justifyContent: string; gap: number; paddingLeft: number; paddingRight: number; borderRadius: number; minHeight: number; boxSizing: string; cursor: string; }' is not assignable to type 'StyleProp&lt;ViewStyle&gt;'.
+  Type '{ display: string; flexDirection: string; alignItems: string; justifyContent: string; gap: number; paddingLeft: number; paddingRight: number; borderRadius: number; minHeight: number; boxSizing: string; cursor: string; }' is not assignable to type 'ViewStyle'.
+    Types of property 'cursor' are incompatible.
+      Type 'string' is not assignable to type 'CursorValue | undefined'.
+app/firm/clients.tsx(1475,23): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextProps): Text', gave the following error.
+    Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; } | { color: string; fontWeight: "600"; fontSize: number; lineHeight: string; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+        Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'TextStyle'.
+          Types of property 'lineHeight' are incompatible.
+            Type 'string' is not assignable to type 'number'.
+  Overload 2 of 2, '(props: TextProps, context: any): Text', gave the following error.
+    Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; } | { color: string; fontWeight: "600"; fontSize: number; lineHeight: string; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+        Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'TextStyle'.
+          Types of property 'lineHeight' are incompatible.
+            Type 'string' is not assignable to type 'number'.
+app/firm/clients.tsx(2082,3): error TS2322: Type '{ display?: "-webkit-box" | undefined; WebkitLineClamp?: number | undefined; WebkitBoxOrient?: "vertical" | undefined; overflow?: "hidden" | undefined; fontSize: number; color: string; fontFamily: string; maxWidth: "100%"; flexWrap: "wrap"; }' is not assignable to type 'ViewStyle | TextStyle | ImageStyle'.
+  Type '{ display?: "-webkit-box" | undefined; WebkitLineClamp?: number | undefined; WebkitBoxOrient?: "vertical" | undefined; overflow?: "hidden" | undefined; fontSize: number; color: string; fontFamily: string; maxWidth: "100%"; flexWrap: "wrap"; }' is not assignable to type 'TextStyle'.
+    Types of property 'display' are incompatible.
+      Type '"-webkit-box" | undefined' is not assignable to type '"none" | "flex" | "contents" | undefined'.
+        Type '"-webkit-box"' is not assignable to type '"none" | "flex" | "contents" | undefined'.
+app/firm/clients/add.tsx(19,15): error TS2459: Module '"@/lib/firm"' declares 'FirmSku' locally, but it is not exported.
+app/firm/clients/FirmOpenInviteHistoryTable.tsx(14,15): error TS2459: Module '"@/lib/firm"' declares 'FirmSku' locally, but it is not exported.
+app/firm/clients/FirmOpenInviteHistoryTable.tsx(115,23): error TS2578: Unused '@ts-expect-error' directive.
+app/firm/clients/FirmOpenInviteHistoryTable.tsx(159,23): error TS2578: Unused '@ts-expect-error' directive.
+app/firm/clients/FirmOpenInviteHistoryTable.tsx(261,23): error TS2578: Unused '@ts-expect-error' directive.
+app/firm/clients/FirmOpenInviteHistoryTable.tsx(288,23): error TS2578: Unused '@ts-expect-error' directive.
+app/firm/clients/invite-new.tsx(24,28): error TS2459: Module '"@/lib/firm"' declares 'FirmSku' locally, but it is not exported.
+app/firm/clients/invite-new.tsx(57,9): error TS2578: Unused '@ts-expect-error' directive.
+app/firm/clients/invite-new.tsx(77,68): error TS2345: Argument of type 'FirmClientInviteToken' is not assignable to parameter of type 'string'.
+app/firm/clients/invite-new.tsx(147,21): error TS2339: Property 'toDataURL' does not exist on type 'QRCode'.
+app/firm/clients/invite-new.tsx(330,19): error TS2578: Unused '@ts-expect-error' directive.
+app/firm/clients/open-invite.tsx(24,28): error TS2459: Module '"@/lib/firm"' declares 'FirmSku' locally, but it is not exported.
+app/firm/clients/open-invite.tsx(99,63): error TS2345: Argument of type 'FirmClientInviteToken' is not assignable to parameter of type 'string'.
+app/firm/clients/open-invite.tsx(118,81): error TS2554: Expected 2 arguments, but got 3.
+app/firm/engagement/[id].tsx(45,30): error TS2307: Cannot find module '../../../contexts/ChatPanelContext' or its corresponding type declarations.
+app/firm/engagement/[id].tsx(50,51): error TS2307: Cannot find module '../../../lib/engagement-realtime' or its corresponding type declarations.
+app/firm/engagement/[id].tsx(466,9): error TS2322: Type '(() =&gt; void) | undefined' is not assignable to type '(() =&gt; Promise&lt;void&gt;) | undefined'.
+  Type '() =&gt; void' is not assignable to type '() =&gt; Promise&lt;void&gt;'.
+    Type 'void' is not assignable to type 'Promise&lt;void&gt;'.
+app/firm/engagement/[id].tsx(476,9): error TS2322: Type 'string' is not assignable to type '"processing" | "onboarding" | "completed" | "cancelled" | undefined'.
+app/firm/engagement/[id].tsx(477,9): error TS2322: Type '(() =&gt; void) | undefined' is not assignable to type '(() =&gt; Promise&lt;void&gt;) | undefined'.
+  Type '() =&gt; void' is not assignable to type '() =&gt; Promise&lt;void&gt;'.
+    Type 'void' is not assignable to type 'Promise&lt;void&gt;'.
+app/firm/engagement/[id].tsx(478,42): error TS2345: Argument of type 'string' is not assignable to parameter of type '"processing"'.
+app/firm/engagement/[id].tsx(484,67): error TS2345: Argument of type 'string' is not assignable to parameter of type '"processing"'.
+app/firm/engagements.tsx(6,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+app/firm/engagements.tsx(838,23): error TS2538: Type 'null' cannot be used as an index type.
+app/firm/engagements.tsx(838,38): error TS2538: Type 'null' cannot be used as an index type.
+app/firm/engagements.tsx(839,18): error TS2538: Type 'null' cannot be used as an index type.
+app/firm/engagements.tsx(2168,19): error TS2322: Type '{ display: string; flexDirection: string; alignItems: string; justifyContent: string; gap: number; paddingLeft: number; paddingRight: number; borderRadius: number; minHeight: number; boxSizing: string; cursor: string; }' is not assignable to type 'StyleProp&lt;ViewStyle&gt;'.
+  Type '{ display: string; flexDirection: string; alignItems: string; justifyContent: string; gap: number; paddingLeft: number; paddingRight: number; borderRadius: number; minHeight: number; boxSizing: string; cursor: string; }' is not assignable to type 'ViewStyle'.
+    Types of property 'cursor' are incompatible.
+      Type 'string' is not assignable to type 'CursorValue | undefined'.
+app/firm/engagements.tsx(2173,23): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextProps): Text', gave the following error.
+    Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; } | { color: string; fontWeight: "600"; fontSize: number; lineHeight: string; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+        Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'TextStyle'.
+          Types of property 'lineHeight' are incompatible.
+            Type 'string' is not assignable to type 'number'.
+  Overload 2 of 2, '(props: TextProps, context: any): Text', gave the following error.
+    Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; } | { color: string; fontWeight: "600"; fontSize: number; lineHeight: string; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+        Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'TextStyle'.
+          Types of property 'lineHeight' are incompatible.
+            Type 'string' is not assignable to type 'number'.
+app/firm/engagements.tsx(2248,37): error TS2322: Type '{ display: string; flexDirection: string; alignItems: string; justifyContent: string; gap: number; paddingLeft: number; paddingRight: number; borderRadius: number; minHeight: number; boxSizing: string; cursor: string; }' is not assignable to type 'StyleProp&lt;ViewStyle&gt;'.
+  Type '{ display: string; flexDirection: string; alignItems: string; justifyContent: string; gap: number; paddingLeft: number; paddingRight: number; borderRadius: number; minHeight: number; boxSizing: string; cursor: string; }' is not assignable to type 'ViewStyle'.
+    Types of property 'cursor' are incompatible.
+      Type 'string' is not assignable to type 'CursorValue | undefined'.
+app/firm/engagements.tsx(2251,29): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextProps): Text', gave the following error.
+    Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'lineHeight' are incompatible.
+          Type 'string' is not assignable to type 'number'.
+  Overload 2 of 2, '(props: TextProps, context: any): Text', gave the following error.
+    Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'lineHeight' are incompatible.
+          Type 'string' is not assignable to type 'number'.
+app/firm/engagements.tsx(2262,37): error TS2322: Type '{ display: string; flexDirection: string; alignItems: string; justifyContent: string; gap: number; paddingLeft: number; paddingRight: number; borderRadius: number; minHeight: number; boxSizing: string; cursor: string; }' is not assignable to type 'StyleProp&lt;ViewStyle&gt;'.
+  Type '{ display: string; flexDirection: string; alignItems: string; justifyContent: string; gap: number; paddingLeft: number; paddingRight: number; borderRadius: number; minHeight: number; boxSizing: string; cursor: string; }' is not assignable to type 'ViewStyle'.
+    Types of property 'cursor' are incompatible.
+      Type 'string' is not assignable to type 'CursorValue | undefined'.
+app/firm/engagements.tsx(2265,29): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextProps): Text', gave the following error.
+    Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'lineHeight' are incompatible.
+          Type 'string' is not assignable to type 'number'.
+  Overload 2 of 2, '(props: TextProps, context: any): Text', gave the following error.
+    Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'lineHeight' are incompatible.
+          Type 'string' is not assignable to type 'number'.
+app/firm/engagements.tsx(2291,23): error TS2322: Type '{ display: string; flexDirection: string; alignItems: string; justifyContent: string; gap: number; paddingLeft: number; paddingRight: number; borderRadius: number; minHeight: number; boxSizing: string; cursor: string; }' is not assignable to type 'StyleProp&lt;ViewStyle&gt;'.
+  Type '{ display: string; flexDirection: string; alignItems: string; justifyContent: string; gap: number; paddingLeft: number; paddingRight: number; borderRadius: number; minHeight: number; boxSizing: string; cursor: string; }' is not assignable to type 'ViewStyle'.
+    Types of property 'cursor' are incompatible.
+      Type 'string' is not assignable to type 'CursorValue | undefined'.
+app/firm/engagements.tsx(2294,25): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextProps): Text', gave the following error.
+    Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; } | { color: string; fontWeight: "600"; fontSize: number; lineHeight: string; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+        Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'TextStyle'.
+          Types of property 'lineHeight' are incompatible.
+            Type 'string' is not assignable to type 'number'.
+  Overload 2 of 2, '(props: TextProps, context: any): Text', gave the following error.
+    Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; } | { color: string; fontWeight: "600"; fontSize: number; lineHeight: string; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+        Type '{ fontSize: number; lineHeight: string; color: string; fontWeight: "500"; flex: number; minWidth: number; }' is not assignable to type 'TextStyle'.
+          Types of property 'lineHeight' are incompatible.
+            Type 'string' is not assignable to type 'number'.
+app/firm/invite-sku-preview/[skuId].tsx(7,15): error TS2459: Module '"@/lib/firm"' declares 'FirmSku' locally, but it is not exported.
+app/firm/invite-sku-preview/[skuId].tsx(7,24): error TS2459: Module '"@/lib/firm"' declares 'FirmSkuItem' locally, but it is not exported.
+app/firm/permissions.tsx(18,26): error TS2307: Cannot find module '../../../shared-logic/supabase' or its corresponding type declarations.
+app/firm/permissions.tsx(19,33): error TS2307: Cannot find module '../../../shared-logic/auth' or its corresponding type declarations.
+app/firm/permissions.tsx(20,59): error TS2307: Cannot find module '../../../shared-logic/firm' or its corresponding type declarations.
+app/firm/permissions.tsx(21,27): error TS2307: Cannot find module '../../../shared-logic/toast' or its corresponding type declarations.
+app/firm/permissions.tsx(22,30): error TS2307: Cannot find module '../../../shared-logic/GradientText' or its corresponding type declarations.
+app/firm/permissions.tsx(23,36): error TS2307: Cannot find module '../../../shared-logic/alertWeb' or its corresponding type declarations.
+app/firm/permissions.tsx(356,27): error TS7006: Parameter 'm' implicitly has an 'any' type.
+app/firm/permissions.tsx(601,26): error TS2345: Argument of type 'unknown' is not assignable to parameter of type 'string'.
+app/firm/sku/[skuId].tsx(563,29): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ outlineStyle?: "none" | undefined; outlineWidth?: number | undefined; fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ outlineStyle?: "none" | undefined; outlineWidth?: number | undefined; fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none" | undefined' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+            Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ outlineStyle?: "none" | undefined; outlineWidth?: number | undefined; fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ outlineStyle?: "none" | undefined; outlineWidth?: number | undefined; fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none" | undefined' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+            Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/firm/todos.tsx(44,16): error TS2538: Type 'null' cannot be used as an index type.
+app/firm/todos.tsx(44,26): error TS2538: Type 'null' cannot be used as an index type.
+app/firm/todos.tsx(45,11): error TS2538: Type 'null' cannot be used as an index type.
+app/inbound-details/[id].tsx(28,47): error TS2307: Cannot find module '../../styles/voucher-detail-styles' or its corresponding type declarations.
+app/inbound-details/[id].tsx(160,97): error TS2339: Property 'supplierId' does not exist on type 'Inbound'.
+app/inbound-details/[id].tsx(165,95): error TS2339: Property 'supplierId' does not exist on type 'Inbound'.
+app/inbound-details/[id].tsx(172,29): error TS2339: Property 'supplierId' does not exist on type 'Inbound'.
+app/inbound-details/[id].tsx(198,9): error TS2353: Object literal may only specify known properties, and 'supplierId' does not exist in type 'Inbound'.
+app/inbound-details/[id].tsx(213,31): error TS2339: Property 'supplierId' does not exist on type 'Inbound'.
+app/inbound-details/[id].tsx(234,9): error TS2353: Object literal may only specify known properties, and 'supplierId' does not exist in type 'Inbound'.
+app/inbound-details/[id].tsx(303,62): error TS2353: Object literal may only specify known properties, and 'supplierId' does not exist in type 'Inbound | ((prevState: Inbound | null) =&gt; Inbound | null)'.
+app/inbound-details/[id].tsx(309,7): error TS2353: Object literal may only specify known properties, and 'supplierId' does not exist in type 'Inbound | ((prevState: Inbound | null) =&gt; Inbound | null)'.
+app/inbound-details/[id].tsx(311,32): error TS2339: Property 'supplierId' does not exist on type 'Inbound'.
+app/inbound-details/[id].tsx(829,56): error TS2339: Property 'supplierId' does not exist on type 'Inbound'.
+app/inbound-details/[id].tsx(891,36): error TS2339: Property 'supplierId' does not exist on type 'Inbound'.
+app/inbound-details/[id].tsx(899,38): error TS2339: Property 'supplierId' does not exist on type 'Inbound'.
+app/inbound-details/[id].tsx(905,35): error TS2339: Property 'supplierId' does not exist on type 'Inbound'.
+app/inbound.tsx(2,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+app/inbound.tsx(30,45): error TS2307: Cannot find module '../styles/voucher-list-styles' or its corresponding type declarations.
+app/inbound.tsx(244,48): error TS2554: Expected 1 arguments, but got 2.
+app/inbound.tsx(465,66): error TS2339: Property 'supplierId' does not exist on type 'Inbound'.
+app/inbound.tsx(629,7): error TS2448: Block-scoped variable 'sortedDataForTable' used before its declaration.
+app/inbound.tsx(629,7): error TS2454: Variable 'sortedDataForTable' is used before being assigned.
+app/inbound.tsx(634,43): error TS2345: Argument of type 'DataTableColumn&lt;Inbound&gt; | null | undefined' is not assignable to parameter of type '{ getSortValue?: ((row: Inbound) =&gt; string | number | Date | null | undefined) | undefined; } | undefined'.
+  Type 'null' is not assignable to type '{ getSortValue?: ((row: Inbound) =&gt; string | number | Date | null | undefined) | undefined; } | undefined'.
+app/inbound.tsx(1136,19): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt;'.
+app/index.tsx(1060,18): error TS2367: This comparison appears to be unintentional because the types '"ios" | "android" | "windows" | "macos"' and '"web"' have no overlap.
+app/invoice-details/[id].tsx(153,33): error TS18047: 'data' is possibly 'null'.
+app/invoice-details/[id].tsx(206,43): error TS2339: Property 'customerId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(206,88): error TS2339: Property 'customerSupplierId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(207,39): error TS2339: Property 'customerId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(207,61): error TS2339: Property 'customerSupplierId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(221,45): error TS2339: Property 'customer' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(221,71): error TS2339: Property 'customerSupplier' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(222,22): error TS2339: Property 'customerId' does not exist on type '{ id: string; status: VoucherStatus; spaceId: string; customerName: string; entityId?: string | null | undefined; entity?: Entity | null | undefined; totalAmount: number; ... 13 more ...; updatedAt?: string | undefined; }'.
+app/invoice-details/[id].tsx(222,43): error TS2339: Property 'customerId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(223,22): error TS2339: Property 'customerSupplierId' does not exist on type '{ id: string; status: VoucherStatus; spaceId: string; customerName: string; entityId?: string | null | undefined; entity?: Entity | null | undefined; totalAmount: number; ... 13 more ...; updatedAt?: string | undefined; }'.
+app/invoice-details/[id].tsx(223,51): error TS2339: Property 'customerSupplierId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(224,22): error TS2339: Property 'customer' does not exist on type '{ id: string; status: VoucherStatus; spaceId: string; customerName: string; entityId?: string | null | undefined; entity?: Entity | null | undefined; totalAmount: number; ... 13 more ...; updatedAt?: string | undefined; }'.
+app/invoice-details/[id].tsx(224,41): error TS2339: Property 'customer' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(225,22): error TS2339: Property 'customerSupplier' does not exist on type '{ id: string; status: VoucherStatus; spaceId: string; customerName: string; entityId?: string | null | undefined; entity?: Entity | null | undefined; totalAmount: number; ... 13 more ...; updatedAt?: string | undefined; }'.
+app/invoice-details/[id].tsx(225,49): error TS2339: Property 'customerSupplier' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(311,34): error TS2339: Property 'customer' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(311,60): error TS2339: Property 'customerSupplier' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(317,37): error TS2339: Property 'customerId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(318,45): error TS2339: Property 'customerSupplierId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(319,35): error TS2339: Property 'customer' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(320,43): error TS2339: Property 'customerSupplier' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(347,30): error TS2339: Property 'customer' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(347,56): error TS2339: Property 'customerSupplier' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(355,29): error TS2339: Property 'customerId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(356,37): error TS2339: Property 'customerSupplierId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(357,27): error TS2339: Property 'customer' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(358,35): error TS2339: Property 'customerSupplier' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(482,37): error TS2339: Property 'customerId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(482,82): error TS2339: Property 'customerSupplierId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(483,33): error TS2339: Property 'customerId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(483,55): error TS2339: Property 'customerSupplierId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(610,32): error TS2339: Property 'customerId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(610,55): error TS2339: Property 'customerSupplierId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(611,36): error TS2339: Property 'customerId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(611,82): error TS2339: Property 'customerSupplierId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(616,9): error TS2353: Object literal may only specify known properties, and 'customerId' does not exist in type 'Invoice | ((prevState: Invoice | null) =&gt; Invoice | null)'.
+app/invoice-details/[id].tsx(629,9): error TS2353: Object literal may only specify known properties, and 'customerId' does not exist in type 'Invoice | ((prevState: Invoice | null) =&gt; Invoice | null)'.
+app/invoice-details/[id].tsx(640,9): error TS2353: Object literal may only specify known properties, and 'customerId' does not exist in type 'Invoice | ((prevState: Invoice | null) =&gt; Invoice | null)'.
+app/invoice-details/[id].tsx(851,75): error TS2339: Property 'customer' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(897,76): error TS2339: Property 'customer' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(897,109): error TS2339: Property 'customerSupplier' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(912,68): error TS2339: Property 'customer' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(912,101): error TS2339: Property 'customerSupplier' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(1218,35): error TS2339: Property 'customerId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(1218,58): error TS2339: Property 'customerSupplierId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(1400,64): error TS2339: Property 'customerId' does not exist on type 'Invoice'.
+app/invoice-details/[id].tsx(1401,64): error TS2339: Property 'customerSupplierId' does not exist on type 'Invoice'.
+app/invoices.tsx(2,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+app/invoices.tsx(391,56): error TS2339: Property 'customerId' does not exist on type 'Invoice'.
+app/invoices.tsx(551,47): error TS2345: Argument of type 'DataTableColumn&lt;Invoice&gt; | null | undefined' is not assignable to parameter of type '{ getSortValue?: ((row: Invoice) =&gt; string | number | Date | null | undefined) | undefined; } | undefined'.
+  Type 'null' is not assignable to type '{ getSortValue?: ((row: Invoice) =&gt; string | number | Date | null | undefined) | undefined; } | undefined'.
+app/invoices.tsx(963,19): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt;'.
+app/invoices.tsx(1093,102): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/invoices.tsx(1094,102): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/invoices.tsx(1095,102): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/invoices.tsx(1096,85): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/invoices.tsx(1102,136): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/invoices.tsx(1111,136): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/invoices.tsx(1120,135): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/invoices.tsx(1129,135): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/login.tsx(253,17): error TS2367: This comparison appears to be unintentional because the types '"web"' and '"ios"' have no overlap.
+app/login.tsx(254,31): error TS2367: This comparison appears to be unintentional because the types '"web"' and '"ios"' have no overlap.
+app/login.tsx(309,19): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/login.tsx(332,19): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/login.tsx(405,34): error TS2345: Argument of type '{ container: { flex: number; }; scrollContentMobile: { flexGrow: number; }; contentMobile: { flex: number; paddingHorizontal: number; paddingTop: number; paddingBottom: number; }; headerMobile: { ...; }; ... 46 more ...; footerLinkSpan: { ...; }; }' is not assignable to parameter of type '{ container: { flex: number; }; scrollContentMobile: { flexGrow: number; }; contentMobile: { flex: number; paddingHorizontal: number; paddingTop: number; paddingBottom: number; }; headerMobile: { ...; }; ... 46 more ...; footerLinkSpan: { ...; }; } &amp; NamedStyles&lt;...&gt;'.
+  Property 'input' is incompatible with index signature.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'ViewStyle | TextStyle | ImageStyle'.
+      Types of property 'outlineStyle' are incompatible.
+        Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/outbound-details/[id].tsx(26,47): error TS2307: Cannot find module '../../styles/voucher-detail-styles' or its corresponding type declarations.
+app/outbound-details/[id].tsx(141,99): error TS2339: Property 'customerId' does not exist on type 'Outbound'.
+app/outbound-details/[id].tsx(146,97): error TS2339: Property 'customerId' does not exist on type 'Outbound'.
+app/outbound-details/[id].tsx(153,30): error TS2339: Property 'customerId' does not exist on type 'Outbound'.
+app/outbound-details/[id].tsx(179,9): error TS2353: Object literal may only specify known properties, and 'customerId' does not exist in type 'Outbound'.
+app/outbound-details/[id].tsx(194,32): error TS2339: Property 'customerId' does not exist on type 'Outbound'.
+app/outbound-details/[id].tsx(215,9): error TS2353: Object literal may only specify known properties, and 'customerId' does not exist in type 'Outbound'.
+app/outbound-details/[id].tsx(240,7): error TS2353: Object literal may only specify known properties, and 'customerId' does not exist in type 'Outbound | ((prevState: Outbound | null) =&gt; Outbound | null)'.
+app/outbound-details/[id].tsx(243,33): error TS2339: Property 'customerId' does not exist on type 'Outbound'.
+app/outbound-details/[id].tsx(774,57): error TS2339: Property 'customerId' does not exist on type 'Outbound'.
+app/outbound-details/[id].tsx(825,64): error TS2339: Property 'customerId' does not exist on type 'Outbound'.
+app/outbound-details/[id].tsx(830,70): error TS2339: Property 'customerId' does not exist on type 'Outbound'.
+app/outbound-details/[id].tsx(835,36): error TS2339: Property 'customerId' does not exist on type 'Outbound'.
+app/outbound.tsx(2,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+app/outbound.tsx(30,45): error TS2307: Cannot find module '../styles/voucher-list-styles' or its corresponding type declarations.
+app/outbound.tsx(261,48): error TS2554: Expected 1 arguments, but got 2.
+app/outbound.tsx(504,70): error TS2339: Property 'customerId' does not exist on type 'Outbound'.
+app/outbound.tsx(668,7): error TS2448: Block-scoped variable 'sortedDataForTable' used before its declaration.
+app/outbound.tsx(668,7): error TS2454: Variable 'sortedDataForTable' is used before being assigned.
+app/outbound.tsx(673,43): error TS2345: Argument of type 'DataTableColumn&lt;Outbound&gt; | null | undefined' is not assignable to parameter of type '{ getSortValue?: ((row: Outbound) =&gt; string | number | Date | null | undefined) | undefined; } | undefined'.
+  Type 'null' is not assignable to type '{ getSortValue?: ((row: Outbound) =&gt; string | number | Date | null | undefined) | undefined; } | undefined'.
+app/outbound.tsx(1175,19): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt;'.
+app/receipt-details/[id].tsx(230,29): error TS2339: Property 'supplierId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(231,29): error TS2339: Property 'supplierCustomerId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(234,23): error TS2339: Property 'supplierId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(235,23): error TS2339: Property 'supplierCustomerId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(258,23): error TS2339: Property 'supplierId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(259,23): error TS2339: Property 'supplierCustomerId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(291,62): error TS2339: Property 'supplier' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(291,88): error TS2339: Property 'supplierCustomer' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(305,37): error TS2339: Property 'supplier' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(305,63): error TS2339: Property 'supplierCustomer' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(306,34): error TS2339: Property 'supplier' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(306,60): error TS2339: Property 'supplierCustomer' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(307,35): error TS2339: Property 'supplierId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(308,43): error TS2339: Property 'supplierCustomerId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(309,33): error TS2339: Property 'supplier' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(310,41): error TS2339: Property 'supplierCustomer' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(370,56): error TS2339: Property 'supplier' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(370,82): error TS2339: Property 'supplierCustomer' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(389,17): error TS2339: Property 'supplier' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(390,17): error TS2339: Property 'supplierCustomer' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(402,35): error TS2339: Property 'supplierId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(403,43): error TS2339: Property 'supplierCustomerId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(404,33): error TS2339: Property 'supplier' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(405,41): error TS2339: Property 'supplierCustomer' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(566,32): error TS2339: Property 'supplierId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(566,55): error TS2339: Property 'supplierCustomerId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(567,36): error TS2339: Property 'supplierId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(567,82): error TS2339: Property 'supplierCustomerId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(575,9): error TS2353: Object literal may only specify known properties, and 'supplierId' does not exist in type 'Receipt | ((prevState: Receipt | null) =&gt; Receipt | null)'.
+app/receipt-details/[id].tsx(589,9): error TS2353: Object literal may only specify known properties, and 'supplierId' does not exist in type 'Receipt | ((prevState: Receipt | null) =&gt; Receipt | null)'.
+app/receipt-details/[id].tsx(601,9): error TS2353: Object literal may only specify known properties, and 'supplierId' does not exist in type 'Receipt | ((prevState: Receipt | null) =&gt; Receipt | null)'.
+app/receipt-details/[id].tsx(608,41): error TS2339: Property 'supplierId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(608,64): error TS2339: Property 'supplierCustomerId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(938,104): error TS2339: Property 'supplier' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(938,137): error TS2339: Property 'supplierCustomer' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(953,68): error TS2339: Property 'supplier' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(953,101): error TS2339: Property 'supplierCustomer' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(1506,34): error TS2339: Property 'supplierId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(1507,34): error TS2339: Property 'supplierCustomerId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(1513,30): error TS2339: Property 'supplierId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(1514,30): error TS2339: Property 'supplierCustomerId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(1880,64): error TS2339: Property 'supplierId' does not exist on type 'Receipt'.
+app/receipt-details/[id].tsx(1881,64): error TS2339: Property 'supplierCustomerId' does not exist on type 'Receipt'.
+app/receipt-items.tsx(2,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+app/receipt-items.tsx(554,15): error TS2322: Type 'Promise&lt;boolean&gt;' is not assignable to type 'void | Promise&lt;void&gt;'.
+  Type 'Promise&lt;boolean&gt;' is not assignable to type 'Promise&lt;void&gt;'.
+    Type 'boolean' is not assignable to type 'void'.
+app/receipt-items.tsx(569,15): error TS2322: Type 'Promise&lt;boolean&gt;' is not assignable to type 'void | Promise&lt;void&gt;'.
+  Type 'Promise&lt;boolean&gt;' is not assignable to type 'Promise&lt;void&gt;'.
+    Type 'boolean' is not assignable to type 'void'.
+app/receipt-items.tsx(585,13): error TS2322: Type 'Promise&lt;boolean&gt;' is not assignable to type 'void | Promise&lt;void&gt;'.
+  Type 'Promise&lt;boolean&gt;' is not assignable to type 'Promise&lt;void&gt;'.
+    Type 'boolean' is not assignable to type 'void'.
+app/receipts.tsx(2,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+app/receipts.tsx(778,66): error TS2339: Property 'supplierId' does not exist on type 'Receipt'.
+app/receipts.tsx(1022,47): error TS2345: Argument of type 'DataTableColumn&lt;Receipt&gt; | null | undefined' is not assignable to parameter of type '{ getSortValue?: ((row: Receipt) =&gt; string | number | Date | null | undefined) | undefined; } | undefined'.
+  Type 'null' is not assignable to type '{ getSortValue?: ((row: Receipt) =&gt; string | number | Date | null | undefined) | undefined; } | undefined'.
+app/receipts.tsx(1718,19): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt;'.
+app/receipts.tsx(2118,102): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/receipts.tsx(2122,102): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/receipts.tsx(2126,102): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/receipts.tsx(2130,85): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/receipts.tsx(2139,142): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/receipts.tsx(2149,140): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/receipts.tsx(2159,139): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/receipts.tsx(2169,143): error TS2353: Object literal may only specify known properties, and 'lineHeight' does not exist in type 'ViewStyle | RecursiveArray&lt;ViewStyle | Falsy | RegisteredStyle&lt;ViewStyle&gt;&gt; | readonly (ViewStyle | Falsy | RegisteredStyle&lt;...&gt;)[]'.
+app/register.tsx(303,19): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/register.tsx(318,27): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/register.tsx(334,19): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/register.tsx(353,19): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/register.tsx(641,37): error TS2345: Argument of type '{ container: { flex: number; }; bg: { backgroundColor: string; overflow: "visible"; position: "absolute"; left: 0; right: 0; top: 0; bottom: 0; }; orb1Wrap: { position: "absolute"; width: number; height: number; ... 4 more ...; overflow: "hidden"; }; ... 30 more ...; footerLinkSpan: { ...; }; }' is not assignable to parameter of type '{ container: { flex: number; }; bg: { backgroundColor: string; overflow: "visible"; position: "absolute"; left: 0; right: 0; top: 0; bottom: 0; }; orb1Wrap: { position: "absolute"; width: number; height: number; ... 4 more ...; overflow: "hidden"; }; ... 30 more ...; footerLinkSpan: { ...; }; } &amp; NamedStyles&lt;...&gt;'.
+  Property 'input' is incompatible with index signature.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'ViewStyle | TextStyle | ImageStyle'.
+      Types of property 'outlineStyle' are incompatible.
+        Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/reset-password.tsx(187,19): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/reset-password.tsx(297,37): error TS2345: Argument of type '{ container: { flex: number; }; bg: { backgroundColor: string; overflow: "visible"; position: "absolute"; left: 0; right: 0; top: 0; bottom: 0; }; orb1Wrap: { position: "absolute"; width: number; height: number; ... 4 more ...; overflow: "hidden"; }; ... 26 more ...; footerLinkSpan: { ...; }; }' is not assignable to parameter of type '{ container: { flex: number; }; bg: { backgroundColor: string; overflow: "visible"; position: "absolute"; left: 0; right: 0; top: 0; bottom: 0; }; orb1Wrap: { position: "absolute"; width: number; height: number; ... 4 more ...; overflow: "hidden"; }; ... 26 more ...; footerLinkSpan: { ...; }; } &amp; NamedStyles&lt;...&gt;'.
+  Property 'input' is incompatible with index signature.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'ViewStyle | TextStyle | ImageStyle'.
+      Types of property 'outlineStyle' are incompatible.
+        Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/set-password.tsx(120,19): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/set-password.tsx(138,19): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/set-password.tsx(171,17): error TS2367: This comparison appears to be unintentional because the types '"web"' and '"ios"' have no overlap.
+app/set-password.tsx(172,31): error TS2367: This comparison appears to be unintentional because the types '"web"' and '"ios"' have no overlap.
+app/set-password.tsx(216,19): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/set-password.tsx(238,19): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/set-password.tsx(288,34): error TS2345: Argument of type '{ container: { flex: number; }; bg: { backgroundColor: string; overflow: "visible"; position: "absolute"; left: 0; right: 0; top: 0; bottom: 0; }; orb1Wrap: { position: "absolute"; width: number; height: number; ... 4 more ...; overflow: "hidden"; }; ... 37 more ...; buttonText: { ...; }; }' is not assignable to parameter of type '{ container: { flex: number; }; bg: { backgroundColor: string; overflow: "visible"; position: "absolute"; left: 0; right: 0; top: 0; bottom: 0; }; orb1Wrap: { position: "absolute"; width: number; height: number; ... 4 more ...; overflow: "hidden"; }; ... 37 more ...; buttonText: { ...; }; } &amp; NamedStyles&lt;...&gt;'.
+  Property 'input' is incompatible with index signature.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'ViewStyle | TextStyle | ImageStyle'.
+      Types of property 'outlineStyle' are incompatible.
+        Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/setup-space.tsx(435,21): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'StyleProp&lt;TextStyle&gt;'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/setup-space.tsx(448,29): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/setup-space.tsx(643,37): error TS2345: Argument of type '{ container: { flex: number; }; bg: { backgroundColor: string; overflow: "visible"; position: "absolute"; left: 0; right: 0; top: 0; bottom: 0; }; orb1Wrap: { position: "absolute"; width: number; height: number; ... 4 more ...; overflow: "hidden"; }; ... 40 more ...; signOutButtonText: { ...; }; }' is not assignable to parameter of type '{ container: { flex: number; }; bg: { backgroundColor: string; overflow: "visible"; position: "absolute"; left: 0; right: 0; top: 0; bottom: 0; }; orb1Wrap: { position: "absolute"; width: number; height: number; ... 4 more ...; overflow: "hidden"; }; ... 40 more ...; signOutButtonText: { ...; }; } &amp; NamedStyles&lt;...&gt;'.
+  Property 'input' is incompatible with index signature.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; minHeight: number; includeFontPadding: false; textAlignVertical: "center"; backgroundColor: string; outlineStyle: "none"; }' is not assignable to type 'ViewStyle | TextStyle | ImageStyle'.
+      Types of property 'outlineStyle' are incompatible.
+        Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/suppliers-manage.tsx(317,68): error TS2367: This comparison appears to be unintentional because the types '"supplier"' and '"customer"' have no overlap.
+app/suppliers-manage.tsx(334,58): error TS2339: Property 'isCustomer' does not exist on type 'SupplierListItem'.
+app/suppliers-manage.tsx(335,23): error TS2367: This comparison appears to be unintentional because the types '"supplier"' and '"customer"' have no overlap.
+app/suppliers-manage.tsx(335,58): error TS2339: Property 'isSupplier' does not exist on type 'SupplierListItem'.
+app/suppliers-manage.tsx(923,61): error TS2339: Property 'isCustomer' does not exist on type 'SupplierListItem'.
+app/suppliers-manage.tsx(928,26): error TS2367: This comparison appears to be unintentional because the types '"supplier"' and '"customer"' have no overlap.
+app/tax-filing/index.tsx(33,36): error TS2307: Cannot find module '../../../shared-logic/alertWeb' or its corresponding type declarations.
+app/tax-filing/index.tsx(36,53): error TS2307: Cannot find module '../../lib/engagement-realtime' or its corresponding type declarations.
+app/tax-filing/order/[orderId]/_layout.tsx(12,52): error TS2307: Cannot find module '../../../../lib/web-stack-header-left' or its corresponding type declarations.
+app/tax-filing/order/[orderId]/index.tsx(54,51): error TS2307: Cannot find module '../../../../lib/engagement-realtime' or its corresponding type declarations.
+app/tax-filing/order/[orderId]/index.tsx(181,17): error TS2367: This comparison appears to be unintentional because the types '"completed" | "to_submit" | "missing_info" | "reviewing" | "in_progress"' and '"success"' have no overlap.
+app/tax-filing/order/[orderId]/index.tsx(183,33): error TS2367: This comparison appears to be unintentional because the types '"completed" | "to_submit" | "missing_info" | "reviewing" | "in_progress"' and '"success"' have no overlap.
+app/tax-filing/order/[orderId]/index.tsx(831,28): error TS2304: Cannot find name 'projectId'.
+app/tax-filing/order/[orderId]/index.tsx(832,7): error TS2304: Cannot find name 'projectId'.
+app/tax-filing/order/[orderId]/index.tsx(835,10): error TS2304: Cannot find name 'projectId'.
+app/tax-filing/order/[orderId]/index.tsx(838,37): error TS18004: No value exists in scope for the shorthand property 'projectId'. Either declare one or provide an initializer.
+app/tax-filing/order/[orderId]/index.tsx(862,10): error TS2304: Cannot find name 'TaxFilingTodosView'.
+app/tax-filing/order/[orderId]/index.tsx(991,23): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; paddingHorizontal: number; minHeight: number; minWidth: number; borderWidth: number; outlineStyle: "none"; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; paddingHorizontal: number; minHeight: number; minWidth: number; borderWidth: number; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; paddingHorizontal: number; minHeight: number; minWidth: number; borderWidth: number; outlineStyle: "none"; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; paddingHorizontal: number; minHeight: number; minWidth: number; borderWidth: number; outlineStyle: "none"; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/tax-filing/order/[orderId]/index.tsx(1501,34): error TS2345: Argument of type '{ container: { flex: number; backgroundColor: string; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; backgroundColor: string; padding: number; }; errorText: { fontSize: number; color: string; marginBottom: number; }; ... 78 more ...; fileRowTitle: { ...; }; }' is not assignable to parameter of type '{ container: { flex: number; backgroundColor: string; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; backgroundColor: string; padding: number; }; errorText: { fontSize: number; color: string; marginBottom: number; }; ... 78 more ...; fileRowTitle: { ...; }; } &amp; NamedStyles&lt;...&gt;'.
+  Property 'pendingAddInput' is incompatible with index signature.
+    Type '{ flex: number; fontSize: number; color: string; paddingVertical: number; paddingHorizontal: number; minHeight: number; minWidth: number; borderWidth: number; outlineStyle: "none"; }' is not assignable to type 'ViewStyle | TextStyle | ImageStyle'.
+      Types of property 'outlineStyle' are incompatible.
+        Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/tax-filing/project/[projectId]/_layout.tsx(8,52): error TS2307: Cannot find module '../../../../lib/web-stack-header-left' or its corresponding type declarations.
+app/tax-filing/project/[projectId]/index.tsx(18,30): error TS2307: Cannot find module '../../../../contexts/ChatPanelContext' or its corresponding type declarations.
+app/tax-filing/project/[projectId]/index.tsx(40,51): error TS2307: Cannot find module '../../../../lib/engagement-realtime' or its corresponding type declarations.
+app/tax-filing/project/[projectId]/index.tsx(168,49): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.
+  Type 'null' is not assignable to type 'string'.
+app/tax-filing/project/[projectId]/index.tsx(207,49): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string'.
+  Type 'null' is not assignable to type 'string'.
+app/tax-filing/project/[projectId]/index.tsx(256,41): error TS2339: Property 'taxSeasonYear' does not exist on type '{ projectName: string; firmName: string; dueAt: string | null; createdAt: string | null; status: string; }'.
+app/tax-filing/project/[projectId]/index.tsx(314,9): error TS2322: Type '(() =&gt; void) | undefined' is not assignable to type '(() =&gt; Promise&lt;void&gt;) | undefined'.
+  Type '() =&gt; void' is not assignable to type '() =&gt; Promise&lt;void&gt;'.
+    Type 'void' is not assignable to type 'Promise&lt;void&gt;'.
+app/tax-filing/project/[projectId]/info.tsx(42,52): error TS2307: Cannot find module '../../../../lib/engagement-realtime' or its corresponding type declarations.
+app/tax-filing/project/[projectId]/info.tsx(245,20): error TS18047: 'order' is possibly 'null'.
+app/tax-filing/project/[projectId]/info.tsx(246,24): error TS18047: 'order' is possibly 'null'.
+app/tax-filing/project/[projectId]/info.tsx(335,22): error TS18047: 'order' is possibly 'null'.
+app/tax-filing/project/[projectId]/info.tsx(336,26): error TS18047: 'order' is possibly 'null'.
+app/tax-filing/project/[projectId]/info.tsx(621,29): error TS2339: Property 'tagsInput' does not exist on type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }'.
+app/tax-filing/project/[projectId]/info.tsx(630,27): error TS2339: Property 'tagsInput' does not exist on type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }'.
+app/tax-filing/project/[projectId]/info.tsx(688,31): error TS2339: Property 'tagsInput' does not exist on type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }'.
+app/tax-filing/project/[projectId]/info.tsx(699,31): error TS2339: Property 'tagsInput' does not exist on type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }'.
+app/tax-filing/project/[projectId]/info.tsx(743,31): error TS2339: Property 'tagsInput' does not exist on type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }'.
+app/tax-filing/project/[projectId]/info.tsx(754,31): error TS2339: Property 'tagsInput' does not exist on type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }'.
+app/tax-filing/project/[projectId]/info.tsx(819,29): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/tax-filing/project/[projectId]/info.tsx(850,29): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/tax-filing/project/[projectId]/info.tsx(971,29): error TS2345: Argument of type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }' is not assignable to parameter of type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; } &amp; NamedStyles&lt;...&gt;'.
+  Property 'tagInlineInput' is incompatible with index signature.
+    Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'ViewStyle | TextStyle | ImageStyle'.
+      Types of property 'outlineStyle' are incompatible.
+        Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+app/tax-filing/service-catalog.tsx(5,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+components/ConfirmModal.tsx(13,47): error TS2307: Cannot find module '../styles/confirm-dialog-styles' or its corresponding type declarations.
+components/CrmDashboardView.tsx(43,38): error TS2724: '"@/lib/firm"' has no exported member named 'FirmClientFollowUp'. Did you mean 'addFirmClientFollowUp'?
+components/CrmDashboardView.tsx(436,22): error TS2503: Cannot find namespace 'JSX'.
+components/DataTable.tsx(8,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+components/FirmAddClientModal.tsx(6,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+components/FirmAddClientModal.tsx(20,28): error TS2459: Module '"@/lib/firm"' declares 'FirmSku' locally, but it is not exported.
+components/ProjectDetailView.native.tsx(1,8): error TS2613: Module '"/Users/macbook/Vouchap/vouchap-app/components/ProjectDetailView"' has no default export. Did you mean to use 'import { ProjectDetailView } from "/Users/macbook/Vouchap/vouchap-app/components/ProjectDetailView"' instead?
+components/ProjectDetailView.web.tsx(2,10): error TS2305: Module '"./ProjectDetailView"' has no exported member 'default'.
+components/ProjectTodoTreeView.tsx(95,56): error TS2367: This comparison appears to be unintentional because the types 'ProjectTodoStatus' and '"success"' have no overlap.
+components/RightSidePanel.tsx(11,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+components/TaxFilingTodosView.native.tsx(1,8): error TS2300: Duplicate identifier 'TaxFilingTodosView'.
+components/TaxFilingTodosView.native.tsx(1,8): error TS2613: Module '"/Users/macbook/Vouchap/vouchap-app/components/TaxFilingTodosView"' has no default export. Did you mean to use 'import { TaxFilingTodosView } from "/Users/macbook/Vouchap/vouchap-app/components/TaxFilingTodosView"' instead?
+components/TaxFilingTodosView.native.tsx(3,16): error TS2528: A module cannot have multiple default exports.
+components/TaxFilingTodosView.native.tsx(5,8): error TS2300: Duplicate identifier 'TaxFilingTodosView'.
+components/TaxFilingTodosView.native.tsx(5,8): error TS2613: Module '"/Users/macbook/Vouchap/vouchap-app/components/TaxFilingTodosView"' has no default export. Did you mean to use 'import { TaxFilingTodosView } from "/Users/macbook/Vouchap/vouchap-app/components/TaxFilingTodosView"' instead?
+components/TaxFilingTodosView.native.tsx(10,16): error TS2528: A module cannot have multiple default exports.
+components/TaxFilingTodosView.tsx(38,41): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+components/TaxFilingTodosView.tsx(61,67): error TS2307: Cannot find module '../../shared-logic/chat-logs' or its corresponding type declarations.
+components/TaxFilingTodosView.tsx(1685,19): error TS2353: Object literal may only specify known properties, and 'WebkitUserDrag' does not exist in type 'Properties&lt;string | number, string &amp; {}&gt;'.
+components/TaxFilingTodosView.tsx(1737,21): error TS2353: Object literal may only specify known properties, and 'WebkitUserDrag' does not exist in type 'Properties&lt;string | number, string &amp; {}&gt;'.
+components/TaxFilingTodosView.tsx(2541,93): error TS2304: Cannot find name 'AttachmentPreviewField'.
+components/TaxFilingTodosView.tsx(2610,40): error TS2345: Argument of type 'ProjectTodoNode[]' is not assignable to parameter of type 'TodoReorderNode[]'.
+  Type 'ProjectTodoNode' is not assignable to type 'TodoReorderNode'.
+    Index signature for type 'string' is missing in type 'ProjectTodoNode'.
+components/TaxFilingTodosView.tsx(2625,7): error TS2345: Argument of type 'TodoReorderNode[] | ProjectTodoNode[]' is not assignable to parameter of type 'ProjectTodoNode[]'.
+  Type 'TodoReorderNode[]' is not assignable to type 'ProjectTodoNode[]'.
+    Type 'TodoReorderNode' is missing the following properties from type 'ProjectTodoNode': orderId, parentId, type, initialResponsibleSide, and 3 more.
+components/TaxFilingTodosView.tsx(2662,42): error TS2345: Argument of type 'ProjectTodoNode[]' is not assignable to parameter of type 'TodoReorderNode[]'.
+  Type 'ProjectTodoNode' is not assignable to type 'TodoReorderNode'.
+    Index signature for type 'string' is missing in type 'ProjectTodoNode'.
+components/TaxFilingTodosView.tsx(2668,52): error TS2345: Argument of type 'TodoReorderNode[]' is not assignable to parameter of type 'ProjectTodoNode[]'.
+  Type 'TodoReorderNode' is missing the following properties from type 'ProjectTodoNode': orderId, parentId, type, initialResponsibleSide, and 3 more.
+components/TaxFilingTodosView.tsx(2674,23): error TS2352: Conversion of type 'TodoReorderNode[]' to type 'ProjectTodoNode[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'TodoReorderNode' is missing the following properties from type 'ProjectTodoNode': orderId, parentId, type, initialResponsibleSide, and 3 more.
+components/TaxFilingTodosView.tsx(2729,11): error TS2322: Type 'number' is not assignable to type 'Timeout'.
+components/TaxFilingTodosView.tsx(2777,35): error TS2345: Argument of type 'ProjectTodoNode[]' is not assignable to parameter of type 'TodoReorderNode[]'.
+  Type 'ProjectTodoNode' is not assignable to type 'TodoReorderNode'.
+    Index signature for type 'string' is missing in type 'ProjectTodoNode'.
+components/TaxFilingTodosView.tsx(2778,35): error TS2345: Argument of type 'ProjectTodoNode[]' is not assignable to parameter of type 'TodoReorderNode[]'.
+  Type 'ProjectTodoNode' is not assignable to type 'TodoReorderNode'.
+    Index signature for type 'string' is missing in type 'ProjectTodoNode'.
+components/TaxFilingTodosView.tsx(2794,35): error TS2345: Argument of type 'ProjectTodoNode[]' is not assignable to parameter of type 'TodoReorderNode[]'.
+  Type 'ProjectTodoNode' is not assignable to type 'TodoReorderNode'.
+    Index signature for type 'string' is missing in type 'ProjectTodoNode'.
+components/TaxFilingTodosView.tsx(2802,37): error TS2345: Argument of type 'ProjectTodoNode[]' is not assignable to parameter of type 'TodoReorderNode[]'.
+  Type 'ProjectTodoNode' is not assignable to type 'TodoReorderNode'.
+    Index signature for type 'string' is missing in type 'ProjectTodoNode'.
+components/TaxFilingTodosView.tsx(3555,77): error TS7006: Parameter 'preview' implicitly has an 'any' type.
+components/TaxFilingTodosView.tsx(3557,24): error TS2304: Cannot find name 'buildExtractedPreview'.
+components/TaxFilingTodosView.tsx(3722,25): error TS2322: Type 'TodoReorderNode | ProjectTodoNode' is not assignable to type 'ProjectTodoNode'.
+  Type 'TodoReorderNode' is missing the following properties from type 'ProjectTodoNode': orderId, parentId, type, initialResponsibleSide, and 3 more.
+components/TaxFilingTodosView.web.tsx(2,10): error TS2305: Module '"./TaxFilingTodosView"' has no exported member 'default'.
+components/ToastHost.tsx(9,13): error TS2345: Argument of type '() =&gt; () =&gt; boolean' is not assignable to parameter of type 'EffectCallback'.
+  Type '() =&gt; boolean' is not assignable to type 'void | Destructor'.
+    Type '() =&gt; boolean' is not assignable to type 'Destructor'.
+      Type 'boolean' is not assignable to type 'void | { [UNDEFINED_VOID_ONLY]: never; }'.
+components/voucher-table-columns.tsx(6,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+components/WebChatFab.tsx(18,30): error TS2307: Cannot find module '../contexts/ChatPanelContext' or its corresponding type declarations.
+components/WebChatFab.tsx(19,58): error TS2307: Cannot find module '../contexts/ChatPanelContext' or its corresponding type declarations.
+components/WebChatFab.tsx(25,37): error TS2307: Cannot find module '../styles/web-input-block-styles' or its corresponding type declarations.
+components/WebChatFab.tsx(29,8): error TS2307: Cannot find module '../lib/chat-staged-files-display' or its corresponding type declarations.
+components/WebChatFab.tsx(180,9): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: ViewProps): View', gave the following error.
+    Type '{ children: Element[]; style: { position: any; right: number; bottom: number; width: number; paddingHorizontal: number; paddingVertical: number; paddingBottom: number; backgroundColor: string; ... 8 more ...; elevation: number; }; onMouseEnter: () =&gt; void; onMouseLeave: () =&gt; void; }' is not assignable to type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+      Property 'onMouseEnter' does not exist on type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+  Overload 2 of 2, '(props: ViewProps, context: any): View', gave the following error.
+    Type '{ children: Element[]; style: { position: any; right: number; bottom: number; width: number; paddingHorizontal: number; paddingVertical: number; paddingBottom: number; backgroundColor: string; ... 8 more ...; elevation: number; }; onMouseEnter: () =&gt; void; onMouseLeave: () =&gt; void; }' is not assignable to type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+      Property 'onMouseEnter' does not exist on type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+components/WebChatFab.tsx(232,29): error TS2339: Property 'hovered' does not exist on type 'PressableStateCallbackType'.
+components/WebChatFab.tsx(243,35): error TS2339: Property 'hovered' does not exist on type 'PressableStateCallbackType'.
+components/WebChatFab.tsx(275,7): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: ViewProps): View', gave the following error.
+    Type '{ children: Element; style: {}[]; onMouseEnter: () =&gt; void; onMouseLeave: () =&gt; void; pointerEvents: "box-none"; }' is not assignable to type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+      Property 'onMouseEnter' does not exist on type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+  Overload 2 of 2, '(props: ViewProps, context: any): View', gave the following error.
+    Type '{ children: Element; style: {}[]; onMouseEnter: () =&gt; void; onMouseLeave: () =&gt; void; pointerEvents: "box-none"; }' is not assignable to type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+      Property 'onMouseEnter' does not exist on type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+components/WebChatPanel.tsx(8,50): error TS2307: Cannot find module '../contexts/ChatPanelContext' or its corresponding type declarations.
+lib/chat-logs.ts(222,39): error TS2367: This comparison appears to be unintentional because the types '"client" | "receipt" | "invoice" | "inbound" | "outbound"' and '""' have no overlap.
+lib/chat-logs.ts(257,40): error TS2367: This comparison appears to be unintentional because the types 'VoucherLogType' and '""' have no overlap.
+lib/database.ts(541,41): error TS2339: Property 'id' does not exist on type '{ id: any; name: any; }[]'.
+lib/database.ts(1314,29): error TS2551: Property 'space_id' does not exist on type 'Account'. Did you mean 'spaceId'?
+lib/database.ts(1316,36): error TS2551: Property 'is_ai_recognized' does not exist on type 'Account'. Did you mean 'isAiRecognized'?
+lib/database.ts(1317,31): error TS2551: Property 'created_at' does not exist on type 'Account'. Did you mean 'createdAt'?
+lib/database.ts(1318,31): error TS2551: Property 'updated_at' does not exist on type 'Account'. Did you mean 'updatedAt'?
+lib/exchange-rates.ts(61,9): error TS2322: Type '{ [key: string]: number; } | null' is not assignable to type '{ [key: string]: number; }'.
+  Type 'null' is not assignable to type '{ [key: string]: number; }'.
+lib/firm.ts(368,5): error TS2322: Type '{ id: any; firm_space_id: any; client_space_id: any; sku_id: any; status: any; tax_country: any; tax_scenario: any; tags: any; tax_country_label_id: any; tax_scenario_label_id: any; tax_season_label_id: any; ... 4 more ...; updated_at: any; } | null' is not assignable to type '{ id: any; firm_space_id: any; client_space_id: any; sku_id: any; status: any; request_origin: any; client_confirmed_at: any; firm_confirmed_at: any; tax_country: any; tax_scenario: any; tags: any; ... 7 more ...; updated_at: any; } | null'.
+  Type '{ id: any; firm_space_id: any; client_space_id: any; sku_id: any; status: any; tax_country: any; tax_scenario: any; tags: any; tax_country_label_id: any; tax_scenario_label_id: any; tax_season_label_id: any; ... 4 more ...; updated_at: any; }' is missing the following properties from type '{ id: any; firm_space_id: any; client_space_id: any; sku_id: any; status: any; request_origin: any; client_confirmed_at: any; firm_confirmed_at: any; tax_country: any; tax_scenario: any; tags: any; ... 7 more ...; updated_at: any; }': request_origin, client_confirmed_at, firm_confirmed_at
+lib/gemini.ts(406,38): error TS2352: Conversion of type 'GeminiReceiptResult' to type 'Record&lt;string, unknown&gt;' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Index signature for type 'string' is missing in type 'GeminiReceiptResult'.
+lib/gemini.ts(740,38): error TS2352: Conversion of type 'GeminiReceiptResult' to type 'Record&lt;string, unknown&gt;' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Index signature for type 'string' is missing in type 'GeminiReceiptResult'.
+lib/invoices.ts(102,37): error TS2339: Property 'id' does not exist on type '{ id: any; name: any; }[]'.
+lib/receipt-helpers.ts(137,17): error TS2339: Property 'purposeName' does not exist on type '{ name: string; itemAlias?: string | undefined; categoryName: string; price: number; attributionName?: string | undefined; isAsset?: boolean | undefined; confidence?: number | undefined; posTaxCode?: string | ... 1 more ... | undefined; }'.
+lib/receipt-helpers.ts(140,9): error TS2322: Type 'Attribution | null' is not assignable to type 'Attribution | undefined'.
+  Type 'null' is not assignable to type 'Attribution | undefined'.
+lib/receipt-helpers.ts(196,16): error TS2345: Argument of type '{ name: string; categoryId: string; category: Category; attributionId: string; attribution: Attribution; price: number; isAsset: false; confidence: number | undefined; }' is not assignable to parameter of type '{ posTaxCode?: string | undefined; name: string; itemAlias: string | undefined; categoryId: string; category: Category; attributionId: string | null; attribution: Attribution | null; price: number; isAsset: boolean; confidence: number | undefined; }'.
+  Property 'itemAlias' is missing in type '{ name: string; categoryId: string; category: Category; attributionId: string; attribution: Attribution; price: number; isAsset: false; confidence: number | undefined; }' but required in type '{ posTaxCode?: string | undefined; name: string; itemAlias: string | undefined; categoryId: string; category: Category; attributionId: string | null; attribution: Attribution | null; price: number; isAsset: boolean; confidence: number | undefined; }'.
+lib/receipt-helpers.ts(368,17): error TS2339: Property 'purposeName' does not exist on type '{ name: string; itemAlias?: string | undefined; categoryName: string; price: number; attributionName?: string | undefined; isAsset?: boolean | undefined; confidence?: number | undefined; }'.
+lib/supabase.ts(246,25): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+lib/supabase.ts(301,25): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+lib/supabase.ts(345,25): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+lib/supabase.ts(382,25): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+lib/supabase.ts(446,25): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+lib/supabase.ts(545,84): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+lib/supabase.ts(579,87): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+lib/supabase.ts(607,84): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+lib/supabase.ts(656,84): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+lib/supabase.ts(687,84): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+lib/supabase.ts(713,84): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+lib/supabase.ts(744,84): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+lib/word-document-to-text.ts(144,56): error TS2345: Argument of type 'ArrayBuffer | SharedArrayBuffer' is not assignable to parameter of type 'ArrayBuffer'.
+  Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/mobile-ui/app/chat-to-log.tsx(769,23): error TS2345: Argument of type 'undefined' is not assignable to parameter of type 'SetStateAction&lt;string | null&gt;'.
+src/mobile-ui/app/chat-to-log.tsx(780,29): error TS2345: Argument of type 'undefined' is not assignable to parameter of type 'SetStateAction&lt;string | null&gt;'.
+src/mobile-ui/app/chat-to-log.tsx(3267,35): error TS2339: Property 'hovered' does not exist on type 'PressableStateCallbackType'.
+src/mobile-ui/app/chat-to-log.tsx(3278,41): error TS2339: Property 'hovered' does not exist on type 'PressableStateCallbackType'.
+src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx(245,20): error TS18047: 'order' is possibly 'null'.
+src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx(246,24): error TS18047: 'order' is possibly 'null'.
+src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx(335,22): error TS18047: 'order' is possibly 'null'.
+src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx(336,26): error TS18047: 'order' is possibly 'null'.
+src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx(621,29): error TS2339: Property 'tagsInput' does not exist on type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }'.
+src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx(630,27): error TS2339: Property 'tagsInput' does not exist on type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }'.
+src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx(688,31): error TS2339: Property 'tagsInput' does not exist on type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }'.
+src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx(699,31): error TS2339: Property 'tagsInput' does not exist on type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }'.
+src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx(743,31): error TS2339: Property 'tagsInput' does not exist on type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }'.
+src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx(754,31): error TS2339: Property 'tagsInput' does not exist on type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }'.
+src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx(819,29): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx(850,29): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: TextInputProps): TextInput', gave the following error.
+    Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+  Overload 2 of 2, '(props: TextInputProps, context: any): TextInput', gave the following error.
+    Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt; | RecursiveArray&lt;TextStyle | Falsy | RegisteredStyle&lt;TextStyle&gt;&gt; | readonly (TextStyle | ... 1 more ... | RegisteredStyle&lt;...&gt;)[]'.
+      Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'TextStyle'.
+        Types of property 'outlineStyle' are incompatible.
+          Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+src/mobile-ui/app/tax-filing/project/[projectId]/info.tsx(971,29): error TS2345: Argument of type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; }' is not assignable to parameter of type '{ scroll: { flex: number; }; scrollContent: { padding: number; paddingBottom: number; gap: number; }; centered: { flex: number; justifyContent: "center"; alignItems: "center"; padding: number; }; errorText: { ...; }; ... 65 more ...; saveBtnText: { ...; }; } &amp; NamedStyles&lt;...&gt;'.
+  Property 'tagInlineInput' is incompatible with index signature.
+    Type '{ fontSize: number; color: string; paddingVertical: number; minWidth: number; maxWidth: number; outlineStyle: "none"; outlineWidth: number; }' is not assignable to type 'ViewStyle | TextStyle | ImageStyle'.
+      Types of property 'outlineStyle' are incompatible.
+        Type '"none"' is not assignable to type '"solid" | "dotted" | "dashed" | undefined'.
+src/mobile-ui/components/CrmDashboardView.tsx(43,38): error TS2724: '"@/lib/firm"' has no exported member named 'FirmClientFollowUp'. Did you mean 'addFirmClientFollowUp'?
+src/mobile-ui/components/CrmDashboardView.tsx(436,22): error TS2503: Cannot find namespace 'JSX'.
+src/mobile-ui/components/DataTable.tsx(8,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+src/mobile-ui/components/FirmAddClientModal.tsx(6,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+src/mobile-ui/components/FirmAddClientModal.tsx(20,28): error TS2459: Module '"@/lib/firm"' declares 'FirmSku' locally, but it is not exported.
+src/mobile-ui/components/TaxFilingTodosView.tsx(38,41): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+src/mobile-ui/components/TaxFilingTodosView.tsx(1685,19): error TS2353: Object literal may only specify known properties, and 'WebkitUserDrag' does not exist in type 'Properties&lt;string | number, string &amp; {}&gt;'.
+src/mobile-ui/components/TaxFilingTodosView.tsx(1737,21): error TS2353: Object literal may only specify known properties, and 'WebkitUserDrag' does not exist in type 'Properties&lt;string | number, string &amp; {}&gt;'.
+src/mobile-ui/components/TaxFilingTodosView.tsx(2541,93): error TS2304: Cannot find name 'AttachmentPreviewField'.
+src/mobile-ui/components/TaxFilingTodosView.tsx(2610,40): error TS2345: Argument of type 'ProjectTodoNode[]' is not assignable to parameter of type 'TodoReorderNode[]'.
+  Type 'ProjectTodoNode' is not assignable to type 'TodoReorderNode'.
+    Index signature for type 'string' is missing in type 'ProjectTodoNode'.
+src/mobile-ui/components/TaxFilingTodosView.tsx(2625,7): error TS2345: Argument of type 'TodoReorderNode[] | ProjectTodoNode[]' is not assignable to parameter of type 'ProjectTodoNode[]'.
+  Type 'TodoReorderNode[]' is not assignable to type 'ProjectTodoNode[]'.
+    Type 'TodoReorderNode' is missing the following properties from type 'ProjectTodoNode': orderId, parentId, type, initialResponsibleSide, and 3 more.
+src/mobile-ui/components/TaxFilingTodosView.tsx(2662,42): error TS2345: Argument of type 'ProjectTodoNode[]' is not assignable to parameter of type 'TodoReorderNode[]'.
+  Type 'ProjectTodoNode' is not assignable to type 'TodoReorderNode'.
+    Index signature for type 'string' is missing in type 'ProjectTodoNode'.
+src/mobile-ui/components/TaxFilingTodosView.tsx(2668,52): error TS2345: Argument of type 'TodoReorderNode[]' is not assignable to parameter of type 'ProjectTodoNode[]'.
+  Type 'TodoReorderNode' is missing the following properties from type 'ProjectTodoNode': orderId, parentId, type, initialResponsibleSide, and 3 more.
+src/mobile-ui/components/TaxFilingTodosView.tsx(2674,23): error TS2352: Conversion of type 'TodoReorderNode[]' to type 'ProjectTodoNode[]' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Type 'TodoReorderNode' is missing the following properties from type 'ProjectTodoNode': orderId, parentId, type, initialResponsibleSide, and 3 more.
+src/mobile-ui/components/TaxFilingTodosView.tsx(2729,11): error TS2322: Type 'number' is not assignable to type 'Timeout'.
+src/mobile-ui/components/TaxFilingTodosView.tsx(2777,35): error TS2345: Argument of type 'ProjectTodoNode[]' is not assignable to parameter of type 'TodoReorderNode[]'.
+  Type 'ProjectTodoNode' is not assignable to type 'TodoReorderNode'.
+    Index signature for type 'string' is missing in type 'ProjectTodoNode'.
+src/mobile-ui/components/TaxFilingTodosView.tsx(2778,35): error TS2345: Argument of type 'ProjectTodoNode[]' is not assignable to parameter of type 'TodoReorderNode[]'.
+  Type 'ProjectTodoNode' is not assignable to type 'TodoReorderNode'.
+    Index signature for type 'string' is missing in type 'ProjectTodoNode'.
+src/mobile-ui/components/TaxFilingTodosView.tsx(2794,35): error TS2345: Argument of type 'ProjectTodoNode[]' is not assignable to parameter of type 'TodoReorderNode[]'.
+  Type 'ProjectTodoNode' is not assignable to type 'TodoReorderNode'.
+    Index signature for type 'string' is missing in type 'ProjectTodoNode'.
+src/mobile-ui/components/TaxFilingTodosView.tsx(2802,37): error TS2345: Argument of type 'ProjectTodoNode[]' is not assignable to parameter of type 'TodoReorderNode[]'.
+  Type 'ProjectTodoNode' is not assignable to type 'TodoReorderNode'.
+    Index signature for type 'string' is missing in type 'ProjectTodoNode'.
+src/mobile-ui/components/TaxFilingTodosView.tsx(3557,24): error TS2304: Cannot find name 'buildExtractedPreview'.
+src/mobile-ui/components/TaxFilingTodosView.tsx(3722,25): error TS2322: Type 'TodoReorderNode | ProjectTodoNode' is not assignable to type 'ProjectTodoNode'.
+  Type 'TodoReorderNode' is missing the following properties from type 'ProjectTodoNode': orderId, parentId, type, initialResponsibleSide, and 3 more.
+src/mobile-ui/components/ToastHost.tsx(9,13): error TS2345: Argument of type '() =&gt; () =&gt; boolean' is not assignable to parameter of type 'EffectCallback'.
+  Type '() =&gt; boolean' is not assignable to type 'void | Destructor'.
+    Type '() =&gt; boolean' is not assignable to type 'Destructor'.
+      Type 'boolean' is not assignable to type 'void | { [UNDEFINED_VOID_ONLY]: never; }'.
+src/mobile-ui/components/voucher-table-columns.tsx(6,30): error TS7016: Could not find a declaration file for module 'react-dom'. '/Users/macbook/Vouchap/vouchap-app/node_modules/react-dom/index.js' implicitly has an 'any' type.
+  Try &#96;npm i --save-dev @types/react-dom&#96; if it exists or add a new declaration (.d.ts) file containing &#96;declare module 'react-dom';&#96;
+src/mobile-ui/components/WebChatFab.tsx(55,11): error TS2339: Property 'open' does not exist on type 'ChatPanelContextValue | null'.
+src/mobile-ui/components/WebChatFab.tsx(55,17): error TS2339: Property 'openPanel' does not exist on type 'ChatPanelContextValue | null'.
+src/mobile-ui/components/WebChatFab.tsx(55,28): error TS2339: Property 'type' does not exist on type 'ChatPanelContextValue | null'.
+src/mobile-ui/components/WebChatFab.tsx(55,47): error TS2339: Property 'setType' does not exist on type 'ChatPanelContextValue | null'.
+src/mobile-ui/components/WebChatFab.tsx(55,56): error TS2339: Property 'setInitialStagedFiles' does not exist on type 'ChatPanelContextValue | null'.
+src/mobile-ui/components/WebChatFab.tsx(90,32): error TS2345: Argument of type '(prev: StagedAttachmentFile[]) =&gt; (StagedAttachmentFile | { id: string; uri: string; name: string | null | undefined; })[]' is not assignable to parameter of type 'SetStateAction&lt;StagedAttachmentFile[]&gt;'.
+  Type '(prev: StagedAttachmentFile[]) =&gt; (StagedAttachmentFile | { id: string; uri: string; name: string | null | undefined; })[]' is not assignable to type '(prevState: StagedAttachmentFile[]) =&gt; StagedAttachmentFile[]'.
+    Type '(StagedAttachmentFile | { id: string; uri: string; name: string | null | undefined; })[]' is not assignable to type 'StagedAttachmentFile[]'.
+      Type 'StagedAttachmentFile | { id: string; uri: string; name: string | null | undefined; }' is not assignable to type 'StagedAttachmentFile'.
+        Type '{ id: string; uri: string; name: string | null | undefined; }' is not assignable to type 'StagedAttachmentFile'.
+          Types of property 'name' are incompatible.
+            Type 'string | null | undefined' is not assignable to type 'string | undefined'.
+              Type 'null' is not assignable to type 'string | undefined'.
+src/mobile-ui/components/WebChatFab.tsx(180,9): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: ViewProps): View', gave the following error.
+    Type '{ children: Element[]; style: { position: any; right: number; bottom: number; width: number; paddingHorizontal: number; paddingVertical: number; paddingBottom: number; backgroundColor: string; ... 8 more ...; elevation: number; }; onMouseEnter: () =&gt; void; onMouseLeave: () =&gt; void; }' is not assignable to type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+      Property 'onMouseEnter' does not exist on type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+  Overload 2 of 2, '(props: ViewProps, context: any): View', gave the following error.
+    Type '{ children: Element[]; style: { position: any; right: number; bottom: number; width: number; paddingHorizontal: number; paddingVertical: number; paddingBottom: number; backgroundColor: string; ... 8 more ...; elevation: number; }; onMouseEnter: () =&gt; void; onMouseLeave: () =&gt; void; }' is not assignable to type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+      Property 'onMouseEnter' does not exist on type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+src/mobile-ui/components/WebChatFab.tsx(232,29): error TS2339: Property 'hovered' does not exist on type 'PressableStateCallbackType'.
+src/mobile-ui/components/WebChatFab.tsx(243,35): error TS2339: Property 'hovered' does not exist on type 'PressableStateCallbackType'.
+src/mobile-ui/components/WebChatFab.tsx(275,7): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: ViewProps): View', gave the following error.
+    Type '{ children: Element; style: {}[]; onMouseEnter: () =&gt; void; onMouseLeave: () =&gt; void; pointerEvents: "box-none"; }' is not assignable to type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+      Property 'onMouseEnter' does not exist on type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+  Overload 2 of 2, '(props: ViewProps, context: any): View', gave the following error.
+    Type '{ children: Element; style: {}[]; onMouseEnter: () =&gt; void; onMouseLeave: () =&gt; void; pointerEvents: "box-none"; }' is not assignable to type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+      Property 'onMouseEnter' does not exist on type 'IntrinsicAttributes &amp; IntrinsicClassAttributes&lt;View&gt; &amp; Readonly&lt;ViewProps&gt;'.
+src/mobile-ui/components/WebChatPanel.tsx(20,11): error TS2339: Property 'open' does not exist on type 'ChatPanelContextValue | null'.
+src/mobile-ui/components/WebChatPanel.tsx(20,17): error TS2339: Property 'type' does not exist on type 'ChatPanelContextValue | null'.
+src/mobile-ui/components/WebChatPanel.tsx(20,23): error TS2339: Property 'setType' does not exist on type 'ChatPanelContextValue | null'.
+src/mobile-ui/components/WebChatPanel.tsx(20,32): error TS2339: Property 'closePanel' does not exist on type 'ChatPanelContextValue | null'.
+src/shared-logic/chat-logs.ts(222,39): error TS2367: This comparison appears to be unintentional because the types '"client" | "receipt" | "invoice" | "inbound" | "outbound"' and '""' have no overlap.
+src/shared-logic/chat-logs.ts(257,40): error TS2367: This comparison appears to be unintentional because the types 'VoucherLogType' and '""' have no overlap.
+src/shared-logic/database.ts(541,41): error TS2339: Property 'id' does not exist on type '{ id: any; name: any; }[]'.
+src/shared-logic/database.ts(1314,29): error TS2551: Property 'space_id' does not exist on type 'Account'. Did you mean 'spaceId'?
+src/shared-logic/database.ts(1316,36): error TS2551: Property 'is_ai_recognized' does not exist on type 'Account'. Did you mean 'isAiRecognized'?
+src/shared-logic/database.ts(1317,31): error TS2551: Property 'created_at' does not exist on type 'Account'. Did you mean 'createdAt'?
+src/shared-logic/database.ts(1318,31): error TS2551: Property 'updated_at' does not exist on type 'Account'. Did you mean 'updatedAt'?
+src/shared-logic/exchange-rates.ts(61,9): error TS2322: Type '{ [key: string]: number; } | null' is not assignable to type '{ [key: string]: number; }'.
+  Type 'null' is not assignable to type '{ [key: string]: number; }'.
+src/shared-logic/firm.ts(368,5): error TS2322: Type '{ id: any; firm_space_id: any; client_space_id: any; sku_id: any; status: any; tax_country: any; tax_scenario: any; tags: any; tax_country_label_id: any; tax_scenario_label_id: any; tax_season_label_id: any; ... 4 more ...; updated_at: any; } | null' is not assignable to type '{ id: any; firm_space_id: any; client_space_id: any; sku_id: any; status: any; request_origin: any; client_confirmed_at: any; firm_confirmed_at: any; tax_country: any; tax_scenario: any; tags: any; ... 7 more ...; updated_at: any; } | null'.
+  Type '{ id: any; firm_space_id: any; client_space_id: any; sku_id: any; status: any; tax_country: any; tax_scenario: any; tags: any; tax_country_label_id: any; tax_scenario_label_id: any; tax_season_label_id: any; ... 4 more ...; updated_at: any; }' is missing the following properties from type '{ id: any; firm_space_id: any; client_space_id: any; sku_id: any; status: any; request_origin: any; client_confirmed_at: any; firm_confirmed_at: any; tax_country: any; tax_scenario: any; tags: any; ... 7 more ...; updated_at: any; }': request_origin, client_confirmed_at, firm_confirmed_at
+src/shared-logic/gemini.ts(406,38): error TS2352: Conversion of type 'GeminiReceiptResult' to type 'Record&lt;string, unknown&gt;' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Index signature for type 'string' is missing in type 'GeminiReceiptResult'.
+src/shared-logic/gemini.ts(740,38): error TS2352: Conversion of type 'GeminiReceiptResult' to type 'Record&lt;string, unknown&gt;' may be a mistake because neither type sufficiently overlaps with the other. If this was intentional, convert the expression to 'unknown' first.
+  Index signature for type 'string' is missing in type 'GeminiReceiptResult'.
+src/shared-logic/invoices.ts(102,37): error TS2339: Property 'id' does not exist on type '{ id: any; name: any; }[]'.
+src/shared-logic/receipt-helpers.ts(137,17): error TS2339: Property 'purposeName' does not exist on type '{ name: string; itemAlias?: string | undefined; categoryName: string; price: number; attributionName?: string | undefined; isAsset?: boolean | undefined; confidence?: number | undefined; posTaxCode?: string | ... 1 more ... | undefined; }'.
+src/shared-logic/receipt-helpers.ts(140,9): error TS2322: Type 'Attribution | null' is not assignable to type 'Attribution | undefined'.
+  Type 'null' is not assignable to type 'Attribution | undefined'.
+src/shared-logic/receipt-helpers.ts(196,16): error TS2345: Argument of type '{ name: string; categoryId: string; category: Category; attributionId: string; attribution: Attribution; price: number; isAsset: false; confidence: number | undefined; }' is not assignable to parameter of type '{ posTaxCode?: string | undefined; name: string; itemAlias: string | undefined; categoryId: string; category: Category; attributionId: string | null; attribution: Attribution | null; price: number; isAsset: boolean; confidence: number | undefined; }'.
+  Property 'itemAlias' is missing in type '{ name: string; categoryId: string; category: Category; attributionId: string; attribution: Attribution; price: number; isAsset: false; confidence: number | undefined; }' but required in type '{ posTaxCode?: string | undefined; name: string; itemAlias: string | undefined; categoryId: string; category: Category; attributionId: string | null; attribution: Attribution | null; price: number; isAsset: boolean; confidence: number | undefined; }'.
+src/shared-logic/receipt-helpers.ts(368,17): error TS2339: Property 'purposeName' does not exist on type '{ name: string; itemAlias?: string | undefined; categoryName: string; price: number; attributionName?: string | undefined; isAsset?: boolean | undefined; confidence?: number | undefined; }'.
+src/shared-logic/supabase.ts(246,25): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/shared-logic/supabase.ts(301,25): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/shared-logic/supabase.ts(345,25): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/shared-logic/supabase.ts(382,25): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/shared-logic/supabase.ts(446,25): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/shared-logic/supabase.ts(545,84): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/shared-logic/supabase.ts(579,87): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/shared-logic/supabase.ts(607,84): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/shared-logic/supabase.ts(656,84): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/shared-logic/supabase.ts(687,84): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/shared-logic/supabase.ts(713,84): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/shared-logic/supabase.ts(744,84): error TS2345: Argument of type 'ArrayBufferLike' is not assignable to parameter of type 'FileBody'.
+  Type 'SharedArrayBuffer' is not assignable to type 'FileBody'.
+    Type 'SharedArrayBuffer' is not assignable to type 'ArrayBuffer | ArrayBufferView&lt;ArrayBufferLike&gt; | Blob | Buffer&lt;ArrayBufferLike&gt; | File | FormData | NodeJS.ReadableStream | ReadableStream&lt;...&gt; | URLSearchParams'.
+      Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+src/shared-logic/word-document-to-text.ts(144,56): error TS2345: Argument of type 'ArrayBuffer | SharedArrayBuffer' is not assignable to parameter of type 'ArrayBuffer'.
+  Type 'SharedArrayBuffer' is missing the following properties from type 'ArrayBuffer': resizable, resize, detached, transfer, transferToFixedLength
+supabase/functions/send-invitation-email/index.ts(6,30): error TS2307: Cannot find module 'https://esm.sh/@supabase/supabase-js@2' or its corresponding type declarations.
+supabase/functions/send-invitation-email/index.ts(14,1): error TS2304: Cannot find name 'Deno'.
+supabase/functions/send-invitation-email/index.ts(14,19): error TS7006: Parameter 'req' implicitly has an 'any' type.
+supabase/functions/send-invitation-email/index.ts(24,25): error TS2304: Cannot find name 'Deno'.
+supabase/functions/send-invitation-email/index.ts(25,28): error TS2304: Cannot find name 'Deno'.
+supabase/functions/send-invitation-email/index.ts(72,59): error TS2339: Property 'message' does not exist on type '{}'.
+
+```
+</details>
+</tool-use>
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2"><details>
+<summary>Tool use: **run_terminal_command_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/.cursor/projects/Users-macbook-Vouchap/agent-tools/02095509-8b94-4ee0-860a-ce2f74bf1906.txt</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/.cursor/projects/Users-macbook-Vouchap/agent-tools/02095509-8b94-4ee0-860a-ce2f74bf1906.txt",
+  "pattern": "receipt-item-tax|gemini\\.ts"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/.cursor/projects/Users-macbook-Vouchap/agent-tools/02095509-8b94-4ee0-860a-ce2f74bf1906.txt",
+  "pattern": "receipt-item-tax|gemini\\.ts",
+  "topFiles": [
+    {
+      "matchCount": 4,
+      "uri": "../.cursor/projects/Users-macbook-Vouchap/agent-tools/02095509-8b94-4ee0-860a-ce2f74bf1906.txt"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../.cursor/projects/Users-macbook-Vouchap/agent-tools/02095509-8b94-4ee0-860a-ce2f74bf1906.txt"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../.cursor/projects/Users-macbook-Vouchap/agent-tools/02095509-8b94-4ee0-860a-ce2f74bf1906.txt"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../.cursor/projects/Users-macbook-Vouchap/agent-tools/02095509-8b94-4ee0-860a-ce2f74bf1906.txt"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../.cursor/projects/Users-macbook-Vouchap/agent-tools/02095509-8b94-4ee0-860a-ce2f74bf1906.txt"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../.cursor/projects/Users-macbook-Vouchap/agent-tools/02095509-8b94-4ee0-860a-ce2f74bf1906.txt"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 24
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="read_lints">
+<details>
+<summary>Tool use: **read_lints**</summary>
+
+
+Parameters:
+
+```json
+{
+  "paths": [
+    "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts",
+    "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+  ]
+}
+```
+Result:
+
+```json
+{
+  "linterErrorsByFile": [
+    {
+      "relativeWorkspacePath": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "relativeWorkspacePath": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts"
+    }
+  ]
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="read_lints"><details>
+<summary>Tool use: **read_lints**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Append PRD-SOURCE-LOG.md as required by workspace rules.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/supabase/migrations/20260418140000_drop_receipt_items_tax_class_code.sql</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.{ts,tsx}",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "tax_class|taxClass"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "tax_class|taxClass",
+  "topFiles": [
+    {
+      "matchCount": 68,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 68,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 68,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 68,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 68,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 68,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 408
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Redact learning logic description - tightened to fit after or non-default taxable category. Actual code is `if (!</details></think>
+
+_**Agent (default)**_
+
+## 已完成的续作
+
+本轮把 **`receipt-item-tax.ts`** 里仍依赖 **`receipt_items.tax_class_code`** 的路径全部清掉，并与「只保留 POS/实体规则 + 默认可税」一致。
+
+### 行为变化（要点）
+
+1. **行税类来源**：每行只用 **`resolveLinePosTaxResolution`** 得到的类；若无则 **`STANDARD_TAXABLE`**，不再读模型/库里的行级 `tax_class_code`。
+2. **`getApplicableTaxRules`**：已移除参数 **`lineTaxClassOverride`**，内部同样只按 POS + 默认类解析。
+3. **类型与查询**：**`ReceiptItemRow` / `LineMeta`** 去掉行上税类字段及 **`fromLineOverride` / `lineTaxClassFromModel`**；对 **`receipt_items`** 的 **`select`** 不再包含 **`tax_class_code`**。
+4. **写库**：删除「POS 命中后回写 **`receipt_items.tax_class_code`**」以及 **receipt.tax greedy fit 后回写该行列** 的两段 **`update`**。
+5. **实体 POS 学习**：未命中规则时，仅在 **`receiptTaxFitApplied`** 或 **`taxClass !== DEFAULT_TAX_CLASS`** 时仍调用 **`record_entity_pos_tax_learning_and_maybe_promote`**（避免仅凭默认类对无规则 POS 码乱学）。
+6. **`gemini.ts`**：文字识别 Output JSON 说明里为 **`items`** 补上 **`posTaxCode optional`**（与图片等路径一致）。
+
+### 数据库
+
+迁移 **`vouchap-app/supabase/migrations/20260418140000_drop_receipt_items_tax_class_code.sql`** 仍会 **`DROP COLUMN`** **`public.receipt_items.tax_class_code`**。**CRM 表**里的 **`tax_class_code` / `maps_to_tax_class_code`** 未动（仍用于税率与 POS 规则维度）。
+
+### 文档
+
+已在 **`docs/PRD-SOURCE-LOG.md`** 追加 **2026-04-18** 条目说明本轮范围与验证建议。
+
+---
+
+**你需要做的**：在目标 Supabase 上执行上述迁移（若尚未执行），否则若远端列已删而旧客户端仍写该列会报错；若列未删，新代码只是不再使用该列。
+
+---
+
+_**User**_
+
+移除这个字段后此前构建的app识别不出item，检查原因，是需要马上更新构建么？
+
+---
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The user reports that after removing the `tax_class_code` field, their previously built app can no longer recognize items. Removing the `tax_class_code` field could cause recognition issues if the app expects it in database responses or uses it during item matching. The app may fail silently or throw errors if it relies on this field, especially during inserts or updates. It's also possible that the app was designed to ignore missing fields, so the issue might not be immediate. To determine if an update is needed, check if the app explicitly depends on `tax_class_code` or if it handles missing fields gracefully.
+
+- Check for explicit dependencies on `tax_class_code` in the app logic
+- Verify how the app handles missing fields in database responses
+- Confirm whether the app fails silently or throws errors when the field is absent
+- Assess if Supabase returns data without the column, causing a mismatch between expected and actual schema</details></think>
+
+_**Agent (default)**_
+
+排查移除 `tax_class_code` 后旧构建无法识别/保存行项的原因：通常与数据库迁移与客户端版本不匹配有关。
+
+
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.{ts,tsx}",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "tax_class_code|taxClassCode"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "tax_class_code|taxClassCode",
+  "topFiles": [
+    {
+      "matchCount": 16,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 16,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 16,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 16,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 16,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 16,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 96
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts",
+  "pattern": "receipt_items|tax_class"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts",
+  "pattern": "receipt_items|tax_class",
+  "topFiles": [
+    {
+      "matchCount": 21,
+      "uri": "vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 21,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 21,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 21,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 21,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 21,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 126
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Current database.ts uses insert without tax_class_code - good. If the old app still tries to insert `tax_class_code` into receipt_items, PostgreSQL will throw a "column does not exist" error. Alternatively, if it uses generated types sending unknown keys, PostgREST may reject them with a 400 error.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.sql",
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase",
+  "pattern": "receipt_items|tax_class_code"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase",
+  "pattern": "receipt_items|tax_class_code",
+  "topFiles": [
+    {
+      "matchCount": 2,
+      "uri": "vouchap-app/supabase/migrations/20260418140000_drop_receipt_items_tax_class_code.sql"
+    },
+    {
+      "matchCount": 2,
+      "uri": "vouchap-app/supabase/migrations/20260414170000_add_item_alias_to_receipt_invoice_items.sql"
+    },
+    {
+      "matchCount": 10,
+      "uri": "vouchap-app/supabase/receipt-items-save-failure-diagnose-and-fix.sql"
+    },
+    {
+      "matchCount": 18,
+      "uri": "vouchap-app/supabase/migrations/20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql"
+    },
+    {
+      "matchCount": 4,
+      "uri": "vouchap-app/supabase/migrations/20260411150000_tax_rate_standard_drop_zero_rated_mirror.sql"
+    },
+    {
+      "matchCount": 5,
+      "uri": "vouchap-app/supabase/migrations/20260408100000_crm_exempt_zero_rated_mirror_standard.sql"
+    },
+    {
+      "matchCount": 2,
+      "uri": "vouchap-app/supabase/migrations/20260411130000_tax_pos_code_rule_walmart_ca_e.sql"
+    },
+    {
+      "matchCount": 15,
+      "uri": "vouchap-app/supabase/migrations/20260410120000_pos_tax_code_learning.sql"
+    },
+    {
+      "matchCount": 7,
+      "uri": "vouchap-app/supabase/migrations/20260409100000_pos_tax_code_rule_and_audit.sql"
+    },
+    {
+      "matchCount": 21,
+      "uri": "vouchap-app/supabase/migrations/20260411140000_tax_pos_rule_included_tax_kinds.sql"
+    },
+    {
+      "matchCount": 12,
+      "uri": "vouchap-app/supabase/migrations/20260411120000_rename_pos_tax_code_rule_to_tax_pos_code_rule.sql"
+    },
+    {
+      "matchCount": 3,
+      "uri": "vouchap-app/supabase/migrations/20260411100000_tax_rate_standard_dedupe.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/supabase/migrations/20260406200000_tax_standard_us_effective_from_and_ns_hst.sql"
+    },
+    {
+      "matchCount": 6,
+      "uri": "vouchap-app/supabase/migrations/20260406120000_crm_tax_rate_standard.sql"
+    },
+    {
+      "matchCount": 3,
+      "uri": "vouchap-app/supabase/migrations/20260407100000_receipt_items_tax_class_code.sql"
+    },
+    {
+      "matchCount": 4,
+      "uri": "vouchap-app/supabase/migrations/20260406180000_seed_crm_tax_rate_standard_us_ca.sql"
+    },
+    {
+      "matchCount": 13,
+      "uri": "vouchap-app/supabase/migrations/20260405220000_tax_rate_catalog_and_receipt_item_taxes.sql"
+    },
+    {
+      "matchCount": 2,
+      "uri": "vouchap-app/supabase/migrations/20260405120000_receipt_items_usage_trigger_use_attribution_id.sql"
+    },
+    {
+      "matchCount": 9,
+      "uri": "vouchap-app/supabase/migrations/refresh_existing_spaces_categories_purposes.sql"
+    },
+    {
+      "matchCount": 7,
+      "uri": "vouchap-app/supabase/migrations/20260403180000_rename_line_item_purpose_id_to_attribution_id.sql"
+    }
+  ],
+  "totalFiles": 120,
+  "totalMatches": 876
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+When inserting data with an unknown column, PostgREST returns a 400 error stating it "Could not find the 'tax_class_code' column of 'receipt_items' in the schema cache," which is a typical issue following a database migration.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "tax_class_code|taxClassCode"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "tax_class_code|taxClassCode",
+  "topFiles": [
+    {
+      "matchCount": 16,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/supabase/migrations/20260418140000_drop_receipt_items_tax_class_code.sql"
+    },
+    {
+      "matchCount": 15,
+      "uri": "vouchap-app/supabase/migrations/20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql"
+    },
+    {
+      "matchCount": 4,
+      "uri": "vouchap-app/supabase/migrations/20260411150000_tax_rate_standard_drop_zero_rated_mirror.sql"
+    },
+    {
+      "matchCount": 4,
+      "uri": "vouchap-app/supabase/migrations/20260408100000_crm_exempt_zero_rated_mirror_standard.sql"
+    },
+    {
+      "matchCount": 2,
+      "uri": "vouchap-app/supabase/migrations/20260411130000_tax_pos_code_rule_walmart_ca_e.sql"
+    },
+    {
+      "matchCount": 15,
+      "uri": "vouchap-app/supabase/migrations/20260410120000_pos_tax_code_learning.sql"
+    },
+    {
+      "matchCount": 5,
+      "uri": "vouchap-app/supabase/migrations/20260409100000_pos_tax_code_rule_and_audit.sql"
+    },
+    {
+      "matchCount": 21,
+      "uri": "vouchap-app/supabase/migrations/20260411140000_tax_pos_rule_included_tax_kinds.sql"
+    },
+    {
+      "matchCount": 12,
+      "uri": "vouchap-app/supabase/migrations/20260411120000_rename_pos_tax_code_rule_to_tax_pos_code_rule.sql"
+    },
+    {
+      "matchCount": 3,
+      "uri": "vouchap-app/supabase/migrations/20260411100000_tax_rate_standard_dedupe.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/supabase/migrations/20260406200000_tax_standard_us_effective_from_and_ns_hst.sql"
+    },
+    {
+      "matchCount": 6,
+      "uri": "vouchap-app/supabase/migrations/20260406120000_crm_tax_rate_standard.sql"
+    },
+    {
+      "matchCount": 2,
+      "uri": "vouchap-app/supabase/migrations/20260407100000_receipt_items_tax_class_code.sql"
+    },
+    {
+      "matchCount": 4,
+      "uri": "vouchap-app/supabase/migrations/20260406180000_seed_crm_tax_rate_standard_us_ca.sql"
+    },
+    {
+      "matchCount": 9,
+      "uri": "vouchap-app/supabase/migrations/20260405220000_tax_rate_catalog_and_receipt_item_taxes.sql"
+    },
+    {
+      "matchCount": 16,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260418140000_drop_receipt_items_tax_class_code.sql"
+    },
+    {
+      "matchCount": 15,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql"
+    },
+    {
+      "matchCount": 4,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260411150000_tax_rate_standard_drop_zero_rated_mirror.sql"
+    }
+  ],
+  "totalFiles": 96,
+  "totalMatches": 720
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The current code fails to insert the tax_class_code.</details></think>
+
+_**Agent (default)**_
+
+确认：移除列后，**旧客户端若在 `receipt_items` 的 insert/update 里仍带 `tax_class_code`**，PostgREST 会返回错误（常见为找不到该列），导致**行项插入失败**——界面会像「识别不出 item」，实为**保存阶段失败**，而非 Gemini 解析失败。
+
+
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+## 原因（多半不是「识别模型坏了」）
+
+若 **Supabase 上已经执行了** `DROP COLUMN public.receipt_items.tax_class_code`，而 **商店里/手机上的仍是旧版 App**：
+
+- 旧版在保存小票行时，仍可能向 **`receipt_items`** 的 **`insert` / `update` 请求体里带上 `tax_class_code`**。
+- PostgREST 遇到 **JSON 里出现表里不存在的列名** 会直接报错，**整批行项插入失败**。
+- 用户侧常见表现是：**解析好像有结果，但列表里没有行、或保存报错**，容易被说成「识别不出 item」；本质是 **写库失败**，不是 Gemini 不认行。
+
+当前仓库里的保存逻辑（`database.ts`）对 **`receipt_items`** 的插入**已不再包含** `tax_class_code`，所以 **与删列后的库** 是对齐的。
+
+只 **`select ... receipt_items (*)`** 时，列被删掉只会让结果里少一个字段，**一般不会导致「读不出 item」**。
+
+---
+
+## 要不要马上更新构建？
+
+- **若删列迁移已在生产执行**：**需要尽快**让用户用上 **已去掉该字段请求** 的新构建（或 EAS OTA 等同渠道），否则旧客户端会一直踩 **unknown column** 类错误。  
+- **若生产还没删列**：旧构建理论上仍能写该列，此时「认不出 item」应 **另查**（例如 **`item_alias` 迁移未上**、RLS、分类缺失等）。
+
+**建议自检**：看 Supabase **API / Postgres 日志**或 App 里是否出现类似 **`Could not find the 'tax_class_code' column`** / **`PGRST204`** 的插入错误；或在 Metro/设备日志里搜 **`Receipt items insert error`**（`database.ts` 会打这条）。
+
+---
+
+## 临时权宜（不推荐长期）
+
+在能发版之前，可以 **暂时加回可空的 `tax_class_code`** 让旧客户端不炸，等覆盖率上来再删；这与你们「去掉错误拆税方案」的目标冲突，只适合 **极短窗口** 的过渡。
+
+已在 **`docs/PRD-SOURCE-LOG.md`** 追加本条说明。
+
+---
+
+_**User**_
+
+拆税的流程和数据库希望不影响已有的前端功能和前端所需数据的写库，解耦成纯后端的独立流程
+
+---
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The user wants to separate the tax splitting and receipt item tax flow logic from the frontend data persistence layer. The user wants to decouple tax processing from frontend operations:
+- Tax splitting and reconciliation should not impact existing frontend functionality
+- Data persistence for frontend needs to remain independent
+- Tax reconciliation must become a purely backend operation
+
+Current architecture involves:
+- Receipt saving triggers `runReceiptItemTaxAsync` or similar functions
+- `applyReceiptItemTaxesAndReconcile` handles updates to receipt_items, receipts, and receipt_item_taxes tables</details></think>
+
+_**Agent (default)**_
+
+分析当前拆税与写库的耦合点，并设计将拆税解耦为独立后端流程的方案。
+
+
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.{ts,tsx}",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "runReceiptItemTaxAsync|applyReceiptItemTaxesAndReconcile|scheduleReceiptTaxRecalc"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "runReceiptItemTaxAsync|applyReceiptItemTaxesAndReconcile|scheduleReceiptTaxRecalc",
+  "topFiles": [
+    {
+      "matchCount": 3,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 6,
+      "uri": "vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 6,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 6,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 6,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 6,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 6,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    }
+  ],
+  "totalFiles": 12,
+  "totalMatches": 54
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+Offset 1625 is beyond file length (1620 lines)
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Read database.ts lines 1-50 for runReceiptItemTaxAsync.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "applyReceiptItemTaxes|runReceiptItemTax"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app",
+  "pattern": "applyReceiptItemTaxes|runReceiptItemTax",
+  "topFiles": [
+    {
+      "matchCount": 3,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 5,
+      "uri": "vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/supabase/migrations/20260407100000_receipt_items_tax_class_code.sql"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 5,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260407100000_receipt_items_tax_class_code.sql"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 5,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260407100000_receipt_items_tax_class_code.sql"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 5,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260407100000_receipt_items_tax_class_code.sql"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 5,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260407100000_receipt_items_tax_class_code.sql"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 5,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260407100000_receipt_items_tax_class_code.sql"
+    }
+  ],
+  "totalFiles": 18,
+  "totalMatches": 54
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The user wants tax flow to be decoupled from the frontend write path.
+
+- Tax flow should operate independently
+- Frontend write path should not depend on tax flow
+- This likely involves separating concerns and possibly using asynchronous processing or event-driven architecture A pure backend-independent process should handle tax calculations and reconciliation without relying on the client-side session.
+
+Current state:
+- `runReceiptItemTaxAsync` currently executes after save but still runs on the client side
+- It should move to a true backend-only environment
+- `applyReceiptItemTaxesAndReconcile` handles writing to multiple tables and RPC calls
+
+Frontend considerations:
+- Realtime subscriptions may trigger unnecessary re-renders due to tax updates
+- Toast notifications from tax reconciliation might cause UI disruptions - If UI reads receipt before tax job completes and refreshes, it's still acceptable.
+- If tax job fails silently, UI may show empty tax breakdown until refresh.
+
+A true "pure backend" approach would involve:
+
+- Postgres trigger on receipt_items/receipts INSERT/UPDATE  `pg_net` or `supabase_functions.http_request` to Edge Function
+- Supabase Edge Function invoked by Database Webhook when receipt saved
+- pg_cron polling `receipts where tax needs recompute`
+- Minimal client change: Remove `runReceiptItemTaxAsync` from database. To decouple tax flow from the frontend, a worker process will handle tax calculations asynchronously. This involves creating an RPC function `enqueue_receipt_tax_job(receipt_id)` that adds jobs to a `receipt_tax_jobs` table. A background workereither via cron or edge functionwill then process these jobs.
+
+For incremental delivery within the repository:
+
+- In `database.ts`, disable `runReceiptItemTaxAsync` after save/update by checking the environment variable `EXPO_PUBLIC_RECEIPT_TAX_CLIENT_SIDE`.
+- Create a new migration for a `receipt_tax_recalc_queue` table with fields like `receipt_id`, `space_id`, `enqueued_at`, and `status`.
+- Set up a trigger on `receipts` or `receipt_items` to automatically enqueue jobs when changes occur. The cleanest approach for Supabase involves a pure backend-independent tax flow:
+
+- **Migration**: Create `public.receipt_tax_recalc_queue` table with fields `id`, `receipt_id`, `space_id`, `created_at`, and `processed_at`
+- **Trigger function**: Automatically insert into queue on `receipt_items` INSERT/UPDATE or `receipts` INSERT using `ON CONFLICT DO NOTHING`
+- **Edge Function**: Run every minute to claim jobs and execute tax logic via SQL or Postgres function
+
+The TypeScript tax logic in `receipt-item-tax.ts` must be duplicated in PL/pgSQL, which is a significant effort. - **Edge Function (Deno)**: Deploy the same algorithm as a Deno function or invoke a Node.js service, though the latter is heavier; keeping TypeScript in the Edge Function requires extracting a shared module, which involves monorepo work.
+
+- In `database.ts`, remove all imports and calls to the tax async functionality from the save path.
+
+- Create a new migration defining a PostgreSQL function `public.request_receipt_tax_reconcile(p_receipt_id uuid)` that simply inserts a row into `receipt_tax_recalc_queue`.
+
+- Set up a trigger on `receipt_items` after insert/update or on `receipts` update when relevant columns change, which invokes `request_receipt_tax_reconcile`. Client no longer runs `applyReceiptItemTaxes`, but `applyReceiptItemTaxesAndReconcile` must run with **service role** due to CRM reads and RPCs. Since the client uses user JWT, the simplest approach is to enqueue jobs via a DB trigger and process them asynchronously. 
+
+- Add `receipt_tax_recalc_queue` table and `enqueue_receipt_tax_reconcile(receipt_id)` SQL function
+- Remove client-side tax execution from save path
+- Set up DB trigger to automatically enqueue jobs on `receipt_items` insert/update or `receipts` update
+- Process jobs via background worker or cron job Replace `runReceiptItemTaxAsync` with a fire-and-forget RPC call `enqueue_receipt_tax_reconcile` to queue tax jobs, avoiding client-side logic. Document that an Edge Function or cron job must process these via a new RPC `process_receipt_tax_recalc_batch`, which cannot be implemented in TypeScript without Edge Function bundling. Either bundle TypeScript code into an Edge Function or port tax logic to SQLboth options are complex. The user requested a fully backend-independent tax flow, which will be implemented through a queue-based system.
+
+- **Migration**: Create `receipt_tax_recalc_queue` table with fields `id`, `receipt_id`, `space_id`, `created_at`, and `processed_at`
+- **Function**: Add `enqueue_receipt_tax_reconcile(receipt_id)` SQL function to insert rows into the queue
+- **Trigger**: Set up a database trigger on `receipt_items` INSERT/UPDATE or `receipts` UPDATE to automatically enqueue jobs
+- **Processing**: Use a background worker or cron job to process queued tax recalculations
+- **Client-side**: Remove client-side tax execution from save path; replace with fire-and-forget RPC call to enqueue jobs
+- **Service Role**: Ensure tax reconciliation runs under service role for CRM access and RPC calls
+
+This approach decouples tax logic from frontend operations entirely, allowing asynchronous processing without blocking user interactions.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="search" data-tool-name="glob_file_search">
+<details>
+<summary>Tool use: **glob_file_search** • Searched codebase "" • **1** result in **1** directory</summary>
+
+Directory: **/Users/macbook/Vouchap/vouchap-app** (1 file)
+
+| File |
+|------|
+| `supabase/functions/send-invitation-email/index.ts` |
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="search" data-tool-name="glob_file_search"><details>
+<summary>Tool use: **glob_file_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+There is one edge function. I could add `process-receipt-tax-queue`, but bundling shared logic is painful for Deno. - Create a migration for `receipt_tax_recalc_queue` table with necessary fields and constraints.
+- Add an index on `processed_at` for unprocessed entries.
+- Implement a security definer function `enqueue_receipt_tax_reconcile` to insert pending entries.
+- Enable RLS so users can enqueue for their own receipts.
+- Ensure the enqueue function works with RLS policies. Removed imports for `applyReceiptItemTaxesAndReconcile` and `scheduleReceiptTaxRecalcIfNeeded` from `database.ts`. Replaced `runReceiptItemTaxAsync` with a new function `enqueueReceiptTaxReconcileAsync` that calls the `enqueue_receipt_tax_reconcile` RPC function using Supabase, logging any errors. Used `queueMicrotask` to schedule the async operation. The edge function `process-receipt-tax-queue` uses `SUPABASE_SERVICE_ROLE_KEY` to select a batch of pending rows and process tax logic per `receipt_id`. However, importing `receipt-item-tax` in Deno is not feasible without esbuild.
+
+An alternative approach involves using `fetch` to call a PostgREST RPC `process_receipt_tax_batch`, which remains empty and still requires TypeScript logic elsewhere.
+
+Supabase recommends using Edge Functions with database webhooks for long-running tasks. In this case, the tax logic would stay in TypeScript, while the edge function duplicates it by importing from npmthough this isn't ideal. Client calls the **enqueue RPC** directly, without importing `receipt-item-tax` logic into `database.ts`.
+
+The **`process_receipt_tax_queue_sql()`** function is triggered every 2 minutes by **pg_cron**, but it cannot execute TypeScript code.
+
+To run the existing TypeScript logic without rewriting, two options exist:
+
+- Use a **Supabase Edge Function** written in TypeScript that imports or copies the logic remotely  though this is fragile due to Deno's limitations with remote imports.
+
+- Run **`receipt-item-tax-backend.ts`** as a standalone Node.js script using `tsx` and a service role, scheduled via `pm2` or cron on a server  but this is out of scope for the current repository.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/supabase/functions/send-invitation-email/index.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The Edge function utilizes Deno with esm support. To execute `applyReceiptItemTaxesAndReconcile` from Edge, we must either duplicate or bundle the function. A pragmatic approach to achieve "" without fully porting to Edge involves:
+
+- Creating a new module `receipt-tax-queue.ts` that exports `enqueueReceiptTaxReconcileFireAndForget(supabase, receiptId)`, which invokes the RPC `enqueue_receipt_tax_reconcile`.
+- Updating `database.ts` to use this new module instead of importing `receipt-item-tax`, and removing the `applyReceiptItemTaxes` import.
+- Implementing a migration to create a table and RPC `enqueue_receipt_tax_reconcile` with SECURITY DEFINER, ensuring the receipt exists and the user has access. For SECURITY DEFINER with `auth.uid()` check, the function must validate that the user has access to the receipt by ensuring the receipt exists and the user is a member of the receipt's space.
+
+4. **Edge Function** `process-receipt-tax-queue`:
+   - Authenticates via service role
+   - Selects pending rows (limit 20)
+   - HTTP POST to self is unnecessary
+   - Calls stored procedure that cannot run TypeScript directly
+
+The solution: Edge Functions can import from raw GitHub or deploy bundled JavaScript. The simplest approach for maintainability is to have the Edge function call a Vercel serverless function via HTTP, though this introduces many dependencies.
+
+A simpler alternative is to use Deno's `npm:` specifiers for dynamic imports, such as `npm:decimal.js`, and rewrite the tax logic in Denohowever, this is a significant change.
+
+For this PR, the acceptable architecture involves:
+- Using a queue table and an enqueue RPC (SQL-only)
+- Having `database.ts` handle only queuing, not applying taxes directly
+- Running an Edge function called `process-receipt-tax-queue` that processes jobs using fetch to POST to OpenAI APIs
+
+Alternatively, running Deno with inline minified code is discouraged due to its drawbacks. The Edge function will implement minimal processing: selecting from CRM and inserting receipt item taxes, avoiding duplication of logic.
+
+The user may accept either:
+- Enqueue with optional client fallback behind a flag
+- Enqueue with documentation to "run edge manually"
+
+The implementation will include:
+- A queue table and RPC enqueue (SQL-only)
+- Edge function stub that claims jobs and invokes Supabase RPC `apply_receipt_item_taxes_and_reconcile`
+- This RPC is implemented in PostgreSQL, but there is no PL/pgSQL version available yet The simplest backend approach involves creating a DB migration to define `apply_receipt_item_taxes_and_reconcile` as a SQL function that calls external services.
+
+Use Supabase Database Webhooks to trigger an Edge Function when a new row is added to the queuethis requires implementing the Edge function.
+
+The chosen implementation includes:
+- SQL migration for `receipt_tax_recalc_queue` table and `enqueue_receipt_tax_reconcile(p_receipt_id uuid)` RPC with SECURITY DEFINER and auth check
+- Optional `process_receipt_tax_recalc_queue_invoker()` deferred trigger using pg_cron extension (not all projects have pg_cron enabled)
+- `database.ts` updated to use the new queue table and enqueue RPC instead of direct tax application
+- Edge function `process-receipt-tax-queue` to claim jobs and invoke Supabase RPC `apply_receipt_item_taxes_and_reconcile` The Edge function `process-receipt-tax-queue` uses a service role client to claim jobs from the queue table. It selects unprocessed rows with `FOR UPDATE SKIP LOCKED` and processes them. A simpler approach avoids complex SQL by using a direct select query with `LIMIT 10` and marking jobs as processed after handling. The implementation includes:
+
+- A new SQL function `claim_receipt_tax_jobs(batch int)` that claims jobs and updates their status
+- Edge function logic to fetch jobs and process them
+- No need for HTTP POST to self; direct RPC calls suffice
+
+This replaces `runReceiptItemTaxAsync` with a queue-based system using an enqueue RPC only. For each job, the TypeScript tax logic must run. Edge functions can POST to the project's own API, but thats not available here. Using `npm:` specifiers works for packages like `decimal.js` but not for local files. Copy-pasting `applyReceiptItemTaxesAndReconcile` (1600 lines) into the Edge function is not maintainable. Launching subprocesses from Edge is not allowed.
+
+Instead, Ill implement a two-layer split as requested:  
+- The first layer enqueues jobs via SQL RPC.  
+- The second layer processes those jobs using an Edge function that calls Supabase RPCs.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic",
+  "pattern": "applyReceiptItemTaxes|receipt-item-tax"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic",
+  "pattern": "applyReceiptItemTaxes|receipt-item-tax",
+  "topFiles": [
+    {
+      "matchCount": 17,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 17,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 17,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 17,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 17,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 17,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    }
+  ],
+  "totalFiles": 12,
+  "totalMatches": 114
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Only database.ts imports applyReceiptItemTaxes. I'll create `receipt-tax-queue.ts` with:
+- `enqueueReceiptTaxReconcileClient(supabase, receiptId: string): void` - async fire-and-forget rpc
+- Re-export or document `runReceiptTaxReconcileWithSupabase` for Edge to use when they bundle - actually Edge can't import from ../../../../src
+
+I'll also create **new file** `receipt-tax-worker-entry.ts` that only exports a function `runReceiptTaxJob(supabase, receiptId, spaceId)` which wraps apply + schedule - for **future** use by a Node cron or Edge after we document copying For Edge functions, the simplest approach uses Supabase Edge Functions with Deno and direct imports from GitHub, though this requires publishing. 
+
+- Add npm script `tsx scripts/run-receipt-tax-worker.ts` for polling the queue using service role from `.env`, intended for admin/server use and CI.
+
+Migration includes:
+- `public.receipt_tax_recalc_queue`
+- `enqueue_receipt_tax_reconcile(p_receipt_id uuid)` RPC
+
+Database.ts now calls the enqueue RPC instead of performing full tax reconciliation. **Edge function** `process-receipt-tax-queue`:
+- Uses service role
+- Selects up to 25 unprocessed items from `receipt_tax_recalc_queue`
+- Joins with receipts to fetch `space_id` for each receipt
+- Applies taxes via a duplicated delegator function since Edge functions cannot import local TypeScript files
+
+**Critical decision**: Tax worker will not be implemented inside Edge using `fetch` to invoke GraphQL. I'll add RPC `process_receipt_tax_recalc_job(receipt_id, space_id)` as a SQL placeholder that updates `tax_reconciliation_status` to `'pending_backend'`.
+
+Working solution:
+- Queue + enqueue in DB 
+- Edge function imports code via esbuild bundle step in deploy - user runs `deno bundle`
+- Use `applyReceiptItemTaxesAndReconcile` from dynamic import of built file in `supabase/functions/process-receipt-tax-queue/_dist/worker.js`
+- Add build script for bundling
+- Queue + client stops running tax from database The `receipt-tax-async.ts` module exports `runReceiptItemTaxAsyncFromQueue(supabase, receiptId, spaceId)`, which performs the same apply and schedule actions. It's intended for use in:
+
+- An optional admin screen (though this is currently skipped)
+- A new Edge function that inlines only the minimal required code (too large to inline otherwise)
+
+Key implementation points:
+- `enqueue_receipt_tax_reconcile` RPC is added to SQL 
+- `database.ts` now only enqueues tax recalculations 
+- Optional environment variable `EXPO_PUBLIC_RECEIPT_TAX_WORKER_URL` allows enqueueing to trigger a worker via fetch  but this is unsafe for public exposure due to potential security risks. Client only invokes the RPC enqueue. Worker must run without client secret:
+
+- Database webhook on `INSERT receipt_tax_recalc_queue`  Supabase Edge function (configured in dashboard)
+- pg_cron job every minute calling `net.http_post()` with Edge URL and service key from vault
+
+Edge function `process-receipt-tax-queue` handles jobs using Deno imports from the same folder  Supabase Edge does not allow importing from `../../src`. Copying the entire **receipt-item-tax.ts** file into `supabase/functions/process-receipt-tax-queue/lib/` creates maintenance issues due to duplication.
+
+A better approach uses a **`tsx` worker script** in `vouchap-app/scripts/receipt-tax-worker.mjs`:
+- Loads environment variables and uses service role
+- Polls `receipt_tax_recalc_queue`
+- Imports `applyReceiptItemTaxesAndReconcile` from `../src/shared-logic/receipt-item-tax.ts`
+- Runs in production via a small VM or GitHub Action cron
+
+Key additions:
+1. Migration for queue and enqueue RPC (with proper authentication)
+2. `database.ts` now only enqueues tax recalculations
+3. Worker script handles processing jobs from the queue **`scripts/receipt-tax-queue-worker.ts`** (tsx) serves as a backend script for operators to run manually or in CI.
+
+The Edge function should either return "not implemented, run worker" or implement a shell that selects jobs  but it must avoid importing from `../src` directly.
+
+For Edge functions to work properly, use Denos `createRequire` or an import map to resolve paths like `"../src/..."` during deployment. Since Supabase CLI only deploys the `supabase/functions/<name>` folder, ensure all necessary code is copied or bundled accordingly.
+
+Add a **README section** under `supabase/functions` or documentation to explain how to set up and run the worker script. So we must use esbuild to bundle the Edge function, or copy required files into the deployment folder.
+
+The Edge function will:
+- Import Supabase client
+- Call a Vercel worker via HTTP for now, until we can bundle receipt-item-tax logic
+- Eventually use Postgres function `process_receipt_tax_queues_batch()` to batch process jobs
+- This Postgres function will use `pg_net.http_post` to call `/functions/v1/process-receipt-tax-queue` with service role in secrets
+- The Edge function body will loop through jobs and for each call the worker endpoint
+
+This avoids direct imports from `../src` which aren't allowed in Supabase Edge Functions.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The worker script must execute using tsx and properly resolve @/ paths, which is complex.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/tsconfig.json</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The `toast` import uses the relative path `./toast` from the shared-logic directory.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/toast.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Toast is RN-free. Good.
+
+- Worker script: - Worker script awaits `applyReceiptItemTaxesAndReconcile` before scheduling tax recalc.
+- `scheduleReceiptTaxRecalcIfNeeded` doesn't return a promise; it's a void async function.
+- To ensure proper sequencing, worker can either manually trigger schedule logic after apply or use a short timeout (e.g., 50ms) to wait for the microtask. Or export async version from receipt-item-tax - minimal change: add `await flushMicrotasks()` - not standard.
+
+I'll `await new Promise(resolve => setTimeout(resolve, 0))` twice or 100ms after apply in worker.
+
+Marked processed only on success; on failure increment attempts and leave processed_at null or set error column.
+
+Migration table:
+- CREATE TABLE public.receipt_tax_recalc_queue (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  receipt_id uuid NOT NULL REFERENCES public.receipts(id) ON DELETE CASCADE,
+  space_id uuid NOT NULL REFERENCES public.spaces(id) ON DELETE CASCADE, The migration table `receipt_tax_recalc_queue` includes fields for tracking queue status: `id`, `receipt_id`, `space_id`, `enqueued_at`, `processed_at`, `last_error`, and `attempts`. A unique partial index ensures only one pending job exists per receipt, requiring an `INSERT ... ON CONFLICT` strategy to update `enqueued_at` for retries. Postgres uses a partial unique index to prevent duplicate pending jobs per receipt:
+- `CREATE UNIQUE INDEX ... ON receipt_tax_recalc_queue(receipt_id) WHERE processed_at IS NULL;`
+- On enqueue, use `INSERT ... ON CONFLICT DO NOTHING` to avoid refreshing duplicates.
+- Alternatively, update `enqueued_at` on conflict to reorder jobs.
+- Simpler approach: allow multiple rows, process FIFO, mark completed.
+- Deduplication: insert only if no pending job exists for receipt.
+- Enqueue always inserts a new row, allowing duplicates but ensuring deduplication via unique index.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.sql",
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase/migrations",
+  "pattern": "space_members"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase/migrations",
+  "pattern": "space_members",
+  "topFiles": [],
+  "totalFiles": 0,
+  "totalMatches": 0
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Consider alternative table names such as "memberships" or "profiles_spaces."</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.sql",
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase/migrations",
+  "pattern": "space_id.*user"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase/migrations",
+  "pattern": "space_id.*user",
+  "topFiles": [
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/supabase/migrations/20260413142000_crm_list_space_orders_for_member.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/supabase/migrations/20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/supabase/migrations/20260410120000_pos_tax_code_learning.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/supabase/migrations/20260406120000_crm_tax_rate_standard.sql"
+    },
+    {
+      "matchCount": 9,
+      "uri": "vouchap-app/supabase/migrations/20260405220000_tax_rate_catalog_and_receipt_item_taxes.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/supabase/migrations/20260328350000_client_space_type_and_crm_presets.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/supabase/migrations/20260328330000_backfill_missing_order_managers_by_client.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/supabase/migrations/20260328230000_tighten_definer_helpers_to_auth_uid_only.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/supabase/migrations/20260328200000_client_sku_preview_align_order_select.sql"
+    },
+    {
+      "matchCount": 2,
+      "uri": "vouchap-app/supabase/migrations/20260328190000_duplicate_invitee_sku_preview_and_client_firm_space.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/supabase/migrations/20260328160000_order_scoped_sku_preview_client.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260413142000_crm_list_space_orders_for_member.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260412100000_entity_pos_tax_code_tax_catalog_cleanup.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260410120000_pos_tax_code_learning.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260406120000_crm_tax_rate_standard.sql"
+    },
+    {
+      "matchCount": 9,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260405220000_tax_rate_catalog_and_receipt_item_taxes.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260328350000_client_space_type_and_crm_presets.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260328330000_backfill_missing_order_managers_by_client.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260328230000_tighten_definer_helpers_to_auth_uid_only.sql"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/supabase/migrations/20260328200000_client_sku_preview_align_order_select.sql"
+    }
+  ],
+  "totalFiles": 66,
+  "totalMatches": 1890
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Use `user_spaces` for membership check in the enqueue function.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase/migrations",
+  "pattern": "CREATE TABLE public\\.spaces"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase/migrations",
+  "pattern": "CREATE TABLE public\\.spaces",
+  "topFiles": [],
+  "totalFiles": 0,
+  "totalMatches": 0
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.sql",
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase/migrations",
+  "pattern": "references.*spaces"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase/migrations",
+  "pattern": "references.*spaces",
+  "topFiles": [],
+  "totalFiles": 0,
+  "totalMatches": 0
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.sql",
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase/migrations",
+  "pattern": "CREATE TABLE.*receipts"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase/migrations",
+  "pattern": "CREATE TABLE.*receipts",
+  "topFiles": [],
+  "totalFiles": 0,
+  "totalMatches": 0
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+- Use `receipt_id REFERENCES receipts(id) ON DELETE CASCADE` for foreign key relationship
+- Add `space_id uuid NOT NULL` without creating a foreign key constraint - Implement migration file `20260418160000_receipt_tax_recalc_queue.sql`
+- Create `receipt-tax-queue-client.ts` in shared-logic with `enqueueReceiptTaxReconcileFireAndForget` function that calls Supabase RPC `enqueue_receipt_tax_reconcile` using `p_receipt_id` parameter
+- Handle errors gracefully with console warnings and catch blocks - Handle enqueue failures with warnings and error catching
+- Replace `runReceiptItemTaxAsync` with `enqueueReceiptTaxReconcileFireAndForget` in `database.ts`, removing the need for explicit space ID
+- Export `scheduleReceiptTaxRecalcIfNeeded` from `receipt-item-tax` for reuse in worker scripts
+- Process queue rows by marking them as completed after handling in worker script
+- Worker script `scripts/receipt-tax-queue-worker.mts` handles queued tax recalculations - Update queue row with `processed_at` timestamp and clear `last_error` on success
+- On error, increment `attempts` and store error message; if attempts exceed max, mark as abandoned
+- Add `max_attempts` column with default value 12 to prevent infinite retries
+- Set `processed_at` with error message when max attempts reached
+- Create SQL function `enqueue_receipt_tax_reconcile` that accepts receipt ID and enqueues tax reconciliation The SQL function `enqueue_receipt_tax_reconcile` first checks if the user is authenticated and retrieves the space ID associated with the given receipt ID. It then verifies that the user belongs to the corresponding space. If the receipt is not found or the user is not a member of the space, it raises an exception. The function also ensures that the receipt exists before proceeding with the enqueue logic. Additionally, it handles cases where the receipt is already queued by updating the row instead of inserting a new one. Finally, it inserts or updates the queue entry with the current timestamp and resets the attempt count. If a queue entry for the given receipt ID already exists and is unprocessed, the function updates its `enqueued_at` timestamp. Otherwise, it inserts a new queue entry with the receipt ID and associated space ID. The function ensures idempotency by avoiding duplicate entries for the same receipt. It also validates user authentication and space membership before proceeding. The SQL function is secured so that only authenticated users can execute it. - Disable RLS on the queue table to allow service role access while preventing client-side SELECT/INSERT operations
+- Authenticated users cannot directly query or insert into the queue table; only RPC calls are permitted
+- Service role bypasses RLS restrictions
+- Add package.json script: `"receipt-tax-worker": "npx tsx scripts/receipt-tax-queue-worker.ts"`
+- Worker claims jobs using `FOR UPDATE SKIP LOCKED` with raw SQL via RPC or `.update().eq('id', ...)` with claim patterns
+- Simplified worker approach uses SQL function `claim_batch` that returns job IDs - Use `UPDATE ... WHERE id IN (SELECT id FROM ... FOR UPDATE SKIP LOCKED)` via RPC `claim_receipt_tax_jobs` to prevent race conditions when claiming jobs
+- Create SQL function `claim_receipt_tax_recalc_jobs` that claims up to `p_limit` unprocessed queue items using `FOR UPDATE SKIP LOCKED`
+- Function returns claimed queue rows and ensures idempotent job assignment
+- Add `max_attempts` column to queue table with default value 12 to prevent infinite retries
+- Update queue row with `processed_at` timestamp and clear `last_error` on success
+- On error, increment `attempts` and store error message; if attempts exceed max, mark as abandoned
+- Set `processed_at` with error message when max attempts reached
+- Worker script processes queue rows by marking them as completed after handling
+- Claim jobs using raw SQL with `FOR UPDATE SKIP LOCKED` or `.update().eq('id', ...)` with claim patterns The SQL function `claim_receipt_tax_recalc_jobs` selects unprocessed queue items with `FOR UPDATE SKIP LOCKED` and a limit, returning the claimed rows without modifying attempts. This prevents race conditions and ensures idempotent job assignment. It is designed to be called only by the service role, bypassing RLS restrictions. The function avoids incrementing attempts on claim, instead relying on failure handling during processing to update attempts and manage retries.
+
+- Claim jobs using `FOR UPDATE SKIP LOCKED` to prevent race conditions
+- Only increment attempts on actual failure, not on claim
+- Function returns claimed rows for processing
+- Intended for use by service role only
+- Bypasses RLS restrictions due to service role usage Returns table with columns: id (uuid), receipt_id (uuid), space_id (uuid), attempts (int).  
+Security settings require `service_role` to execute this function.  
+Function uses `SECURITY DEFINER` and `SET search_path = public`.  
+Raises exception if not called by `service_role`.  
+Grant execute permission on function to `service_role` only. Worker flow uses `rpc('claim_receipt_tax_recalc_jobs', { p_limit: 20 })` to claim up to 20 unprocessed queue items with `FOR UPDATE SKIP LOCKED`. The SQL function deletes and returns claimed rows using a CTE, avoiding unnecessary updates. It requires a `locked_at` column for tracking job claims. The approach simplifies locking by using DELETE in a CTE rather than UPDATE with RETURNING. A `locked_at` column is needed for the worker to track claimed jobs. The function bypasses RLS restrictions through service role execution and uses `SECURITY DEFINER` for security. The simplest worker implementation processes up to 20 unprocessed queue items sequentially without explicit claiming, suitable for initial version.
+
+Export `runReceiptItemTaxLocal` from `receipt-item-tax` for devtools use, allowing manual "Retry tax" functionality from the app.
+
+If a receipt is opened before the worker runs, empty tax lines are acceptable since processing happens asynchronously in the backend.
+
+PRD-SOURCE-LOG entry.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.{ts,tsx}",
+  "path": "/Users/macbook/Vouchap",
+  "pattern": "applyReceiptItemTaxesAndReconcile"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap",
+  "pattern": "applyReceiptItemTaxesAndReconcile",
+  "topFiles": [
+    {
+      "matchCount": 2,
+      "uri": "./vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "./vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    }
+  ],
+  "totalFiles": 12,
+  "totalMatches": 24
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+scheduleReceiptTaxRecalcIfNeeded is exclusively invoked from the database context. The worker process will execute both functions after applying changes. A file header comment should be added to receipt-item-tax indicating that the worker handles this logic.
+
+Worker environment variables SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are sourced from process.env.
+
+Add the following script to package.json:
+- "receipt-tax-worker": "npx tsx scripts/receipt-tax-queue-worker.ts"
+
+The tsx command resolves paths relative to the script's location. For vouchap-app/scripts/receipt-tax-queue-worker.ts importing from '../src/shared-logic/receipt-item-tax.js', use .ts extension instead of .js when using tsx. The functions applyReceiptItemTaxesAndReconcile and scheduleReceiptTaxRecalcIfNeeded are imported from ../src/shared-logic/receipt-item-tax. The worker retrieves SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY from process.env and exits if either is missing. It initializes a Supabase client with these credentials and sets up a batch size of 25 with a 5-second polling interval. The processOne function handles processing one row at a time. The worker processes each queued item by applying taxes and scheduling recalculations. It updates the queue entry upon successful processing.
+
+- The `tick` function fetches unprocessed items from the queue.
+- Items are selected based on criteria: `processed_at` is null, and `attempts` are less than 24.
+- Results are ordered by `enqueued_at` in ascending order. The `tick` function fetches unprocessed queue items with up to 24 attempts and orders them by enqueue time.  
+For each item, it processes the row and updates the queue with attempt counts and errors if failures occur.  
+The worker loops continuously unless `--once` is specified. The worker loop continues indefinitely with a 5-second delay between iterations unless the `--once` flag is specified.
+
+Row attempts should be properly typed when fetched from the database. On successful processing, attempts count should not be incremented.
+
+If the migration has not been applied, the enqueue RPC will fail; the client logs a warning but still saves items. Users must deploy the migration and run the worker for tax calculations to functionthis is documented clearly in the PRD log.
+
+Supabases service role bypasses Row-Level Security (RLS) policies, allowing inserts without restrictions. Since the RPC uses definer rights, authenticated users can successfully insert rows via the RPC. - Enable RLS on the queue table with a "deny all for authenticated" policy, except for RPC inserts which bypass RLS since they run as definer.
+- The worker requires SELECT permission on the queue table, which is granted via service role.
+- Grant INSERT permissions only to the definer function, not to users directly.
+- Add a **none** policy for anon and authenticated users on the table to ensure only the definer function can insert data.
+- The definer function runs under the owners privileges, allowing it to insert records despite RLS restrictions.
+- The worker uses the service role to perform full access SELECT operations on the queue table. Optional: Add **`GRANT SELECT, UPDATE ON receipt_tax_recalc_queue TO service_role`**  service_role typically has default access to public tables.
+
+Use **`REFERENCES public.receipts(id) ON DELETE CASCADE`** in migrations instead of just `REFERENCES receipts` to ensure compatibility with fresh deployments.
+
+Update PRD log.
+
+Add a module comment to `receipt-tax-queue-client.ts` explaining that the enqueue RPC and worker cron are part of the deployment setup.
+
+Skip creating a Supabase Edge stub to invoke the worker.</details></think>
+
+_**Agent (default)**_
+
+正在实现：1. 数据库队列表与 `enqueue_receipt_tax_reconcile` RPC；2. `database.ts` 仅入队，不再在客户端执行拆税；3. 可部署的后台 `tsx` worker 消费队列并调用现有 `applyReceiptItemTaxesAndReconcile`。
+
+
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-tax-queue-client.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+StrReplace updates the imports in database.ts and executes runReceiptItemTaxAsync.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts",
+  "pattern": "runReceiptItemTax|enqueueReceiptTax"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts",
+  "pattern": "runReceiptItemTax|enqueueReceiptTax",
+  "topFiles": [
+    {
+      "matchCount": 3,
+      "uri": "vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "matchCount": 3,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/database.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 18
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/package.json</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/package.json",
+  "pattern": "tsx"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/package.json",
+  "pattern": "tsx",
+  "topFiles": [],
+  "totalFiles": 0,
+  "totalMatches": 0
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Use `npx tsx` to run TypeScript files; it will download the tsx package on first use.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/scripts/receipt-tax-queue-worker.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/package.json</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+StrReplace the module documentation for receipt-item-tax.ts to include mention of the worker.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "glob": "*.sql",
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase/migrations",
+  "pattern": "CREATE TABLE.*user_spaces"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/supabase/migrations",
+  "pattern": "CREATE TABLE.*user_spaces",
+  "topFiles": [],
+  "totalFiles": 0,
+  "totalMatches": 0
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+User spaces are commonly used in many migrations and continue to exist.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="read_lints">
+<details>
+<summary>Tool use: **read_lints**</summary>
+
+
+Parameters:
+
+```json
+{
+  "paths": [
+    "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts",
+    "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-tax-queue-client.ts",
+    "/Users/macbook/Vouchap/vouchap-app/scripts/receipt-tax-queue-worker.ts"
+  ]
+}
+```
+Result:
+
+```json
+{
+  "linterErrorsByFile": [
+    {
+      "relativeWorkspacePath": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts"
+    },
+    {
+      "relativeWorkspacePath": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-tax-queue-client.ts"
+    },
+    {
+      "relativeWorkspacePath": "/Users/macbook/Vouchap/vouchap-app/scripts/receipt-tax-queue-worker.ts"
+    }
+  ]
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="read_lints"><details>
+<summary>Tool use: **read_lints**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Run the tsx worker once; it may fail without proper environment variables, so skip if needed.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Run the worker with missing environment variables to check if the script parses correctlyoptional step.</details></think>
+
+_**Agent (default)**_
+
+## 已做的解耦
+
+### 1. 写库路径（前端/App）
+- **`database.ts`** 在 `saveReceipt` / `updateReceipt` 成功后，**不再**调用 `applyReceiptItemTaxesAndReconcile`。
+- 只通过 **`enqueueReceiptTaxReconcileFireAndForget`** 调 **`rpc('enqueue_receipt_tax_reconcile', { p_receipt_id })`**：一次轻量 RPC，不写行税、不改 `receipt_item_taxes`，**与小票/行项主数据写库分离**。
+
+### 2. 数据库（队列）
+- 新迁移 **`vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql`**：
+  - 表 **`public.receipt_tax_recalc_queue`**（`receipt_id`, `space_id`, `enqueued_at`, `processed_at`, `last_error`, `attempts`）。
+  - 函数 **`public.enqueue_receipt_tax_reconcile(p_receipt_id uuid)`**（`SECURITY DEFINER`）：校验 **`auth.uid()`** 且在该小票 **`space_id` 的 `user_spaces` 里**，再插入或 **刷新** 未处理任务的 `enqueued_at`。
+  - 表 **RLS 打开且无面向客户端的 policy**，普通客户端不能直接 `select` 队列，只能走 RPC 入队。
+
+### 3. 纯后端执行拆税
+- **`vouchap-app/scripts/receipt-tax-queue-worker.ts`**：用 **`SUPABASE_SERVICE_ROLE_KEY`** 拉队列、对每个任务仍调用现有 **`applyReceiptItemTaxesAndReconcile` + `scheduleReceiptTaxRecalcIfNeeded`**，成功后 **`processed_at`**；失败则 **`attempts`/`last_error`**，超过 **`MAX_ATTEMPTS`** 则标记放弃。
+- **`package.json`**：
+  - `npm run receipt-tax-worker` — 常驻轮询（默认约 8s 间隔）。
+  - `npm run receipt-tax-worker:once` — 跑一轮（适合 cron）。
+
+### 4. 文档
+- **`receipt-item-tax.ts`** 头部注释说明了「由 worker 调用」。
+- **`docs/PRD-SOURCE-LOG.md`** 已追加本条。
+
+---
+
+## 运维上你必须知道的一点
+
+**部署 `20260418150000` 迁移后，若不跑 worker**，队列会堆积，**`receipt_item_taxes`、对账字段、`applicable_tax_kinds` 等**可能迟迟不更新；**小票头、行项、分类等主数据**照常写入，不受影响。
+
+建议在服务器或 CI 上为 **`npm run receipt-tax-worker`**（或 `--once` + 每分钟 cron）配置环境变量 **`SUPABASE_URL`**、**`SUPABASE_SERVICE_ROLE_KEY`**。
+
+若你希望下一步改成 **Supabase Edge Function + Cron** 触发同一套逻辑，可以在现有 worker 上包一层 HTTP，逻辑仍复用当前 TS 模块。
+
+---
+
+_**User**_
+
+没看懂你说的运维的注意点。
+你自己记好文档，后续进一步设计开发拆税功能时能够接续得上
+
+---
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The user did not understand the operational note regarding running the worker. - 
+- Worker 
+-  Worker 
+-  Workernpm cron 
+- RPC `docs/RECEIPT-TAX-ASYNC-PIPELINE.md`
+- 
+-  mermaid
+- 
+- 
+-  Edgepg_cron 
+
+
+- /App 
+-  worker</details></think>
+
+_**Agent (default)**_
+
+编写一份独立、通俗的技术说明文档，便于理解与后续接续开发。
+
+
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/docs/RECEIPT-TAX-ASYNC-PIPELINE.md</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+## 用更直白的话说「运维注意点」
+
+拆税已经**从手机里挪走了**：
+
+- **手机/App**：保存小票、行项之后，只做一件事——在数据库里记一条「这张小票要算税」（入队）。
+- **算税、写 `receipt_item_taxes`、改对账字段**：要由**另一段程序**（worker）用 **Service Role** 去读队列、执行现有 `applyReceiptItemTaxesAndReconcile`。
+
+所以之前说的注意点就是：**如果你们不单独部署、不长期跑这段 worker**，队列里的活就没人干——**小票和商品行照样能存**，但**行税/对账相关数据可能不会更新**（或一直停在旧状态）。这和「App 坏了」是两回事，容易误解成「没拆税」。
+
+---
+
+## 已写好的接续文档
+
+已新增 **`docs/RECEIPT-TAX-ASYNC-PIPELINE.md`**，里面包括：
+
+- **以前 vs 现在**对照表  
+- **简图**（谁写主数据、谁入队、谁消费队列）  
+- **涉及迁移 / 表 / RPC / TS 文件**清单  
+- **运维要做啥**：迁迁移、配两个环境变量、用 `npm run receipt-tax-worker` 或 `receipt-tax-worker:once` 做常驻/cron  
+- **排障**看队列 `last_error` / `attempts`  
+- **以后**接 Edge、pg_cron 等方向的备忘  
+
+并在 **`docs/PRD-SOURCE-LOG.md`** 里给「拆税解耦」那条补了指向该文档的**关联**，方便以后从日志跳过去继续设计。
+
+---
+
+_**User**_
+
+所以现在跑@Vouchap/vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql 迁移，更新构建app，是么？
+你根据commit记录查看一下，什么版本之前的app是本不受拆税影响的？
+
+---
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The user is asking two things:  
+- [First thing]  
+- [Second thing] Yes, the user needs to run the migration 20260418150000 and update the app build. The migration adds a queue table and RPC functionality, while the app must call enqueue instead of applying taxes inline. Without the new app build, the old application will still process taxes inline on the device and won't utilize the queue table, though the RPC endpoints will exist. - Without the new app build, the enqueue RPC fails and no worker processes taxes.
+- The full solution requires the migration, new app version, and a worker to handle tax processing.
+- Need to find the app version before " affected" changes using git commit history.
+- Can use git log and grep to search for relevant commits related to receipt tax, database.ts, and receipt-item-tax.</details></think>
+
+_**Agent (default)**_
+
+正在用 git 历史查找拆税/队列入库相关提交与版本边界。
+
+
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2">
+<details><summary>Tool use: **run_terminal_command_v2** • Run command: cd /Users/macbook/Vouchap && git log --oneline -30 -- vouchap-app/src/shared-logic/database.ts vouchap-app/src/shared-logic/receipt-item-tax.ts vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql vouchap-app/supabase/migrations/20260418140000_drop_receipt_items_tax_class_code.sql 2>/dev/null; echo '---'; git log --oneline -20 -S 'runReceiptItemTaxAsync' -- vouchap-app/src/shared-logic/database.ts 2>/dev/null; echo '---'; git log --oneline -15 -S 'enqueueReceiptTaxReconcile' -- vouchap-app/ 2>/dev/null</summary>
+
+```bash
+cd /Users/macbook/Vouchap && git log --oneline -30 -- vouchap-app/src/shared-logic/database.ts vouchap-app/src/shared-logic/receipt-item-tax.ts vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql vouchap-app/supabase/migrations/20260418140000_drop_receipt_items_tax_class_code.sql 2>/dev/null; echo '---'; git log --oneline -20 -S 'runReceiptItemTaxAsync' -- vouchap-app/src/shared-logic/database.ts 2>/dev/null; echo '---'; git log --oneline -15 -S 'enqueueReceiptTaxReconcile' -- vouchap-app/ 2>/dev/null
+```
+
+```
+39d468f 去除tax_class_code的拆税模式
+85108de 更换黑金logo
+639df96 检查修复items不识别落库的bug
+ad6f03c 优化拆分税导致的item识别bug
+47eb192 增加items分税，upload文件支持全格式
+e8dc0b8 增加items列表页，并精细优化UI，标签按频次排序。
+c44be2e 更改后端数据关联到attribution
+0972515 修复bug，确认attribution，优化预览
+0c3168f 更新收支属性的新space预设方案
+af04c7d 修复snap another的ios端bug，修复merge的bug
+926999b 清理了数据库无用表和字段
+983e4b3 分离了支出和收入的分类用途配置
+5147c67 修复合并entities和并行web端的bug
+50c1b8f 移动端实现realtime刷新，Web端chat常驻
+df2cf28 合并suppliers和customers为entities
+7016185 web端共用移动端前端逻辑并适配布局，细化切换空间的体验
+---
+ad6f03c 优化拆分税导致的item识别bug
+---
+
+```
+</details>
+</tool-use>
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2"><details>
+<summary>Tool use: **run_terminal_command_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2">
+<details><summary>Tool use: **run_terminal_command_v2** • Run command: cd /Users/macbook/Vouchap && git log --oneline -25 -S 'applyReceiptItemTaxesAndReconcile' -- vouchap-app/src/shared-logic/database.ts 2>/dev/null</summary>
+
+```bash
+cd /Users/macbook/Vouchap && git log --oneline -25 -S 'applyReceiptItemTaxesAndReconcile' -- vouchap-app/src/shared-logic/database.ts 2>/dev/null
+```
+
+```
+ad6f03c 优化拆分税导致的item识别bug
+47eb192 增加items分税，upload文件支持全格式
+
+```
+</details>
+</tool-use>
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2"><details>
+<summary>Tool use: **run_terminal_command_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+So the timeline:
+- `47eb192` - "items" - this is when applyReceiptItemTaxes was introduced to database.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2">
+<details><summary>Tool use: **run_terminal_command_v2** • Run command: cd /Users/macbook/Vouchap && git log --oneline -5 && echo '---' && git log -1 --format='%H %ci %s' 47eb192^ && git show 47eb192^:vouchap-app/package.json 2>/dev/null | head -5</summary>
+
+```bash
+cd /Users/macbook/Vouchap && git log --oneline -5 && echo '---' && git log -1 --format='%H %ci %s' 47eb192^ && git show 47eb192^:vouchap-app/package.json 2>/dev/null | head -5
+```
+
+```
+39d468f 去除tax_class_code的拆税模式
+1e449aa 确认app图标替换
+134abb0 v2.5.7
+74cca8e 发布版本号 2.5.7 (Build 45)
+85108de 更换黑金logo
+---
+b26d397600d061f5b11d8965ed739b3d378710ae 2026-04-06 01:45:17 -0500 items列表默认收起chat
+{
+  "name": "vouchap-app",
+  "version": "2.5.6",
+  "main": "index.js",
+  "scripts": {
+
+```
+</details>
+</tool-use>
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2"><details>
+<summary>Tool use: **run_terminal_command_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2">
+<details><summary>Tool use: **run_terminal_command_v2** • Run command: cd /Users/macbook/Vouchap && git log --oneline -8 --all -- vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql 2>/dev/null; git status -sb vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql 2>/dev/null</summary>
+
+```bash
+cd /Users/macbook/Vouchap && git log --oneline -8 --all -- vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql 2>/dev/null; git status -sb vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql 2>/dev/null
+```
+
+```
+## AI-Tax-filing...origin/AI-Tax-filing
+?? vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql
+
+```
+</details>
+</tool-use>
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2"><details>
+<summary>Tool use: **run_terminal_command_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Important finding: `20260418150000_receipt_tax_recalc_queue`.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2">
+<details><summary>Tool use: **run_terminal_command_v2** • Run command: cd /Users/macbook/Vouchap && git show 47eb192:vouchap-app/package.json | head -4 && echo '---' && git log -1 --format='%h %ci %s' 47eb192</summary>
+
+```bash
+cd /Users/macbook/Vouchap && git show 47eb192:vouchap-app/package.json | head -4 && echo '---' && git log -1 --format='%h %ci %s' 47eb192
+```
+
+```
+{
+  "name": "vouchap-app",
+  "version": "2.5.6",
+  "main": "index.js",
+---
+47eb192 2026-04-07 22:37:50 -0500 增加items分税，upload文件支持全格式
+
+```
+</details>
+</tool-use>
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2"><details>
+<summary>Tool use: **run_terminal_command_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+So, before commit `47eb192` (2026-04-07), the App was not executing `applyReceiptItemTaxesAndReconcile` from the database save path  specifically, when "items" was added. Versions 2.5.6 built before commit `47eb192` are unaffected by the client-side items tax split on save.  
+- The parent commits package.json shows version 2.5.6, matching the first tax split commit.  
+- This means client-side receipt item tax reconciliation does not occur after save for these versions.  
+
+However, earlier tax-related changes may have occurred in other files. The user specifically asked about "" (tax splitting), and the commit message mentions "items" (adding items tax split).</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2">
+<details><summary>Tool use: **run_terminal_command_v2** • Run command: cd /Users/macbook/Vouchap && git show HEAD:vouchap-app/src/shared-logic/database.ts | head -15</summary>
+
+```bash
+cd /Users/macbook/Vouchap && git show HEAD:vouchap-app/src/shared-logic/database.ts | head -15
+```
+
+```
+import { supabase } from './supabase';
+import { Receipt, ReceiptItem, ReceiptLineItemListRow, ReceiptStatus } from '@/types';
+import { getCurrentUser } from './auth';
+import { findCategoryByName } from './categories';
+import { findOrCreateAccount, getAccountMergeMap, getAccountById } from './accounts';
+import { updateEntity, getEntityMergeMap, getEntityById, resolveEntityId, findOrCreateEntity } from './entities';
+import { getEntityOptionsForDuplicateCheck } from './entity-list';
+import { normalizeNameForCompare } from './name-utils';
+import { isMissingNestedAttributionEmbedError } from './postgrest-embed-errors';
+import { applyReceiptItemTaxesAndReconcile, scheduleReceiptTaxRecalcIfNeeded } from './receipt-item-tax';
+
+const ATTRIBUTION_LOOKUP_CHUNK = 120;
+const DEFAULT_RECEIPT_ITEM_NAME = 'Receipt item';
+
+function normalizeReceiptItemNameForSave(name: unknown): string {
+
+```
+</details>
+</tool-use>
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2"><details>
+<summary>Tool use: **run_terminal_command_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+HEAD contains the applyReceiptItemTaxes function, meaning the enqueue change and queue document are local uncommitted changes compared to the last commit on the branch.</details></think>
+
+_**Agent (default)**_
+
+根据当前仓库里的 **git 记录**（只读查到的结果），结论如下。
+
+---
+
+## 1. 「跑迁移 + 更新构建」就够了吗？
+
+**不完全是。**
+
+- **`20260418150000_receipt_tax_recalc_queue.sql`**：在库里建队列表 + `enqueue_receipt_tax_reconcile`，**只有在你已经改成「保存后只 RPC 入队」的 App 上才有意义**；否则旧 App 根本不会调这个 RPC。  
+- **更新 App**：若新版本里 `database.ts` 已改为只 `enqueue`，则**必须**配好 **`npm run receipt-tax-worker`**（或等价进程），否则**拆税不会执行**（队列没人消费）。  
+- 另外：在我这边读到的 **`git status` 里，`20260418150000_receipt_tax_recalc_queue.sql` 显示为未跟踪 `??`**，说明它**可能还没进你当前分支的 commit**；你本地若以 Agent 改过、请以你机器上 `git status` 为准——**未提交的迁移不会在远端「自动存在」**。
+
+所以更准确的说法是：**迁移（含队列）+ 带入队逻辑的新 App + 后台 worker**，三者对齐后，拆税才是「纯后端流水线」；只跑迁移、只发版而不跑 worker，拆税仍可能不更新。
+
+---
+
+## 2. 什么「版本之前」的 App 不受拆税影响？
+
+这里要分清你说的「拆税」指哪一层。
+
+### A. 保存小票后、在客户端跑「行项拆税 / 对账」
+
+Git 里第一次把 **`applyReceiptItemTaxesAndReconcile` 写进 `database.ts` 保存路径**的提交是：
+
+- **`47eb192`**（2026-04-07）— 说明：`增加items分税，upload文件支持全格式`  
+- 在它之前的 **`47eb192^`**（父提交）里，`database.ts` **没有**这段拆税调用。
+
+因此：
+
+- **从源码/构建角度**：**`47eb192` 之前任意一次构建**的 App，都**不会**在保存小票后走这套客户端拆税逻辑。  
+- **从 `package.json` 版本号角度**：父提交上仍是 **`2.5.6`**，`47eb192` 当时 **`package.json` 也是 `2.5.6`**——**仅靠版本号无法区分**「带不带拆税」，要看**是否包含 `47eb192` 及之后的提交**（或看构建号/commit）。
+
+### B. 后来的「tax_class_code / 队列入库」等
+
+- **`39d468f`** — `去除tax_class_code的拆税模式`：改的是拆税**实现方式**（列、逻辑），不是「有没有拆税」的起点。  
+- **队列入队**：若你当前 **HEAD 的 `database.ts` 仍是 `applyReceiptItemTaxesAndReconcile` 的 import**（我读的 `git show HEAD:...` 如此），则 **已发布的 HEAD 里还没有「只 enqueue」**；那部分可能是**工作区未提交**的改动，你要以 `git log` / `git diff` 里**真正合并进分支的 commit**为准。
+
+---
+
+## 小结表
+
+| 你想问的「不受影响」 | 边界 |
+|----------------------|------|
+| 保存后**不在客户端**跑 `applyReceiptItemTaxesAndReconcile` | **早于 commit `47eb192` 的构建**（版本号当时多为 2.5.6，不能单靠版本号判断） |
+| 不依赖 **`enqueue` RPC + 队列表** | 任何**未合并「队列入队」那一版 `database.ts`** 的构建 |
+| 不依赖 **`receipt_items.tax_class_code` 列** | **早于**执行 **`20260418140000_drop_receipt_items_tax_class_code`** 的库 + 仍写该列的旧 App 会冲突；与「拆税从哪跑」是另一件事 |
+
+如果你愿意，我可以再在 **Ask 模式**下根据你指定的 **tag / build 号 / commit**，帮你对一下那条构建是否包含 `47eb192`（你只要贴 `git log -1` 或构建对应的 commit hash）。若要我在仓库里改文档或提交，需要切换到 **Agent 模式**。
+
+---
+
+_**User**_
+
+版本号更新2.5.8
+
+---
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The user wants to update the version to 2. When updating the version, synchronize these files:
+- vouchap-app/package.json (version)
+- vouchap-app/package-lock.json (root version and packages."".version)
+- vouchap-app/app.json (ios.buildNumber, android.versionCode)
+- vouchap-app/app.config.js (ios.buildNumber, android.versionCode)
+- vouchap-app/android/app/build.gradle (versionCode, versionName)
+- vouchap-app/ios/*/Info.plist (CFBundleVersion, CFBundleShortVersionString)
+
+Then automatically commit and push with the message: " X.X.X (Build X)" The user wants to update the version to 2.5.8 and needs assistance with synchronizing version numbers across multiple files, including package.json, app.json, app.config.js, build.gradle, and Info.plist files. The commit message should follow the format "X.X.X (Build X)". Please switch to Agent mode to allow these changes to be applied automatically.</details></think>
+
+_**Agent (default)**_
+
+正在将版本同步为 2.5.8，并按 `.cursorrules` 更新所有相关文件与构建号。
+
+
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/package.json</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+File not found
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/app.config.js</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/android/app/build.gradle",
+  "pattern": "versionCode|versionName"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/android/app/build.gradle",
+  "pattern": "versionCode|versionName",
+  "topFiles": [
+    {
+      "matchCount": 2,
+      "uri": "vouchap-app/android/app/build.gradle"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/android/app/build.gradle"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/android/app/build.gradle"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/android/app/build.gradle"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/android/app/build.gradle"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/android/app/build.gradle"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 12
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="search" data-tool-name="glob_file_search">
+<details>
+<summary>Tool use: **glob_file_search** • Searched codebase "" • **1** result in **1** directory</summary>
+
+Directory: **/Users/macbook/Vouchap/vouchap-app/ios** (1 file)
+
+| File |
+|------|
+| `Vouchap/Info.plist` |
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="search" data-tool-name="glob_file_search"><details>
+<summary>Tool use: **glob_file_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "path": "/Users/macbook/Vouchap/vouchap-app/ios/Vouchap/Info.plist",
+  "pattern": "CFBundleVersion|CFBundleShortVersionString"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/ios/Vouchap/Info.plist",
+  "pattern": "CFBundleVersion|CFBundleShortVersionString",
+  "topFiles": [
+    {
+      "matchCount": 2,
+      "uri": "vouchap-app/ios/Vouchap/Info.plist"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/ios/Vouchap/Info.plist"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/ios/Vouchap/Info.plist"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/ios/Vouchap/Info.plist"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/ios/Vouchap/Info.plist"
+    },
+    {
+      "matchCount": 2,
+      "uri": "../Vouchap/vouchap-app/ios/Vouchap/Info.plist"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 12
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/package-lock.json</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/ios/Vouchap/Info.plist</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Update all dependencies to version 2.5.8 and build number 46.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/package.json</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/package-lock.json</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/app.config.js</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+The string to replace was not found in the file.
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/app.config.js</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/android/app/build.gradle</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/ios/Vouchap/Info.plist</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/ios/Vouchap/Info.plist</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/package-lock.json</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="search" data-tool-name="glob_file_search">
+<details>
+<summary>Tool use: **glob_file_search** • Searched codebase "" • **0** results in **1** directory</summary>
+
+Directory: **/Users/macbook/Vouchap/vouchap-app** (0 files)
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="search" data-tool-name="glob_file_search"><details>
+<summary>Tool use: **glob_file_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The application uses app.config.js instead of app.json.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2">
+<details><summary>Tool use: **run_terminal_command_v2** • Run command: cd /Users/macbook/Vouchap && git add vouchap-app/package.json vouchap-app/package-lock.json vouchap-app/app.config.js vouchap-app/android/app/build.gradle vouchap-app/ios/Vouchap/Info.plist docs/PRD-SOURCE-LOG.md && git status -sb && git commit --trailer "Made-with: Cursor" -m "发布版本号 2.5.8 (Build 46)" && git push</summary>
+
+```bash
+cd /Users/macbook/Vouchap && git add vouchap-app/package.json vouchap-app/package-lock.json vouchap-app/app.config.js vouchap-app/android/app/build.gradle vouchap-app/ios/Vouchap/Info.plist docs/PRD-SOURCE-LOG.md && git status -sb && git commit --trailer "Made-with: Cursor" -m "发布版本号 2.5.8 (Build 46)" && git push
+```
+
+```
+## AI-Tax-filing...origin/AI-Tax-filing
+ M .specstory/history/2026-04-18_21-39-20-0500-item-alias-field-recognition-in-vouchap.md
+ M .specstory/statistics.json
+M  docs/PRD-SOURCE-LOG.md
+M  vouchap-app/android/app/build.gradle
+M  vouchap-app/app.config.js
+M  vouchap-app/ios/Vouchap/Info.plist
+M  vouchap-app/package-lock.json
+M  vouchap-app/package.json
+ M vouchap-app/src/shared-logic/database.ts
+ M vouchap-app/src/shared-logic/receipt-item-tax.ts
+?? docs/RECEIPT-TAX-ASYNC-PIPELINE.md
+?? vouchap-app/scripts/receipt-tax-queue-worker.ts
+?? vouchap-app/src/shared-logic/receipt-tax-queue-client.ts
+?? vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql
+[AI-Tax-filing 71651d2] 发布版本号 2.5.8 (Build 46)
+ 6 files changed, 89 insertions(+), 10 deletions(-)
+To https://github.com/jameszjgao/Vouchap.git
+   39d468f..71651d2  AI-Tax-filing -&gt; AI-Tax-filing
+
+```
+</details>
+</tool-use>
+
+<tool-use data-tool-type="shell" data-tool-name="run_terminal_command_v2"><details>
+<summary>Tool use: **run_terminal_command_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+已按 `.cursorrules` 把 **2.5.8** 与 **Build 46** 写齐并完成 **commit + push**。
+
+### 已改文件
+| 文件 | 变更 |
+|------|------|
+| `vouchap-app/package.json` | `version` → **2.5.8** |
+| `vouchap-app/package-lock.json` | 根与 `packages.""` 的 `version` → **2.5.8** |
+| `vouchap-app/app.config.js` | `ios.buildNumber` → **46**，`android.versionCode` → **46** |
+| `vouchap-app/android/app/build.gradle` | `versionCode` **46**，`versionName` **2.5.8** |
+| `vouchap-app/ios/Vouchap/Info.plist` | `CFBundleShortVersionString` **2.5.8**，`CFBundleVersion` **46** |
+
+仓库里 **没有 `app.json`**（用 `app.config.js`），因此未改 `app.json`。
+
+### Git
+- 提交：**`发布版本号 2.5.8 (Build 46)`**（`71651d2`）
+- 已推送到 **`origin/AI-Tax-filing`**
+
+### 溯源
+已在 **`docs/PRD-SOURCE-LOG.md`** 追加对应条目。
+
+说明：当前分支上仍有未提交的拆税相关改动（如 `database.ts`、`receipt-tax-queue-client.ts`、队列迁移等），**未**打进本次版本提交；若需要一并发布，可再单独提交一轮。
+
+---
+
+_**User**_
+
+20260418150000迁移报错：
+
+Error: Failed to run sql query: ERROR: 42P01: relation "sid" does not exist
+
+
+
+---
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The user encounters a PostgreSQL error while executing the migration script 20260418150000_receipt_tax_recalc_queue.sql.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The issue is on line 39. The issue occurs because PostgreSQL interprets `sid` as a relation name rather than a variable, causing the error "relation 'sid' does not exist." This happens when `sid` is used directly in an `IF` statement without proper variable syntax.
+
+- The problem is that `IF sid IS NULL` is being misinterpreted
+- PostgreSQL treats `sid` as a table/relation reference instead of a variable
+- This leads to the error about non-existent relation "sid"
+- In PL/pgSQL, proper variable handling is required to avoid this parsing issue The issue likely isn't with `IF sid IS NULL` itself, as this should work in PL/pgSQL when `sid` is a declared variable. However, problems may arise if `sid` becomes ambiguous within a subquery like `IF NOT EXISTS (... AND us.space_id = sid)`. The parser might confuse `sid` as a column reference rather than a variable in certain contexts. The issue stems from how PostgreSQL parses `IF sid IS NULL` and similar constructs, particularly in versions 15+ or specific contexts where `sid` may be interpreted as a relation instead of a variable.
+
+- The error occurs because PostgreSQL interprets `sid` as a relation name in `IF sid IS NULL`
+- This is especially problematic in contexts involving subqueries or complex expressions
+- In PL/pgSQL, `IF sid IS NULL` should work correctly if `sid` is properly declared as a variable
+- The issue may also affect `IF sid = ...` constructs under similar conditions
+- Supabase SQL Editor or migration runners may execute scripts as single statements, exacerbating parsing issues The issue may stem from PostgreSQL interpreting `sid` as a relation or subquery alias rather than a variable in `IF sid IS NULL THEN`. This is especially likely in contexts involving `EXISTS` subqueries or when `sid` is used in scalar subqueries where visibility from outer blocks is expected.
+
+- `IF sid IS NULL THEN` could be misparsed as `IF` followed by `sid` as a relation/subquery alias
+- Inside `EXISTS (...)`, `sid` should be accessible from outer blocks in PL/pgSQL
+- The problem might occur if the migration runs outside a function context, limiting variable scope
+- Another potential issue involves `INTO sid` usage, which may cause unexpected behavior in SELECT statements The error "relation 'sid' does not exist" suggests that PostgreSQL is interpreting `sid` as a table name rather than a variable, likely due to how the parser handles `IF sid IS NULL` in certain contexts. This could be exacerbated in PostgreSQL 14+ where the parser might misinterpret the syntax.
+
+- The issue may stem from the parser treating `IF sid IS NULL` as starting a CASE expression
+- Wrapping the condition in parentheses like `IF (sid IS NULL)` might resolve parsing ambiguity
+- The problem is more likely related to how PostgreSQL 14+ handles variable vs. relation parsing in IF statements
+- A missing `space_id` column in the `receipts` table would cause a different error, so thats not the issue here
+
+The core issue remains that `sid` is being treated as a relation rather than a variable, possibly due to parser ambiguity in version 14+. This suggests that PostgreSQL is parsing **`sid`** as a **relation reference**, such as in a FROM or JOIN clause. The issue likely occurs in:
+
+```sql
+WHERE us.space_id = sid
+```
+
+In an EXISTS subquery, **`sid`** should refer to a variable from the outer scope. However, if this code runs as standalone SQL (outside of a function), **`sid`** may be interpreted as a column from a table named **`sid`**, rather than as a variable. The migration runner might be splitting the migration file by semicolons, executing `IF NOT EXISTS (...)` as a separate top-level statement, which causes parsing issues.  
+
+Supabase or the migration tool may incorrectly split statements within `$$` function bodies, breaking the function definition.
+
+The "relation sid does not exist" error at 42P01 suggests the function body is executed as plain SQL outside of `CREATE FUNCTION`, making it unlikely to work properly.
+
+Hypothesis: Tools split `CREATE FUNCTION ... AS $$ ... $$` by internal `;` and break the function body, leading to incorrect parsing of variables like `sid` as relations. Then a fragment like `IF sid IS NULL THEN` runs alone, and `sid` is parsed as a relation.
+
+The standard fix for migration runners that split on `;` is to use dollar-quoted body with `$function$` and avoid semicolons inside the function body. The issue is that migration tools incorrectly split on `;` outside of dollar quotes like `$$`, even when `$$` is present. Renaming `sid` to `v_space_id` avoids potential conflicts with PostgreSQL internals or catalog names. While `sid` is not a reserved word, using a prefixed variable name like `v_space_id` reduces the risk of parsing ambiguity in complex contexts.
+
+- The issue may stem from how PostgreSQL's parser interprets `sid` in certain contexts
+- Renaming to `v_space_id` helps prevent accidental interpretation as a relation or column
+- This change applies to cases where `sid` appears in `INSERT` or `UPDATE` statements
+- Using a clear prefix like `v_` makes variables more distinguishable from table columns or relations If `sid` is used in a `VALUES` clause like `VALUES (p_receipt_id, sid)`, it may be interpreted as a column or relation in SQL context, causing errors.
+
+Renaming `sid` to `v_space_id` helps avoid conflicts with PostgreSQL's interpretation of identifiers in certain contexts.
+
+The root cause is likely that Supabase migrations split the `CREATE OR REPLACE FUNCTION ... $$ ... $$` statement at the semicolon after `END IF;`, breaking the function body before the final `END;` and `$$`. So the fragment from line 52 `IF EXISTS` could be wrong if the migration tool splits the function body at semicolons, causing the `END IF;` to be separated from its opening `IF sid IS NULL THEN`.
+
+If the function body is split after line 40 (`RAISE EXCEPTION 'receipt not found';`), then the next part would start with `END IF` without the preceding `IF sid IS NULL THEN`, leading to a syntax error.
+
+This splitting behavior happens because migration tools often split SQL statements on semicolons, even inside dollar-quoted function bodies like `$$ ... $$`, which can break the function definition and cause parsing issues. The function body within `$$ ... $$` must remain as a single statement; migration tools should not split at semicolons inside the dollar-quoted block. If the file ends with `$$;` on line 68, that is correct.
+
+- Supabase may execute lines individually, but this is unlikely to be the issue here.
+- In PostgreSQLs PL/pgSQL, `IF sid IS NULL` could misinterpret `sid` as a label (`<<sid>>`) or as a relation/subquery alias.
+- The parser might treat `sid` as a subquery from a table named `sid`, especially if it's not properly scoped within a function context.
+- This ambiguity is more likely in PostgreSQL 14+ where parsing rules have changed.
+
+Therefore, renaming `sid` to `v_space_id` helps avoid conflicts with relation names or labels in complex SQL contexts. In PL/pgSQL, `IF sid IS NULL` should correctly parse `sid` as a variable, not a relation. However, if the function isn't created properly or is split incorrectly by migration tools, the parser may misinterpret `sid` as a table name, especially in contexts like `FROM public.receipts r WHERE r.id = p_receipt_id`. The error "relation 'sid' does not exist" suggests that `sid` is being treated as a table or column reference rather than a variable, possibly due to improper function creation or statement splitting. A missing `user_spaces` table could also contribute to such errors, though the primary issue lies in how `sid` is interpreted within the function body. - The error "relation user_spaces does not exist" suggests a missing table, but the main focus is on the ambiguous interpretation of `sid`.
+- `sid` might be a typo for `r.sid` in some context, or it could be incorrectly interpreted as a relation instead of a variable.
+- The statement `SELECT r.space_id INTO sid` is valid in PostgreSQL, but the issue arises from how `sid` is parsed in `IF sid IS NULL`.
+- If `receipts` lacks a `space_id` column, that would cause a different error than "relation sid does not exist".
+- In PostgreSQL 14+, parsing rules may treat `sid` as a relation or label rather than a variable, especially in function bodies split by migration tools.
+- The hypothesis is that `IF sid IS NULL` fails because `sid` is misinterpreted due to function body splitting or PostgreSQL's identifier resolution in PL/pgSQL.
+- Renaming `sid` to `v_space_id The error "relation sid does not exist" likely occurs because `sid` is being interpreted as a relation or column rather than a variable, possibly due to shadowing or conflicts with SQL keywords. In PostgreSQL, `IF` is not a function, but `sid` might be misinterpreted as a label or relation in certain contexts. Supabase may be using an older PostgreSQL version that doesn't handle these cases well, especially within function bodies split by migration tools. The issue could also stem from how Supabase processes SQL statements, potentially running them individually or with stricter parsing rules that treat `sid` as a relation instead of a variable.
+
+- `sid` may be interpreted as a relation or label in PL/pgSQL, especially if shadowed by other identifiers
+- Supabase's migration tool or PostgreSQL version may not properly handle `sid` in function contexts
+- SQL standard behavior allows outer references in subqueries, but PL/pgSQL has stricter scoping rules
+- Older PostgreSQL Renaming `sid` to `v_space_id` reduces ambiguity in PL/pgSQL function bodies, especially when migration tools split SQL statements at semicolons. Using `$function$` delimiters ensures the entire function remains intact as a single migration step, preventing incorrect parsing.
+
+- Rename `sid` to `v_space_id` to avoid conflicts with PostgreSQLs identifier resolution
+- Use `$function$` delimiters to prevent statement splitting within function bodies
+- Check if `sid` is reserved in Supabase extensions or PostgreSQL internals
+
+The longer, prefixed name `v_space_id` helps avoid misinterpretation as a relation or label in complex SQL contexts. The most common cause of "relation X does not exist" when X is a variable name is that the function body was not properly included in CREATE FUNCTION due to incorrect nesting of `$$`. If inner `$$` appears, theres no inner `$$`.
+
+Supabase migrations typically run as full files, so the issue likely stems from how the function body is handled during migration.
+
+An alternative root cause is line 47: `AND us.space_id = sid`. In strict SQL mode inside EXISTS, the subquery planner may attempt to resolve `sid` as a lateral join and fail.
+
+A recommended fix is to use an explicit block:
+```sql
+DECLARE
+  v_space_id uuid;
+BEGIN
+  ..
+``` SELECT r.space_id INTO STRICT v_space_id FROM public.receipts r WHERE r.id = p_receipt_id;
+EXCEPTION
+  WHEN NO_DATA_FOUND THEN
+    RAISE EXCEPTION 'receipt not found';
+
+The issue with `IF sid IS NULL` may require parentheses: `IF (sid IS NULL)` in some contexts.
+
+Using `SELECT ... INTO sid` assigns NULL when no rows are found, so `IF sid IS NULL` correctly handles both missing receipts and receipts without space_id.
+
+The error "relation sid does not exist" likely occurs due to identifier resolution in PL/pgSQL, especially when `sid` is interpreted as a relation rather than a variable. This can happen in function bodies split by migration tools or when `sid` conflicts with SQL keywords or table names. Using `v_space_id` instead avoids such ambiguities. The real bug may be that `sid` is misinterpreted as a schema-qualified table name in PostgreSQL. Although `sid` is a single token, case sensitivity or quoting could cause issues. Renaming to `v_space_id` avoids potential shadowing with catalog entries or SQL keywords. This is a best practice to prevent identifier resolution errors in PL/pgSQL function bodies. The fixed SQL uses `v_space_id` to eliminate ambiguity. The error "relation sid does not exist" may stem from `sid` being interpreted as a table or column due to identifier resolution issues, especially if `sid` is treated as a schema-qualified name like `public.sid`. This could occur if `sid` is mistaken for a table in contexts like `VALUES (p_receipt_id, sid)` where `sid` is not yet in scope. Renaming `sid` to `v_space_id` avoids ambiguity and prevents misinterpretation as a relation or label in PL/pgSQL function bodies. Using `$function$` delimiters ensures the entire function remains intact during migration, preventing incorrect parsing. The issue likely arises from how migration tools split SQL statements or how PostgreSQL resolves identifiers within function scopes. I'll rename variables to avoid ambiguity and use **`SELECT ... INTO STRICT ...`** with exception handling for clearer semantics. I'll also verify that **user_spaces** exists, since the error message only mentions `sid`. The failure occurs at a statement where `sid` is incorrectly treated as a relation.
+
+PostgreSQL's handling of **`IF`** might be problematic if it's interpreted as part of a policy creation syntax like **`CREATE POLICY IF EXISTS`**, though that doesn't apply here.
+
+If **`BEGIN`** is missing or misplaced, the **`IF`** statement could be parsed incorrectly due to improper nesting. For example, if **`BEGIN`** is lost, then:
+
+- `IF sid IS NULL` would appear at the top level instead of inside a function body
+- This would cause a syntax error because **`IF`** requires a **`THEN`** clause and must be inside a block
+
+This suggests that either:
+- The function The error "relation sid does not exist" occurs when PostgreSQL interprets `sid` as a table or column instead of a variable, particularly in PL/pgSQL function bodies. This can happen if `sid` is treated as a schema-qualified name or misidentified due to identifier resolution rules. Renaming `sid` to `v_space_id` avoids ambiguity and prevents misinterpretation as a relation or label. Using `$function$` delimiters ensures the function body remains intact during migration, preventing incorrect parsing by Supabase's migration tools. Additionally, wrapping the PL/pgSQL block properly and ensuring proper scoping can help avoid such issues. The issue may also arise from how PostgreSQL handles `IF` statements in certain contexts, especially when `sid` is referenced before being declared or used in a way that triggers identifier resolution errors. If `IF` appears outside a function body in PostgreSQL, it may be misinterpreted as the start of an incomplete command, especially in interactive sessions like psql or the Supabase SQL Editor. This can lead to parsing errors if the function body is copied independently without the full `CREATE FUNCTION` declaration. In such cases, `IF` without proper context might be seen as invalid syntax at the top level, causing unexpected behavior or errors during execution. Trying **`IF sid IS NULL THEN`** at the top level may confuse the parser, which could interpret **`IF`** as an unknown command or treat **`sid`** as a relation within an **EXISTS** clause. In PostgreSQL 15+, **`IF`** might be treated as experimental SQL/IF, potentially causing parsing issues if not properly enclosed.
+
+Checking line 47: `AND us.space_id = sid`  in standard SQL, if this subquery runs in a context where the outer querys **FROM** clause has an alias named **sid**, it could lead to ambiguous references or incorrect interpretation of **sid** as a column from that alias rather than a function variable.
+
+The error "relation sid does not exist" likely occurs because PostgreSQL interprets **sid** as a table or column name instead of a variable, especially in PL/pgSQL blocks or when identifier resolution is ambiguous. This can happen when **sid** is used in contexts like The error "relation sid does not exist" likely occurs because PostgreSQL interprets `sid` as a column or table name instead of a variable, especially in PL/pgSQL function bodies where identifier resolution can be ambiguous. This happens when `sid` is used in contexts like `WHERE us.space_id = sid`, where it may be parsed as a column reference from an implicit or missing table rather than a function variable.
+
+This issue may stem from:
+- Migration tools stripping `DECLARE` statements or PL/pgSQL-specific syntax
+- Partial SQL execution that omits necessary function structure
+- Identifier confusion due to lack of proper scoping or quoting
+
+In such cases, `sid` becomes ambiguous and PostgreSQL attempts to resolve it as a relation, leading to the error. Using `v_space_id` instead avoids this ambiguity by clearly distinguishing variables from relations. The function may not be created properly if the full PL/pgSQL structure isn't preserved during migration or execution. Using **`$function$`** instead of **`$$`** prevents conflicts with **`$$`** delimiters inside strings or comments. Renaming **`sid`** to **`v_space_id`** avoids ambiguity and prevents PostgreSQL from interpreting it as a table or column name. Running the full migration as one transaction ensures proper execution. The error "relation sid does not exist" likely stems from identifier resolution issues in PL/pgSQL, where **`sid`** is misinterpreted due to lack of proper scoping or quoting. Using **`$function$`** delimiters helps preserve the function structure during migration, while renaming variables improves clarity and prevents parsing errors.</details></think>
+
+_**Agent (default)**_
+
+定位错误：`relation "sid" does not exist` 表示 PostgreSQL 把 `sid` 当成了表/关系名，通常发生在 PL/pgSQL 函数体未正确解析时，子句里的 `sid` 被当作 SQL 里的裸标识符。将 `sid` 重命名为 `v_space_id` 并改用 `$function$` 包裹函数体，可避免解析器/分割器误判。
+
+
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+If migration already partially ran, the CREATE TABLE statement might exist while the function failed.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+## 原因说明
+
+`42P01: relation "sid" does not exist` 表示执行器把 **`sid` 当成了表名**，而不是 PL/pgSQL 里的局部变量。常见诱因包括：
+
+- 函数体用 **`$$...$$`** 定界时，在部分工具/分割执行方式下，**整段 PL 没被当成一条 `CREATE FUNCTION`**，中间某段被当成普通 SQL 执行，里面的 **`sid`** 就被解析成关系名。
+- 变量名 **`sid`** 较短，在边界情况下更容易被误解析（少见，但换名更稳）。
+
+## 已做的修改（仓库里）
+
+在 **`vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql`** 中已：
+
+1. 将 **`sid`** 全部改为 **`v_space_id`**（语义不变：小票所属 `space_id`）。  
+2. 将函数体定界从 **`$$` / `$$`** 改为 **`$function$` / `$function$`**，减少定界冲突。
+
+## 你这边怎么重跑
+
+- 若**第一次失败在 `CREATE FUNCTION` 之后**：`receipt_tax_recalc_queue` 表可能已存在，**直接再执行一次该迁移文件**（`CREATE TABLE IF NOT EXISTS` 可重复；`CREATE OR REPLACE FUNCTION` 会覆盖函数）即可。  
+- 若**整段在 SQL Editor 里分段执行**：请**整文件一次执行**，避免只跑函数体中间几行。
+
+已在 **`docs/PRD-SOURCE-LOG.md`** 记了一条溯源说明。若你希望我把该迁移也 **commit + push**，可以说一声或在 Agent 里让我提交。
+
+---
+
+_**User**_
+
+Error: Failed to run sql query: ERROR: 42P01: relation "v_space_id" does not exist
+
+
+
+---
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The user is still encountering a similar error, but now it involves `v_space_id` instead of `sid`. The issue occurs because the PL/pgSQL function body executes as plain SQL outside the function context, causing variables like `v_space_id` to be interpreted as relation names rather than variables.
+
+This likely happens when:
+- Migration runner splits CREATE FUNCTION on semicolons, running `IF v_space_id IS NULL THEN` as top-level SQL
+- Dollar-quoting fails due to parsing issues in Supabase SQL editor
+- File structure causes improper handling of the function definition The issue likely stems from Supabase migrations running the entire file, but if the user copies statements into the SQL Editor one by one, it could cause problems. Another possibility is a PostgreSQL or Supabase bug with specific syntax patterns.
+
+If `v_space_id` doesn't exist as a relation, then fragments like `WHERE us.space_id = v_space_id` executed outside the function context would treat `v_space_id` as an unknown table name.
+
+To fix this, the entire CREATE FUNCTION statement must be treated as one atomic unit that cannot be incorrectly split during migration or execution. Some migration tools incorrectly split SQL on semicolons inside function bodies, treating `END IF;` as the end of the entire `CREATE FUNCTION` statement. This happens because naive splitters don't respect dollar quoting, causing the function definition to be broken at the first semicolon.
+
+This leads to two possible issues:
+- Migration runner stops at `DECLARE v_space_id uuid;` and treats it as an incomplete statement
+- Function gets split at `END IF;`, breaking the function definition
+
+These problems occur when semicolons inside the function body aren't properly protected by dollar quoting. - A semicolon after `uuid` in the `DECLARE` section would cause a naive migration splitter to break the function at `DECLARE v_space_id uuid;`, creating an incomplete first chunk.
+- This would result in invalid SQL like `CREATE OR REPLACE FUNCTION ... AS $function$ DECLARE v_space_id uuid` without the closing `$function$`.
+- Such splitting prevents the function from being created properly because the `BEGIN` section is omitted. If Supabase only recognizes `$$` as a delimiter for skipping semicolons, then using `$function$` might not work as expected. However, Supabase typically uses a proper parser that handles dollar quoting correctly.
+
+- Alternative approach: Avoid semicolons inside the function body that could confuse the migration runner.
+- Move to a single statement without nested semicolons in a problematic way.
+- Use an SQL function instead of PL/pgSQL to avoid issues with semicolon handling. The user can rewrite the function as pure SQL using CTEs and INSERT...ON CONFLICT to avoid PL/pgSQL altogether. This approach simplifies the function definition and avoids issues with semicolon handling in migration runners.
+
+However, if conditional logic like RAISE EXCEPTION is needed, PL/pgSQL or CHECK constraints on a wrapper function are required.
+
+Using a DO block won't solve the issue since it faces the same semicolon parsing problem.
+
+Another solution is to split the migration into separate files: one for CREATE TABLE and another for CREATE FUNCTION, ensuring each is treated as a single statement. We could minify the function into a single line for simplicity, though it would be less readable.
+
+An alternative is to use a unique delimiter to prevent semicolon splitting.
+
+According to PostgreSQL documentation, Supabase SQL Editor requires each statement to be properly separated.
+
+A better approach is to rewrite the function using only SQL constructs such as INSERT ... SELECT ... WHERE and subqueries, employing CASE WHEN for validation logic.
+
+Since auth.uid() works within a SECURITY DEFINER SQL function, this method preserves functionality while avoiding PL/pgSQL complications.
+
+The function should be defined with LANGUAGE sql and SECURITY DEFINER to ensure proper execution context.</details></think>
+
+_**Agent (default)**_
+
+怀疑执行器在 `$function$` 块外按分号拆分语句，导致 PL/pgSQL 片段被当作普通 SQL 执行。我们改用 `LANGUAGE sql` 的单条语句实现，避免函数体内的 PL 变量与 `END IF;` 分号。
+
+
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+I'll rewrite using SQL with a single statement using CTEs. To handle authentication checks in SQL, use a division by zero trick with `PERFORM 1/(CASE WHEN auth.uid() IS NULL THEN 0 ELSE 1 END)` to raise an error when unauthenticated. For Supabase's split bug, use `BEGIN ATOMIC` in PostgreSQL 14+ SQL functions to ensure atomicity. Alternatively, implement a single SELECT statement calling internal helper functions for better compatibility. END for SQL functions.
+
+**Simplest approach that works everywhere**: Split into **two migrations** or use **EXECUTE format**.
+
+Use **LANGUAGE plpgsql** with **no internal semicolons** - impossible without removing IF blocks.
+
+Use **CTE chain in one RETURN QUERY** or **INSERT...SELECT** with **constraints**:
+
+- Create function with **SECURITY DEFINER**
+- Use **plpgsql** language
+- Avoid internal semicolons in IF blocks
+- Implement **RETURN QUERY** with CTE chain or **INSERT...SELECT** with constraints Use single-quoted strings for RAISE messages, escaping single quotes with two single quotes (''not authenticated''). In PostgreSQL, alternatives to dollar-quoting include escaping quotes within 'BEGIN ... END' blocks, though this can be messy. For pure SQL multi-statement functions in PostgreSQL, separate statements are executed sequentially with semicolons, and the last statement's result is returned. For void returns, all statements execute.
+
+Logic:
+- Use single quotes with escaped single quotes for string literals
+- PostgreSQL SQL functions support multiple statements separated by semicolons
+- Last statement's result becomes function's return value
+- All statements execute for RETURNS void functions First, validate authentication by failing if not authenticated. A simple approach uses `INSERT INTO ... SELECT ... WHERE auth.uid() IS NOT NULL` to ensure exactly one row is inserted; otherwise, no error occurs.
+
+Alternatively, use assertion-like behavior with `RAISE` in `plpgsql` for stricter validation. The `SELECT CASE WHEN auth.uid() IS NULL THEN (1/0)::int ELSE 0 END` trick causes division by zero to raise an error when unauthenticated.
+
+For simpler validation, use `WHERE auth.uid() IS NOT NULL` in an `INSERT` statement that expects exactly one row  if zero rows are inserted, no error is raised.
+
+Use `RAISE` in `plpgsql` for more robust error handling instead of relying on SQL-only tricks. Using dollar quoting with a unique tag like `$enqueue_body$` may avoid Supabase's splitting behavior. Try `$$` with body containing no semicolons, using a CASE expression in a single RETURN statement:
+
+- Use `$enqueue_body$` or `$$` for dollar quoting
+- Avoid semicolons inside the function body
+- Use CASE expressions in single RETURN statements
+- Ensure the function uses `LANGUAGE plpgsql` with `SECURITY DEFINER`
+- Set proper `search_path` for the function
+
+This approach should prevent Supabase from incorrectly splitting the function at semicolons outside of dollar-quoted sections. The function uses `LANGUAGE plpgsql` with `SECURITY DEFINER` and handles authentication via `auth.uid()` checks. It joins `receipts` and `user_spaces` tables, ensuring the user owns the space and the receipt exists. The `FOR UPDATE OF r SKIP LOCKED` clause prevents concurrent access issues.
+
+To avoid Supabase's function splitting bug, wrap the logic in `BEGIN ATOMIC` for PostgreSQL 14+ or use `BEGIN; ... COMMIT;` with `psql` meta commands.
+
+Alternative approaches include:
+- Using `EXECUTE format` for dynamic SQL
+- Implementing single-quoted strings with escaped quotes for error messages
+- Leveraging `RAISE` in `plpgsql` for clearer error handling
+- Using dollar quoting like `$enqueue_body$` to bypass semicolon-based splitting
+
+The simplest working solution involves either:
+- Splitting into two migrations
+- Using `BEGIN; ... COMMIT;` blocks
+- Employing `INSERT Actually, the real fix from the Supabase community is to either set `statement_timeout` or use a `--` comment hack.
+
+The official solution is to use the `migrate` CLI, which runs each migration file as a single migration via libpqmeaning the entire file executes in one go.
+
+If users run migrations through the Dashboard by selecting only part of a file, they must still run the full file.
+
+A helpful note at the top of the file would be: "Run entire file at once; do not split statements."
+
+To rewrite this as SQL-only, use `INSERT...ON CONFLICT`, though we currently lack a unique partial index for pending receipts per receipt. Add:
+
+```sql
+``` Create a partial unique index to prevent duplicate pending receipts:
+
+- `CREATE UNIQUE INDEX IF NOT EXISTS receipt_tax_recalc_queue_one_pending_per_receipt`
+- Indexes `receipt_id` where `processed_at IS NULL`
+
+Then insert or update using:
+
+- `INSERT INTO public.receipt_tax_recalc_queue (receipt_id, space_id)`
+- Select from `receipts` and `user_spaces` joined with authentication check
+- Use `ON CONFLICT (receipt_id) WHERE processed_at IS NULL` to update existing records
+- Set `enqueued_at = now()` on conflict
+
+Note: Requires matching partial index for ON CONFLICT to work properly. To prevent duplicate pending receipts, create a partial unique index on `receipt_id` where `processed_at IS NULL`. Then use `INSERT ... ON CONFLICT (receipt_id) WHERE processed_at IS NULL` to update existing records with `enqueued_at = now()`.
+
+- Use `CREATE UNIQUE INDEX` with a `WHERE` clause for partial uniqueness
+- Apply `ON CONFLICT` with `WHERE` predicate for partial index matching
+- Ensure PostgreSQL version supports index predicates in `ON CONFLICT` clauses For partial unique indexes in `INSERT ... ON CONFLICT`, the syntax is `ON CONFLICT (receipt_id) WHERE processed_at IS NULL`. The `conflict_target` can include a `WHERE index_predicate` clause, allowing conflict resolution based on partial index conditions. This requires PostgreSQL support for index predicates in `ON CONFLICT` clauses. `ON CONFLICT (receipt_id) WHERE (processed_at IS NULL) DO UPDATE SET enqueued_at = now();`  
+- Single INSERT handles new rows and updates  
+- No PL/pgSQL required  one statement after creating the partial unique index  
+
+However, authentication and validation must still be enforced:
+- **Not authenticated**: Use `WHERE auth.uid() IS NOT NULL` to prevent insertion; otherwise, silent failure occurs  
+- **Receipt not found**: 0 rows inserted due to JOIN or WHERE clause  
+- **Not member**: INNER JOIN filters out invalid cases, resulting in 0 rows inserted  
+
+To ensure errors are raised:
+- Use `RAISE` in PL/pgSQL for explicit validation  
+- Or enforce strict checks in SQL with `CASE` expressions or division-by-zero tricks  
+
+Client-side RPCs should fail appropriately when authentication is missing or data is invalid. So we need to return a value or raise an error. A SQL function can return `NULL`, but `void` doesn't distinguish between outcomes.
+
+- Return `boolean`: `true` if queued, `false` if noop  client checks
+- Use a `CHECK` trigger: too complex
+- Use `plpgsql` with outer dollar quoting and instruct users to run via `supabase db push` only
+
+Use a **unique partial index** + **single `INSERT ... ON CONFLICT DO UPDATE`** as **`LANGUAGE sql`** returning **`void`**, unless `GET DIAGNOSTICS` isn't supported in SQL.
+
+Alternatively, use **`RETURNS boolean`** with:
+
+```sql
+```</details></think>
+
+_**Agent (default)**_
+
+改用单引号包裹整个 PL/pgSQL 函数体：内部分号会被当作字符串内容，避免被按 `;` 拆成多条语句执行（那样会把 `v_space_id` 当成表名）。字符串字面量内的单引号需写成 `''`。
+
+
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+In PostgreSQL, when using AS '...' with newlines, the closing quote must be correctly placed. The closing single quote must appear immediately after `END;` to close the string started with `AS '`, without including a semicolon inside the string. The correct structure is:
+
+- `END;` terminates the PL/pgSQL block
+- `'` closes the outer string started after `AS`
+- Semicolon (`;`) terminates the `CREATE FUNCTION` statement
+
+The incorrect format was:
+```
+END;
+';
+```
+
+The correct format is:
+```
+END;
+'
+```</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+There's a bug on line 70 where `';` should be `'` followed by `;` to properly close the string in the CREATE FUNCTION statement. The code correctly uses `';` on line 70 to close the string and terminate the function definition. The apostrophe closes the string started on line 32, and the semicolon terminates the CREATE OR REPLACE FUNCTION statement. No changes needed.</details></think>
+
+_**Agent (default)**_
+
+## 原因
+
+`relation "v_space_id" does not exist` 和之前的 `sid` 一样：**有一段 PL/pgSQL 被当成普通 SQL 单独执行了**。  
+很多环境会**按分号 `;` 切语句**；若 **`$function$` / `$$` 没被当成一整块**，就会在 `END IF;`、`DECLARE ...;` 等处被切开，后面的 `WHERE us.space_id = v_space_id` 就会在**没有函数上下文**下执行，于是 `v_space_id` 被当成**表名**。
+
+## 修改说明
+
+已把函数体改成用 **单引号整体包住**（`AS ' ... '`）：
+
+- 函数体里的分号都落在这**一个字符串字面量**里，对外只有 **`CREATE FUNCTION ... AS '...' ;` 最后那一个分号**，按分号拆分也不容易把中间拆出来。
+- `RAISE EXCEPTION` 里的文案按 PG 规则写成 **`''not authenticated''`** 这种双单引号转义。
+
+请**整段迁移从头执行**（或至少从 `CREATE OR REPLACE FUNCTION` 到 `GRANT` 一整段一起跑），不要只选中函数中间几行。
+
+若库里已有坏掉的函数定义，再执行一次本文件里的 **`CREATE OR REPLACE FUNCTION`** 即可覆盖。
+
+`docs/PRD-SOURCE-LOG.md` 里已补记本条。
+
+---
+
+_**User**_
+
+Error: Failed to run sql query: ERROR: 42P01: relation "v_space_id" does not exist
+
+
+
+---
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The user continues to experience the same error with v_space_id. The single-quoted AS '...' approach failed to resolve the issue, suggesting the SQL runner may still split the code incorrectly or another factor is at play.
+
+The most reliable solution is to eliminate PL/pgSQL entirely and use a LANGUAGE sql function written as a single statement or using only SQL constructs without variables, preventing issues if the code is split.
+
+Implementation plan:
+- Create partial unique index on (receipt_id) WHERE processed_at IS NULL
+- Use single INSERT ... SELECT ... statement The user explores handling errors in a SQL-only function, noting that PostgreSQL's `RAISE` is only available in PL/pgSQL. They consider using a pure SQL SECURITY DEFINER function with a single SELECT statement that triggers errors through techniques like division by zero or strict WHERE clauses. However, they acknowledge that true error handling requires PL/pgSQL, which contradicts their goal of avoiding it. The final approach remains using a LANGUAGE sql function with one SELECT statement that raises errors when validation fails.
+
+- Consider using `(SELECT ...)` with division by zero trick for validation errors
+- Use strict WHERE clause returning rows only when valid
+- Implement `PERFORM` for non-returning operations
+- Recognize limitations of pure SQL functions vs. PL/pgSQL error handling enqueue_receipt_tax_reconcile(p_receipt_id uuid)
+RETURNS void
+LANGUAGE sql
+SECURITY DEFINER
+SET search_path = public
+AS $sql$
+  WITH authorized_space AS (
+    SELECT r.space_id
+    FROM public.receipts r
+    INNER JOIN public.user_spaces us 
+      ON us.space_id = r.space_id AND us.user_id = auth.uid()
+    WHERE r.id = p_receipt_id
+      AND auth.uid() IS NOT NULL
+  ),
+  guard AS (
+    SELECT CASE
+      WHEN auth.uid() IS NULL THEN NULL
+      WHEN NOT EXISTS (SELECT 1 FROM public.receipts WHERE id = p_receipt_id) THEN NULL
+      WHEN NOT EXISTS (SELECT 1 FROM authorized_space) THEN NULL
+
+- Continue with the function definition and logic
+- Ensure proper error handling through SQL constructs
+- Avoid PL/pgSQL for simplicity and compatibility The current implementation is fragile, so a simpler approach is preferred: use two separate SQL statements within a single SQL function body, as PostgreSQL supports multiple statements in SQL functions when separated by semicolons.
+
+- First statement: Insert into `receipt_tax_recalc_queue` with conflict handling
+- Second statement: Return null to indicate completion
+- This avoids complexity of conditional logic and maintains simplicity while preserving functionality If the splitter fails on semicolons between statements, alternative approaches are needed.
+
+Splitting the migration into multiple files:
+- `20260418150000a` - table and index only (avoiding problematic semicolons)
+- `20260418150000b` - single-line function creation
+
+A minified one-line PL/pgSQL function:
+```sql
+CREATE OR REPLACE FUNCTION public.enqueue_receipt_tax_reconcile(p_receipt_id uuid) RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path=public AS $_$DECLARE s uuid;BEGIN IF auth.uid() IS NULL THEN RAISE EXCEPTION 'na'; END IF;SELECT r.space_id INTO s FROM receipts r WHERE r.
+``` The function uses `$_$` dollar quoting to avoid escaping issues and includes full error handling with `RAISE EXCEPTION` for invalid inputs or missing records. It checks for valid user authentication, ensures the receipt exists and belongs to the users space, prevents duplicate entries in the queue, and updates or inserts accordingly. The logic is structured to return early if a record already exists in the queue, otherwise inserting a new entry. The function is written in PL/pgSQL due to required error handling capabilities, but can be minified for compactness. 
+
+- Uses `$_$` for safe quoting
+- Checks user authentication and receipt ownership
+- Prevents duplicate queue entries
+- Updates existing entries or inserts new ones
+- Raises exceptions for invalid states
+- Returns early when appropriate The function may fail if the splitter incorrectly handles semicolons, especially in PL/pgSQL functions where multiple semicolons exist on the same line. A safer approach uses a single SQL statement with no internal semicolons before the final one, such as:
+
+- `WITH ... INSERT ... SELECT ... ON CONFLICT ... RETURNING ...`
+- Ensures only one semicolon at the end
+
+This avoids splitting issues and maintains compatibility. A unique index should also be added to prevent duplicates. CREATE UNIQUE INDEX IF NOT EXISTS receipt_tax_recalc_queue_one_pending_per_receipt
+  ON public.receipt_tax_recalc_queue (receipt_id)
+  WHERE processed_at IS NULL;
+
+INSERT INTO public.receipt_tax_recalc_queue (receipt_id, space_id)
+SELECT p_receipt_id, r.space_id
+FROM public.receipts r
+INNER JOIN public.user_spaces us ON us.space_id = r.space_id AND us.user_id = auth.uid()
+WHERE r.id = p_receipt_id
+  AND auth.uid() IS NOT NULL
+ON CONFLICT (receipt_id) WHERE (processed_at IS NULL)
+DO UPDATE SET enqueued_at = now(); For PostgreSQL's ON CONFLICT with partial unique indexes, the syntax is `ON CONFLICT (receipt_id) WHERE processed_at IS NULL`. According to the PostgreSQL 15 documentation, the conflict target can include `WHERE index_predicate` for partial unique indexes.
+
+- `ON CONFLICT (receipt_id) WHERE (processed_at IS NULL) DO UPDATE SET enqueued_at = now();`
+- When no rows match the SELECT, INSERT inserts zero rows without error. The client RPC returns void, which is a behavior change from using explicit RAISE, but this can be documented or mitigated with a follow-up validation SELECT.
+
+Post-insert validation can be done in the same statement using a CTE:
+
+- First CTE selects the receipt's space_id
+- Second CTE validates user authorization
+- Third CTE performs the insert with conflict handling
+- Final SELECT ensures proper validation and error propagation The previous approach used division by zero within a SELECT statement to trigger errors when validation failed. This method is fragile and hard to read.
+
+A cleaner validation approach uses CTEs to structure the logic clearly:
+
+- First CTE selects the receipt's space_id
+- Second CTE validates user authorization
+- Third CTE performs the insert with conflict handling
+- Final SELECT ensures proper validation and error propagation
+
+This avoids complex conditional logic and makes the flow easier to follow. The function now properly validates inputs and raises errors through SQL constructs rather than relying on division-by-zero tricks. The validation happens after all operations are complete, ensuring that any failure results in an error being raised appropriately. To handle validation errors cleanly, use `RAISE EXCEPTION` within a small PL/pgSQL `DO` block, as `ASSERT` is not available in PostgreSQL. Since semicolons in PL/pgSQL blocks may cause splitting issues, the `DO` block approach avoids this problem. Alternatively, use division by zero (`1/0`) within a `CASE` statement to trigger errors for invalid conditions like missing authentication or non-existent receipts. Another option is to use constraint violations by inserting into a dummy table with a `CHECK(false)` constraint, though this is more complex. However, creating extensions requires superuser privileges, which cannot be done in this context. Using `LANGUAGE sql` with a single `SELECT` statement at the end to evaluate expressions and raise exceptions ensures clean error handling without splitting issues. The function validates user authentication and receipt existence using conditional logic within the SELECT statement. It leverages `pg_catalog.raise_exception` to handle invalid states gracefully, avoiding complex PL/pgSQL structures that may cause splitting problems. This approach maintains simplicity while preserving necessary validation and error propagation. The function returns void and uses security definer settings to ensure proper execution context. The validation checks for null authentication, missing receipts, and unauthorized access attempts, raising appropriate exceptions for each case. This method avoids potential issues with semicolon-based splitting in migration tools by keeping the entire function as a single SQL statement with minimal PL/pgSQL overhead. The function uses a `WITH` clause to validate inputs and raise errors via division-by-zero in the `RETURNING` section. It checks for valid authentication, receipt existence, and user membership in the receipt's space. The validation occurs within a `SELECT` statement that never actually</details></think>

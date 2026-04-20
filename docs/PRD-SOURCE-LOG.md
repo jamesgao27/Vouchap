@@ -3182,6 +3182,55 @@
 
 ---
 
+### 2026-04-18（Vouchap：`enqueue_receipt_tax_reconcile` 迁移报错 relation sid）
+
+**User（提示词/原意）**  
+- **`20260418150000`** 迁移报错：`relation "sid" does not exist`。
+
+**Assistant（实现前说明，若有）**  
+- 怀疑 **`$$` 定界**或 **`sid` 标识符**在部分执行环境下被误解析，导致 PL/pgSQL 变量被当成关系名。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`20260418150000_receipt_tax_recalc_queue.sql`**：`DECLARE sid` 改为 **`v_space_id`**；函数体定界 **`$$` → `$function$`**。若表已建、仅函数失败，可重跑该迁移或单独 **`CREATE OR REPLACE FUNCTION`** 该段。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql`
+
+---
+
+### 2026-04-18（Vouchap：迁移仍报 relation v_space_id）
+
+**User（提示词/原意）**  
+- 执行迁移仍报错 **`relation "v_space_id" does not exist`**。
+
+**Assistant（实现前说明，若有）**  
+- 判定为 **按分号拆分 SQL** 时 **`$function$` 块未整体保留**，PL/pgSQL 片段被当普通 SQL 执行，变量名被当成关系名。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`enqueue_receipt_tax_reconcile`** 改为 **`AS ' ... '`** 单引号包裹整段函数体；**`RAISE`** 文案中单引号 **`''`** 转义。整段 **`CREATE FUNCTION`** 对外仅末尾一个分号，避免拆分器误切。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql`
+
+---
+
+### 2026-04-18（Vouchap：`enqueue` 迁移仍 42P01 — 改为 LANGUAGE sql）
+
+**User（提示词/原意）**  
+- 单引号 plpgsql 后仍报 **`relation "v_space_id" does not exist`**。
+
+**Assistant（实现前说明，若有）**  
+- 执行环境仍会拆开函数体；去掉 plpgsql 与一切局部变量。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`20260418150000`**：新增 **`receipt_tax_recalc_queue_pending_receipt_uniq`**；**`enqueue_receipt_tax_reconcile`** 改为 **`LANGUAGE sql`** 单条 **`WITH checks … INSERT … ON CONFLICT`**；校验失败 **`CASE` 短路 + `1/0`**。**`RECEIPT-TAX-ASYNC-PIPELINE.md`** 补说明。若已有多条 **同 receipt 未处理** 行，建唯一索引前需清理重复。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql`  
+- `docs/RECEIPT-TAX-ASYNC-PIPELINE.md`
+
+---
+
 ### 2026-04-18（Vouchap：发布版本号 2.5.8 Build 46）
 
 **User（提示词/原意）**  

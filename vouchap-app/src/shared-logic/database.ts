@@ -7,7 +7,7 @@ import { updateEntity, getEntityMergeMap, getEntityById, resolveEntityId, findOr
 import { getEntityOptionsForDuplicateCheck } from './entity-list';
 import { normalizeNameForCompare } from './name-utils';
 import { isMissingNestedAttributionEmbedError } from './postgrest-embed-errors';
-import { applyReceiptItemTaxesAndReconcile, scheduleReceiptTaxRecalcIfNeeded } from './receipt-item-tax';
+import { enqueueReceiptTaxReconcileFireAndForget } from './receipt-tax-queue-client';
 
 const ATTRIBUTION_LOOKUP_CHUNK = 120;
 const DEFAULT_RECEIPT_ITEM_NAME = 'Receipt item';
@@ -15,30 +15,6 @@ const DEFAULT_RECEIPT_ITEM_NAME = 'Receipt item';
 function normalizeReceiptItemNameForSave(name: unknown): string {
   const v = String(name ?? '').trim();
   return v.length > 0 ? v : DEFAULT_RECEIPT_ITEM_NAME;
-}
-
-function runReceiptItemTaxAsync(
-  receiptId: string,
-  spaceId: string,
-  currency?: string | null,
-): void {
-  const run = () => {
-    void (async () => {
-      try {
-        await applyReceiptItemTaxesAndReconcile(supabase, receiptId, spaceId);
-        scheduleReceiptTaxRecalcIfNeeded(supabase, receiptId, spaceId, currency);
-      } catch (error) {
-        // Tax split is best-effort and must not block receipt/items recognition or persistence.
-        console.warn('[receipt-tax-async] tax reconcile failed (non-blocking):', {
-          receiptId,
-          spaceId,
-          error,
-        });
-      }
-    })();
-  };
-  if (typeof queueMicrotask === 'function') queueMicrotask(run);
-  else setTimeout(run, 0);
 }
 
 function receiptItemAttributionRefId(item: { attribution_id?: unknown }): string | null {
@@ -316,7 +292,7 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
       }
     }
 
-    runReceiptItemTaxAsync(receiptId, spaceId, receipt.currency);
+    enqueueReceiptTaxReconcileFireAndForget(supabase, receiptId);
 
     return receiptId;
   } catch (error) {
@@ -485,7 +461,7 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
     }
 
     if (shouldRecomputeItemTaxes) {
-      runReceiptItemTaxAsync(receiptId, spaceId, receipt.currency);
+      enqueueReceiptTaxReconcileFireAndForget(supabase, receiptId);
     }
   } catch (error: any) {
     if (error?.code === 'ENTITY_NAME_EXISTS') {
