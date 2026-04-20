@@ -3423,3 +3423,19 @@
 - `/Users/macbook/antbim-website/README.md`
 
 ---
+
+### 2026-04-20（antbim-website：从 GitHub 发布到 Vercel — 文档细化）
+
+**User（提示词/原意）**  
+- **从 github 发布到 vercel**。
+
+**Assistant（实现前说明，若有）**  
+- 无代码逻辑变更；在 **`antbim-website/README.md`** 将「GitHub → Vercel」流程写为可执行分步（GitHub App 授权、Import、Root Directory、Production Branch、Preview）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已更新 README **方式 A**；推送 **`main`** 即触发 Vercel 生产部署，PR 预览依赖项目 Git 设置。仍需用户在 Dashboard 完成 Import（助手无法代登录）。
+
+**关联**  
+- `/Users/macbook/antbim-website/README.md`
+
+---
