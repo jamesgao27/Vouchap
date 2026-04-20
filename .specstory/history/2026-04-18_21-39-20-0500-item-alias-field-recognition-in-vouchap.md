@@ -10539,4 +10539,590 @@ A cleaner validation approach uses CTEs to structure the logic clearly:
 - Third CTE performs the insert with conflict handling
 - Final SELECT ensures proper validation and error propagation
 
-This avoids complex conditional logic and makes the flow easier to follow. The function now properly validates inputs and raises errors through SQL constructs rather than relying on division-by-zero tricks. The validation happens after all operations are complete, ensuring that any failure results in an error being raised appropriately. To handle validation errors cleanly, use `RAISE EXCEPTION` within a small PL/pgSQL `DO` block, as `ASSERT` is not available in PostgreSQL. Since semicolons in PL/pgSQL blocks may cause splitting issues, the `DO` block approach avoids this problem. Alternatively, use division by zero (`1/0`) within a `CASE` statement to trigger errors for invalid conditions like missing authentication or non-existent receipts. Another option is to use constraint violations by inserting into a dummy table with a `CHECK(false)` constraint, though this is more complex. However, creating extensions requires superuser privileges, which cannot be done in this context. Using `LANGUAGE sql` with a single `SELECT` statement at the end to evaluate expressions and raise exceptions ensures clean error handling without splitting issues. The function validates user authentication and receipt existence using conditional logic within the SELECT statement. It leverages `pg_catalog.raise_exception` to handle invalid states gracefully, avoiding complex PL/pgSQL structures that may cause splitting problems. This approach maintains simplicity while preserving necessary validation and error propagation. The function returns void and uses security definer settings to ensure proper execution context. The validation checks for null authentication, missing receipts, and unauthorized access attempts, raising appropriate exceptions for each case. This method avoids potential issues with semicolon-based splitting in migration tools by keeping the entire function as a single SQL statement with minimal PL/pgSQL overhead. The function uses a `WITH` clause to validate inputs and raise errors via division-by-zero in the `RETURNING` section. It checks for valid authentication, receipt existence, and user membership in the receipt's space. The validation occurs within a `SELECT` statement that never actually</details></think>
+This avoids complex conditional logic and makes the flow easier to follow. The function now properly validates inputs and raises errors through SQL constructs rather than relying on division-by-zero tricks. The validation happens after all operations are complete, ensuring that any failure results in an error being raised appropriately. To handle validation errors cleanly, use `RAISE EXCEPTION` within a small PL/pgSQL `DO` block, as `ASSERT` is not available in PostgreSQL. Since semicolons in PL/pgSQL blocks may cause splitting issues, the `DO` block approach avoids this problem. Alternatively, use division by zero (`1/0`) within a `CASE` statement to trigger errors for invalid conditions like missing authentication or non-existent receipts. Another option is to use constraint violations by inserting into a dummy table with a `CHECK(false)` constraint, though this is more complex. However, creating extensions requires superuser privileges, which cannot be done in this context. Using `LANGUAGE sql` with a single `SELECT` statement at the end to evaluate expressions and raise exceptions ensures clean error handling without splitting issues. The function validates user authentication and receipt existence using conditional logic within the SELECT statement. It leverages `pg_catalog.raise_exception` to handle invalid states gracefully, avoiding complex PL/pgSQL structures that may cause splitting problems. This approach maintains simplicity while preserving necessary validation and error propagation. The function returns void and uses security definer settings to ensure proper execution context. The validation checks for null authentication, missing receipts, and unauthorized access attempts, raising appropriate exceptions for each case. This method avoids potential issues with semicolon-based splitting in migration tools by keeping the entire function as a single SQL statement with minimal PL/pgSQL overhead. The function uses a `WITH` clause to validate inputs and raise errors via division-by-zero in the `RETURNING` section. It checks for valid authentication, receipt existence, and user membership in the receipt's space. The validation occurs within a `SELECT` statement that never actually executes due to `WHERE FALSE`, but still triggers errors during compilation if assertions fail. This avoids using `RAISE EXCEPTION` which could cause splitting issues in migration tools. The approach ensures proper error handling without requiring PL/pgSQL or complex conditional logic. 
+
+- Validates authentication, receipt existence, and user space membership
+- Uses division-by-zero trick to raise errors during compilation
+- Ensures validation happens before any actual database modifications
+- Avoids PL/pgSQL to prevent splitting issues in migrations</details></think>
+
+_**Agent (default)**_
+
+改用纯 `LANGUAGE sql` 的单条 `WITH ... INSERT ... SELECT` 语句，彻底去掉 PL/pgSQL 变量，避免任何按 `;` 拆分导致的误执行。并添加用于 `ON CONFLICT` 的部分唯一索引。
+
+
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+I'll replace the function with a SQL version and add a unique index after creating the regular index, before implementing the function.
+- Replace existing function with SQL version
+- Add unique index after regular index creation
+- Perform index addition before function implementation Note: For PostgreSQL 15, when using ON CONFLICT with a partial unique index, the WHERE clause must match exactly between the index and conflict clause. 
+
+- Index: `WHERE processed_at IS NULL`
+- Conflict: `ON CONFLICT (receipt_id) WHERE (processed_at IS NULL)`
+
+Also handle multiple NULL processed_at values - the unique index prevents duplicate pending entries for the same receipt.
+
+Edge case: `auth.uid() IS NULL` - CASE branch 1/0 - works correctly.
+
+Division by zero produces an ERROR in PostgreSQL rather than a warning, but can be handled with `cast(1/0 as int)` to avoid runtime issues.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+When using partial indexes with ON CONFLICT in PostgreSQL, the WHERE clause must match exactly.</details></think>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/docs/RECEIPT-TAX-ASYNC-PIPELINE.md</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+The model provided an ambiguous search string to replace
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+Verify the PostgreSQL SQL function using the WITH clause.</details></think>
+
+_**Agent (default)**_
+
+## 原因
+
+你的 SQL 环境仍在**按分号把语句拆开执行**，`plpgsql` 里带 `DECLARE` / `v_space_id` 的片段一旦单独跑，就会再次出现 **`relation "v_space_id" does not exist`**。单引号包一整段也没能挡住这种拆分。
+
+## 本次改法（已写入迁移）
+
+1. **新增部分唯一索引**  
+   `receipt_tax_recalc_queue_pending_receipt_uniq`  
+   - 条件：`processed_at IS NULL`  
+   - 含义：同一 `receipt_id` **最多一条「未处理」队列行**，用来支持下面的 `ON CONFLICT`。
+
+2. **`enqueue_receipt_tax_reconcile` 改为 `LANGUAGE sql`，且整条函数体只有一句**（末尾一个分号）：  
+   - `WITH checks AS (...)`：用 **`CASE` 短路 + `1/0`** 做校验（未登录 / 无小票 / 非成员会除零报错；错误文案是 Postgres 的除零提示，不是以前的英文 RAISE 文案）。  
+   - `ins AS (INSERT ... SELECT ... ON CONFLICT (receipt_id) WHERE (processed_at IS NULL) DO UPDATE SET enqueued_at = now() RETURNING ...)`：新 pending 则插入，已有 pending 则只 **bump `enqueued_at`**。  
+   - 最后 `SELECT NULL::void FROM ins`：保证 **INSERT 一定会执行**。
+
+这样**不再出现任何 plpgsql 变量**，即使用分号拆，也不会再出现把 `v_space_id` 当表名的问题。
+
+## 你需要注意
+
+- 若表里已经有 **同一 `receipt_id`、多条 `processed_at IS NULL`** 的旧数据，**建唯一索引会失败**。要先删掉或合并重复 pending，再跑迁移。  
+- 校验失败时现在是 **除零错误**，若以后要「not authenticated」这类明确文案，可以再包一层很薄的 plpgsql **只调**这条 SQL。
+
+`docs/RECEIPT-TAX-ASYNC-PIPELINE.md` 和 `docs/PRD-SOURCE-LOG.md` 已补充说明。请**整文件重跑** `20260418150000_receipt_tax_recalc_queue.sql`（或至少从「唯一索引」到「COMMENT ON FUNCTION」整段一起执行）。
+
+---
+
+_**User**_
+
+@/Users/macbook/.cursor/projects/Users-macbook-Vouchap-git-Vouchap-workspace-code-workspace/terminals/10.txt:93-98 
+
+---
+
+_**Agent (default)**_
+
+<think><details><summary>Thought Process</summary>
+The user encountered a terminal error during an EAS Build or Expo iOS build process.</details></think>
+
+_**Agent (default)**_
+
+这不是你项目代码或 `bundle id` 配置写错的问题，而是 **Apple 开发者账号侧的限制**。
+
+## 报错在说什么
+
+- **403 / Access forbidden**：当前 Apple ID 对「注册 bundle id / 使用会员资源」的请求被拒绝。  
+- **PLA Update available**：Apple 发布了**新的《Program License Agreement》（计划许可协议）**，你（或团队 Agent）**还没在开发者账号里点同意**。  
+- 在协议未更新前，很多操作会被拦，包括 **注册/校验 `com.vouchap.app`**，所以 EAS/Expo 的 **register bundle identifier** 会失败。
+
+## 你要做的事（按顺序）
+
+1. 用 **Apple Developer 账号持有人或 Admin** 登录：  
+   [https://developer.apple.com/account](https://developer.apple.com/account)  
+2. 若首页或 **Agreements** 里有 **红色提示 / 待签署协议**，打开并 **Review & Agree** 最新 **Program License Agreement**（有时还会连带 **Paid Apps** 等协议）。  
+3. 若你是 **公司/团队账号**，需要 **Account Holder 或 Legal 角色** 同意；普通成员可能看不到或无法签署。  
+4. 全部保存后 **等几分钟**，再在本地重试构建（例如 `eas build` 或你刚才用的命令）。
+
+## 若仍 403
+
+- 确认登录的是 **绑定了该 Team 的 Apple ID**，且该账号 **已付费且有效** 的 Apple Developer Program。  
+- 到 [App Store Connect](https://appstoreconnect.apple.com) 看是否也有 **协议/税务/银行** 待办。  
+- 偶尔需 **退出并重新登录** Xcode / EAS 使用的 Apple 会话后再试。
+
+总结：**先去 developer.apple.com 把最新 PLA（及相关协议）签掉**，再重跑构建即可。
+
+---
+
+_**User**_
+
+刚修改receipt详情中的币种，提示保存失败，然后items没了。
+
+---
+
+_**Agent (default)**_
+
+我先定位到 `updateReceipt` 的写入顺序，重点检查“先删 items 再插入”的逻辑，这很可能导致“保存失败后 items 被清空”。然后我会直接修复成更安全的顺序。
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="read_lints">
+<details>
+<summary>Tool use: **read_lints**</summary>
+
+
+Parameters:
+
+```json
+{
+  "paths": [
+    "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts"
+  ]
+}
+```
+Result:
+
+```json
+{
+  "linterErrorsByFile": [
+    {
+      "relativeWorkspacePath": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts"
+    }
+  ]
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="read_lints"><details>
+<summary>Tool use: **read_lints**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2">
+
+<details><summary>Tool use: **edit_file_v2** • Edit file: /Users/macbook/Vouchap/docs/PRD-SOURCE-LOG.md</summary>
+
+</details>
+
+</tool-use>
+
+<tool-use data-tool-type="write" data-tool-name="edit_file_v2"><details>
+<summary>Tool use: **edit_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+你这个现象我已经定位并修复了，根因是 `updateReceipt` 的写入顺序问题：
+
+- 之前逻辑是：**先删旧 items** -> 再校验/插入新 items。  
+- 一旦后面报错（比如某个 item 缺 `categoryId`、或插入异常），就会出现你看到的：**保存失败 + items 已经被删空**。
+
+我已在 `vouchap-app/src/shared-logic/database.ts` 改成更安全流程：
+
+1. 先校验并构造 `itemsToInsert`（有问题直接报错，不删旧数据）。  
+2. 删除前先抓一份旧 `receipt_items` 快照。  
+3. 删除旧 items 后插入新 items。  
+4. 若插入失败，执行 **best-effort 回滚**：把旧快照重新插回去，再抛错。
+
+这样即使保存失败，也不应该再把 items 直接清空。
+
+建议你现在复测：
+- 打开同一张 receipt 改币种保存；
+- 若仍失败，检查报错文案；
+- 重点确认失败后 items 是否还在。  
+
+如果你愿意，我下一步可以继续帮你把“改币种时前端不传完整 items 也不会触发 items 重写”这层也做成更稳的保护。
+
+---
+
+_**User**_
+
+items应该改为update模式，而不是先删后新赠，有什么矛盾的逻辑么？
+
+---
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic",
+  "pattern": "receipt_item_id"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic",
+  "pattern": "receipt_item_id",
+  "topFiles": [
+    {
+      "matchCount": 13,
+      "uri": "vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 13,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 13,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 13,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 13,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    },
+    {
+      "matchCount": 13,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 78
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search">
+<details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+
+Parameters:
+
+```json
+{
+  "caseInsensitive": false,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/types",
+  "pattern": "export interface ReceiptItem|type ReceiptItem"
+}
+```
+Additional data:
+
+```json
+{
+  "isPruned": true,
+  "outputMode": "content",
+  "path": "/Users/macbook/Vouchap/vouchap-app/src/shared-logic/types",
+  "pattern": "export interface ReceiptItem|type ReceiptItem",
+  "topFiles": [
+    {
+      "matchCount": 1,
+      "uri": "vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    },
+    {
+      "matchCount": 1,
+      "uri": "../Vouchap/vouchap-app/src/shared-logic/types/index.ts"
+    }
+  ],
+  "totalFiles": 6,
+  "totalMatches": 6
+}
+```
+Status: **completed**
+
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="unknown" data-tool-name="ripgrep_raw_search"><details>
+<summary>Tool use: **ripgrep_raw_search**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/types/index.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2">
+<details><summary>Tool use: **read_file_v2** • Read file: /Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts</summary>
+
+</details>
+</tool-use>
+
+<tool-use data-tool-type="read" data-tool-name="read_file_v2"><details>
+<summary>Tool use: **read_file_v2**</summary>
+
+</details></tool-use>
+
+_**Agent (default)**_
+
+你这个判断是对的：**长期看应该走 update/upsert 模式**，比“删光再插”更稳。  
+但现在代码里确实有几个“删插更简单、update更复杂”的矛盾点。
+
+### 目前的关键矛盾
+
+- **前端 payload 不一定带稳定 `item.id`**  
+  `ReceiptItem.id` 是可选字段，意味着更新时不一定能精准定位“哪一行是原来的哪一行”。  
+  ```90:98:/Users/macbook/Vouchap/vouchap-app/src/shared-logic/types/index.ts
+  export interface ReceiptItem {
+    id?: string;
+    name: string;
+    /** Human-friendly alias inferred from OCR/AI when original line text is cryptic SKU/abbreviation. */
+    itemAlias?: string;
+    categoryId: string;
+    /** 对应 DB receipt_items.attribution_id → attributions.id */
+  ```
+  没有稳定 id 时，update 模式就要做“行匹配算法”（按 name+price+顺序猜），容易错配。
+
+- **现有逻辑把 `receipt.items` 当“全量覆盖”语义**  
+  现在 `updateReceipt` 里只要传了 `receipt.items`，就是整单重写，不是 patch。  
+  ```419:427:/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts
+  // 如果更新了商品项，先删除旧的再插入新的
+  if (receipt.items !== undefined) {
+    const itemsToInsert: any[] = [];
+    for (const item of receipt.items) {
+      let categoryId = item.categoryId;
+      if (!categoryId && item.category) {
+        categoryId = item.category.id;
+  ```
+  这使得实现简单，但容错差（你遇到的问题就来自这里）。
+
+- **税拆分流程是按 `receipt_item_id` 重算重写**  
+  拆税逻辑本来就会删除并重建 `receipt_item_taxes`，所以历史上对“item id 稳定性”不敏感。  
+  ```1457:1461:/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-item-tax.ts
+  const itemIds = items.map((i) => i.id as string);
+  await supabase.from('receipt_item_taxes').delete().in('receipt_item_id', itemIds);
+
+  if (inserts.length > 0) {
+    const { error: insErr } = await supabase.from('receipt_item_taxes').insert(inserts);
+  ```
+  这在业务上可行，但对审计/追踪/并发编辑不友好。
+
+---
+
+### 结论（是否有逻辑矛盾）
+
+有，但不是“不能改”的矛盾，而是“**要先统一语义**”：
+
+1. `receipt.items` 是全量覆盖还是增量 patch？  
+2. 客户端是否保证每个 item 始终带稳定 `id`？  
+3. 税拆分是否允许 item id 频繁变化？
+
+只要这三点定清，改成 update/upsert 完全可行。
+
+---
+
+### 建议的演进顺序（稳）
+
+- 第一步：明确 API 语义  
+  - `items` 缺省：不改  
+  - `items` 传入：建议改为“全量但保 id 的 upsert + 删除缺失项”
+- 第二步：强制客户端回传 `item.id`（已有行必须带）
+- 第三步：服务端按 `id` 做  
+  - `update existing`  
+  - `insert new`  
+  - `delete removed`
+- 第四步：把整个 receipt 更新 + items 变更放事务（避免半成功）
+- 第五步：保留 tax 重算触发，但与 items CRUD 解耦（你们现在也在走这个方向）
+
+如果你要，我可以下一步给你出一版**不改表结构**的“`updateReceipt` upsert 伪代码方案”，先在现有类型上落地。
+
+---
+
+_**User**_
+
+直接一步改到位有什么问题么？

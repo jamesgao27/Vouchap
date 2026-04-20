@@ -98,8 +98,18 @@ export async function runTaxFilingRecognition(
   mimeHint?: string,
   taskList?: TaxFilingTaskListItem[]
 ): Promise<TaxFilingRecognitionResult> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === 'placeholder-key') {
+  const currentApiKeyRaw =
+    Constants.expoConfig?.extra?.geminiApiKey ||
+    process.env.EXPO_PUBLIC_GEMINI_API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    '';
+  const currentApiKey = String(currentApiKeyRaw).trim();
+  const invalidApiKey =
+    !currentApiKey ||
+    currentApiKey === 'placeholder-key' ||
+    currentApiKey === 'undefined' ||
+    currentApiKey.includes('${');
+  if (invalidApiKey) {
     const err = new Error('Gemini API Key 未配置') as any;
     err.code = 'GEMINI_API_KEY_MISSING';
     throw err;

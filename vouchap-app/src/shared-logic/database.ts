@@ -418,44 +418,57 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
 
     // 如果更新了商品项，先删除旧的再插入新的
     if (receipt.items !== undefined) {
-      // 删除旧商品项
-      await supabase
+      const itemsToInsert: any[] = [];
+      for (const item of receipt.items) {
+        let categoryId = item.categoryId;
+        if (!categoryId && item.category) {
+          categoryId = item.category.id;
+        }
+        if (!categoryId) {
+          // Validate before delete to avoid wiping existing items on bad payload.
+          throw new Error(`Item "${item.name}" is missing category ID`);
+        }
+
+        itemsToInsert.push({
+          receipt_id: receiptId,
+          name: normalizeReceiptItemNameForSave(item.name),
+          item_alias: item.itemAlias?.trim() || null,
+          category_id: categoryId,
+          attribution_id: item.attributionId ?? null,
+          price: item.price,
+          is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
+          confidence: item.confidence,
+          pos_tax_code: item.posTaxCode?.trim() ? item.posTaxCode.trim().toUpperCase() : null,
+        });
+      }
+
+      const { data: existingItemsSnapshot } = await supabase
+        .from('receipt_items')
+        .select('receipt_id, name, item_alias, category_id, attribution_id, price, is_asset, confidence, pos_tax_code')
+        .eq('receipt_id', receiptId);
+
+      const { error: delErr } = await supabase
         .from('receipt_items')
         .delete()
         .eq('receipt_id', receiptId);
+      if (delErr) throw delErr;
 
-      // 插入新商品项
-      if (receipt.items.length > 0) {
-        const itemsToInsert: any[] = [];
+      if (itemsToInsert.length > 0) {
+        const { error: itemsError } = await supabase
+          .from('receipt_items')
+          .insert(itemsToInsert);
 
-        for (const item of receipt.items) {
-          let categoryId = item.categoryId;
-          if (!categoryId && item.category) {
-            categoryId = item.category.id;
+        if (itemsError) {
+          // Best-effort rollback to avoid permanently blanking items after failed save.
+          if (existingItemsSnapshot && existingItemsSnapshot.length > 0) {
+            const { error: restoreError } = await supabase
+              .from('receipt_items')
+              .insert(existingItemsSnapshot);
+            if (restoreError) {
+              console.warn('Failed to restore previous receipt_items snapshot:', restoreError);
+            }
           }
-          if (!categoryId) {
-            throw new Error(`Item "${item.name}" is missing category ID`);
-          }
-
-          itemsToInsert.push({
-            receipt_id: receiptId,
-            name: normalizeReceiptItemNameForSave(item.name),
-            item_alias: item.itemAlias?.trim() || null,
-            category_id: categoryId,
-            attribution_id: item.attributionId ?? null,
-            price: item.price,
-            is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
-            confidence: item.confidence,
-            pos_tax_code: item.posTaxCode?.trim() ? item.posTaxCode.trim().toUpperCase() : null,
-          });
-        }
-
-        if (itemsToInsert.length > 0) {
-          const { error: itemsError } = await supabase
-            .from('receipt_items')
-            .insert(itemsToInsert);
-
-          if (itemsError) throw itemsError;
+          throw itemsError;
         }
       }
     }

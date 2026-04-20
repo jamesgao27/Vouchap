@@ -8,6 +8,64 @@
 
 ---
 
+### 2026-04-20（Vouchap：receipt 分类提示词再增强——引入 entity 与票面上下文）
+
+**User（提示词/原意）**  
+- 提示词需进一步优化：准确判断 `category` 与 `attribution` 还需结合 receipt 的 `entity` 等票面其他可用信息。
+
+**Assistant（实现前说明，若有）**  
+- 继续在 `gemini.ts` 的 receipt 提示词层面增强判定约束，除 `name + itemAlias` 外，加入 receipt-level 语义信号（entity/merchant profile、税区线索、票面抬头关键词、支付账户线索、同单据 basket pattern）作为分类与归属决策依据。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已更新 `buildReceiptExtractionRules` 的分类规则：明确 `categoryName/attributionName` 需同时参考行级信息与票据级上下文，避免与商家/实体画像冲突；遇到单行歧义时，先结合同票据其他行与购物篮模式再判断。  
+- 已更新 `recognizeReceiptFromText` 的文字识别 prompt，同步加入 entity 与票面上下文联合判定要求，保证图片/文档/文字路径规则一致。  
+- 说明：当前 `gemini.ts` 存在两条历史类型断言 lint（`GeminiReceiptResult` 到 `Record<string, unknown>`），与本次提示词文本修改无直接关系，本轮未改动该逻辑。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini.ts`
+
+---
+
+### 2026-04-20（Vouchap：Web 生产 receipt 识别失败 + category/attribution 错分优化）
+
+**User（提示词/原意）**  
+- 连续在 Web 生产环境通过 chat 提交 receipt 图片识别失败；dev 环境可识别但 `category` 与 `attribution` 识别明显错误，要求优化提示词：在客户备选选项中结合 `item_alias` 一起判断。
+
+**Assistant（实现前说明，若有）**  
+- 排查 chat 上传链路后，优先处理两点：  
+  1) Gemini Key 在生产注入占位符（如 `${EXPO_PUBLIC_...}`）时，现有判定可能误认为“有值”，导致请求失败；  
+  2) receipt 提示词虽有候选列表，但对 `name` 与 `itemAlias` 联合判定约束不够强，导致错分。  
+- 计划修改 `gemini.ts` 与 `tax-filing-recognition-run.ts` 的 key 安全校验，并增强 receipt extraction prompt 的分类/归属选择规则。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/shared-logic/gemini.ts`：新增 `getCurrentGeminiApiKey()`，统一过滤无效 key（空值、`placeholder-key`、`undefined`、包含 `${` 的占位符）；并在 receipt 相关入口（图片、文档、文本、supplier info）改为使用该安全函数，降低 Web 生产环境因占位符注入导致的识别失败。  
+- `vouchap-app/src/shared-logic/tax-filing-recognition-run.ts`：同样补充无效 key 判定（含 `${`/`undefined`），避免 tax-filing 识别链路出现同类生产失败。  
+- `vouchap-app/src/shared-logic/gemini.ts`：强化 receipt 提示词，明确 `categoryName` / `attributionName` 必须结合每行 `name + itemAlias` 联合判断；当 `name` 为 code-like 时优先参考 `itemAlias` 语义；优先命中客户备选项，仅在无合理匹配时新增值。  
+- 已对改动文件执行 lints 检查，无新增 lint 错误。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini.ts`  
+- `vouchap-app/src/shared-logic/tax-filing-recognition-run.ts`
+
+---
+
+### 2026-04-18（Vouchap：改币种保存失败且 items 被清空）
+
+**User（提示词/原意）**  
+- receipt 详情改币种时保存失败，随后 items 消失。
+
+**Assistant（实现前说明，若有）**  
+- 排查 `updateReceipt`：当 `receipt.items` 传入时先 `delete receipt_items`，再做插入与校验；若后续抛错会导致旧 items 已被删，出现“保存失败 + items 没了”。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/shared-logic/database.ts`：将 items 流程改为 **先校验并构造 payload，再删除旧行**；删除前先抓取 snapshot。若插入失败，执行 **best-effort 回滚**（把 snapshot 重插）并继续抛错，避免明细永久丢失。  
+- 该修复不改变币种字段逻辑，仅修正失败路径的数据安全。
+
+**关联**  
+- `vouchap-app/src/shared-logic/database.ts`
+
+---
+
 ### 2026-04-16（aim.link-v2：第二批20项连续执行（ProjectDetail/ProjectList/Task/Messages收口））
 
 **User（提示词/原意）**  

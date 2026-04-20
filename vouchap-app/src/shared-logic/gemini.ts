@@ -88,6 +88,17 @@ const getSafeKey = () => {
   return (k.includes('${') || k === 'undefined') ? '' : k;
 };
 
+function getCurrentGeminiApiKey(): string {
+  const raw =
+    Constants.expoConfig?.extra?.geminiApiKey ||
+    process.env.EXPO_PUBLIC_GEMINI_API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    '';
+  const key = String(raw).trim();
+  if (!key || key === 'placeholder-key' || key === 'undefined' || key.includes('${')) return '';
+  return key;
+}
+
 const apiKey = getSafeKey();
 
 const genAI = (apiKey && apiKey !== '')
@@ -155,6 +166,12 @@ Selection priority for categoryName and attributionName:
 - Choose the MOST semantically accurate option from the provided lists.
 - Treat the list order as unranked suggestions; DO NOT assume earlier options are preferred.
 - Use frequency/popularity only as a weak tie-breaker when two options are equally good.
+- Decide per line item using BOTH "name" and "itemAlias" together.
+- If "name" is code-like/cryptic and itemAlias is clearer, prioritize itemAlias meaning for categoryName/attributionName matching.
+- Prefer selecting from provided customer options whenever there is a close semantic match; create a new value only when none of the options reasonably fit.
+- Also use receipt-level context to disambiguate categoryName/attributionName: supplier/entity identity, merchant type, receipt title/header keywords, tax jurisdiction clues, and payment/account hints.
+- Keep line-level and receipt-level signals consistent: avoid assigning categories/attributions that conflict with the merchant/entity profile or document context unless the line explicitly indicates an exception.
+- If a line is ambiguous, infer from nearby lines and overall basket pattern (e.g., grocery basket vs fuel station vs restaurant) before choosing categoryName/attributionName.
 
 1. Supplier name (supplierName): Extract the complete merchant/store name from the receipt header (usually the most prominent text at the top). 
    - Pick from Existing Suppliers above if it matches; else return the extracted name (will create new supplier).
@@ -215,7 +232,7 @@ Return ONLY valid JSON, no markdown. Format:
 // 识别小票内容（使用图片 URL）
 export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptResult> {
   // 重新获取 API Key（确保使用最新的值）
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  const currentApiKey = getCurrentGeminiApiKey();
 
   // 调试日志
   console.log('=== Gemini API Key Debug ===');
@@ -225,7 +242,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
   console.log('===========================');
 
   // 验证 API Key 是否配置
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+  if (!currentApiKey) {
     const errorMsg = `Gemini API Key 未配置。\n\n调试信息：\n- Constants.expoConfig?.extra?.geminiApiKey: ${Constants.expoConfig?.extra?.geminiApiKey ? '存在' : '不存在'}\n- process.env.EXPO_PUBLIC_GEMINI_API_KEY: ${process.env.EXPO_PUBLIC_GEMINI_API_KEY ? '存在' : '不存在'}\n- 当前 API Key 值: ${currentApiKey || '(空)'}\n\n请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY，然后重新构建应用。`;
     const error = new Error(errorMsg) as any;
     error.code = 'GEMINI_API_KEY_MISSING';
@@ -640,8 +657,8 @@ async function downloadFileToBase64(fileUrl: string, mimeHint?: string): Promise
  * 小票/支出文档识别（PDF 等）：解析部分与图片不同，数据规则与返回格式与 recognizeReceipt 一致，prompt 组合提交。
  */
 export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: string): Promise<GeminiReceiptResult> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+  const currentApiKey = getCurrentGeminiApiKey();
+  if (!currentApiKey) {
     const err = new Error('Gemini API Key 未配置') as any;
     err.code = 'GEMINI_API_KEY_MISSING';
     throw err;
@@ -818,9 +835,9 @@ export async function recognizeSupplierInfo(
   phone?: string;
   address?: string;
 }> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  const currentApiKey = getCurrentGeminiApiKey();
 
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+  if (!currentApiKey) {
     console.warn('Gemini API Key not configured for supplier info recognition');
     return {};
   }
@@ -972,9 +989,9 @@ Return ONLY valid JSON format without any extra text:
 // 从文字识别小票内容
 export async function recognizeReceiptFromText(text: string): Promise<GeminiReceiptResult> {
   // 重新获取 API Key（确保使用最新的值）
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
+  const currentApiKey = getCurrentGeminiApiKey();
 
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
+  if (!currentApiKey) {
     const error = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
     error.code = 'GEMINI_API_KEY_MISSING';
     throw error;
@@ -1048,7 +1065,7 @@ export async function recognizeReceiptFromText(text: string): Promise<GeminiRece
 
   const prompt = `Extract receipt/purchase from text. Return ONLY valid JSON, no markdown.
 
-Rules: Gibberish/no real content → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, attributionName, paymentAccountName: pick from injected lists if match, else return new value (will create). For categoryName/attributionName, prioritize semantic fit, not list position/frequency (frequency is only weak tie-breaker). Dates YYYY-MM-DD; categoryName and attributionName from lists. Relative: today=${today}, yesterday=day before ${today}, 上周五/last Friday=${lastFridayStr}. Ambiguous dates → closest to ${today}; year missing → ${currentYear} or ${currentYear - 1}.
+Rules: Gibberish/no real content → confidence 0.1, supplierName "Unknown", totalAmount 0, items []. For supplierName, categoryName, attributionName, paymentAccountName: pick from injected lists if match, else return new value (will create). For categoryName/attributionName, prioritize semantic fit, not list position/frequency (frequency is only weak tie-breaker). Choose categoryName/attributionName by combining each line's "name" and "itemAlias": if "name" is SKU/code-like and itemAlias is clearer, rely more on itemAlias meaning. Also use receipt-level context (entity/supplier identity, merchant type, header keywords, tax jurisdiction, account/payment hints, and basket pattern across lines) to disambiguate. Prefer provided customer options whenever semantically close; create new only when no option fits. Dates YYYY-MM-DD; categoryName and attributionName from lists. Relative: today=${today}, yesterday=day before ${today}, 上周五/last Friday=${lastFridayStr}. Ambiguous dates → closest to ${today}; year missing → ${currentYear} or ${currentYear - 1}.
 Items: at least one. ${RECEIPT_JSON_ITEMS_RULE} Example item: ${JSON.stringify(RECEIPT_JSON_ITEMS_EXAMPLE)}. Infer single item from total if needed.
 
 Data: today=${today}, 上周五=${lastFridayStr}. Suppliers [${supplierList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Personal".
