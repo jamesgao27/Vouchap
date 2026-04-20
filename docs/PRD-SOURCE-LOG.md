@@ -8,6 +8,77 @@
 
 ---
 
+### 2026-04-20（aim.link-v2：修复 project-map SCSS 未定义 `$aimlink-web-text`）
+
+**User（提示词/原意）**  
+- Vite/Sass：`Undefined variable` `$aimlink-web-text`（`aimlink-web-project-map-port.scss`）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 在该文件顶部定义与 **`aimlink-web-shell-layout.scss`** 一致的 **`$aimlink-web-*`** 变量（该样式由 **`root.tsx`** 独立引入，不继承 shell 文件中的变量作用域）。**`npm run build -w @aimlink/web`** 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/styles/aimlink-web-project-map-port.scss`
+
+---
+
+### 2026-04-20（aim.link-v2：Project map 按业务逻辑实现编辑—保存闭环）
+
+**User（提示词/原意）**  
+- 不要只「抄样子」；先按业务逻辑理解原项目；先实现**可编辑保存**闭环；按业务逻辑对齐复用。
+
+**Assistant（实现前说明，若有）**  
+- 区分数据模型：独立 **Project-map** 用 **`workmap`** 元数据 + 编辑器内存树（导出 JSON，未见写回 `mind_map` 文档表）；v2 用 **`workspace_project_maps.mind_map_document`**。  
+- 定 **`mind_map_document` v1** 契约并实现 **`mind-map-document.ts`**；首版编辑用与 **Project-map Text 模式**相同的大纲缩进算法；新增草稿编辑路由与 **Save**（带 `workspace_id` + `published_project_id IS NULL`）、**Discard**、干净状态下 **Publish**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 代码与文档均在 **`aim.link-v2`** / **`Vouchap/docs`** 已列路径；**`npm run typecheck -w @aimlink/web`** 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/lib/mind-map-document.ts`  
+- `aim.link-v2/apps/web/src/pages/ProjectMapDraftEditorPage.tsx`  
+- `aim.link-v2/apps/web/src/pages/ProjectMapPage.tsx`  
+- `aim.link-v2/apps/web/src/App.tsx`  
+- `aim.link-v2/docs/DATABASE-SCHEMA.md`、`docs/PRD.md`、`docs/PROMPTS-LOG.md`、`docs/COMPONENT-LIBRARY.md`、`apps/web/README.md`
+
+---
+
+### 2026-04-20（aim.link-v2：Project map 续作 — root 样式引入、Create 空标题、文档）
+
+**User（提示词/原意）**  
+- 对话续作（摘要）：核对 **`root.tsx`** 是否引入 **`aimlink-web-project-map-port.scss`**、类型检查、PRD/组件库/README；**Create** 允许空标题；页头标题样式类名与 **`h2`** 一致。
+
+**Assistant（实现前说明，若有）**  
+- 在 **`aim.link-v2`** 仓库：`root.tsx` 增加 project-map 端口样式 import；**`ProjectMapPage`** 去掉 Create 对空名的禁用；SCSS 页头选择器对齐 **`aimlink-project-map__header-title`**；跑 **`npm run typecheck -w @aimlink/web`**；更新 **`docs/PRD.md`**、**`docs/PROMPTS-LOG.md`**、**`docs/COMPONENT-LIBRARY.md`**、**`apps/web/README.md`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已按上项完成；类型检查通过。改动均在 **`aim.link-v2`**，**Vouchap** 代码无变更。
+
+**关联**  
+- `aim.link-v2/apps/web/src/root.tsx`  
+- `aim.link-v2/apps/web/src/pages/ProjectMapPage.tsx`  
+- `aim.link-v2/apps/web/src/styles/aimlink-web-project-map-port.scss`  
+- `aim.link-v2/docs/PRD.md`、`PROMPTS-LOG.md`、`COMPONENT-LIBRARY.md`  
+- `aim.link-v2/apps/web/README.md`
+
+---
+
+### 2026-04-20（aim.link-v2：重启测试服务器，仅保留一个实例）
+
+**User（提示词/原意）**  
+- 启动 `aim.link-v2` 项目的测试服务器；随后要求“关掉全部，重新启动一个”。
+
+**Assistant（实现前说明，若有）**  
+- 先检查当前终端中是否已有 `aim.link-v2` dev server 在运行，避免重复拉起；再停止相关 `npm run dev` / `vite` 进程，仅重启一个实例。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已停止现有 `aim.link-v2` 开发进程，并在 `aim.link-v2` 根目录重新启动单一 dev server（`npm run dev`）。  
+- 当前可访问地址：`http://localhost:5173/`。
+
+**关联**  
+- `aim.link-v2`（本轮为运行命令，无代码文件变更）
+
+---
+
 ### 2026-04-20（Vouchap：receipt 分类提示词再增强——引入 entity 与票面上下文）
 
 **User（提示词/原意）**  
@@ -3302,5 +3373,53 @@
 
 **关联**  
 - `vouchap-app/package.json`、`package-lock.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`
+
+---
+
+### 2026-04-20（独立站点：antbim-website 重设计 + Vercel）
+
+**User（提示词/原意）**  
+- 在 workspace 新建项目 **`antbim-website`**，参考 **`https://www.antbim.com/`** 重新设计网站；已有内容需全面用上；UI 风格可按素材重新构思；同样发布在 Vercel 上。
+
+**Assistant（实现前说明，若有）**  
+- 在 **`/Users/macbook/antbim-website`** 新建 **Next.js 14 + App Router + Tailwind** 营销落地页；将官网公开信息结构化为 **`lib/site-content.ts`**；首页分段覆盖产品八大模块、五大能力块、ERP、解决方案、案例、资源中心/资讯、信任数据与 CTA；提供 **`vercel.json`** 与 **README** 部署说明。因本机 **`~/.npm` 权限问题**，使用 **`npm install --cache /tmp/npm-cache-antbim`**。未代用户执行 **`vercel --prod`**（需账号/仓库绑定）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 项目已创建且 **`npm run build`** 通过；页脚注明为重设计演示站点以免与官方混淆，可按需删改。Vercel：将目录推送到 Git 后在 Dashboard 设 Root Directory **`antbim-website`**，或在该目录执行 **`npx vercel --prod`**。
+
+**关联**  
+- `/Users/macbook/antbim-website/`（`app/page.tsx`、`components/*`、`lib/site-content.ts`、`README.md`、`vercel.json`）
+
+---
+
+### 2026-04-20（antbim-website：配置 GitHub remote，推送需本机登录/建库）
+
+**User（提示词/原意）**  
+- **git 到 github**。
+
+**Assistant（实现前说明，若有）**  
+- 根据 sibling 仓库推断 **`origin`** 为 **`https://github.com/jameszjgao/antbim-website.git`**；尝试 **`git push`** 因远端仓库尚未创建而失败；本机 **`gh` 未登录**、**SSH 无可用公钥**，无法在无交互环境下代建仓库或推送。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已 **`brew install gh`**（此前环境无 `gh`）；**`origin`** 已指向上述 URL；**`README.md`** 增补 GitHub 推送步骤（网页建空库或 **`gh repo create`**）；提交 **`docs: add GitHub push instructions`**。用户需在 GitHub 创建 **`jameszjgao/antbim-website`**（或改掉 remote）后执行 **`git push -u origin main`**，或 **`gh auth login`** 后按 README 方式 B 操作。
+
+**关联**  
+- `/Users/macbook/antbim-website/README.md`、`.git/config`（`origin`）
+
+---
+
+### 2026-04-20（antbim-website：请求发布 Vercel — 本机无凭据）
+
+**User（提示词/原意）**  
+- **发布到 vercel**。
+
+**Assistant（实现前说明，若有）**  
+- 在 **`/Users/macbook/antbim-website`** 执行 **`npx vercel deploy --prod --yes`**；环境变量 **`VERCEL_TOKEN`** 未设置。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- CLI 报错：**`No existing credentials found`**（需 **`vercel login`** 或 **`--token`**），无法在助手侧代完成浏览器授权。已扩充 **`README.md`**「发布到 Vercel」：**GitHub Import**、**CLI 登录 + prod**、**Token 非交互部署** 三种路径。用户任选其一后即可上线。
+
+**关联**  
+- `/Users/macbook/antbim-website/README.md`
 
 ---
