@@ -3439,3 +3439,19 @@
 - `/Users/macbook/antbim-website/README.md`
 
 ---
+
+### 2026-04-20（antbim-website：默认浅色 + 明暗切换）
+
+**User（提示词/原意）**  
+- **只有深色模式，需默认浅色，并可切换**。
+
+**Assistant（实现前说明，若有）**  
+- 引入 **`next-themes`**（`class` 策略）、**`ThemeProvider`** 默认 **`light`**、**`enableSystem={false}`**；**`ThemeToggle`** 置于顶栏；**Tailwind** **`darkMode: 'class'`**；全局与各区块补 **`dark:`** 与浅色基准；浅色栅格 **`grid-fade-light`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`npm run build`** 通过；主题会持久化。改动见 **`antbim-website`**：`app/providers.tsx`、`components/ThemeToggle.tsx`、`tailwind.config.ts`、`app/globals.css`、`app/layout.tsx`、`SiteHeader` / `SiteFooter`、`app/page.tsx`、`package.json`。
+
+**关联**  
+- `/Users/macbook/antbim-website/`
+
+---
