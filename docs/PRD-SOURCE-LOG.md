@@ -3487,3 +3487,19 @@
 - `/Users/macbook/antbim-website/components/BrandLogo.tsx`、`SiteHeader.tsx`、`SiteFooter.tsx`、`app/page.tsx`、`lib/antbim-assets.ts`、`lib/site-content.ts`、`README.md`
 
 ---
+
+### 2026-04-20（antbim-website：运营方授权 — 学全站内容并重设计为替换官网的营销站）
+
+**User（提示词/原意）**  
+- 需把**原网站上的所有内容学习理解了**，然后**重新设计**，以**最有利于蚂蚁分工的营销推广**为目的；用户即**蚂蚁分工运营方**，**原网站素材直接授权可用**；**后续设计的网站需直接替换原站**。
+
+**Assistant（实现前说明，若有）**  
+- 抓取 **`antbim.com`** 首页 HTML（**meta 长描述**、模块文案）及 **`/Solution/`**（行业/场景标签与案例标题节选）；重写 **`lib/site-content.ts`**：品牌长文、转化路径、**`whyAntbim`**、**`industryTags` / `scenarioTags` / `solutionCopy`**、能力块 **`marketingOutcome`**、**`midFunnelCta`**、**`faqItems`**、**`resourceHubItems`**、案例 **`outcome`**、资讯补三条场景实践标题；**`app/page.tsx`** 增「为什么选择」、中段 CTA、解决方案双栏标签云、FAQ **`details`**、资源结构化列表；**`SiteFooter`** 去「演示」表述改**运营授权**；**`README`** 改为**替换原站**清单与营销目标说明；**`siteMeta.title/description`** 对齐 SEO。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`npm run build`** 通过。原站若还有子栏目独占长文，上线前可再拆独立路由或外链；**#cta** 按钮仍为占位，需接表单与真实资讯 URL。
+
+**关联**  
+- `/Users/macbook/antbim-website/lib/site-content.ts`、`app/page.tsx`、`components/SiteFooter.tsx`、`README.md`
+
+---
