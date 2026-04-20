@@ -3120,3 +3120,80 @@
 - `vouchap-app/src/shared-logic/gemini.ts`
 
 ---
+
+### 2026-04-18（Vouchap：删列后旧构建「认不出 item」— 原因与是否需发版）
+
+**User（提示词/原意）**  
+- 移除该字段后此前构建的 app 识别不出 item，问原因；是否需要马上更新构建。
+
+**Assistant（实现前说明，若有）**  
+- 无代码变更。对照当前 **`database.ts`** 插入字段与 **Supabase/PostgREST** 对未知列的行为说明。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **原因**：若远端已执行 **`DROP COLUMN receipt_items.tax_class_code`**，**旧版 bundle** 仍可能在 **`receipt_items` insert/update** 中带 **`tax_class_code`**，API 会报错，**行项写库失败**，表现像「识别不出」实为 **持久化失败**；**`select receipt_items(*)`** 不因缺列而失败。  
+- **是否马上更新**：远端已删列则 **需要尽快发版/OTA** 到已去掉该字段payload 的构建；或临时 **加回可空列** 作过渡（不推荐长期）。建议在 Supabase 日志或客户端 **`Receipt items insert error`** 中确认是否为 **unknown column**。  
+- **若未跑删列迁移**：旧构建应仍能写列，需另查 **`item_alias`** 等其它迁移与 RLS。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260418140000_drop_receipt_items_tax_class_code.sql`  
+- `vouchap-app/src/shared-logic/database.ts`（`receipt_items` insert 已不再含 `tax_class_code`）
+
+---
+
+### 2026-04-18（Vouchap：拆税与写库解耦 — 队列入队 + 后台 worker）
+
+**User（提示词/原意）**  
+- 拆税流程与数据库希望不影响已有前端功能与前端所需数据的写库；解耦成纯后端独立流程。
+
+**Assistant（实现前说明，若有）**  
+- 原状：**`database.ts`** 在保存小票后 **`queueMicrotask`** 内联调用 **`applyReceiptItemTaxesAndReconcile`**（虽 try/catch 不阻塞保存，仍在用户设备上跑 CRM/行税写库，与「纯后端」不符）。  
+- 拟：**保存路径**仅 **`rpc('enqueue_receipt_tax_reconcile')`**；新增表 **`receipt_tax_recalc_queue`**；**`scripts/receipt-tax-queue-worker.ts`**（**service role**）轮询队列并调用既有 **`applyReceiptItemTaxesAndReconcile` + `scheduleReceiptTaxRecalcIfNeeded`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 迁移 **`20260418150000_receipt_tax_recalc_queue.sql`**：**`receipt_tax_recalc_queue`** + **`enqueue_receipt_tax_reconcile`**（校验 **`auth.uid()`** 与 **`user_spaces`**）。  
+- **`receipt-tax-queue-client.ts`**、**`database.ts`**：保存/更新小票后只 **入队**，不再在客户端执行拆税。  
+- **`package.json`**：`receipt-tax-worker` / `receipt-tax-worker:once`。  
+- **运维注意**：必须部署该迁移并在服务端配置 **`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`** 定时跑 **`npm run receipt-tax-worker`**（或等价调度），否则行税与对账列可能长期不更新；前端 **`receipts` / `receipt_items` 主数据写库**不受影响。  
+- **验证**：跑迁移 → 保存小票 → 队列有行 → worker 跑后 **`receipt_item_taxes` / `tax_reconciliation_*`** 更新。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260418150000_receipt_tax_recalc_queue.sql`  
+- `vouchap-app/src/shared-logic/receipt-tax-queue-client.ts`  
+- `vouchap-app/src/shared-logic/database.ts`  
+- `vouchap-app/scripts/receipt-tax-queue-worker.ts`  
+- `vouchap-app/package.json`  
+- **接续说明（通俗运维 + 演进备忘）**：`docs/RECEIPT-TAX-ASYNC-PIPELINE.md`
+
+---
+
+### 2026-04-18（Vouchap：拆税异步流水线 — 补文档便于接续）
+
+**User（提示词/原意）**  
+- 没听懂先前「运维注意点」；要求自己记好文档，后续进一步设计开发拆税时能接续得上。
+
+**Assistant（实现前说明，若有）**  
+- 无业务逻辑变更。新增结构化说明文档，用表格/简图把 **App 只入队、worker 才算税** 与 **不跑 worker 的后果** 写清楚。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 **`docs/RECEIPT-TAX-ASYNC-PIPELINE.md`**：以前 vs 现在、数据流、涉及文件表、运维清单、排障、后续 Edge/Cron 演进备忘；并在 **`PRD-SOURCE-LOG`** 上条「拆税解耦」**关联** 回填该路径。
+
+**关联**  
+- `docs/RECEIPT-TAX-ASYNC-PIPELINE.md`
+
+---
+
+### 2026-04-18（Vouchap：发布版本号 2.5.8 Build 46）
+
+**User（提示词/原意）**  
+- 版本号更新 **2.5.8**。
+
+**Assistant（实现前说明，若有）**  
+- 按 **`.cursorrules`** 同步 **`package.json` / `package-lock.json` / `app.config.js` / `android/app/build.gradle` / `ios/Vouchap/Info.plist`**；构建号 **45→46**；仓库无 **`app.json`** 故未改。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 版本 **2.5.8**，**iOS CFBundleVersion / Android versionCode** 均为 **46**；**`git commit` + `git push`**，提交信息 **`发布版本号 2.5.8 (Build 46)`**。
+
+**关联**  
+- `vouchap-app/package.json`、`package-lock.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`
+
+---
