@@ -3471,3 +3471,19 @@
 - `/Users/macbook/antbim-website/public/assets/antbim/`、`lib/antbim-assets.ts`、`components/HeroBanner.tsx`、`app/page.tsx`、`components/SiteHeader.tsx`、`components/SiteFooter.tsx`、`README.md`
 
 ---
+
+### 2026-04-20（antbim-website：首屏与 Logo 对齐参考 — 去轮播、统一字标）
+
+**User（提示词/原意）**  
+- 附图参考：**图片应用很凌乱，logo 没有用上**。
+
+**Assistant（实现前说明，若有）**  
+- 新增 **`BrandLogo`**：橙底「蚂」字标 + 字标两行，**顶栏 / 页脚**统一使用，**移动端始终显示字标**（此前易只见小图）。首屏去掉 **`HeroBanner`** 轮播与底点，改为浅灰底 + 低对比水印「数字化经营」+ 右侧柔光；**单张白卡片**承载 **`brand-hero-illustration`**，**CTA 置于主图之下**；能力纵深去掉每块大图，改为标题区 + 要点列表；ERP 区去掉与首屏重复的大图；导航「资源中心」改为「**资讯中心**」对齐参考；删除未再使用的 **banner webp** 与 **`HeroBanner.tsx`**；**`antbim-assets`** 去掉 **`banners`** 导出。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`npm run build`** 通过；**`README`** 已更新说明。
+
+**关联**  
+- `/Users/macbook/antbim-website/components/BrandLogo.tsx`、`SiteHeader.tsx`、`SiteFooter.tsx`、`app/page.tsx`、`lib/antbim-assets.ts`、`lib/site-content.ts`、`README.md`
+
+---
