@@ -3455,3 +3455,19 @@
 - `/Users/macbook/antbim-website/`
 
 ---
+
+### 2026-04-20（antbim-website：镜像官网图片与 Logo 并接入页面）
+
+**User（提示词/原意）**  
+- **原网站上的素材需更全面用上，尤其是图片和 logo**。
+
+**Assistant（实现前说明，若有）**  
+- 拉取 **`https://www.antbim.com/`** HTML（**`--compressed`**），提取 CDN 路径；下载至 **`public/assets/antbim/`** 并语义化重命名；新增 **`lib/antbim-assets.ts`**；**`HeroBanner`** 客户端轮播 4 张官网横幅；**`SiteHeader` / `SiteFooter`** 使用 **`logo-header.jpg`** 与 **`icon-phone.png`**；能力块、ERP、案例卡片配图；**`README`** 与页脚注明镜像来源与商用替换提示。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`npm run build`** 通过；仓库增大约 **7MB+** 静态资源。若 CDN 防盗链变化需重新抓取。
+
+**关联**  
+- `/Users/macbook/antbim-website/public/assets/antbim/`、`lib/antbim-assets.ts`、`components/HeroBanner.tsx`、`app/page.tsx`、`components/SiteHeader.tsx`、`components/SiteFooter.tsx`、`README.md`
+
+---
