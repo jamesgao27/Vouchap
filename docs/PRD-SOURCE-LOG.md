@@ -125,6 +125,25 @@
 **关联**  
 - `vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`
 
+### 2026-04-26（Vouchap：Web 列表分组/筛选 — 窄屏走 Modal、桌面仍走 Portal）
+
+**User（提示词/原意）**  
+- Web 端宽屏、窄屏模式下列表上的分组、筛选功能都不可用（改坏）。
+
+**Assistant（实现前说明，若有）**  
+- 根因：分组/筛选底部 **Modal** 仍用 `Platform.OS !== 'web'` 包裹；窄屏 Web 已不走桌面 **Portal**（`isDesktopWeb === false`），但也不渲染 Modal，点击仅切 state、无菜单。  
+- 将两处 Modal 外层条件改为 **`!isDesktopWeb`**：桌面 Web 继续仅用 Portal + `nativeID` 量位；窄屏 Web 与原生用底部 Modal。同步改 **receipts / invoices / inbound / outbound** 四处同类写法。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 上述四文件中 **`{Platform.OS !== 'web' && (`** 已替换为 **`{!isDesktopWeb && (`**（各 2 处：Group、Filter）。原生 `isDesktopWeb` 恒为 false，行为与原先一致。  
+- 已对改动文件跑 IDE lint，无新增报错。验证：桌面宽 Web 点 Group/Filter 仍为浮层；浏览器宽度 ≤920 或移动 Web 点同一按钮应出现底部 Sheet。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipts.tsx`  
+- `vouchap-app/src/mobile-ui/app/invoices.tsx`  
+- `vouchap-app/src/mobile-ui/app/inbound.tsx`  
+- `vouchap-app/src/mobile-ui/app/outbound.tsx`
+
 ### 2026-04-22（aim.link-v2：Timeline 左栏宽度对齐左轨）
 
 **User**  

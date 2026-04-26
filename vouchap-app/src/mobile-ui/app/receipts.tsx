@@ -1525,7 +1525,7 @@ export default function ReceiptsScreen() {
       </Modal>
 
       {/* 分组方式选择菜单：移动端用 Modal，Web 用浮窗 */}
-      {Platform.OS !== 'web' && (
+      {!isDesktopWeb && (
       <Modal
         visible={showSortMenu}
         transparent={true}
@@ -1746,7 +1746,7 @@ export default function ReceiptsScreen() {
       )}
 
       {/* Filter 菜单：移动端用 Modal，Web 用浮窗 */}
-      {Platform.OS !== 'web' && (
+      {!isDesktopWeb && (
       <Modal
         visible={showFilterMenu}
         transparent={true}

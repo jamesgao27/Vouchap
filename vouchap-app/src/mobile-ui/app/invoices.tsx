@@ -909,7 +909,7 @@ export default function InvoicesScreen() {
       )}
 
       {/* Group By: 移动端 Modal，Web 浮窗 */}
-      {Platform.OS !== 'web' && (
+      {!isDesktopWeb && (
       <Modal visible={showSortMenu} transparent animationType="slide" onRequestClose={() => setShowSortMenu(false)}>
         <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowSortMenu(false)}>
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
@@ -990,7 +990,7 @@ export default function InvoicesScreen() {
       )}
 
       {/* Filter: 移动端 Modal，Web 浮窗 */}
-      {Platform.OS !== 'web' && (
+      {!isDesktopWeb && (
       <Modal visible={showFilterMenu} transparent animationType="slide" onRequestClose={() => { setShowFilterMenu(false); setFilterSubMenu('main'); }}>
         <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => { setShowFilterMenu(false); setFilterSubMenu('main'); }}>
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>

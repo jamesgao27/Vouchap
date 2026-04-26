@@ -953,7 +953,7 @@ export default function InboundScreen() {
         </View>
       </Modal>
 
-      {Platform.OS !== 'web' && (
+      {!isDesktopWeb && (
       <Modal visible={showSortMenu} transparent animationType="slide" onRequestClose={() => setShowSortMenu(false)}>
         <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => setShowSortMenu(false)}>
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
@@ -992,7 +992,7 @@ export default function InboundScreen() {
       </Modal>
       )}
 
-      {Platform.OS !== 'web' && (
+      {!isDesktopWeb && (
       <Modal visible={showFilterMenu} transparent animationType="slide" onRequestClose={() => { setShowFilterMenu(false); setFilterSubMenu('main'); }}>
         <TouchableOpacity style={styles.pickerOverlay} activeOpacity={1} onPress={() => { setShowFilterMenu(false); setFilterSubMenu('main'); }}>
           <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
