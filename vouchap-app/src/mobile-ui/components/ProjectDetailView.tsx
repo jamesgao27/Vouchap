@@ -25,6 +25,7 @@ import { getOrderById, type ProjectTodoNode } from '@/lib/firm';
 import type { FirmSkuItem } from '@/types';
 import type { ProjectSkuInfo, TodoRow } from '@/components/ProjectSkuDetail';
 import { getTaxSeasonColor, getTaxSeasonBgColor } from '@/lib/tax-season-colors';
+import { useWebViewportKind } from '../lib/web-viewport';
 
 const TAG_PALETTE: [string, string][] = [
   ['#EDE9FD', '#6C5CE7'], // violet
@@ -97,8 +98,9 @@ export function ProjectDetailHeaderTitle({
   header: ProjectDetailHeader;
 }) {
   const { title, subtitle, taxSeasonYear, status } = header;
-  const isWeb = Platform.OS === 'web';
-  if (!isWeb) {
+  const { isMobileWeb } = useWebViewportKind();
+  const useCompactHeader = Platform.OS !== 'web' || isMobileWeb;
+  if (useCompactHeader) {
     return (
       <View style={headerStyles.wrapMobile}>
         <View style={headerStyles.mobileLine}>
@@ -372,8 +374,11 @@ export function ProjectDetailView({
 }: ProjectDetailViewProps) {
   const navigation = useNavigation();
 
+  const { isMobileWeb } = useWebViewportKind();
   const isWeb = Platform.OS === 'web';
-  const isMobile = !isWeb;
+  const isDesktopWeb = isWeb && !isMobileWeb;
+  /** Native app + mobile browser share the same engagement chrome (header / bottom actions / filter menu). */
+  const useMobileEngagementChrome = !isWeb || isMobileWeb;
   const [onboardingOrderInfo, setOnboardingOrderInfo] = useState<Awaited<ReturnType<typeof getOrderById>>>(null);
   const [hideTodoTasksWithNoFiles, setHideTodoTasksWithNoFiles] = useState(false);
   const [hideTodoCanceled, setHideTodoCanceled] = useState(false);
@@ -412,7 +417,7 @@ export function ProjectDetailView({
         />
       ),
     });
-  }, [navigation, header.title, header.subtitle, header.taxSeasonYear, header.status?.label, isWeb]);
+  }, [navigation, header.title, header.subtitle, header.taxSeasonYear, header.status?.label, isMobileWeb]);
 
   useEffect(() => {
     if (!isOnboarding || activeTab !== 'info' || projectId || !orderId) return;
@@ -438,7 +443,7 @@ export function ProjectDetailView({
     if (!sub) return '';
     return sub.toLowerCase().startsWith('by ') ? sub.slice(3).trim() : sub;
   })();
-  const mobileFooterActions = isMobile ? (
+  const mobileFooterActions = useMobileEngagementChrome ? (
     showOnboardingActions && onAcceptAndStart ? (
       <View style={sharedStyles.bottomActionBar}>
         <View style={sharedStyles.bottomActionRow}>
@@ -573,7 +578,7 @@ export function ProjectDetailView({
         </View>
 
         <View style={sharedStyles.todoFilterCenterSlot} pointerEvents="box-none">
-          {isWeb && showTodoToolbarFilters ? (
+          {isDesktopWeb && showTodoToolbarFilters ? (
             <View style={sharedStyles.todoFilterCheckRow}>
               <Pressable
                 accessibilityRole="checkbox"
@@ -606,7 +611,7 @@ export function ProjectDetailView({
           ) : null}
         </View>
 
-        {showTodoToolbarFilters && isMobile ? (
+        {showTodoToolbarFilters && useMobileEngagementChrome ? (
           <View ref={filterIconRef} collapsable={false} style={sharedStyles.filterIconWrap}>
             <TouchableOpacity
               style={sharedStyles.filterIconBtn}
@@ -628,7 +633,7 @@ export function ProjectDetailView({
         ) : null}
 
         {/* Web 保持顶栏右侧按钮；移动端改为底部浮层按钮，不在这里渲染操作 */}
-        {isWeb && (
+        {isDesktopWeb && (
           <View style={sharedStyles.operationRight}>
             {showOnboardingActions ? (
               <View style={sharedStyles.headerActionsWrap}>
@@ -732,7 +737,7 @@ export function ProjectDetailView({
         )}
       </View>
       <Modal
-        visible={showTodoFilterModal && isMobile}
+        visible={showTodoFilterModal && useMobileEngagementChrome}
         transparent
         animationType="fade"
         onRequestClose={closeTodoFilterPopover}
@@ -980,7 +985,7 @@ export function ProjectDetailView({
           catalogPreviewReadOnly={isDetailReadOnly}
           persistTodoTreeOrder={persistTodoTreeOrder}
           onTodoTreeOrderSaved={onTodoTreeOrderSaved}
-          onPersistTodoTitle={isWeb && !isDetailReadOnly && persistTodoTitle ? persistTodoTitle : undefined}
+          onPersistTodoTitle={isDesktopWeb && !isDetailReadOnly && persistTodoTitle ? persistTodoTitle : undefined}
           onMergeProjectTodosTree={onMergeProjectTodosTree}
           hideTasksWithNoFiles={hideTodoTasksWithNoFiles}
           hideCanceledTasks={hideTodoCanceled}

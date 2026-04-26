@@ -34,6 +34,7 @@ import {
   Dimensions,
   Modal,
   ActivityIndicator,
+  useWindowDimensions,
 } from 'react-native';
 import { createPortal, flushSync } from 'react-dom';
 import { Ionicons } from '@expo/vector-icons';
@@ -79,6 +80,7 @@ import { processTaxFilingAttachmentAfterCreate } from '@/lib/tax-filing-attachme
 import { taxFilingTodoUploadIsImageKind } from '@/lib/tax-filing-todo-upload-helpers';
 import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
 import { buildTaxFilingAttachmentDefaultDisplayName } from '@/lib/tax-filing-attachment-display-name';
+import { isMobileWebWidth } from '../lib/web-viewport';
 
 // ──────────────────────────────────────────────────
 // 常量 & 工具函数
@@ -588,6 +590,9 @@ type TodoDragContextValue = {
 
 const TodoDragContext = createContext<TodoDragContextValue | null>(null);
 
+/** true：桌面 Web 表格布局（缩进、拖放、悬停）；false：与原生 App 一致（含手机浏览器窄屏）。 */
+const TaxFilingTodoDesktopWebLayoutContext = createContext(true);
+
 /** Web 拖放：按纵向位置决定 before / into / after */
 function pickTodoDropBand(
   clientY: number,
@@ -944,10 +949,10 @@ function TodoTree({
   onFileRowHoverOut?: (todoId: string, attachmentId: string) => void;
 }) {
   const dragCtx = useContext(TodoDragContext);
-  const isWeb = Platform.OS === 'web';
-  // Web 端保留层级缩进；移动端取消缩进，所有行左对齐
-  const indentUnit = isWeb ? 14 : 0;
-  const baseIndent = isWeb ? depth * indentUnit : 0;
+  const isDesktopWebTree = useContext(TaxFilingTodoDesktopWebLayoutContext);
+  // 桌面 Web：保留层级缩进；移动端与手机浏览器与 App 一致，左对齐为主
+  const indentUnit = isDesktopWebTree ? 14 : 0;
+  const baseIndent = isDesktopWebTree ? depth * indentUnit : 0;
   const { taskTotal, taskSuccess, effectiveStatus } = nodeStats;
   const [activeDepChipId, setActiveDepChipId] = useState<string | null>(null);
   const [depsControlsNodeId, setDepsControlsNodeId] = useState<string | null>(null);
@@ -955,7 +960,7 @@ function TodoTree({
   return (
     <>
       {nodes.map((node, idx) => {
-        if (isWeb && dragCtx?.enabled && dragCtx.previewActive && dragCtx.draggingId === node.id) {
+        if (isDesktopWebTree && dragCtx?.enabled && dragCtx.previewActive && dragCtx.draggingId === node.id) {
           const h = Math.max(1, dragCtx.placeholderRowCount) * TODO_DRAG_GHOST_ROW_HEIGHT;
           return (
             <View key={node.id} style={ts.treeRowWrap} pointerEvents="none">
@@ -1025,8 +1030,8 @@ function TodoTree({
         const isPhaseOrSectionRow = node.itemKind === 'phase' || node.itemKind === 'section' || (depth === 1 && !isTask);
         // row-level hover：用于显示 +（section/phase）或 -/restart / Upload / 提交按钮；
         // 任务行在可终止/可重启时也显示；catalog 模式 task 显示删除。只读时全部不显示。
-        // 移动端不需要这类悬停/触摸小按钮，仅在 Web 端启用。
-        const enableRowIcons = Platform.OS === 'web';
+        // 移动端与手机浏览器不需要桌面 Web 的悬停行内工具；仅桌面 Web 启用。
+        const enableRowIcons = isDesktopWebTree;
         const showRowIconsOnTouch = enableRowIcons && !hideDepsEditor &&
           (typeof onStartRenameInline === 'function' ||
           ((onStartAddChild && canAddChild) ||
@@ -1090,12 +1095,12 @@ function TodoTree({
         const showTaskIcons = rowIdShowingAdd === node.id;
 
         // zone2：文件计数列 + 右侧空白，单独控制 Upload 按钮显示；只读时不显示 Upload 且不响应 hover。
-        // 移动端不需要 Upload 按钮，仅在 Web 端启用。
-        const showUpload = Platform.OS === 'web' && !hideDepsEditor && rowFileColHoverId === node.id;
+        // 移动端与手机浏览器：触摸热区；桌面 Web：hover 显示 Upload。
+        const showUpload = isDesktopWebTree && !hideDepsEditor && rowFileColHoverId === node.id;
 
         // zone2：文件计数列 + 右侧空白，hover 时点亮 Upload（高度充满整行）；只读时不绑定
         const fileColHoverHandlers = !hideDepsEditor && setRowFileColHoverId
-          ? (Platform.OS === 'web'
+          ? (isDesktopWebTree
               ? {
                   onMouseEnter: () => setRowFileColHoverId(node.id),
                   onMouseLeave: () => setRowFileColHoverId(null),
@@ -1108,7 +1113,7 @@ function TodoTree({
 
         const progressColContent = catalogMode ? (
           <View style={ts.progressFilesCol} />
-        ) : !isWeb ? (
+        ) : !isDesktopWebTree ? (
           // 移动端：icon + 文件计数，与名称、状态标间距紧凑
           <View style={ts.progressFilesColMobile} {...(fileColHoverHandlers as any)}>
             {showNm ? (
@@ -1219,7 +1224,7 @@ function TodoTree({
             );
           }
           // 移动端：phase / section / task 行统一用小圆点；Web 保持原有 pill 逻辑
-          else if (!isWeb && showStatus) {
+          else if (!isDesktopWebTree && showStatus) {
             const baseStatus = isTask && isCanceled ? 'canceled' : status;
             const dotColor = nodeIsBlocked
               ? '#B2BEC3'
@@ -1286,7 +1291,7 @@ function TodoTree({
           : undefined;
 
         // 责任方标签放在任务名称前（与标题同一行）；catalog 模式下可点击切换 client/firm；移动端不显示
-        const roleBadgeInline = isWeb && isTask && !isCanceled ? (
+        const roleBadgeInline = isDesktopWebTree && isTask && !isCanceled ? (
           catalogMode && onCatalogUpdateType ? (
             isThisRowRenaming ? (
               <View
@@ -1344,7 +1349,7 @@ function TodoTree({
         );
 
         const activeInlineRename =
-          isWeb &&
+          isDesktopWebTree &&
           renameInline &&
           renameInline.id === node.id &&
           onRenameInlineTitleChange &&
@@ -1353,12 +1358,12 @@ function TodoTree({
             ? renameInline
             : null;
 
-        const wbsExtraSpacingForTask = !isWeb && isTask ? { marginRight: 6 } : null;
+        const wbsExtraSpacingForTask = !isDesktopWebTree && isTask ? { marginRight: 6 } : null;
         const WbsCell = collapseHandlers && !activeInlineRename ? (
           <TouchableOpacity style={[ts.wbsHotzone, wbsExtraSpacingForTask]} {...collapseHandlers}>
             <Text
               style={ts.wbsColText}
-              {...(Platform.OS === 'web' ? { numberOfLines: 1 } : {})}
+              {...(isDesktopWebTree ? { numberOfLines: 1 } : {})}
             >
               {wbsCode}
             </Text>
@@ -1367,7 +1372,7 @@ function TodoTree({
           <View style={[ts.wbsHotzone, wbsExtraSpacingForTask]}>
             <Text
               style={ts.wbsColText}
-              {...(Platform.OS === 'web' ? { numberOfLines: 1 } : {})}
+              {...(isDesktopWebTree ? { numberOfLines: 1 } : {})}
             >
               {wbsCode}
             </Text>
@@ -1403,8 +1408,8 @@ function TodoTree({
                   minWidth: renameInlineListInputWidthPx,
                   maxWidth: renameInlineListInputWidthPx,
                   fontSize: titleFontSize,
-                  paddingLeft: isWeb ? 6 : 2,
-                  ...(isWeb
+                  paddingLeft: isDesktopWebTree ? 6 : 2,
+                  ...(isDesktopWebTree
                     ? ({
                         boxSizing: 'border-box',
                         outlineStyle: 'none',
@@ -1432,7 +1437,7 @@ function TodoTree({
                 onPress={onCancelRenameInline}
                 hitSlop={8}
                 disabled={renameInlineSaving}
-                {...(isWeb
+                {...(isDesktopWebTree
                   ? ({
                       onMouseDown: (e: { preventDefault?: () => void }) => e.preventDefault?.(),
                     } as object)
@@ -1447,7 +1452,7 @@ function TodoTree({
                 }}
                 hitSlop={8}
                 disabled={renameInlineSaving}
-                {...(isWeb
+                {...(isDesktopWebTree
                   ? ({
                       onMouseDown: (e: { preventDefault?: () => void }) => e.preventDefault?.(),
                     } as object)
@@ -1528,7 +1533,7 @@ function TodoTree({
         });
 
         const showAddHandlers = showRowIconsOnTouch
-          ? (Platform.OS === 'web'
+          ? (isDesktopWebTree
               ? {
                   onMouseEnter: showRowIconsOnTouchStart,
                   onMouseLeave: showRowIconsOnTouchEnd,
@@ -1602,7 +1607,7 @@ function TodoTree({
           </Pressable>
         ) : null;
 
-        const TitleColumnInner = Platform.OS === 'web' ? (
+        const TitleColumnInner = isDesktopWebTree ? (
           activeInlineRename ? (
             <>{TitleCellRename}</>
           ) : (
@@ -1635,7 +1640,7 @@ function TodoTree({
         );
 
         // Web 端：chevron 可点击以收起/展开；移动端：仅保留缩进，不显示 chevron
-        const chevronBtn = hasChildren && isWeb ? (
+        const chevronBtn = hasChildren && isDesktopWebTree ? (
           onCollapsePress && !activeInlineRename ? (
             <Pressable style={ts.chevronWrap} onPress={onCollapsePress} hitSlop={6}>
               <Ionicons name={isCollapsed ? 'chevron-forward' : 'chevron-down'} size={14} color="#636E72" />
@@ -1652,7 +1657,7 @@ function TodoTree({
         const IndentChevronShowAddArea = (
           <>
             {/* Web：保留层级缩进；移动端：全部行无缩进，左端对齐 */}
-            <View style={{ width: isWeb ? 12 + baseIndent : 0 }} />
+            <View style={{ width: isDesktopWebTree ? 12 + baseIndent : 0 }} />
             {chevronBtn}
           </>
         );
@@ -1660,13 +1665,13 @@ function TodoTree({
         // RN Web 的 View 不保证转发 HTML5 draggable / drop；手柄必须用原生 div（与 DataTable 列拖放一致）
         // draggingIdRef 在 dragstart 内同步写入，早于 setState，避免重渲染卸掉 draggable 前手柄被误判隐藏
         const showDragHandle =
-          isWeb &&
+          isDesktopWebTree &&
           dragCtx?.enabled &&
           (rowIdShowingDragHandle === node.id ||
             dragCtx.draggingId === node.id ||
             dragCtx.draggingIdRef.current === node.id);
         const dragHandleEl =
-          isWeb && dragCtx?.enabled ? (
+          isDesktopWebTree && dragCtx?.enabled ? (
             activeInlineRename ? (
               <View style={{ width: TODO_DRAG_HANDLE_SLOT_WIDTH, marginRight: 2, flexShrink: 0 }} />
             ) : showDragHandle ? (
@@ -1760,7 +1765,7 @@ function TodoTree({
           !hideDepsEditor &&
           handoffButtons.length > 0 &&
           setRowIdShowingStatusVerb
-          ? (Platform.OS === 'web'
+          ? (isDesktopWebTree
               ? {
                   onMouseEnter: () => setRowIdShowingStatusVerb(node.id),
                   onMouseLeave: () => setRowIdShowingStatusVerb(null),
@@ -1772,7 +1777,7 @@ function TodoTree({
 
         // Web：使用宽度固定的 progressFilesCol；
         // 移动端：仅使用更窄的 progressFilesColMobile，避免多占名称空间
-        const progressColWrapStyle = isWeb ? ts.progressFilesCol : ts.progressFilesColMobile;
+        const progressColWrapStyle = isDesktopWebTree ? ts.progressFilesCol : ts.progressFilesColMobile;
         const ProgressCell = collapseHandlers && !activeInlineRename ? (
           <TouchableOpacity style={progressColWrapStyle} {...collapseHandlers}>
             {progressColContent}
@@ -1781,10 +1786,10 @@ function TodoTree({
           <View style={progressColWrapStyle}>{progressColContent}</View>
         );
 
-        const statusColStyle = showStatusVerb && !isWeb ? [ts.statusCol, ts.statusColExpanded] : ts.statusCol;
+        const statusColStyle = showStatusVerb && !isDesktopWebTree ? [ts.statusCol, ts.statusColExpanded] : ts.statusCol;
         const StatusCell = (
           <View style={ts.statusColWithGap}>
-            {statusHoverHandlers && !isWeb ? (
+            {statusHoverHandlers && !isDesktopWebTree ? (
               <TouchableOpacity style={statusColStyle} onPress={statusHoverHandlers.onPress} activeOpacity={0.8}>
                 {statusColContent}
               </TouchableOpacity>
@@ -1799,7 +1804,7 @@ function TodoTree({
           ? { borderLeftColor: node.type === 'firm' ? '#A29BFE' : '#74B9FF' }
           : {};
         const todoDropHighlight =
-          isWeb &&
+          isDesktopWebTree &&
           dragCtx?.enabled &&
           dragCtx.draggingId &&
           dragCtx.draggingId !== node.id &&
@@ -1825,7 +1830,7 @@ function TodoTree({
         ];
 
         const dragHandleRevealHandlers =
-          isWeb && dragCtx?.enabled && setRowIdShowingDragHandle && hideDragHandleTimeoutRef
+          isDesktopWebTree && dragCtx?.enabled && setRowIdShowingDragHandle && hideDragHandleTimeoutRef
             ? {
                 onMouseEnter: () => {
                   if (hideDragHandleTimeoutRef.current) {
@@ -1854,7 +1859,7 @@ function TodoTree({
 
         // 与 Add 列一致：整行 touchEnd / mouseLeave 时延时收起 Depends on，避免“最后一个不消失”（触摸到其他行再抬起时由该行触发收起）
         const hideDepsOnRowHandlers = !catalogMode && setRowIdShowingDeps && hideDepsTimeoutRef
-          ? (Platform.OS === 'web'
+          ? (isDesktopWebTree
               ? {
                   onMouseLeave: () => {
                     if (hideDepsTimeoutRef.current) clearTimeout(hideDepsTimeoutRef.current);
@@ -1873,7 +1878,7 @@ function TodoTree({
         const hasDeps = depChipInfos.length > 0;
         const showDepsContent = (hasDeps || catalogMode) || (rowIdShowingDeps === node.id && !hideDepsEditor);
         const depsColHotzoneHandlers = !catalogMode && !hideDepsEditor && setRowIdShowingDeps && hideDepsTimeoutRef
-          ? (Platform.OS === 'web'
+          ? (isDesktopWebTree
               ? {
                   onMouseEnter: () => {
                     if (hideDepsTimeoutRef.current) {
@@ -1893,7 +1898,7 @@ function TodoTree({
                 })
           : {};
         // 移动端移除「Depends on」列，仅保留：责任竖条、WBS、名称、文件计数、状态圆点、提交等（点圆点浮层）
-        const TaskDepsCol = isTask && isWeb ? (
+        const TaskDepsCol = isTask && isDesktopWebTree ? (
           activeInlineRename ? (
             hideDepsEditor && !hasDeps ? (
               <View style={ts.taskDepsCol} />
@@ -2008,7 +2013,7 @@ function TodoTree({
 
         // 移动端：左侧块弹性占满，右侧文件计数+状态圆点紧凑靠右，名称获得更多空间
         // Web 行内重命名：整段左侧叠在 Progress/Status 列之上，避免溢出时按钮被后绘制的右列抢走点击
-        const leftBlockStyle = isWeb
+        const leftBlockStyle = isDesktopWebTree
           ? [
               ts.treeRowLeftBlock,
               { width: maxLeftBlockWidth },
@@ -2025,10 +2030,10 @@ function TodoTree({
 
         // catalogMode（如 onboarding 只读 SKU 树）：移动端不展示文件/状态/依赖列，右侧无内容却曾占位 ~80+32px，挤压标题省略
         const rowRightCols =
-          catalogMode && !isWeb
+          catalogMode && !isDesktopWebTree
             ? null
             : // 移动端：显示提交/召回等按钮时，用按钮覆盖文件计数+状态标区域
-            showStatusVerb && !isWeb ? (
+            showStatusVerb && !isDesktopWebTree ? (
               <View style={ts.treeRowRightColsWrap}>
                 {StatusCell}
               </View>
@@ -2048,13 +2053,13 @@ function TodoTree({
           </>
         );
 
-        const RowOuter = Platform.OS === 'web' ? View : Pressable;
+        const RowOuter = isDesktopWebTree ? View : Pressable;
 
         return (
           <RowOuter
             key={node.id}
             style={ts.treeRowWrap}
-            {...(Platform.OS === 'web'
+            {...(isDesktopWebTree
               ? {}
               : {
                   onPress: () => {
@@ -2064,7 +2069,7 @@ function TodoTree({
                   },
                 })}
           >
-            {isWeb && dragCtx?.enabled ? (
+            {isDesktopWebTree && dragCtx?.enabled ? (
               <div
                 data-todo-row={node.id}
                 style={{
@@ -2203,7 +2208,7 @@ function TodoTree({
                 ]}
               >
                 {files.length === 0 ? null : (
-                  <View style={isWeb ? { paddingLeft: 12 + indent + 24, paddingRight: 0 } : ts.filesBlockMobile}>
+                  <View style={isDesktopWebTree ? { paddingLeft: 12 + indent + 24, paddingRight: 0 } : ts.filesBlockMobile}>
                     <View style={ts.fileTable}>
                       {(files as ProjectTodoReceiptSummary[]).map((f, fileIdx) => {
                         const fileRowBg = fileIdx % 2 === 0 ? TREE_ROW_BG_EVEN : TREE_ROW_BG_ODD;
@@ -2212,18 +2217,18 @@ function TodoTree({
                         const displayName = f.name?.trim() || f.docType || 'Attachment';
                         const fileRowHoverMatchKey = `${node.id}\u001f${f.id}`;
                         const activeFileRename =
-                          isWeb &&
+                          isDesktopWebTree &&
                           fileRenameInline != null &&
                           fileRenameInline.attachmentId === f.id &&
                           fileRenameInline.todoId === node.id;
                         const showFileRenamePencil =
-                          isWeb &&
+                          isDesktopWebTree &&
                           !hideDepsEditor &&
                           typeof onStartFileRename === 'function' &&
                           !activeFileRename &&
                           fileRowHoverKey === fileRowHoverMatchKey;
                         const fileRowWebHoverHandlers =
-                          isWeb &&
+                          isDesktopWebTree &&
                           !hideDepsEditor &&
                           onStartFileRename &&
                           onFileRowHoverIn &&
@@ -2257,7 +2262,7 @@ function TodoTree({
                                   onPress={onCancelFileRename}
                                   hitSlop={8}
                                   disabled={fileRenameSaving}
-                                  {...(isWeb
+                                  {...(isDesktopWebTree
                                     ? ({
                                         onMouseDown: (e: { preventDefault?: () => void }) => e.preventDefault?.(),
                                       } as object)
@@ -2272,7 +2277,7 @@ function TodoTree({
                                   }}
                                   hitSlop={8}
                                   disabled={fileRenameSaving}
-                                  {...(isWeb
+                                  {...(isDesktopWebTree
                                     ? ({
                                         onMouseDown: (e: { preventDefault?: () => void }) => e.preventDefault?.(),
                                       } as object)
@@ -2292,7 +2297,7 @@ function TodoTree({
                             key={f.id}
                             style={[
                               ts.fileRow,
-                              !isWeb && ts.fileRowMobile,
+                              !isDesktopWebTree && ts.fileRowMobile,
                               { backgroundColor: fileRowBg },
                               fileIdx === (files as ProjectTodoReceiptSummary[]).length - 1 && ts.fileRowLast,
                             ]}
@@ -2304,7 +2309,7 @@ function TodoTree({
                             activeOpacity={0.8}
                           >
                             <View style={ts.fileColIcon}>
-                              <Ionicons name={getFileFormatIcon(f.imageUrl ?? null, f.docType)} size={isWeb ? 18 : 16} color="#6C5CE7" />
+                              <Ionicons name={getFileFormatIcon(f.imageUrl ?? null, f.docType)} size={isDesktopWebTree ? 18 : 16} color="#6C5CE7" />
                             </View>
                             <View style={ts.fileColNameDesc}>
                               {fileRenameTrailJsx ? (
@@ -2322,7 +2327,7 @@ function TodoTree({
                                   <Text style={ts.fileRowName} numberOfLines={1}>
                                     {displayName}
                                   </Text>
-                                  {isWeb && !hideDepsEditor && canShowRetryIcon && (
+                                  {isDesktopWebTree && !hideDepsEditor && canShowRetryIcon && (
                                     <Pressable
                                       style={ts.restoreTaskBtnHotzone}
                                       onPress={() => onRetryRecognizeFile?.(f.id)}
@@ -2346,7 +2351,7 @@ function TodoTree({
                                 </View>
                               )}
                             </View>
-                            {isWeb && (
+                            {isDesktopWebTree && (
                               <View style={ts.fileRowMeta}>
                                 <Text style={ts.fileColTime} numberOfLines={1}>
                                   {formatFileDate(f.createdAt)}
@@ -2491,6 +2496,9 @@ export function TaxFilingTodosView({
   hideTasksWithNoFiles = false,
   hideCanceledTasks = false,
 }: TaxFilingTodosViewProps) {
+  const { width: todoLayoutWidth } = useWindowDimensions();
+  const isDesktopWebTodoLayout = Platform.OS === 'web' && !isMobileWebWidth(todoLayoutWidth);
+
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [taskFilesExpanded, setTaskFilesExpanded] = useState<Set<string>>(new Set());
   const [taskFilesMap, setTaskFilesMap] = useState<Record<string, ProjectTodoReceiptSummary[]>>({});
@@ -2601,7 +2609,7 @@ export function TaxFilingTodosView({
   const todoDragDropCommittingRef = useRef(false);
 
   const todoTreeDragEnabled =
-    Platform.OS === 'web' && !catalogPreviewReadOnly && typeof persistTodoTreeOrder === 'function';
+    isDesktopWebTodoLayout && !catalogPreviewReadOnly && typeof persistTodoTreeOrder === 'function';
 
   const todoDragPreview = useMemo(() => {
     if (!todoTreeDragEnabled || !todoDraggingId || !todoDragOver) {
@@ -3061,12 +3069,13 @@ export function TaxFilingTodosView({
   const maxLeftBlockWidth = useMemo(() => {
     const winW = Dimensions.get('window').width;
     let maxW = 0;
+    const desktopLayout = isDesktopWebTodoLayout;
     function walk(nodes: ProjectTodoNode[], d: number) {
       nodes.forEach((n) => {
         const indent = 12 + d * 14;
         const titleLen = (n.title ?? '').length;
-        // 预留：chevron(28) + WBS(36) + 责任方标签(≈60) + 标题 + 行尾图标(edit / - / + 等，Web)
-        const trailingIcons = Platform.OS === 'web' ? 72 : 24;
+        // 预留：chevron(28) + WBS(36) + 责任方标签(≈60) + 标题 + 行尾图标(edit / - / + 等，桌面 Web)
+        const trailingIcons = desktopLayout ? 72 : 24;
         const w = indent + 28 + 36 + 60 + titleLen * 8 + trailingIcons;
         if (w > maxW) maxW = w;
         walk(n.children, d + 1);
@@ -3075,10 +3084,10 @@ export function TaxFilingTodosView({
     walk(tree, 0);
     const minW = 190;
     // 右侧需要预留的宽度：进度列(icon+数字) + 与状态圆点之间的间距 + 状态列本身 + 一点安全空白
-    const rightReserve = Platform.OS === 'web' ? 80 + 16 + 120 + 24 + 18 : 48 + 6 + 28 + 12;
+    const rightReserve = desktopLayout ? 80 + 16 + 120 + 24 + 18 : 48 + 6 + 28 + 12;
     const cap = Math.floor(winW - 32 - rightReserve);
     return Math.min(Math.max(maxW, minW), cap);
-  }, [tree]);
+  }, [tree, isDesktopWebTodoLayout]);
 
   const renameInlineListInputWidthPx = useMemo(
     () => maxTodoRenameInputWidthAcrossProjectTree(tree),
@@ -3715,7 +3724,7 @@ export function TaxFilingTodosView({
               key={phaseNode.id}
               style={[
                 ts.phaseBlock,
-                Platform.OS === 'web' && (renameDraft || fileRenameDraft) ? ts.phaseBlockWhileRenaming : null,
+                isDesktopWebTodoLayout && (renameDraft || fileRenameDraft) ? ts.phaseBlockWhileRenaming : null,
               ]}
             >
               <TodoTree
@@ -3770,36 +3779,36 @@ export function TaxFilingTodosView({
                 onCatalogDeleteItem={catalogPreviewReadOnly ? undefined : onCatalogDeleteItem}
                 onCatalogUpdateType={catalogPreviewReadOnly ? undefined : onCatalogUpdateType}
                 hideDepsEditor={catalogPreviewReadOnly}
-                renameInline={Platform.OS === 'web' && onPersistTodoTitle ? renameDraft : null}
+                renameInline={isDesktopWebTodoLayout && onPersistTodoTitle ? renameDraft : null}
                 onRenameInlineTitleChange={
-                  Platform.OS === 'web' && onPersistTodoTitle ? handleRenameInlineTitleChange : undefined
+                  isDesktopWebTodoLayout && onPersistTodoTitle ? handleRenameInlineTitleChange : undefined
                 }
                 onCancelRenameInline={
-                  Platform.OS === 'web' && onPersistTodoTitle ? handleCancelRenameInline : undefined
+                  isDesktopWebTodoLayout && onPersistTodoTitle ? handleCancelRenameInline : undefined
                 }
                 onConfirmRenameInline={
-                  Platform.OS === 'web' && onPersistTodoTitle ? handleConfirmRenameInline : undefined
+                  isDesktopWebTodoLayout && onPersistTodoTitle ? handleConfirmRenameInline : undefined
                 }
                 renameInlineSaving={renameSaving}
                 onStartRenameInline={
-                  Platform.OS === 'web' && onPersistTodoTitle ? handleStartRenameInline : undefined
+                  isDesktopWebTodoLayout && onPersistTodoTitle ? handleStartRenameInline : undefined
                 }
                 renameInlineListInputWidthPx={renameInlineListInputWidthPx}
-                fileRenameInline={Platform.OS === 'web' && !catalogPreviewReadOnly ? fileRenameDraft : null}
+                fileRenameInline={isDesktopWebTodoLayout && !catalogPreviewReadOnly ? fileRenameDraft : null}
                 onFileRenameTitleChange={
-                  Platform.OS === 'web' && !catalogPreviewReadOnly ? handleFileRenameTitleChange : undefined
+                  isDesktopWebTodoLayout && !catalogPreviewReadOnly ? handleFileRenameTitleChange : undefined
                 }
-                onCancelFileRename={Platform.OS === 'web' && !catalogPreviewReadOnly ? handleCancelFileRename : undefined}
-                onConfirmFileRename={Platform.OS === 'web' && !catalogPreviewReadOnly ? handleConfirmFileRename : undefined}
+                onCancelFileRename={isDesktopWebTodoLayout && !catalogPreviewReadOnly ? handleCancelFileRename : undefined}
+                onConfirmFileRename={isDesktopWebTodoLayout && !catalogPreviewReadOnly ? handleConfirmFileRename : undefined}
                 fileRenameSaving={fileRenameSaving}
-                onStartFileRename={Platform.OS === 'web' && !catalogPreviewReadOnly ? handleStartFileRename : undefined}
-                fileRowHoverKey={Platform.OS === 'web' && !catalogPreviewReadOnly ? fileRowHoverKey : null}
-                onFileRowHoverIn={Platform.OS === 'web' && !catalogPreviewReadOnly ? handleFileRowHoverIn : undefined}
-                onFileRowHoverOut={Platform.OS === 'web' && !catalogPreviewReadOnly ? handleFileRowHoverOut : undefined}
+                onStartFileRename={isDesktopWebTodoLayout && !catalogPreviewReadOnly ? handleStartFileRename : undefined}
+                fileRowHoverKey={isDesktopWebTodoLayout && !catalogPreviewReadOnly ? fileRowHoverKey : null}
+                onFileRowHoverIn={isDesktopWebTodoLayout && !catalogPreviewReadOnly ? handleFileRowHoverIn : undefined}
+                onFileRowHoverOut={isDesktopWebTodoLayout && !catalogPreviewReadOnly ? handleFileRowHoverOut : undefined}
               />
             </View>
           ))}
-          {!catalogPreviewReadOnly && Platform.OS === 'web' && (
+          {!catalogPreviewReadOnly && isDesktopWebTodoLayout && (
             <View style={ts.phaseBlock}>
               {pendingAddPhase ? (
                 <AddPhaseInputRow
@@ -3824,7 +3833,7 @@ export function TaxFilingTodosView({
         </View>
       </ScrollView>
 
-      {Platform.OS === 'web' &&
+      {isDesktopWebTodoLayout &&
         todoDragGhost &&
         typeof document !== 'undefined' &&
         createPortal(
@@ -4350,10 +4359,16 @@ export function TaxFilingTodosView({
     </View>
   );
 
+  const wrappedMain = (
+    <TaxFilingTodoDesktopWebLayoutContext.Provider value={isDesktopWebTodoLayout}>
+      {todoMainView}
+    </TaxFilingTodoDesktopWebLayoutContext.Provider>
+  );
+
   if (todoDragContextValue) {
-    return <TodoDragContext.Provider value={todoDragContextValue}>{todoMainView}</TodoDragContext.Provider>;
+    return <TodoDragContext.Provider value={todoDragContextValue}>{wrappedMain}</TodoDragContext.Provider>;
   }
-  return todoMainView;
+  return wrappedMain;
 }
 
 // ──────────────────────────────────────────────────

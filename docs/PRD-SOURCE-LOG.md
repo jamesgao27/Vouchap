@@ -8,6 +8,25 @@
 
 ---
 
+### 2026-04-26（Vouchap：Engagement 详情 / Todos — 手机浏览器与 App 对齐）
+
+**User（提示词/原意）**  
+- vouchap 手机浏览器端，engagement 详情页 / todo 页仍与 App 不一致，需优化对齐。
+
+**Assistant（实现前说明）**  
+- 根因：`ProjectDetailView` 用 `isMobile = !isWeb`，凡 `Platform.OS === 'web'`（含手机浏览器）都走桌面顶栏单行标题、顶栏右侧操作、内联 Todo 筛选；`TaxFilingTodosView` 亦凡 Web 即桌面表格/拖放/悬停布局。  
+- 计划：接入已有 `useWebViewportKind()` / `isMobileWebWidth`，使 **移动 Web** 与原生共用「紧凑顶栏 + 底部主操作 + 筛选浮层」；Todo 树通过 **Context** 在窄屏 Web 上走与 App 相同的行布局（`Pressable` 行、移动进度/状态列、无桌面拖放与 Depends 列等）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ProjectDetailView`**：`useMobileEngagementChrome = !isWeb || isMobileWeb`；桌面 Web 仍用顶栏操作与内联筛选；移动 Web 用底部操作条与筛选 Modal。`ProjectDetailHeaderTitle` 在移动 Web 使用与 App 相同的两行紧凑顶栏。`onPersistTodoTitle` 仅 `isDesktopWeb` 时下发（与既有父级 `persistTodoTitle` 门控一致）。  
+- **`TaxFilingTodosView`**：新增 `TaxFilingTodoDesktopWebLayoutContext`，`isDesktopWebTodoLayout = web && !isMobileWebWidth(width)`；`TodoTree` 通过 Context 分支替代多处 `Platform.OS === 'web'` 的布局逻辑；拖放、`createPortal` 幽灵层、「Add a phase」、行内重命名附件悬停等仅桌面 Web。  
+- **验证建议**：手机浏览器打开 firm/client engagement 详情与 client project todos，对比原生 App：顶栏两行、Todos/Info、底部 Terminate/Complete/Accept、筛选入口与列表行布局应一致；桌面宽窗 Web 行为应保持不变。  
+- **残留**：`StyleSheet.create` 内部分样式仍以 `Platform.OS === 'web'` 静态分支，窄屏下个别间距可能与原生略有差异；若需像素级一致可后续改为按 `isDesktopWebTodoLayout` 的动态样式。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/ProjectDetailView.tsx`  
+- `vouchap-app/src/mobile-ui/components/TaxFilingTodosView.tsx`
+
 ### 2026-04-26（Vouchap：手机浏览器优先采用 App 页面，启动第 1 批落地）
 
 **User（提示词/原意）**  
