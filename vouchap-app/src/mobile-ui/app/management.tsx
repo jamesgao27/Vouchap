@@ -26,10 +26,12 @@ import { confirmDestructive } from '@/lib/alertWeb';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { useWebViewportKind } from '../lib/web-viewport';
 
 export default function ManagementScreen() {
   const MAX_LOGO_FILE_SIZE = 500 * 1024;
   const router = useRouter();
+  const { isDesktopWeb } = useWebViewportKind();
   const [space, setSpace] = useState<Space | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(false);
@@ -542,7 +544,7 @@ export default function ManagementScreen() {
 
       setShowSpaceSwitch(false);
 
-      if (Platform.OS === 'web') {
+      if (Platform.OS === 'web' && isDesktopWeb) {
         setShowRefreshAfterSwitchModal(true);
         return;
       }
@@ -1067,7 +1069,7 @@ export default function ManagementScreen() {
 
       {/* Web only: switch space success – prompt to refresh */}
       <Modal
-        visible={Platform.OS === 'web' && showRefreshAfterSwitchModal}
+        visible={isDesktopWeb && showRefreshAfterSwitchModal}
         animationType="fade"
         transparent
         onRequestClose={() => setShowRefreshAfterSwitchModal(false)}

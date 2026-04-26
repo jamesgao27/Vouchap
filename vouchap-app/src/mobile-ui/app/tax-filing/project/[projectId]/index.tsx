@@ -38,8 +38,10 @@ import { ProjectDetailView, type ProjectDetailHeader, ORDER_STATUS_CONFIG } from
 import EngagementConsentModal from '@/components/EngagementConsentModal';
 import { deriveTaxSeasonYear } from '@/lib/tax-season-colors';
 import { useEngagementOrderProjectRealtime } from '../../../../lib/engagement-realtime';
+import { useWebViewportKind } from '../../../../lib/web-viewport';
 
 export default function ProjectTodosScreen() {
+  const { isDesktopWeb } = useWebViewportKind();
   const { projectId, tab, edit } = useLocalSearchParams<{
     projectId?: string | string[];
     tab?: string | string[];
@@ -154,7 +156,7 @@ export default function ProjectTodosScreen() {
 
   const handleReject = useCallback(async () => {
     if (!orderId) return;
-    if (Platform.OS === 'web' && !window.confirm('Reject this order? You can\'t undo this.')) return;
+    if (isDesktopWeb && !window.confirm('Reject this order? You can\'t undo this.')) return;
     if (Platform.OS !== 'web') {
       Alert.alert('Reject order', 'Reject this order? You can\'t undo this.', [
         { text: 'Cancel', style: 'cancel' },
@@ -235,7 +237,7 @@ export default function ProjectTodosScreen() {
 
   useEffect(() => {
     // 仅移动端 + 已有 todos 且状态为进行中/已完成时显示 Tina 浮层（onboarding/cancelled 均不显示）
-    if (Platform.OS === 'web') {
+    if (isDesktopWeb) {
       setShowTinaFab(false);
       return;
     }
@@ -333,7 +335,7 @@ export default function ProjectTodosScreen() {
         skuInfo={skuInfo}
         skuDetailForInfo={skuDetailForInfo}
         persistTodoTitle={
-          Platform.OS === 'web' && header?.status === 'processing'
+          isDesktopWeb && header?.status === 'processing'
             ? (todoId, title) => updateProjectTodo(todoId, { title })
             : undefined
         }

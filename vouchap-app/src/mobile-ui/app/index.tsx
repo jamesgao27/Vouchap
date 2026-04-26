@@ -29,6 +29,7 @@ import { getFirmClientsListBundle } from '@/lib/firm';
 import { getPendingInviteesForEmail } from '@/lib/firm-clients';
 import type { ClientDisplayStatus } from '@/types';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
+import { useWebViewportKind } from '../lib/web-viewport';
 
 /** 首页是否显示「AI 进销存」入口：由 app.config.js extra.showAiInventory 控制 */
 const SHOW_AI_INVENTORY_ENTRY = Constants.expoConfig?.extra?.showAiInventory !== false;
@@ -90,6 +91,7 @@ export default function HomeScreen() {
   const isExpoGo = Constants.appOwnership === 'expo';
 
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const { isDesktopWeb, isMobileWeb } = useWebViewportKind();
   const sloganFontSize = Math.min(32, Math.max(24, Math.round(screenWidth * 0.082)));
   const isCompact = screenHeight < 750 || screenWidth < 360;
   const mainCircleSize = isCompact ? 160 : 200;
@@ -488,7 +490,7 @@ export default function HomeScreen() {
 
       setShowSpaceSwitch(false);
 
-      if (Platform.OS === 'web') {
+      if (Platform.OS === 'web' && isDesktopWeb) {
         setShowRefreshAfterSwitchModal(true);
         return;
       }
@@ -776,8 +778,8 @@ export default function HomeScreen() {
 
   const isFirmPending = currentSpace?.kind === 'firm' && currentSpace?.firmStatus !== 'approved';
 
-  // Web 端：firm 待审核遮罩由 _layout 统一处理；pending 角标在左侧栏 WebSidebar 个人信息卡片上
-  if (Platform.OS === 'web') {
+  // 桌面 Web：仅 Dashboard（侧栏在 _layout）；移动 Web 与原生共用下方壳层（顶栏 + 底栏）
+  if (Platform.OS === 'web' && isDesktopWeb) {
     return (
       <View style={styles.container}>
         <StatusBar style="dark" />
@@ -867,6 +869,8 @@ export default function HomeScreen() {
           <FirmPendingOverlay />
         ) : currentSpace?.kind === 'firm' ? (
           <CrmDashboardView />
+        ) : isMobileWeb ? (
+          <WebDashboardView homeCompact />
         ) : (
           <>
             <Text style={[styles.title, { fontSize: sloganFontSize, lineHeight: sloganLineHeight, marginBottom: sloganMarginBottom }]}>📸</Text>
@@ -1057,7 +1061,7 @@ export default function HomeScreen() {
 
       {/* Web only: switch space success – prompt to refresh */}
       <Modal
-        visible={Platform.OS === 'web' && showRefreshAfterSwitchModal}
+        visible={Platform.OS === 'web' && isDesktopWeb && showRefreshAfterSwitchModal}
         animationType="fade"
         transparent
         onRequestClose={() => setShowRefreshAfterSwitchModal(false)}

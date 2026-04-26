@@ -31,18 +31,18 @@ import {
   GRID_GAP,
 } from '@/components/ServiceCatalogShared';
 import type { FirmSku } from '@/types';
+import { isMobileWebWidth } from '../../lib/web-viewport';
 
 type ViewMode = 'grid' | 'list';
 
 export default function FirmServiceCatalogScreen() {
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktopCatalog = Platform.OS === 'web' && !isMobileWebWidth(windowWidth);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [skus, setSkus] = useState<FirmSku[]>([]);
-  const [viewMode, setViewMode] = useState<ViewMode>(
-    Platform.OS === 'web' ? 'grid' : 'list',
-  );
-  const { width: windowWidth } = useWindowDimensions();
+  const [viewMode, setViewMode] = useState<ViewMode>(isDesktopCatalog ? 'grid' : 'list');
 
   const loadData = useCallback(async (forceRefresh = false) => {
     const space = await getCurrentSpace(forceRefresh);
@@ -109,20 +109,18 @@ export default function FirmServiceCatalogScreen() {
     }
   }, [router]);
 
-  const numColumns = Platform.select({
-    web: Math.max(2, Math.floor((windowWidth - 48) / (200 + GRID_GAP))),
-    default: 2,
-  });
-  const cardWidth =
-    Platform.OS === 'web'
-      ? Math.min(SERVICE_CATALOG_CARD_MAX_WIDTH, (windowWidth - 48 - GRID_GAP * (numColumns - 1)) / numColumns)
-      : (windowWidth - 24 - GRID_GAP) / 2;
+  const numColumns = isDesktopCatalog
+    ? Math.max(2, Math.floor((windowWidth - 48) / (200 + GRID_GAP)))
+    : 2;
+  const cardWidth = isDesktopCatalog
+    ? Math.min(SERVICE_CATALOG_CARD_MAX_WIDTH, (windowWidth - 48 - GRID_GAP * (numColumns - 1)) / numColumns)
+    : (windowWidth - 24 - GRID_GAP) / 2;
   const listStyle = projectListStyles.list;
 
   return (
     <ScrollView
       style={styles.container}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, isDesktopCatalog && { paddingHorizontal: 20 }]}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
     >
       <Text style={styles.subtitle}>
@@ -202,10 +200,7 @@ const styles = StyleSheet.create({
   content: {
     paddingTop: 20,
     paddingBottom: 40,
-    ...Platform.select({
-      web: { paddingHorizontal: 20 },
-      default: { paddingHorizontal: 12 },
-    }),
+    paddingHorizontal: 12,
   },
   subtitle: { fontSize: 14, color: '#636E72', marginBottom: 24 },
   loader: { marginTop: 40 },

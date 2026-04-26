@@ -52,6 +52,7 @@ import { pickTaxFilingDocument } from '@/lib/tax-filing-document-picker';
 import { taxFilingTodoUploadIsImageKind } from '@/lib/tax-filing-todo-upload-helpers';
 import EngagementConsentModal from '@/components/EngagementConsentModal';
 import { useEngagementOrderProjectRealtime } from '../../../../lib/engagement-realtime';
+import { isDesktopWebRuntime, useWebViewportKind } from '../../../../lib/web-viewport';
 
 /** 将 sku_items 转成 TaxFilingTodosView 需要的 ProjectTodoNode 树结构（与 firm 侧预览一致） */
 function skuItemsToProjectTodoTree(items: FirmSkuItem[]): ProjectTodoNode[] {
@@ -201,6 +202,7 @@ function useNodeStats(nodes: ProjectTodoNode[]) {
 }
 
 export default function OrderTodosScreen() {
+  const { isDesktopWeb } = useWebViewportKind();
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -432,7 +434,7 @@ export default function OrderTodosScreen() {
         });
         if (err) {
           const msg = err.message ?? 'Could not create item.';
-          if (Platform.OS === 'web') {
+          if (isDesktopWeb) {
             window.alert('Save failed: ' + msg);
           } else {
             Alert.alert('Save failed', msg);
@@ -452,7 +454,7 @@ export default function OrderTodosScreen() {
         setTaskFilesMap(filesMap);
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        if (Platform.OS === 'web') {
+        if (isDesktopWeb) {
           window.alert('Save failed: ' + msg);
         } else {
           Alert.alert('Save failed', msg);
@@ -475,7 +477,7 @@ export default function OrderTodosScreen() {
         const { error: err } = await updateProjectTodo(todoId, { status: 'canceled' });
         if (err) {
           setTree(snapshot);
-          if (Platform.OS === 'web') window.alert('Cancel failed: ' + (err.message ?? ''));
+          if (isDesktopWeb) window.alert('Cancel failed: ' + (err.message ?? ''));
           else Alert.alert('Cancel failed', err.message ?? '');
           return;
         }
@@ -496,7 +498,7 @@ export default function OrderTodosScreen() {
         const { error: err } = await updateProjectTodo(todoId, { status: 'to_submit' });
         if (err) {
           setTree(snapshot);
-          if (Platform.OS === 'web') window.alert('Restore failed: ' + (err.message ?? ''));
+          if (isDesktopWeb) window.alert('Restore failed: ' + (err.message ?? ''));
           else Alert.alert('Restore failed', err.message ?? '');
           return;
         }
@@ -515,7 +517,7 @@ export default function OrderTodosScreen() {
           type: '*/*',
           copyToCacheDirectory: true,
           multiple: false,
-          ...(Platform.OS === 'web' ? { base64: false } : {}),
+          ...(isDesktopWeb ? { base64: false } : {}),
         });
         if (result.canceled || !result.assets?.[0]?.uri) return;
         const asset = result.assets[0];
@@ -535,7 +537,7 @@ export default function OrderTodosScreen() {
         });
         if ('error' in createResult) {
           const errMsg = createResult.error instanceof Error ? createResult.error.message : String(createResult.error);
-          if (Platform.OS === 'web') window.alert('Link failed: ' + errMsg);
+          if (isDesktopWeb) window.alert('Link failed: ' + errMsg);
           else Alert.alert('Link failed', errMsg);
           return;
         }
@@ -546,7 +548,7 @@ export default function OrderTodosScreen() {
           isImage: taxFilingTodoUploadIsImageKind(displayName, mimeType),
         });
         if (!follow.ok) {
-          if (Platform.OS === 'web') window.alert(follow.alertMessage);
+          if (isDesktopWeb) window.alert(follow.alertMessage);
           else Alert.alert('Recognition failed', follow.alertMessage);
         }
         const todosTree = await getProjectTodosTree(orderId);
@@ -557,7 +559,7 @@ export default function OrderTodosScreen() {
         setTaskFilesExpanded((prev) => new Set(prev).add(todoId));
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        if (Platform.OS === 'web') window.alert('Upload failed: ' + msg);
+        if (isDesktopWeb) window.alert('Upload failed: ' + msg);
         else Alert.alert('Upload failed', msg);
       }
     },
@@ -573,7 +575,7 @@ export default function OrderTodosScreen() {
   const [consentVisible, setConsentVisible] = useState(false);
   const handleRejectOrder = useCallback(async () => {
     if (!orderId) return;
-    if (Platform.OS === 'web' && !window.confirm('Reject this order? You can\'t undo this.')) return;
+    if (isDesktopWeb && !window.confirm('Reject this order? You can\'t undo this.')) return;
     if (Platform.OS !== 'web') {
       Alert.alert('Reject order', 'Reject this order? You can\'t undo this.', [
         { text: 'Cancel', style: 'cancel' },
@@ -823,7 +825,7 @@ export default function OrderTodosScreen() {
 
   useEffect(() => {
     // 仅移动端 + 已有 todos 且已生成 project 时显示 Tina 浮层；否则不允许进入 tax-filing 附件模式
-    if (Platform.OS === 'web') {
+    if (isDesktopWeb) {
       setShowTinaFab(false);
       return;
     }
@@ -1077,7 +1079,7 @@ function TodoTree({
   onRestoreTask?: (todoId: string) => void;
   onUploadFile?: (todoId: string) => void;
 }) {
-  const isWeb = Platform.OS === 'web';
+  const isWeb = isDesktopWebRuntime();
   // Web 端保持原缩进；移动端取消缩进，所有行左对齐
   const indentUnit = isWeb ? 14 : 0;
   const baseIndent = isWeb ? 12 : 0;
@@ -1590,7 +1592,7 @@ const styles = StyleSheet.create({
   showAddTouchArea: { flexDirection: 'row', alignItems: 'center', alignSelf: 'stretch', cursor: 'pointer' },
   chevronWrap: {
     // Web 端预留 28 宽度给 chevron；移动端不显示 chevron，不占宽度，方便 phase 顶格
-    width: Platform.OS === 'web' ? 28 : 0,
+    width: isDesktopWebRuntime() ? 28 : 0,
     alignItems: 'center',
     justifyContent: 'center',
   },

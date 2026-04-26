@@ -33,6 +33,7 @@ import { showToast } from '@/lib/toast';
 import { confirmThen, confirmDestructive } from '@/lib/alertWeb';
 import DataTable, { WEB_POPOVER } from '@/components/DataTable';
 import { getInboundColumns } from '@/components/voucher-table-columns';
+import { useWebViewportKind } from '../lib/web-viewport';
 
 type GroupByType = 'none' | 'month' | 'recordDate' | 'createdBy' | 'sender';
 
@@ -78,6 +79,7 @@ interface SectionData {
 }
 
 export default function InboundScreen() {
+  const { isDesktopWeb } = useWebViewportKind();
   const [list, setList] = useState<Inbound[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -147,7 +149,7 @@ export default function InboundScreen() {
 
   // Supabase Realtime：Web 端 DataTable 列表不启用；移动端列表启用。
   useEffect(() => {
-    if (Platform.OS === 'web') return;
+    if (isDesktopWeb) return;
     let inboundChannel: ReturnType<typeof supabase.channel> | null = null;
     let inboundItemsChannel: ReturnType<typeof supabase.channel> | null = null;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -187,7 +189,7 @@ export default function InboundScreen() {
       if (inboundChannel) supabase.removeChannel(inboundChannel);
       if (inboundItemsChannel) supabase.removeChannel(inboundItemsChannel);
     };
-  }, [load]);
+  }, [isDesktopWeb, load]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -725,7 +727,7 @@ export default function InboundScreen() {
         ) : (
           <View style={styles.header}>
             <View style={styles.headerRow}>
-              <View {...(Platform.OS === 'web' ? { nativeID: 'inbound-group-button' } : {})}>
+              <View {...(isDesktopWeb ? { nativeID: 'inbound-group-button' } : {})}>
                 <TouchableOpacity style={styles.sortButton} onPress={() => setShowSortMenu(true)}>
                   {groupBy === 'none' && <Ionicons name="list-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
                   {groupBy === 'month' && <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
@@ -736,7 +738,7 @@ export default function InboundScreen() {
                   <Ionicons name="chevron-down" size={16} color="#636E72" />
                 </TouchableOpacity>
               </View>
-              <View {...(Platform.OS === 'web' ? { nativeID: 'inbound-filter-button' } : {})}>
+              <View {...(isDesktopWeb ? { nativeID: 'inbound-filter-button' } : {})}>
                 <TouchableOpacity style={styles.filterButton} onPress={() => { setShowFilterMenu(true); setFilterSubMenu('main'); }}>
                   <Text style={styles.filterText}>
                     Filter
@@ -761,7 +763,7 @@ export default function InboundScreen() {
         )}
       </View>
 
-      {Platform.OS === 'web' ? (
+      {isDesktopWeb ? (
         <ScrollView
           style={{ flex: 1 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -1109,7 +1111,7 @@ export default function InboundScreen() {
       </Modal>
       )}
 
-      {Platform.OS === 'web' && showSortMenu && groupPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
+      {isDesktopWeb && showSortMenu && groupPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
         <div id="inbound-group-popover" style={{ ...WEB_POPOVER.container, left: groupPopoverRect.left, top: groupPopoverRect.top }}>
           <Text style={{ fontSize: 13, fontWeight: '600', color: '#495057', marginBottom: 10 }}>Group By</Text>
           <View style={{ gap: 2 }}>
@@ -1146,7 +1148,7 @@ export default function InboundScreen() {
         document.body
       )}
 
-      {Platform.OS === 'web' && showFilterMenu && filterPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
+      {isDesktopWeb && showFilterMenu && filterPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
         <div id="inbound-filter-popover" style={{ ...WEB_POPOVER.container, ...WEB_POPOVER.containerWide, left: filterPopoverRect.left, top: filterPopoverRect.top }}>
           <View style={{ marginBottom: 8, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
             {filterSubMenu !== 'main' ? (

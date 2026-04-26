@@ -41,6 +41,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import type { ClientDisplayStatus, FirmOrderStatus } from '@/types';
 import type { FirmClientWithDetails, FirmClientFollowUp } from '@/lib/firm';
+import { isMobileWebWidth } from '../lib/web-viewport';
 
 /** 非 status 图表用（assignee / follow-up 系列） */
 const FIRM_CHART_COLORS = ['#6C5CE7', '#00B894', '#0298D1', '#FDCB6E', '#E17055'];
@@ -244,21 +245,21 @@ export default function CrmDashboardView() {
   }, [followUps, authorNames]);
 
   // 视口：
-  // - Web：去除左侧栏与顶标题行，四卡片 2x2 网格
-  // - Mobile：全宽内容区，四卡片单列堆叠
-  const isWeb = Platform.OS === 'web';
-  const viewportWidth = isWeb ? screenWidth - SIDEBAR_WIDTH : screenWidth;
+  // - 桌面 Web（宽屏）：去除左侧栏与顶标题行，四卡片 2x2 网格
+  // - 原生 与 移动 Web（窄窗）：全宽内容区，四卡片单列堆叠（不随高度压扁）
+  const isDesktopInsightsGrid = Platform.OS === 'web' && !isMobileWebWidth(screenWidth);
+  const viewportWidth = isDesktopInsightsGrid ? screenWidth - SIDEBAR_WIDTH : screenWidth;
   const viewportHeight = screenHeight - INSIGHTS_HEADER_HEIGHT;
 
-  // Web：2x2 网格卡片宽度；Mobile：cardWidthMobile 仅用于估算内部图表宽度
+  // 桌面 Web：2x2 网格卡片宽度；窄窗 / 原生：cardWidthMobile 估算内部图表宽度
   const cardWidthWeb = Math.floor((viewportWidth - 3 * INSIGHTS_SPACING) / 2);
   // 移动端：与 ScrollView paddingHorizontal=4 对齐，仅预留极小安全边距，最大化图表宽度
   const cardWidthMobile = Math.max(0, viewportWidth - 2 * 4 - 4);
-  const cardHeight = isWeb
+  const cardHeight = isDesktopInsightsGrid
     ? Math.floor((viewportHeight - 3 * INSIGHTS_SPACING) / 2)
     : 260;
-  const horizontalPadding = isWeb ? CARD_PADDING_X_WEB : CARD_PADDING_X_MOBILE;
-  const cardInnerWidth = Math.max(0, (isWeb ? cardWidthWeb : cardWidthMobile) - 2 * horizontalPadding);
+  const horizontalPadding = isDesktopInsightsGrid ? CARD_PADDING_X_WEB : CARD_PADDING_X_MOBILE;
+  const cardInnerWidth = Math.max(0, (isDesktopInsightsGrid ? cardWidthWeb : cardWidthMobile) - 2 * horizontalPadding);
   const chartWidth = Math.max(180, cardInnerWidth);
   const pieSize = Math.min(chartWidth, cardHeight - 60);
   const barChartH = Math.max(120, cardHeight - 60);
@@ -274,7 +275,7 @@ export default function CrmDashboardView() {
 
   return (
     <View style={styles.container}>
-      {Platform.OS === 'web' && (
+      {isDesktopInsightsGrid && (
         <View style={styles.header}>
           <Ionicons name="grid-outline" size={28} color="#6C5CE7" />
           <Text style={styles.title}>Insights</Text>
@@ -284,7 +285,7 @@ export default function CrmDashboardView() {
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
-          isWeb
+          isDesktopInsightsGrid
             ? { padding: INSIGHTS_PADDING }
             : { paddingHorizontal: 4, paddingTop: 0, paddingBottom: 16 },
         ]}
@@ -293,7 +294,7 @@ export default function CrmDashboardView() {
         <View
           style={[
             styles.grid,
-            isWeb
+            isDesktopInsightsGrid
               ? { gap: INSIGHTS_GAP }
               : {
                   gap: 4,
@@ -307,12 +308,12 @@ export default function CrmDashboardView() {
           <View
             style={[
               styles.card,
-              isWeb
+              isDesktopInsightsGrid
                 ? { width: cardWidthWeb, height: cardHeight }
                 : { width: '100%', alignSelf: 'center', marginBottom: 12 },
             ]}
           >
-            <Text style={[styles.cardTitle, !isWeb && { paddingLeft: 8 }]}>
+            <Text style={[styles.cardTitle, !isDesktopInsightsGrid && { paddingLeft: 8 }]}>
               Clients by status
             </Text>
             <View style={styles.chartContainer}>
@@ -328,18 +329,18 @@ export default function CrmDashboardView() {
           <View
             style={[
               styles.card,
-              isWeb
+              isDesktopInsightsGrid
                 ? { width: cardWidthWeb, height: cardHeight }
                 : { width: '100%', alignSelf: 'center', marginBottom: 12 },
             ]}
           >
-            <Text style={[styles.cardTitle, !isWeb && { paddingLeft: 8 }]}>
+            <Text style={[styles.cardTitle, !isDesktopInsightsGrid && { paddingLeft: 8 }]}>
               Clients by assignee
             </Text>
             <View
               style={[
                 styles.chartContainer,
-                !isWeb && { alignItems: 'stretch' },
+                !isDesktopInsightsGrid && { alignItems: 'stretch' },
               ]}
             >
               <ClientAssigneeBars
@@ -354,12 +355,12 @@ export default function CrmDashboardView() {
           <View
             style={[
               styles.card,
-              isWeb
+              isDesktopInsightsGrid
                 ? { width: cardWidthWeb, height: cardHeight }
                 : { width: '100%', alignSelf: 'center', marginBottom: 12 },
             ]}
           >
-            <Text style={[styles.cardTitle, !isWeb && { paddingLeft: 8 }]}>
+            <Text style={[styles.cardTitle, !isDesktopInsightsGrid && { paddingLeft: 8 }]}>
               Engagements by status
             </Text>
             <View style={styles.chartContainer}>
@@ -375,18 +376,18 @@ export default function CrmDashboardView() {
           <View
             style={[
               styles.card,
-              isWeb
+              isDesktopInsightsGrid
                 ? { width: cardWidthWeb, height: cardHeight }
                 : { width: '100%', alignSelf: 'center', marginBottom: 12 },
             ]}
           >
-            <Text style={[styles.cardTitle, !isWeb && { paddingLeft: 8 }]}>
+            <Text style={[styles.cardTitle, !isDesktopInsightsGrid && { paddingLeft: 8 }]}>
               Follow-ups over time
             </Text>
             <View
               style={[
                 styles.chartContainer,
-                !isWeb && { alignItems: 'stretch' },
+                !isDesktopInsightsGrid && { alignItems: 'stretch' },
               ]}
             >
               <FollowUpLines
@@ -409,12 +410,13 @@ type PieProps = {
 };
 
 function ClientStatusPie({ width, height, entries }: PieProps) {
+  const { width: winW } = useWindowDimensions();
   const total = entries.reduce((s, [, v]) => s + v, 0);
   const cx = width / 2;
   const cy = height / 2;
   const rOuter = Math.min(width, height) / 2 - 20;
   const rInner = rOuter * 0.55;
-  const isMobile = Platform.OS !== 'web';
+  const isMobile = Platform.OS !== 'web' || isMobileWebWidth(winW);
 
   if (entries.length === 0) {
     return (
@@ -532,6 +534,7 @@ type StackedBarProps = {
 };
 
 function ClientAssigneeBars({ width, height, stackedEntries }: StackedBarProps) {
+  const { width: winW } = useWindowDimensions();
   if (stackedEntries.length === 0) {
     return (
       <Svg width={width} height={height}>
@@ -541,13 +544,13 @@ function ClientAssigneeBars({ width, height, stackedEntries }: StackedBarProps) 
       </Svg>
     );
   }
-  // Web 保持较大的左侧留白用于长姓名；移动端收紧左右 padding 放大可视条形区域
-  const isWeb = Platform.OS === 'web';
+  // 桌面 Web 保持较大的左侧留白用于长姓名；移动 Web / 原生收紧左右 padding 放大可视条形区域
+  const useWideChartPadding = Platform.OS === 'web' && !isMobileWebWidth(winW);
   const padding = {
     top: 20,
-    right: isWeb ? 24 : 16,
+    right: useWideChartPadding ? 24 : 16,
     bottom: 20,
-    left: isWeb ? 80 : 52,
+    left: useWideChartPadding ? 80 : 52,
   };
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;
@@ -728,6 +731,7 @@ type LineProps = {
 };
 
 function FollowUpLines({ width, height, series }: LineProps) {
+  const { width: winW } = useWindowDimensions();
   if (series.length === 0) {
     return (
       <Svg width={width} height={height}>
@@ -738,13 +742,13 @@ function FollowUpLines({ width, height, series }: LineProps) {
     );
   }
 
-  // Web 折线图右侧可适当留白用于曲线终点；移动端收紧左右 padding 放大曲线区域
-  const isWeb = Platform.OS === 'web';
+  // 桌面 Web 折线图右侧可适当留白用于曲线终点；移动 Web / 原生收紧左右 padding 放大曲线区域
+  const useWideChartPadding = Platform.OS === 'web' && !isMobileWebWidth(winW);
   const padding = {
     top: 16,
-    right: isWeb ? 48 : 24,
+    right: useWideChartPadding ? 48 : 24,
     bottom: 28,
-    left: isWeb ? 32 : 20,
+    left: useWideChartPadding ? 32 : 20,
   };
   const chartW = width - padding.left - padding.right;
   const chartH = height - padding.top - padding.bottom;

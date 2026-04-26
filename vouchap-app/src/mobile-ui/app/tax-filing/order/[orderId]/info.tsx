@@ -12,7 +12,6 @@ import {
   Image,
   TextInput,
   Alert,
-  Platform,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +27,7 @@ import {
 import { supabase, uploadProjectCover } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import EngagementConsentModal from '@/components/EngagementConsentModal';
+import { useWebViewportKind } from '../../../../lib/web-viewport';
 
 const STAGE_LABEL: Record<string, string> = {
   onboarding: 'Onboarding',
@@ -39,6 +39,7 @@ const STAGE_LABEL: Record<string, string> = {
 export default function OrderInfoScreen() {
   const { orderId } = useLocalSearchParams<{ orderId: string }>();
   const router = useRouter();
+  const { isDesktopWeb } = useWebViewportKind();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -96,15 +97,6 @@ export default function OrderInfoScreen() {
 
   const handleRejectOrder = useCallback(async () => {
     if (!orderId) return;
-    if (Platform.OS === 'web' && !window.confirm('Reject this order? You can\'t undo this.')) return;
-    if (Platform.OS !== 'web') {
-      Alert.alert('Reject order', 'Reject this order? You can\'t undo this.', [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Reject', style: 'destructive', onPress: () => doReject() },
-      ]);
-      return;
-    }
-    await doReject();
     async function doReject() {
       setRejecting(true);
       const { error } = await updateOrderStatus(orderId, 'cancelled');
@@ -116,7 +108,16 @@ export default function OrderInfoScreen() {
       showToast('Order rejected', 'success');
       router.back();
     }
-  }, [orderId, router]);
+    if (isDesktopWeb) {
+      if (!window.confirm('Reject this order? You can\'t undo this.')) return;
+      await doReject();
+      return;
+    }
+    Alert.alert('Reject order', 'Reject this order? You can\'t undo this.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Reject', style: 'destructive', onPress: () => void doReject() },
+    ]);
+  }, [orderId, router, isDesktopWeb]);
 
   const performAcceptOrder = useCallback(async () => {
     if (!orderId) return;

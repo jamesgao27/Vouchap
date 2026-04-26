@@ -47,6 +47,7 @@ import CenterModal from '@/components/CenterModal';
 import SkuPreview from '@/components/SkuPreview';
 import ScrollViewWithScrollHint from '@/components/ScrollViewWithScrollHint';
 import FirmOpenInviteHistoryTable from './clients/FirmOpenInviteHistoryTable';
+import { useWebViewportKind } from '../../lib/web-viewport';
 
 function formatServiceStart(iso: string | null): string {
   if (!iso) return '—';
@@ -189,6 +190,7 @@ function ClientNameCell({ name, isPendingClaim }: { name: string; isPendingClaim
 }
 
 export default function FirmClientsScreen() {
+  const { isDesktopWeb } = useWebViewportKind();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -328,7 +330,7 @@ export default function FirmClientsScreen() {
   }, [loadData]);
 
   useEffect(() => {
-    if (Platform.OS === 'web' || !firmSpaceId) return;
+    if (isDesktopWeb || !firmSpaceId) return;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
     const debouncedRefresh = () => {
       if (refreshTimeout) clearTimeout(refreshTimeout);
@@ -983,7 +985,7 @@ export default function FirmClientsScreen() {
               </TouchableOpacity>
               <View
                 style={styles.groupWrap}
-                {...(Platform.OS === 'web'
+                {...(isDesktopWeb
                   ? { nativeID: 'firm-clients-group-button' }
                   : {})}
               >
@@ -1067,7 +1069,7 @@ export default function FirmClientsScreen() {
               </View>
               <View
                 style={styles.groupWrap}
-                {...(Platform.OS === 'web' ? { nativeID: 'firm-clients-filter-button' } : {})}
+                {...(isDesktopWeb ? { nativeID: 'firm-clients-filter-button' } : {})}
               >
                 <TouchableOpacity
                   style={styles.filterButton}
@@ -1127,7 +1129,7 @@ export default function FirmClientsScreen() {
           <ActivityIndicator size="large" color="#6C5CE7" />
           <Text style={styles.emptyText}>Loading...</Text>
         </View>
-      ) : Platform.OS === 'web' ? (
+      ) : isDesktopWeb ? (
         <ScrollView
           style={styles.tableScroll}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -1306,7 +1308,7 @@ export default function FirmClientsScreen() {
                               }}
                             />
                           </View>
-                          {Platform.OS === 'web' && (
+                          {isDesktopWeb && (
                             <TouchableOpacity
                               style={[styles.inviteSecondaryBtn, { marginTop: 8 }]}
                               onPress={handleDownloadInviteQr}
@@ -1385,7 +1387,7 @@ export default function FirmClientsScreen() {
           await loadData(true);
         }}
       />
-      {Platform.OS === 'web' &&
+      {isDesktopWeb &&
         showGroupMenu &&
         groupPopoverRect &&
         typeof document !== 'undefined' &&
@@ -1437,7 +1439,7 @@ export default function FirmClientsScreen() {
           </div>,
           document.body
         )}
-      {Platform.OS === 'web' &&
+      {isDesktopWeb &&
         showFilterMenu &&
         filterPopoverRect &&
         typeof document !== 'undefined' &&

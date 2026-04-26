@@ -12,6 +12,7 @@ import WebChatFab from '@/components/WebChatFab';
 import WebChatPanel from '@/components/WebChatPanel';
 import { ChatPanelProvider, useChatPanel, type ChatPanelType } from '../contexts/ChatPanelContext';
 import { getWebStackHeaderLeftScreenOptions } from '../lib/web-stack-header-left';
+import { useWebViewportKind } from '../lib/web-viewport';
 
 /** 基础数据设置页：这些页不显示 chat-to-log 气泡（已打开的右栏保留） */
 function isSettingsPage(pathname: string): boolean {
@@ -122,11 +123,12 @@ function defaultChatOpen(pathname: string | null): boolean {
 
 function LayoutContent() {
   const pathname = usePathname();
+  const { isDesktopWeb } = useWebViewportKind();
   // 首帧 pathname 可能未就绪（路由水合），用 URL 兜底，避免 Clients 页先显示 Eric 再闪成 Cody
   const pathnameForType =
     pathname ??
     (Platform.OS === 'web' && typeof window !== 'undefined' ? (window as any).location?.pathname ?? null : null);
-  const showSidebar = Platform.OS === 'web' && shouldShowWebSidebar(pathname ?? '/');
+  const showSidebar = isDesktopWeb && shouldShowWebSidebar(pathname ?? '/');
   const { open: chatOpen, setOpen: setChatOpen, setType: setChatType, type: chatType } = useChatPanel();
   const [currentSpace, setCurrentSpace] = useState<{ kind?: string; firmStatus?: string } | null>(null);
 
@@ -153,17 +155,17 @@ function LayoutContent() {
 
   // Web：根据不同页面应用默认的 chat 开关策略
   useEffect(() => {
-    if (Platform.OS !== 'web') return;
+    if (!isDesktopWeb) return;
     const openDefault = defaultChatOpen(pathname ?? null);
     setChatOpen(openDefault);
-  }, [pathname, setChatOpen]);
+  }, [isDesktopWeb, pathname, setChatOpen]);
 
   // Web：主区切换到不同列表时，chat-to-log 提交类别跟随切换
   useEffect(() => {
-    if (Platform.OS !== 'web') return;
+    if (!isDesktopWeb) return;
     const type = chatTypeFromPathname(pathname ?? null);
     if (type) setChatType(type);
-  }, [pathname, setChatType]);
+  }, [isDesktopWeb, pathname, setChatType]);
 
   // Web：Google Fonts（Poppins 700/900）+ Ionicons（CDN）就绪后再渲染主界面
   const [webFontReady, setWebFontReady] = React.useState(() => Platform.OS !== 'web');
@@ -225,7 +227,7 @@ textarea:focus-within {
     styles.mainArea,
   ];
 
-  const chatDisabled = Platform.OS === 'web' && isChatDisabledPath(pathname ?? '/');
+  const chatDisabled = isDesktopWeb && isChatDisabledPath(pathname ?? '/');
 
   return (
     <View style={[styles.root, showSidebar && styles.webRow]}>
@@ -567,7 +569,7 @@ textarea:focus-within {
       {showSidebar && !chatDisabled && chatOpen && (
         <WebChatPanel effectiveType={chatTypeFromPathname(pathnameForType) ?? chatType ?? 'receipt'} />
       )}
-      {showSidebar && !chatDisabled && !chatOpen && Platform.OS === 'web' && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/receipt-items') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && !isSettingsPage(pathname ?? '') && (
+      {showSidebar && !chatDisabled && !chatOpen && isDesktopWeb && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/receipt-items') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && !isSettingsPage(pathname ?? '') && (
         <WebChatFab type={chatTypeFromPathname(pathnameForType) ?? 'receipt'} />
       )}
       <ToastHost />

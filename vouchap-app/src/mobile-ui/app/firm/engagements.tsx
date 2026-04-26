@@ -54,6 +54,7 @@ import {
   getTaxSeasonYearForClassification,
   orderMatchesClassificationDimFilters,
 } from '@/lib/firm-classification-dimensions';
+import { useWebViewportKind } from '../../lib/web-viewport';
 
 const STATUS_LABEL: Record<string, string> = {
   onboarding: 'Onboarding',
@@ -365,6 +366,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
 }
 
 export default function FirmEngagementsScreen() {
+  const { isDesktopWeb } = useWebViewportKind();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -534,7 +536,7 @@ export default function FirmEngagementsScreen() {
   }, [loadData]);
 
   useEffect(() => {
-    if (Platform.OS === 'web' || !firmSpaceId) return;
+    if (isDesktopWeb || !firmSpaceId) return;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
     const debouncedRefresh = () => {
       if (refreshTimeout) clearTimeout(refreshTimeout);
@@ -1574,7 +1576,7 @@ export default function FirmEngagementsScreen() {
               </TouchableOpacity>
               <View
                 style={styles.groupWrap}
-                {...(Platform.OS === 'web' ? { nativeID: 'firm-engagements-group-button' } : {})}
+                {...(isDesktopWeb ? { nativeID: 'firm-engagements-group-button' } : {})}
               >
                 <TouchableOpacity
                   style={styles.sortButton}
@@ -1627,7 +1629,7 @@ export default function FirmEngagementsScreen() {
               </View>
               <View
                 style={styles.groupWrap}
-                {...(Platform.OS === 'web' ? { nativeID: 'firm-engagements-filter-button' } : {})}
+                {...(isDesktopWeb ? { nativeID: 'firm-engagements-filter-button' } : {})}
               >
                 <TouchableOpacity
                   style={styles.sortButton}
@@ -1707,7 +1709,7 @@ export default function FirmEngagementsScreen() {
                 ref={clientNameRef}
                 collapsable={false}
                 style={{ flexDirection: 'row', alignItems: 'center' }}
-                {...(Platform.OS === 'web' ? { nativeID: 'create-engagement-clientName-anchor' } : {})}
+                {...(isDesktopWeb ? { nativeID: 'create-engagement-clientName-anchor' } : {})}
               >
                 <TextInput
                   style={{ flex: 1, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F5F6FA', borderWidth: 1, borderColor: activeClientField === 'clientName' && showClientMenu ? '#6C5CE7' : '#EAECEF', paddingRight: 36, fontSize: 14, color: '#2D3436' }}
@@ -1733,7 +1735,7 @@ export default function FirmEngagementsScreen() {
                 ref={contactNameRef}
                 collapsable={false}
                 style={{ flexDirection: 'row', alignItems: 'center' }}
-                {...(Platform.OS === 'web' ? { nativeID: 'create-engagement-contactName-anchor' } : {})}
+                {...(isDesktopWeb ? { nativeID: 'create-engagement-contactName-anchor' } : {})}
               >
                 <TextInput
                   style={{ flex: 1, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F5F6FA', borderWidth: 1, borderColor: activeClientField === 'contactName' && showClientMenu ? '#6C5CE7' : '#EAECEF', paddingRight: 36, fontSize: 14, color: '#2D3436' }}
@@ -1759,7 +1761,7 @@ export default function FirmEngagementsScreen() {
                 ref={contactEmailRef}
                 collapsable={false}
                 style={{ flexDirection: 'row', alignItems: 'center' }}
-                {...(Platform.OS === 'web' ? { nativeID: 'create-engagement-contactEmail-anchor' } : {})}
+                {...(isDesktopWeb ? { nativeID: 'create-engagement-contactEmail-anchor' } : {})}
               >
                 <TextInput
                   style={{ flex: 1, paddingHorizontal: 12, paddingVertical: 10, borderRadius: 10, backgroundColor: '#F5F6FA', borderWidth: 1, borderColor: activeClientField === 'contactEmail' && showClientMenu ? '#6C5CE7' : '#EAECEF', paddingRight: 36, fontSize: 14, color: '#2D3436' }}
@@ -1801,7 +1803,7 @@ export default function FirmEngagementsScreen() {
               <View
                 ref={skuSelectRef}
                 collapsable={false}
-                {...(Platform.OS === 'web' ? { nativeID: 'create-engagement-sku-anchor' } : {})}
+                {...(isDesktopWeb ? { nativeID: 'create-engagement-sku-anchor' } : {})}
               >
                 <TouchableOpacity
                   style={{
@@ -1864,7 +1866,7 @@ export default function FirmEngagementsScreen() {
       </CenterModal>
 
       {/* Dropdown overlays: web uses portal (so inputs remain editable); mobile uses Modal */}
-      {Platform.OS === 'web' &&
+      {isDesktopWeb &&
         showClientMenu &&
         clientDropdownRect &&
         typeof document !== 'undefined' &&
@@ -1928,7 +1930,7 @@ export default function FirmEngagementsScreen() {
           document.body
         )}
 
-      {Platform.OS === 'web' &&
+      {isDesktopWeb &&
         showSkuMenu &&
         skuDropdownRect &&
         typeof document !== 'undefined' &&
@@ -2131,7 +2133,7 @@ export default function FirmEngagementsScreen() {
           />
         </ScrollView>
       )}
-      {Platform.OS === 'web' &&
+      {isDesktopWeb &&
         showGroupMenu &&
         groupPopoverRect &&
         typeof document !== 'undefined' &&
@@ -2188,7 +2190,7 @@ export default function FirmEngagementsScreen() {
           document.body
         )}
 
-      {Platform.OS === 'web' &&
+      {isDesktopWeb &&
         showFilterMenu &&
         filterPopoverRect &&
         typeof document !== 'undefined' &&

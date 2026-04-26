@@ -42,10 +42,12 @@ import {
   lineItemCategorySelectValue,
   buildLineItemAttributionOptions,
 } from '@/components/voucher-table-columns';
+import { useWebViewportKind } from '../../lib/web-viewport';
 
 export default function ReceiptDetailsScreen() {
   const { id, new: isNew } = useLocalSearchParams<{ id: string; new?: string }>();
   const router = useRouter();
+  const { isDesktopWeb } = useWebViewportKind();
   const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
@@ -1042,7 +1044,7 @@ export default function ReceiptDetailsScreen() {
                 </View>
                 <View style={styles.dateContainer}>
               {editing ? (
-                Platform.OS === 'web' ? (
+                isDesktopWeb ? (
                   <View style={styles.dateTouchable}>
                     {React.createElement('input', {
                       type: 'date',
@@ -1242,7 +1244,7 @@ export default function ReceiptDetailsScreen() {
               <View style={styles.itemTags}>
                   {/* 分类标签 - 左侧，左对齐 */}
                   <View style={styles.tagGroupLeft}>
-                    {Platform.OS === 'web' && categories.length > 0 ? (
+                    {isDesktopWeb && categories.length > 0 ? (
                       <View style={{ alignSelf: 'flex-start', maxWidth: 200 }}>
                         <LineItemPillAnchorDropdownWeb
                           kind="category"
@@ -1284,7 +1286,7 @@ export default function ReceiptDetailsScreen() {
 
                   {/* 用途标签 - 居中，左对齐 */}
                   <View style={styles.tagGroupCenter}>
-                    {Platform.OS === 'web' && attributionOpts.length > 0 ? (
+                    {isDesktopWeb && attributionOpts.length > 0 ? (
                       <View style={{ alignSelf: 'flex-start', maxWidth: 220 }}>
                         <LineItemAttributionAnchorDropdownWeb
                           rowId={lineStableId}
@@ -1296,7 +1298,7 @@ export default function ReceiptDetailsScreen() {
                           }}
                         />
                       </View>
-                    ) : Platform.OS === 'web' ? (
+                    ) : isDesktopWeb ? (
                       <Text style={{ fontSize: 13, color: '#95A5A6', alignSelf: 'flex-start' }}>—</Text>
                     ) : (
                     <TouchableOpacity

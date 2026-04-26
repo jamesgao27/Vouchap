@@ -26,6 +26,7 @@ import { confirmThen } from '@/lib/alertWeb';
 import WebChatFab, { WEB_CHAT_FAB_BOTTOM, WEB_CHAT_FAB_RIGHT, WEB_CHAT_FAB_SIZE } from '@/components/WebChatFab';
 import DataTable, { WEB_POPOVER, type DataTableSection } from '@/components/DataTable';
 import { getReceiptLineItemColumns } from '@/components/voucher-table-columns';
+import { useWebViewportKind } from '../lib/web-viewport';
 
 const UNCATEGORIZED = '__uncategorized__';
 const NO_ATTRIBUTION = '__none__';
@@ -60,6 +61,7 @@ function sectionTitleForKey(
 }
 
 export default function ReceiptLineItemsScreen() {
+  const { isDesktopWeb } = useWebViewportKind();
   const router = useRouter();
   const [rows, setRows] = useState<ReceiptLineItemListRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -169,7 +171,7 @@ export default function ReceiptLineItemsScreen() {
 
   // Realtime：Web 端 DataTable 不启用；移动端行项列表启用。
   useEffect(() => {
-    if (Platform.OS === 'web') return;
+    if (isDesktopWeb) return;
     let receiptsCh: ReturnType<typeof supabase.channel> | null = null;
     let itemsCh: ReturnType<typeof supabase.channel> | null = null;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -204,7 +206,7 @@ export default function ReceiptLineItemsScreen() {
       if (receiptsCh) void supabase.removeChannel(receiptsCh);
       if (itemsCh) void supabase.removeChannel(itemsCh);
     };
-  }, [load]);
+  }, [isDesktopWeb, load]);
 
   useEffect(() => {
     getCategories('expense').then(setCategories).catch(() => {});
@@ -616,7 +618,7 @@ export default function ReceiptLineItemsScreen() {
             <Text style={styles.bulkText}>{selectedIds.size} selected</Text>
             <View
               nativeID="receipt-items-bulk-category-btn"
-              {...(Platform.OS === 'web' ? ({ id: 'receipt-items-bulk-category-btn' } as Record<string, string>) : {})}
+              {...(isDesktopWeb ? ({ id: 'receipt-items-bulk-category-btn' } as Record<string, string>) : {})}
             >
               <TouchableOpacity
                 style={[styles.bulkBtn, bulkWorking && { opacity: 0.6 }]}
@@ -629,7 +631,7 @@ export default function ReceiptLineItemsScreen() {
             </View>
             <View
               nativeID="receipt-items-bulk-attribution-btn"
-              {...(Platform.OS === 'web' ? ({ id: 'receipt-items-bulk-attribution-btn' } as Record<string, string>) : {})}
+              {...(isDesktopWeb ? ({ id: 'receipt-items-bulk-attribution-btn' } as Record<string, string>) : {})}
             >
               <TouchableOpacity
                 style={[styles.bulkBtn, bulkWorking && { opacity: 0.6 }]}
@@ -747,7 +749,7 @@ export default function ReceiptLineItemsScreen() {
         )}
       </ScrollView>
 
-      {Platform.OS === 'web' && showGroupMenu && groupPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
+      {isDesktopWeb && showGroupMenu && groupPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
         <div
           id="receipt-items-group-popover"
           style={{ ...WEB_POPOVER.container, left: groupPopoverRect.left, top: groupPopoverRect.top }}
@@ -783,7 +785,7 @@ export default function ReceiptLineItemsScreen() {
         document.body
       )}
 
-      {Platform.OS === 'web' && showFilterMenu && filterPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
+      {isDesktopWeb && showFilterMenu && filterPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
         <div
           id="receipt-items-filter-popover"
           style={{
@@ -958,7 +960,7 @@ export default function ReceiptLineItemsScreen() {
         document.body
       )}
 
-      {Platform.OS === 'web' &&
+      {isDesktopWeb &&
         bulkMenu &&
         bulkMenuRect &&
         typeof document !== 'undefined' &&

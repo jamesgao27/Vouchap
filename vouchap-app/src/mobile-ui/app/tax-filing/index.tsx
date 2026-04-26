@@ -34,6 +34,7 @@ import { confirmDestructive } from '../../../shared-logic/alertWeb';
 import { ServiceCatalogAddEntryTile } from '@/components/ServiceCatalogShared';
 import { PinToTopIcon } from '@/components/ProjectListCardAndRow';
 import { useClientSpaceTaxFilingListRealtime } from '../../lib/engagement-realtime';
+import { useWebViewportKind } from '../../lib/web-viewport';
 
 const PINNED_ORDER_IDS_KEY = 'tax_filing_pinned_order_ids';
 
@@ -114,7 +115,8 @@ function isAwaitingFirmConfirmation(order: FirmOrderForClient): boolean {
 }
 
 export default function TaxFilingScreen() {
-  if (Platform.OS === 'web') {
+  const { isDesktopWeb } = useWebViewportKind();
+  if (isDesktopWeb) {
     return <TaxFilingWebScreen />;
   }
   return <TaxFilingMobileScreen />;

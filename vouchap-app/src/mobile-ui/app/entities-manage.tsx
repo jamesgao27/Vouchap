@@ -34,9 +34,11 @@ import {
 } from '@/lib/entities';
 import { GradientText } from '@/lib/GradientText';
 import type { Entity } from '@/types';
+import { useWebViewportKind } from '../lib/web-viewport';
 
 export default function EntitiesManageScreen() {
   const router = useRouter();
+  const { isDesktopWeb } = useWebViewportKind();
   const [list, setList] = useState<Entity[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -153,9 +155,9 @@ export default function EntitiesManageScreen() {
   const loadListRef = useRef(loadList);
   loadListRef.current = loadList;
 
-  // Supabase Realtime：entities 表变更时自动局部刷新列表（仅移动端；Web 端表格视图不启用）
+  // Supabase Realtime：entities 表变更时自动局部刷新列表（桌面 Web 不启用；移动 Web 与原生启用）
   useEffect(() => {
-    if (Platform.OS === 'web') return;
+    if (isDesktopWeb) return;
     let entitiesChannel: ReturnType<typeof supabase.channel> | null = null;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -188,7 +190,7 @@ export default function EntitiesManageScreen() {
       if (refreshTimeout) clearTimeout(refreshTimeout);
       if (entitiesChannel) supabase.removeChannel(entitiesChannel);
     };
-  }, []);
+  }, [isDesktopWeb]);
 
   const handleAddEntity = async () => {
     if (!newName.trim()) {
@@ -742,7 +744,13 @@ export default function EntitiesManageScreen() {
               const expanded = expandedRootIds.has(root.id);
               const hasChildren = children.length > 0;
               return (
-                <View key={root.id} style={styles.supplierCard}>
+                <View
+                  key={root.id}
+                  style={[
+                    styles.supplierCard,
+                    isDesktopWeb && { flex: undefined, overflow: 'visible' as const },
+                  ]}
+                >
                   <View style={[styles.mergeRowRoot, selectedEntityIds.has(root.id) && styles.supplierRowSelected]}>
                     <TouchableOpacity
                       style={styles.mergeRowSelectionArea}
@@ -811,7 +819,13 @@ export default function EntitiesManageScreen() {
             })
           ) : (
             list.map((item) => (
-              <View key={`${item.source}-${item.id}`} style={styles.supplierCard}>
+              <View
+                key={`${item.source}-${item.id}`}
+                style={[
+                  styles.supplierCard,
+                  isDesktopWeb && { flex: undefined, overflow: 'visible' as const },
+                ]}
+              >
                 {editingId === item.id ? (
                   <View style={styles.editRow}>
                     <View style={styles.editFormTagRow}>
@@ -1181,7 +1195,6 @@ const styles = StyleSheet.create({
     padding: 10,
     paddingRight: 4,
     minHeight: 40,
-    ...(Platform.OS === 'web' && { flex: undefined, overflow: 'visible' as const }),
   },
   mergeRowRoot: {
     flexDirection: 'row',

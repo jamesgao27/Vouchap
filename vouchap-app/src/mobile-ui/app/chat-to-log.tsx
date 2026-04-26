@@ -80,6 +80,7 @@ import {
   CHAT_STAGED_FILES_DISPLAY_MAX,
   chatStagedFilesOverflowLabel,
 } from '../lib/chat-staged-files-display';
+import { useWebViewportKind } from '../lib/web-viewport';
 
 function isAndroidImagePickerLauncherNotReadyError(e: unknown): boolean {
   const msg = e instanceof Error ? e.message : String(e);
@@ -482,6 +483,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   const navigation = useNavigation();
   const params = useLocalSearchParams<{ type?: string; drawer?: string; projectId?: string; todoId?: string }>();
   const chatPanel = useChatPanel();
+  const { isDesktopWeb } = useWebViewportKind();
   const [currentSpace, setCurrentSpace] = useState<{ kind?: string } | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -506,7 +508,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         : (allowedTypeValues[0] ?? 'receipt');
   const isAttachmentsType = voucherType === 'tax-filing';
   const isAiInventoryType = voucherType === 'inbound' || voucherType === 'outbound';
-  const isDrawer = Platform.OS === 'web' && params.drawer === '1';
+  const isDrawer = isDesktopWeb && params.drawer === '1';
 
   // 根据类型动态设置标题为「Chat to log - 模块名」（模块名为类型选项 label，如 Expenses、Tax Documents）
   useEffect(() => {
@@ -1266,7 +1268,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       showToast('Open from a tax-filing project to attach files.', 'info');
       return;
     }
-    if (Platform.OS === 'web') {
+    if (isDesktopWeb) {
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = [
@@ -1329,7 +1331,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     } catch (e) {
       showToast(e instanceof Error ? e.message : 'Failed to add files', 'error');
     }
-  }, [effectiveProjectId, isProcessing, voucherType]);
+  }, [effectiveProjectId, isProcessing, voucherType, isDesktopWeb]);
 
   /** Web：仅选择文件夹（可多选），将文件夹内的所有文件展开为待上传列表。 */
   const pickFoldersForSend = useCallback(() => {
@@ -1338,7 +1340,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       showToast('Open from a tax-filing project to attach files.', 'info');
       return;
     }
-    if (Platform.OS !== 'web') return;
+    if (!isDesktopWeb) return;
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = [
@@ -1369,7 +1371,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       setIsVoiceMode(false);
     };
     input.click();
-  }, [effectiveProjectId, isProcessing, voucherType]);
+  }, [effectiveProjectId, isProcessing, voucherType, isDesktopWeb]);
 
   const handleSend = async () => {
     const text = inputText.trim();
@@ -3175,7 +3177,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       </FlatList>
 
       <View style={[styles.inputContainer, { paddingBottom: Platform.OS === 'ios' ? (keyboardHeight ? keyboardHeight + 20 : 20) : (keyboardHeight ? keyboardHeight + 16 : 16) }]}>
-        {Platform.OS === 'web' ? (
+        {isDesktopWeb ? (
           <View style={webInputBlockStyles.webInputOuter}>
             <View style={webInputBlockStyles.webInputBlock}>
               {stagedAttachmentFiles.length > 0 && !isProcessing ? (
@@ -3239,7 +3241,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                     <TouchableOpacity style={webInputBlockStyles.webActionIcon} onPress={pickImagesForSend} disabled={isProcessing}>
                       <Ionicons name="image-outline" size={22} color="#636E72" />
                     </TouchableOpacity>
-                    {Platform.OS === 'web' && (
+                    {isDesktopWeb ? (
                       <TouchableOpacity
                         style={webInputBlockStyles.webActionIcon}
                         onPress={pickFoldersForSend}
@@ -3247,8 +3249,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                       >
                         <Ionicons name="folder-open-outline" size={22} color="#636E72" />
                       </TouchableOpacity>
-                    )}
-                    {Platform.OS !== 'web' && (
+                    ) : null}
+                    {!isDesktopWeb && (
                       <TouchableOpacity
                         style={[webInputBlockStyles.webActionIcon, isRecording && styles.webActionIconRecording]}
                         onPress={() => { if (isRecordingRef.current) handleStopRecording(); else if (!isProcessing) handleStartRecording(); }}

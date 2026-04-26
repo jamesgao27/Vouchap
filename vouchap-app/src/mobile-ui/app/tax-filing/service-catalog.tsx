@@ -47,6 +47,7 @@ import {
   emptyClassificationDimFilters,
   skuMatchesClassificationDimFilters,
 } from '@/lib/firm-classification-dimensions';
+import { isMobileWebWidth } from '../../lib/web-viewport';
 
 type ViewMode = 'grid' | 'list';
 
@@ -96,10 +97,12 @@ function skuSearchHaystack(sku: FirmSku): string {
 
 export default function ClientServiceMarketplaceScreen() {
   const router = useRouter();
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktopCatalog = Platform.OS === 'web' && !isMobileWebWidth(windowWidth);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [skus, setSkus] = useState<FirmSku[]>([]);
-  const [viewMode, setViewMode] = useState<ViewMode>(Platform.OS === 'web' ? 'grid' : 'list');
+  const [viewMode, setViewMode] = useState<ViewMode>(isDesktopCatalog ? 'grid' : 'list');
   const [startingSkuId, setStartingSkuId] = useState<string | null>(null);
   const [pendingMarketplaceSku, setPendingMarketplaceSku] = useState<FirmSku | null>(null);
   const [selectionModalVisible, setSelectionModalVisible] = useState(false);
@@ -116,7 +119,6 @@ export default function ClientServiceMarketplaceScreen() {
   });
   const filterAnchorRef = useRef<View | null>(null);
   const [favoriteSkuIds, setFavoriteSkuIds] = useState<string[]>([]);
-  const { width: windowWidth } = useWindowDimensions();
 
   const loadData = useCallback(async (forceRefresh = false) => {
     const space = await getCurrentSpace(forceRefresh);
@@ -270,17 +272,17 @@ export default function ClientServiceMarketplaceScreen() {
   }, []);
 
   const syncWebFilterPopoverPosition = useCallback(() => {
-    if (Platform.OS !== 'web') return;
+    if (Platform.OS !== 'web' || !isDesktopCatalog) return;
     const node = filterAnchorRef.current;
     if (!node) return;
     node.measureInWindow((x, y, width, height) => {
       setFilterPopoverRect({ left: x, top: y + height + 6 });
     });
-  }, []);
+  }, [isDesktopCatalog]);
 
   useLayoutEffect(() => {
     if (Platform.OS !== 'web') return;
-    if (!showFilterMenu) {
+    if (!isDesktopCatalog || !showFilterMenu) {
       setFilterPopoverRect(null);
       return;
     }
@@ -301,10 +303,10 @@ export default function ClientServiceMarketplaceScreen() {
       window.removeEventListener('resize', onWinChange);
       setFilterPopoverRect(null);
     };
-  }, [showFilterMenu, syncWebFilterPopoverPosition]);
+  }, [showFilterMenu, isDesktopCatalog, syncWebFilterPopoverPosition]);
 
   useEffect(() => {
-    if (Platform.OS !== 'web') return;
+    if (Platform.OS !== 'web' || !isDesktopCatalog) return;
     const handler = (e: PointerEvent) => {
       const target = e.target as Node;
       const filterBtn = document.getElementById('service-marketplace-filter-button');
@@ -321,7 +323,7 @@ export default function ClientServiceMarketplaceScreen() {
     };
     document.addEventListener('pointerdown', handler, true);
     return () => document.removeEventListener('pointerdown', handler, true);
-  }, [showFilterMenu]);
+  }, [showFilterMenu, isDesktopCatalog]);
 
   const openMarketplaceFlow = useCallback((sku: FirmSku) => {
     if (startingSkuId) return;
@@ -369,14 +371,12 @@ export default function ClientServiceMarketplaceScreen() {
     [pendingMarketplaceSku, startingSkuId, router],
   );
 
-  const numColumns = Platform.select({
-    web: Math.max(2, Math.floor((windowWidth - 48) / (200 + GRID_GAP))),
-    default: 2,
-  });
-  const cardWidth =
-    Platform.OS === 'web'
-      ? Math.min(SERVICE_CATALOG_CARD_MAX_WIDTH, (windowWidth - 48 - GRID_GAP * (numColumns - 1)) / numColumns)
-      : (windowWidth - 24 - GRID_GAP) / 2;
+  const numColumns = isDesktopCatalog
+    ? Math.max(2, Math.floor((windowWidth - 48) / (200 + GRID_GAP)))
+    : 2;
+  const cardWidth = isDesktopCatalog
+    ? Math.min(SERVICE_CATALOG_CARD_MAX_WIDTH, (windowWidth - 48 - GRID_GAP * (numColumns - 1)) / numColumns)
+    : (windowWidth - 24 - GRID_GAP) / 2;
   const listStyle = projectListStyles.list;
 
   const emptyMessage = useMemo(() => {
@@ -429,7 +429,7 @@ export default function ClientServiceMarketplaceScreen() {
               ref={filterAnchorRef}
               collapsable={false}
               style={styles.groupWrap}
-              {...(Platform.OS === 'web' ? { nativeID: 'service-marketplace-filter-button' } : {})}
+              {...(isDesktopCatalog ? { nativeID: 'service-marketplace-filter-button' } : {})}
             >
               <TouchableOpacity
                 style={styles.filterTrigger}
@@ -443,7 +443,7 @@ export default function ClientServiceMarketplaceScreen() {
                 ) : null}
                 <Ionicons name="chevron-down" size={16} color="#636E72" />
               </TouchableOpacity>
-              {Platform.OS !== 'web' && showFilterMenu ? (
+              {showFilterMenu && (Platform.OS !== 'web' || !isDesktopCatalog) ? (
                 <View style={[styles.groupDropdown, styles.marketplaceFilterDropdown]}>
                   <ScrollView nestedScrollEnabled style={styles.marketplaceFilterScroll} keyboardShouldPersistTaps="handled">
                     <Text style={styles.engagementFilterSectionLabel}>Classification</Text>
@@ -517,7 +517,7 @@ export default function ClientServiceMarketplaceScreen() {
         </View>
       </View>
 
-      {Platform.OS === 'web' &&
+      {isDesktopCatalog &&
         showFilterMenu &&
         filterPopoverRect &&
         typeof document !== 'undefined' &&
@@ -556,7 +556,7 @@ export default function ClientServiceMarketplaceScreen() {
 
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, isDesktopCatalog && { paddingHorizontal: 20 }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
         keyboardShouldPersistTaps="handled"
       >
@@ -745,10 +745,7 @@ const styles = StyleSheet.create({
   content: {
     paddingTop: 20,
     paddingBottom: 40,
-    ...Platform.select({
-      web: { paddingHorizontal: 20 },
-      default: { paddingHorizontal: 12 },
-    }),
+    paddingHorizontal: 12,
   },
   loader: { marginTop: 40 },
   emptyText: { fontSize: 15, color: '#636E72', marginTop: 24, textAlign: 'center' },

@@ -14,6 +14,7 @@ import {
   ScrollView,
   Platform,
   InteractionManager,
+  useWindowDimensions,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -36,6 +37,7 @@ import { confirmThen, confirmDestructive } from '@/lib/alertWeb';
 import WebChatFab, { WEB_CHAT_FAB_BOTTOM, WEB_CHAT_FAB_RIGHT, WEB_CHAT_FAB_SIZE } from '@/components/WebChatFab';
 import DataTable, { WEB_POPOVER } from '@/components/DataTable';
 import { getReceiptColumns } from '@/components/voucher-table-columns';
+import { isMobileWebWidth } from '../lib/web-viewport';
 
 // 分组类型：
 // - none: 不分组
@@ -124,6 +126,8 @@ interface SectionData {
 }
 
 export default function ReceiptsScreen() {
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === 'web' && !isMobileWebWidth(windowWidth);
   const [receipts, setReceipts] = useState<Receipt[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -131,7 +135,7 @@ export default function ReceiptsScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
-  const [groupBy, setGroupBy] = useState<GroupByType>(Platform.OS === 'web' ? 'month' : 'recordDate');
+  const [groupBy, setGroupBy] = useState<GroupByType>(isDesktopWeb ? 'month' : 'recordDate');
   const [showSortMenu, setShowSortMenu] = useState(false);
   const [showFilterMenu, setShowFilterMenu] = useState(false);
   const [groupPopoverRect, setGroupPopoverRect] = useState<{ left: number; top: number } | null>(null);
@@ -389,7 +393,7 @@ export default function ReceiptsScreen() {
 
   // Supabase Realtime：Web 端 DataTable 列表不启用（避免协作抖动）；移动端与其它非表格视图启用。
   useEffect(() => {
-    if (Platform.OS === 'web') return;
+    if (isDesktopWeb) return;
     let receiptsChannel: any = null;
     let receiptItemsChannel: any = null;
     let paymentAccountsChannel: any = null;
@@ -520,7 +524,7 @@ export default function ReceiptsScreen() {
         supabase.removeChannel(paymentAccountsChannel);
       }
     };
-  }, [loadReceipts]);
+  }, [isDesktopWeb, loadReceipts]);
 
   // 仅首次进入时加载，返回列表时保留当前结果；下拉刷新时由 onRefresh 处理
   useFocusEffect(useCallback(() => {
@@ -1147,7 +1151,7 @@ export default function ReceiptsScreen() {
         ) : (
           <View style={styles.header}>
             <View style={styles.headerRow}>
-              <View {...(Platform.OS === 'web' ? { nativeID: 'receipts-group-button' } : {})}>
+              <View {...(isDesktopWeb ? { nativeID: 'receipts-group-button' } : {})}>
                 <TouchableOpacity style={styles.sortButton} onPress={() => setShowSortMenu(true)}>
                   {groupBy === 'none' && <Ionicons name="list-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
                   {groupBy === 'month' && <Ionicons name="calendar-outline" size={18} color="#6C5CE7" style={{ marginRight: 4 }} />}
@@ -1159,7 +1163,7 @@ export default function ReceiptsScreen() {
                   <Ionicons name="chevron-down" size={16} color="#636E72" />
                 </TouchableOpacity>
               </View>
-              <View {...(Platform.OS === 'web' ? { nativeID: 'receipts-filter-button' } : {})}>
+              <View {...(isDesktopWeb ? { nativeID: 'receipts-filter-button' } : {})}>
                 <TouchableOpacity style={styles.filterButton} onPress={() => { setShowFilterMenu(true); setFilterSubMenu('main'); }}>
                   <Text style={styles.filterText}>
                     Filter
@@ -1179,7 +1183,7 @@ export default function ReceiptsScreen() {
                   </TouchableOpacity>
                 ) : null}
               </View>
-              {Platform.OS === 'web' && (
+              {isDesktopWeb && (
                 <TouchableOpacity
                   style={styles.itemsEntryButton}
                   onPress={() => router.push('/receipt-items')}
@@ -1195,7 +1199,7 @@ export default function ReceiptsScreen() {
         )}
       </View>
 
-      {Platform.OS === 'web' ? (
+      {isDesktopWeb ? (
         <ScrollView
           style={{ flex: 1 }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
@@ -1414,9 +1418,22 @@ export default function ReceiptsScreen() {
       )}
 
       {/* 底部悬浮菜单：Web 端单按钮打开右侧栏；移动端保留主「+」展开聊天/扫描 */}
-      {Platform.OS === 'web' ? (
+      {isDesktopWeb ? (
         <View style={[styles.fabContainer, styles.fabContainerWeb]}>
           <WebChatFab type="receipt" embedded />
+        </View>
+      ) : Platform.OS === 'web' ? (
+        /* 窄窗 Web：无相机链路，+ 直接进入 Chat to log */
+        <View style={styles.fabContainer}>
+          <TouchableOpacity
+            style={styles.fabMain}
+            onPress={() => router.push('/chat-to-log')}
+            disabled={isProcessing}
+            activeOpacity={0.8}
+            accessibilityLabel="Open chat to log"
+          >
+            <Ionicons name="add" size={32} color="#fff" />
+          </TouchableOpacity>
         </View>
       ) : (
         <View style={styles.fabContainer}>
@@ -1687,7 +1704,7 @@ export default function ReceiptsScreen() {
       </Modal>
       )}
 
-      {Platform.OS === 'web' && showSortMenu && groupPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
+      {isDesktopWeb && showSortMenu && groupPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
         <div
           id="receipts-group-popover"
           style={{ ...WEB_POPOVER.container, left: groupPopoverRect.left, top: groupPopoverRect.top }}
@@ -2072,7 +2089,7 @@ export default function ReceiptsScreen() {
       </Modal>
       )}
 
-      {Platform.OS === 'web' && showFilterMenu && filterPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
+      {isDesktopWeb && showFilterMenu && filterPopoverRect && typeof document !== 'undefined' && document.body && createPortal(
         <div
           id="receipts-filter-popover"
           style={{ ...WEB_POPOVER.container, ...WEB_POPOVER.containerWide, left: filterPopoverRect.left, top: filterPopoverRect.top }}

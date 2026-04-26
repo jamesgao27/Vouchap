@@ -43,6 +43,7 @@ import { withWbsCodes, type ProjectSkuInfo, type TodoRow } from '@/components/Pr
 import { ProjectDetailView, type ProjectDetailHeader } from '@/components/ProjectDetailView';
 import { ProjectInfoTab, type ProjectInfoTabHandle } from '../../tax-filing/project/[projectId]/info';
 import { useChatPanel } from '../../../contexts/ChatPanelContext';
+import { useWebViewportKind } from '../../../lib/web-viewport';
 import { showToast } from '@/lib/toast';
 import EngagementConsentModal from '@/components/EngagementConsentModal';
 import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
@@ -69,6 +70,7 @@ export default function FirmEngagementDetailScreen() {
   const orderId =
     typeof orderIdParam === 'string' ? orderIdParam : Array.isArray(orderIdParam) ? orderIdParam[0] : undefined;
   const router = useRouter();
+  const { isDesktopWeb } = useWebViewportKind();
   const chatPanel = useChatPanel();
 
   /** 与 tax-filing 列表进入方式一致：client 空间为 client，firm 空间为 firm */
@@ -271,7 +273,7 @@ export default function FirmEngagementDetailScreen() {
         setRejectLoading(false);
       }
     };
-    if (Platform.OS === 'web') {
+    if (isDesktopWeb) {
       if (typeof window !== 'undefined' && !window.confirm('Reject this engagement? You can\'t undo this.')) return;
       void run();
       return;
@@ -280,7 +282,7 @@ export default function FirmEngagementDetailScreen() {
       { text: 'Cancel', style: 'cancel' },
       { text: 'Reject', style: 'destructive', onPress: () => void run() },
     ]);
-  }, [orderId, router]);
+  }, [orderId, router, isDesktopWeb]);
 
   const handleClientAbort = useCallback(() => {
     if (!orderId) return;
@@ -351,8 +353,8 @@ export default function FirmEngagementDetailScreen() {
   const closePanel = chatPanel?.closePanel;
 
   useEffect(() => {
-    // 仅 Web 有 WebChatPanel；原生端不应调用 openPanel/setType，避免多余状态与边缘问题
-    if (Platform.OS !== 'web') return;
+    // 仅桌面 Web 有固定 WebChatPanel；移动 Web / 原生走全屏 chat 路由
+    if (!isDesktopWeb) return;
     if (!orderId || !openPanel || !setType || !setAttachmentContext) return;
     setType('tax-filing');
     setAttachmentContext({
@@ -364,18 +366,18 @@ export default function FirmEngagementDetailScreen() {
       setAttachmentContext({});
       closePanel?.();
     };
-  }, [orderId, projectId, clientSpaceId, openPanel, setType, setAttachmentContext, closePanel]);
+  }, [orderId, projectId, clientSpaceId, openPanel, setType, setAttachmentContext, closePanel, isDesktopWeb]);
 
   // 移动端 Todos tab 且已有 todos 且状态为进行中/已完成时显示 Tina 浮层（onboarding/cancelled 均不显示）
   useEffect(() => {
-    if (Platform.OS === 'web') {
+    if (isDesktopWeb) {
       setShowTinaFab(false);
       return;
     }
     const hasTodos = tree.length > 0 && !tree.every((n) => n.children.length === 0 && !n.title);
     const isActiveForTina = order?.status === 'processing' || order?.status === 'completed';
     setShowTinaFab(activeTab === 'todos' && isActiveForTina && hasTodos);
-  }, [activeTab, order?.status, tree.length, tree]);
+  }, [activeTab, order?.status, tree.length, tree, isDesktopWeb]);
 
   const handleTinaChat = useCallback(() => {
     if (!projectId) return;
@@ -502,7 +504,7 @@ export default function FirmEngagementDetailScreen() {
         skuItems={skuItems}
         skuDetailForInfo={skuDetailForInfo}
         persistTodoTreeOrder={
-          Platform.OS === 'web' &&
+          isDesktopWeb &&
           viewerRole === 'firm' &&
           order.status === 'processing' &&
           orderId
@@ -510,7 +512,7 @@ export default function FirmEngagementDetailScreen() {
             : undefined
         }
         persistTodoTitle={
-          Platform.OS === 'web' && order.status === 'processing' && orderId
+          isDesktopWeb && order.status === 'processing' && orderId
             ? (todoId, title) => updateProjectTodo(todoId, { title })
             : undefined
         }

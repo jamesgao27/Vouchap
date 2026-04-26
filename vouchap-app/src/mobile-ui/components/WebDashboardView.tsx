@@ -7,6 +7,7 @@ import Svg, { Path, Rect, G, Defs, LinearGradient, Stop, Text as SvgText, Circle
 import { Ionicons } from '@expo/vector-icons';
 import { getAllReceiptsForList, getAllReceipts } from '@/lib/database';
 import { getAllInvoices } from '@/lib/invoices';
+import { isMobileWebWidth } from '../lib/web-viewport';
 
 const CHART_COLORS = ['#6C5CE7', '#D35400', '#00B894', '#0984E3', '#FDCB6E', '#E17055', '#636E72'];
 const FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
@@ -27,7 +28,7 @@ function getDateKey(dateStr: string): string {
   return String(dateStr);
 }
 
-export default function WebDashboardView() {
+export default function WebDashboardView({ homeCompact = false }: { homeCompact?: boolean } = {}) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const [loading, setLoading] = useState(true);
   const [receipts, setReceipts] = useState<any[]>([]);
@@ -150,31 +151,54 @@ export default function WebDashboardView() {
     ...submitterNames.flatMap((name) => dateRange.map((d) => bySubmitterDate.data[name][d] || 0))
   );
 
-  // 与 CrmDashboardView 一致：视口=内容区，卡片=(视口-3*留空)/2
-  const viewportWidth = Platform.OS === 'web' ? screenWidth - SIDEBAR_WIDTH : screenWidth;
-  const viewportHeight = screenHeight - DASHBOARD_HEADER_HEIGHT;
-  const cardWidth = Math.floor((viewportWidth - 3 * DASHBOARD_SPACING) / 2);
-  const cardHeight = Math.floor((viewportHeight - 3 * DASHBOARD_SPACING) / 2);
-  const chartWidth = Math.max(200, cardWidth - 2 * CARD_PADDING);
-  const chartHeight = Math.max(180, cardHeight - 60);
+  // 桌面 Web 宽屏：2x2；窄窗（移动浏览器）：单列，按宽度定图表高度，避免 2x2 压扁纵横比
+  const isDesktopGrid = !isMobileWebWidth(screenWidth);
+  const showDashboardPageHeader = isDesktopGrid;
+
+  let cardWidth: number;
+  let cardHeight: number;
+  let chartWidth: number;
+  let chartHeight: number;
+
+  if (isDesktopGrid) {
+    const viewportWidth = screenWidth - SIDEBAR_WIDTH;
+    const viewportHeight = screenHeight - DASHBOARD_HEADER_HEIGHT;
+    cardWidth = Math.floor((viewportWidth - 3 * DASHBOARD_SPACING) / 2);
+    cardHeight = Math.floor((viewportHeight - 3 * DASHBOARD_SPACING) / 2);
+    chartWidth = Math.max(200, cardWidth - 2 * CARD_PADDING);
+    chartHeight = Math.max(180, cardHeight - 60);
+  } else {
+    const horizontalGutter = homeCompact ? 40 : DASHBOARD_SPACING * 2;
+    cardWidth = Math.floor(screenWidth - horizontalGutter);
+    chartWidth = Math.max(200, cardWidth - 2 * CARD_PADDING);
+    chartHeight = Math.round(Math.max(220, Math.min(320, chartWidth * 0.58)));
+    cardHeight = chartHeight + 52;
+  }
+
   const padding = { top: 24, right: 24, bottom: 44, left: 56 };
   const chartW = chartWidth - padding.left - padding.right;
   const chartH = chartHeight - padding.top - padding.bottom;
 
-  return (
-    <View style={styles.container}>
-      <View style={styles.header}>
-        <Ionicons name="stats-chart-outline" size={28} color="#6C5CE7" />
-        <Text style={styles.title}>Dashboard</Text>
-      </View>
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[styles.scrollContent, { padding: DASHBOARD_SPACING }]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={[styles.grid, { gap: DASHBOARD_SPACING }]}>
+  const cardShellStyle = isDesktopGrid
+    ? { width: cardWidth, height: cardHeight }
+    : { width: '100%' as const, height: cardHeight };
+
+  const gridLayoutStyle = isDesktopGrid
+    ? [styles.grid, { gap: DASHBOARD_SPACING }]
+    : [
+        styles.grid,
+        {
+          gap: DASHBOARD_SPACING,
+          flexDirection: 'column' as const,
+          flexWrap: 'nowrap' as const,
+          alignItems: 'stretch' as const,
+        },
+      ];
+
+  const chartGrid = (
+        <View style={gridLayoutStyle}>
         {/* 1. Income & expense by month – bar chart, same-period bars closer */}
-        <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
+        <View style={[styles.card, cardShellStyle]}>
           <Text style={styles.cardTitle}>Income & Expense by Month</Text>
           <View style={styles.chartWrap}>
             <Svg width={chartWidth} height={chartHeight} style={{ overflow: 'visible' }}>
@@ -222,7 +246,7 @@ export default function WebDashboardView() {
         </View>
 
         {/* 2. Expense by account – larger pie */}
-        <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
+        <View style={[styles.card, cardShellStyle]}>
           <Text style={styles.cardTitle}>Expense by Account</Text>
           <View style={styles.chartWrap}>
             <Svg width={chartWidth} height={chartHeight} viewBox={`0 0 ${chartWidth} ${chartHeight}`} style={{ overflow: 'visible' }}>
@@ -264,7 +288,7 @@ export default function WebDashboardView() {
         </View>
 
         {/* 3. Expense by category – horizontal bars, Y-axis label area, fill card vertically */}
-        <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
+        <View style={[styles.card, cardShellStyle]}>
           <Text style={styles.cardTitle}>Expense by Category</Text>
           <View style={styles.chartWrap}>
             <Svg width={chartWidth} height={chartHeight} style={{ overflow: 'visible' }}>
@@ -301,7 +325,7 @@ export default function WebDashboardView() {
         </View>
 
         {/* 4. Submissions by submitter & date – natural date X-axis, dots on data points */}
-        <View style={[styles.card, { width: cardWidth, height: cardHeight }]}>
+        <View style={[styles.card, cardShellStyle]}>
           <Text style={styles.cardTitle}>Submissions by Submitter & Date</Text>
           <View style={styles.chartWrap}>
             <Svg width={chartWidth} height={chartHeight} style={{ overflow: 'visible' }}>
@@ -351,6 +375,30 @@ export default function WebDashboardView() {
           </View>
         </View>
         </View>
+  );
+
+  if (homeCompact && !isDesktopGrid) {
+    return (
+      <View style={styles.homeCompactRoot}>
+        {chartGrid}
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      {showDashboardPageHeader ? (
+        <View style={styles.header}>
+          <Ionicons name="stats-chart-outline" size={28} color="#6C5CE7" />
+          <Text style={styles.title}>Dashboard</Text>
+        </View>
+      ) : null}
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[styles.scrollContent, { padding: DASHBOARD_SPACING }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {chartGrid}
       </ScrollView>
     </View>
   );
@@ -417,5 +465,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#F8F9FA',
+  },
+  homeCompactRoot: {
+    width: '100%',
+    gap: DASHBOARD_SPACING,
+    paddingBottom: 8,
   },
 });

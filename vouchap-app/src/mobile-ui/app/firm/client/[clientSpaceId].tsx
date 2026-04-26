@@ -36,12 +36,14 @@ import { buildEngagementTableColumns } from '@/components/engagementTableColumns
 import CenterModal from '../../../components/CenterModal';
 import SkuPreview from '../../../components/SkuPreview';
 import { supabase } from '@/lib/supabase';
+import { useWebViewportKind } from '../../../lib/web-viewport';
 
 type TabKey = 'info' | 'orders';
 
 const INVITEE_PREFIX = 'invitee-';
 
 export default function FirmClientDetailScreen() {
+  const { isDesktopWeb } = useWebViewportKind();
   const { clientSpaceId: segment } = useLocalSearchParams<{ clientSpaceId: string }>();
   const isInvitee = typeof segment === 'string' && segment.startsWith(INVITEE_PREFIX);
   const pendingFirmClientId = isInvitee ? segment!.slice(INVITEE_PREFIX.length) : undefined;
@@ -103,9 +105,9 @@ export default function FirmClientDetailScreen() {
     load();
   }, [load]);
 
-  // Realtime：移动端订单列表（Web 端该 tab 为 DataTable，不订阅以避免协作抖动）
+  // Realtime：移动端订单列表（桌面 Web 的 orders tab 为 DataTable，不订阅以避免协作抖动）
   useEffect(() => {
-    if (Platform.OS === 'web' || !resolvedClientSpaceId) return;
+    if (isDesktopWeb || !resolvedClientSpaceId) return;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
     const debouncedRefresh = () => {
       if (refreshTimeout) clearTimeout(refreshTimeout);
@@ -130,7 +132,7 @@ export default function FirmClientDetailScreen() {
       if (refreshTimeout) clearTimeout(refreshTimeout);
       void supabase.removeChannel(ch);
     };
-  }, [resolvedClientSpaceId, load]);
+  }, [isDesktopWeb, resolvedClientSpaceId, load]);
 
   useEffect(() => {
     if (!client?.firmSpaceId) return;
@@ -535,7 +537,7 @@ export default function FirmClientDetailScreen() {
 
       {activeTab === 'orders' && (
         <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
-          {Platform.OS === 'web' ? (
+          {isDesktopWeb ? (
             <DataTable<FirmOrderWithDetails>
               columns={orderColumns}
               data={orders}

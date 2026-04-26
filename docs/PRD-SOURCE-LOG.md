@@ -8,6 +8,259 @@
 
 ---
 
+### 2026-04-26（Vouchap：手机浏览器优先采用 App 页面，启动第 1 批落地）
+
+**User（提示词/原意）**  
+- 用户询问「网页端适配手机浏览器并采用 App 页面，改造幅度大不大」；随后要求「列出可直接改代码的 TODO，并立即开始」。
+- 用户补充更正：**移动浏览器首页不采用 App 版 index，应继续使用 Dashboard**；并要求将该点纳入修订后的列表后继续第二批。
+
+**Assistant（实现前说明，若有）**  
+- 先做第 1 批高收益改造：建立统一的 Web 视口判定（区分 desktop web / mobile web），并将根布局与首页、收支列表从“`Platform.OS === 'web'` 全量走桌面分支”改为“仅桌面 Web 走桌面分支”，使手机浏览器回落到移动端单栏与 App 风格交互。
+- 同批次继续覆盖同类列表页（`inbound` / `outbound` / `receipt-items`），避免手机浏览器仍落入桌面 DataTable 分支。
+- 计划触及文件：`vouchap-app/src/mobile-ui/lib/web-viewport.ts`、`vouchap-app/src/mobile-ui/app/_layout.tsx`、`vouchap-app/src/mobile-ui/app/index.tsx`、`vouchap-app/src/mobile-ui/app/receipts.tsx`、`vouchap-app/src/mobile-ui/app/invoices.tsx`、`vouchap-app/src/mobile-ui/app/inbound.tsx`、`vouchap-app/src/mobile-ui/app/outbound.tsx`、`vouchap-app/src/mobile-ui/app/receipt-items.tsx`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `web-viewport` 工具，提供 `MOBILE_WEB_MAX_WIDTH`、`isMobileWebWidth()` 与 `useWebViewportKind()`，用于统一判定移动 Web。
+- `_layout` 已改为仅桌面 Web 显示 `WebSidebar`、固定 `WebChatPanel` 与桌面 chat FAB；移动 Web 不再走桌面双栏结构。
+- `index` 页改为仅桌面 Web 使用 `WebDashboardView/CrmDashboardView`；移动 Web 走原移动页路径。space 切换后的“刷新页面”弹窗仅桌面 Web 显示。
+- `receipts` / `invoices` 已接入视口判定：`DataTable`、Web 浮窗、Web 专属 FAB 仅桌面 Web 启用；移动 Web 回落到移动列表与交互分支。
+- `inbound` / `outbound` / `receipt-items` 已同步接入视口判定：Web 浮窗和桌面表格仅桌面 Web 启用，手机浏览器回落到移动列表交互。
+- 按用户更正已回调首页策略：`index` 在移动浏览器仍走 Dashboard（与桌面 Web 一致），不再落回 App 首页布局。
+- 第二批已推进：`firm/clients`、`firm/engagements`、`firm/client/[clientSpaceId]` 的 DataTable/浮窗/Realtime 路径改为仅桌面 Web 启用；移动浏览器回落移动端列表/卡片交互。`tax-filing/index` 仅桌面 Web 走 `TaxFilingWebScreen`，移动浏览器改走 `TaxFilingMobileScreen`；`tax-filing/order/[orderId]` 与 `tax-filing/project/[projectId]` 的 Web 专属提示/交互（alert/confirm、树缩进判定、Tina FAB 开关）改为仅桌面 Web 触发。
+- 本轮已检查改动文件的 lint，未发现新增错误。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/lib/web-viewport.ts`  
+- `vouchap-app/src/mobile-ui/app/_layout.tsx`  
+- `vouchap-app/src/mobile-ui/app/index.tsx`  
+- `vouchap-app/src/mobile-ui/app/receipts.tsx`  
+- `vouchap-app/src/mobile-ui/app/invoices.tsx`  
+- `vouchap-app/src/mobile-ui/app/inbound.tsx`  
+- `vouchap-app/src/mobile-ui/app/outbound.tsx`  
+- `vouchap-app/src/mobile-ui/app/receipt-items.tsx`  
+- `vouchap-app/src/mobile-ui/app/firm/clients.tsx`  
+- `vouchap-app/src/mobile-ui/app/firm/engagements.tsx`  
+- `vouchap-app/src/mobile-ui/app/firm/client/[clientSpaceId].tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/index.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/index.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/project/[projectId]/index.tsx`
+
+### 2026-04-26（Vouchap：手机浏览器 Web 分流 — 第 3 批：Management / Chat / 详情与目录）
+
+**User（提示词/原意）**  
+- 「继续第三批」：在已有 `useWebViewportKind` / `isMobileWebWidth` 策略下，补齐 management、chat、设置/实体、服务目录及若干详情页的「仅桌面 Web」与「移动 Web 走 App 交互」分流。
+
+**Assistant（实现前说明，若有）**  
+- 将仍按 `Platform.OS === 'web'` 一律走桌面分支的屏，改为 `isDesktopWeb` 或 `isDesktopCatalog`（服务目录：宽屏 Web + `!isMobileWebWidth(width)`），使移动浏览器与原生一致或可订阅 Realtime；桌面 Web 保留整页刷新提示、侧栏 Chat、Web 专用控件与浮层。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`management`**：Space 切换成功后，仅 **桌面 Web** 弹出「Refresh page」；**移动 Web** 与原生一样就地 `loadData()` 更新。  
+- **`chat-to-log`**：`drawer` 模式、桌面式输入区、文件 input / 文件夹选择仅 **桌面 Web**；移动 Web 使用与 App 一致的底部输入与 `ImagePicker` 选图。  
+- **`firm/engagement/[id]`**：自动打开 `WebChatPanel`、`window.confirm` 拒单、Tina FAB 显示条件、`persistTodoTree*` 仅 **桌面 Web**；移动 Web 可走 Tina FAB + 全屏 chat 路由。  
+- **`receipt-details/[id]`**：`input type="date"`、行内 Web 下拉（category/attribution）仅 **桌面 Web**；移动 Web 用日期触控与 Modal 选择器。  
+- **`entities-manage`**：`entities` Realtime 在 **桌面 Web** 禁用，**移动 Web** 启用；原 `StyleSheet` 内针对 Web 的 `supplierCard` 溢出样式改为仅 `isDesktopWeb` 时叠加。  
+- **`tax-filing/order/[orderId]/info`**：拒单确认 **桌面 Web** 用 `window.confirm`，否则 `Alert`（含移动 Web）。  
+- **`tax-filing/service-catalog`**、**`firm/service-catalog`**：默认视图、列宽/网格、Filter 浮层（portal）与横向 padding 仅 **桌面目录宽**；移动 Web 用双列卡片宽与内联 Filter 下拉。  
+- 已对上述改动文件跑过 IDE lint，无新增报错。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/management.tsx`  
+- `vouchap-app/src/mobile-ui/app/chat-to-log.tsx`  
+- `vouchap-app/src/mobile-ui/app/firm/engagement/[id].tsx`  
+- `vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`  
+- `vouchap-app/src/mobile-ui/app/entities-manage.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/order/[orderId]/info.tsx`  
+- `vouchap-app/src/mobile-ui/app/tax-filing/service-catalog.tsx`  
+- `vouchap-app/src/mobile-ui/app/firm/service-catalog.tsx`
+
+### 2026-04-26（Vouchap：窄窗 Web — Expenses/Income 列表 + 直达 Chat）
+
+**User（提示词/原意）**  
+- 浏览器窄窗模式下，expenses / income 列表页右下角 + 按钮不要二次选择，去掉激活相机的二层选项，直接打开 chat。
+
+**Assistant（实现前说明，若有）**  
+- 列表页 FAB：`isDesktopWeb` 仍用 `WebChatFab`；**原生** 仍保留「+ 展开聊天/相机」；**窄窗 Web**（`Platform.OS === 'web' && !isDesktopWeb`）单独分支，主按钮一次性 `router.push` 到 `chat-to-log`（invoice 带 `type=invoice`）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`receipts.tsx`**、**`invoices.tsx`**：在桌面 Web 与原生之间增加 **仅 Web 且非桌面** 的单按钮 FAB，点击即进入 Chat to log；原生逻辑未改。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipts.tsx`  
+- `vouchap-app/src/mobile-ui/app/invoices.tsx`
+
+### 2026-04-26（Vouchap：窄窗 Web 首页对齐 App — Dashboard 单列图表 + 顶栏底栏）
+
+**User（提示词/原意）**  
+- 浏览器窄窗模式：1）Dashboard 不要压扁 chart 宽高比，单列排列；2）底部与 App 相同路由按钮；3）顶部与 App 相同：通知、Space 切换、设置。概括：窄窗与 App 差异仅在 index 主区由 slogan + 两圆钮改为 4 个 chart，其余布局一致。
+
+**Assistant（实现前说明，若有）**  
+- 沿用 `useWebViewportKind`：仅 **桌面 Web** 首页仍只渲染 Dashboard（配合侧栏）；**移动 Web** 走与原生相同的 `index` 壳层（顶栏、ScrollView、底栏）。  
+- `WebDashboardView` / `CrmDashboardView` 在窄 Web 上改为与原生一致的 **单列** 与 **按宽度定图表高度**（避免 2×2 按视口高度切半导致压扁）。  
+- `WebDashboardView` 嵌入首页时去掉重复「Dashboard」标题行（`homeCompact`）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`index.tsx`**：`Platform.OS === 'web' && isDesktopWeb` 才整页只放 Dashboard；**移动 Web** 落入原原生 `ScrollView + topBar + bottomNav + modals` 路径；client 空间在 **移动 Web** 用 `<WebDashboardView homeCompact />` 替代 slogan 与双圆按钮；Space 切换后「刷新页」弹窗仅 **桌面 Web**（与 management 策略一致）。  
+- **`WebDashboardView.tsx`**：`!isMobileWebWidth(width)` 为桌面 2×2；否则单列，`chartHeight` 由 `chartWidth` 比例与上下限约束；`homeCompact` 时仅输出图表栅格供首页嵌入。  
+- **`CrmDashboardView.tsx`**：将原「凡 `Platform.OS === 'web'` 即 2×2」改为 **仅宽屏桌面 Web** 2×2；窄 Web 与原生同为单列；「Insights」顶栏仅桌面宽屏；饼图/条形/折线 padding 在移动 Web 上与原生一致（`isMobileWebWidth`）。  
+- 已对相关文件跑 IDE lint，无新增报错。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/index.tsx`  
+- `vouchap-app/src/mobile-ui/components/WebDashboardView.tsx`  
+- `vouchap-app/src/mobile-ui/components/CrmDashboardView.tsx`
+
+### 2026-04-26（Vouchap：测试服务器 Web 白屏修复）
+
+**User（提示词/原意）**  
+- 「测试服务器浏览器白屏」。
+
+**Assistant（实现前说明，若有）**  
+- 先读取正在运行的 Expo 终端日志，定位是打包失败还是运行时错误；若为模块解析失败，直接修正导入路径并让 Metro 增量重编译。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 白屏根因是 **Web Bundling failed**：`src/mobile-ui/app/receipt-details/[id].tsx` 无法解析 `../lib/web-viewport`。  
+- 已将该文件 import 改为 `../../lib/web-viewport`（当前目录为 `app/receipt-details/`，需回退两级到 `mobile-ui/lib`）。  
+- 本地 lint 对该文件无新增报错。若浏览器仍显示旧白屏，请强制刷新一次（`Cmd+Shift+R`）或在 Expo 终端按 `r` 触发 reload。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`
+
+### 2026-04-22（aim.link-v2：Timeline 左栏宽度对齐左轨）
+
+**User**  
+- 左侧栏应按规范统一的宽度。
+
+**Assistant（实现后）**  
+- **`aim.link-v2`**：**`aimlink-timeline-filters`** 与 **`aimlink-drawer-static`** 同用 **`220px × --aimlink-ui-scale`**（**`--menu-width`**）。
+
+**关联**  
+- `aim.link-v2/apps/web/src/styles/aimlink-web-dynamic-port.scss`
+
+### 2026-04-22（aim.link-v2：Timeline 主区纵向错位修复）
+
+**User**  
+- 主显示区被放在页面下部了，布局不对。
+
+**Assistant（实现后）**  
+- **`aim.link-v2`**：**`aimlink-web-dynamic-port.scss`** 去掉 **`aimlink-web-app-shell-main > .aimlink-timeline-page`** 上的 **`flex-direction: column`** 与 **`aimlink-dynamic-tab-main`** 的共用规则，避免覆盖 Timeline 横向布局。
+
+**关联**  
+- `aim.link-v2/apps/web/src/styles/aimlink-web-dynamic-port.scss`
+
+### 2026-04-22（跨仓：aim.link-v2 Timeline 独立与 work map 流水）
+
+**User（提示词/原意）**  
+- Timeline 不应嵌 Work Map 模块；左栏筛选；主区按日分组；project/task/work map 可跳转；参考 legacy timeline。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已在 **`aim.link-v2`** 落地 **`ActivityPage`** 重构与 **`workmap.mind_maps`** → **`activity_timeline_events`** 迁移草案；并更新 **`aim.link-v2/docs/PRD.md`** / **`DATABASE-SCHEMA.md`**。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/ActivityPage.tsx`、`aim.link-v2/supabase/migrations/20260422100000_timeline_workmap_mind_map_events.sql`
+
+### 2026-04-23（aim.link-v2：全仓 ant4 迁移 + Work Map 左栏修复）
+
+**User（提示词/原意）**  
+- Work Map 左侧栏被改坏需核查修复；并要求整个 aim.link-v2 完整替换 `ant4` 等代号。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已修复 Work Map 左栏；并在 `aim.link-v2/apps/web/src` 全量将 `ant4-` 迁移为 `aimlink-`（含页面与样式）。类型检查与 lints 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/WorkMapPage.tsx`、`aim.link-v2/apps/web/src/styles/aimlink-web-app-shell.scss`、`aim.link-v2/apps/web/src/styles/aimlink-web-work-map-port.scss`
+
+### 2026-04-23（aim.link-v2：Work Map ant4 前缀替换）
+
+**User（提示词/原意）**  
+- 代码中还有大量 `ant4`，应全面替换成 `aimlink`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已先在 **Work Map 模块**落地：`WorkMapPage.tsx` 与 `aimlink-web-work-map-port.scss` 的 `ant4-*` 替换为 `aimlink-*`，模块内残留清零；其余模块仍有历史前缀，待继续分批迁移。验证：`npx tsc --noEmit`（`apps/web`）。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/WorkMapPage.tsx`、`aim.link-v2/apps/web/src/styles/aimlink-web-work-map-port.scss`
+
+### 2026-04-22（aim.link-v2：Work Map WBS 提示词 @ / # 与深度）
+
+**User（提示词/原意）**  
+- AI 输出未按设计格式（**@** 指派人、**#** 截止时间）；深化提示词：WBS 更深更具体，合理起止时间。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`aim.link-v2/apps/web`**：**`gemini-work-map-wbs.ts`** 强化系统提示（叶子 **@/#**、双日期、行数/深度、锚日）；**`WorkMapPage`** 传入 **`getWorkspaceMembersForMindMap`** 无空格姓名列表；PRD/PROMPTS 已更新。验证：**`npx tsc --noEmit`**（**`apps/web`**）。
+
+**关联**  
+- `aim.link-v2/apps/web/src/lib/gemini-work-map-wbs.ts`、`aim.link-v2/apps/web/src/pages/WorkMapPage.tsx`  
+- `aim.link-v2/docs/PRD.md`、`aim.link-v2/docs/PROMPTS-LOG.md`
+
+### 2026-04-22（aim.link-v2：Work Map WBS 模型级联对齐 Vouchap）
+
+**User（提示词/原意）**  
+- 参考 Vouchap 代码配置，选择合适用来拆解工作计划的优先模型。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`aim.link-v2/apps/web/src/lib/gemini-work-map-wbs.ts`**：模型尝试顺序与 **`Vouchap/vouchap-app/src/shared-logic/gemini-helper.ts`**（**`buildGeminiModelOrder` / `inferComplexGeminiContent`**）对齐，并增加失败自动换模；**`VITE_GEMINI_MODEL`** 为单模覆盖。已更新 **`aim.link-v2`** 的 PRD / PROMPTS / README 等。验证：**`npx tsc --noEmit`**（**`apps/web`**）。
+
+**关联**  
+- `aim.link-v2/apps/web/src/lib/gemini-work-map-wbs.ts`、`Vouchap/vouchap-app/src/shared-logic/gemini-helper.ts`  
+- `aim.link-v2/docs/PRD.md`、`aim.link-v2/docs/PROMPTS-LOG.md`
+
+### 2026-04-22（aim.link-v2：Gemini 默认模型 2.5 Flash）
+
+**User（提示词/原意）**  
+- Google 提示 **`gemini-2.0-flash`** 对新用户不可用，要求代码改用更新模型。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`aim.link-v2/apps/web/src/lib/gemini-work-map-wbs.ts`**：默认模型改为 **`gemini-2.5-flash`**；**`aim.link-v2`** 内 README / PRD / PROMPTS 已同步。验证：**`npx tsc --noEmit`**（**`apps/web`**）。
+
+**关联**  
+- `aim.link-v2/apps/web/src/lib/gemini-work-map-wbs.ts`、`aim.link-v2/docs/PRD.md`、`aim.link-v2/docs/PROMPTS-LOG.md`
+
+### 2026-04-22（aim.link-v2：Work Map Chat — Gemini WBS → mind_map_document）
+
+**User（提示词/原意）**  
+- 开发 AI：env 已加 Gemini key；用户在 chat 页输入项目目标与规范需求，大模型拆 WBS，JSON 写入 **`mind_maps.mind_map_document`**，并拟定 **`name`**。
+
+**Assistant（实现前说明）**  
+- 在 **`aim.link-v2/apps/web`** 落地：Gemini JSON → **`documentFromOutlineAndTitle`** → **`createMindMap`**；Vite 合并 Gemini 相关 env；更新 **`aim.link-v2`** 的 **PRD / PROMPTS** 与 **`apps/web`** 文档示例；本条目记入 Vouchap 溯源（跨仓工程交付）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 代码与文档位于 **`aim.link-v2`** 路径见上；密钥走浏览器直连存在暴露与 CORS 风险，PRD **REQ-WEB-AI-001** 已注明后续可迁 Edge。验证：**`npx tsc --noEmit`**（**`aim.link-v2/apps/web`**）。
+
+**关联**  
+- `aim.link-v2/apps/web/src/lib/gemini-work-map-wbs.ts`、`aim.link-v2/apps/web/src/pages/WorkMapPage.tsx`、`aim.link-v2/apps/web/vite.config.ts`  
+- `aim.link-v2/docs/PRD.md`、`aim.link-v2/docs/PROMPTS-LOG.md`
+
+### 2026-04-22（aim.link-v2：Todo 与 Task 模块合并为单一 Todo）
+
+**User（提示词/原意）**  
+- Todo 模块整合到 Task 模块（现 todo 模块移除，Task 模块更名为 Todo）；My todo 替代 My tasks；三个 pending 作为 My Todo 的子集。
+
+**Assistant（实现前说明）**  
+- 以 **`TasksPage`** 为唯一实现；路由 **`/app/todo`**，**`/app/tasks`** 重定向；顶栏 **`effectiveTodoNavEnabled`**；左栏嵌套三项 **Pending** 与 **`work_tasks`** 过滤对齐旧 **`TodoPage`**；删除 **`TodoPage.tsx`**、**`TodoLeftRail.tsx`** 与 **`aimlink-web-todo-port.scss`**；更新 **`aim.link-v2/docs/PRD.md`**、**`PROMPTS-LOG.md`** 与 **`FeaturePermissions`** 中 **`tasks`** 与 **`todo`** 同步写入。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 改动位于 **`aim.link-v2/apps/web`** 上述路径；**`npx tsc --noEmit`**（**`apps/web`**）通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/App.tsx`、`TasksPage.tsx`、`TasksLeftRail.tsx`、`AppNavHeader.tsx`、`AppLayout.tsx`  
+- `aim.link-v2/docs/PRD.md`、`aim.link-v2/docs/PROMPTS-LOG.md`
+
+### 2026-04-22（aim.link-v2：Task 侧栏 CTA 文案 New Todo → New Task）
+
+**User（提示词/原意）**  
+- 「+ New Todo 还是规范为 + New Task」。
+
+**Assistant（实现前说明）**  
+- 对齐域模型与产品英文：**Task** 模块左栏 **`aimlink-sidebar-hero-cta`** 与无障碍/悬停文案由 **New Todo** 改为 **New Task**；同步 **`apps/web` README**、**`aim.link-v2/docs/PRD.md`**（REQ-WEB-UI-002、变更表）、**`aim.link-v2/docs/PROMPTS-LOG.md`**；**`TaskCreateCenterModal`** 已为 **New Task** 则不改逻辑。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 **`TasksLeftRail.tsx`**、**`app-chrome/README.md`**、上述 PRD/PROMPTS；**`npx tsc --noEmit`**（`aim.link-v2/apps/web`）通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/components/app-chrome/TasksLeftRail.tsx`  
+- `aim.link-v2/apps/web/src/components/app-chrome/README.md`  
+- `aim.link-v2/docs/PRD.md`、`aim.link-v2/docs/PROMPTS-LOG.md`
+
 ### 2026-04-20（aim.link-v2：修复 project-map SCSS 未定义 `$aimlink-web-text`）
 
 **User（提示词/原意）**  
@@ -3501,5 +3754,85 @@
 
 **关联**  
 - `/Users/macbook/antbim-website/lib/site-content.ts`、`app/page.tsx`、`components/SiteFooter.tsx`、`README.md`
+
+---
+
+### 2026-04-20（antbim-website：替换原站 1:1 栏目与 URL — 全量保留）
+
+**User（提示词/原意）**  
+- 替换原站时要 **1:1 栏目与 URL 迁移**，**全部保留**，**不合并和省略**。
+
+**Assistant（实现前说明，若有）**  
+- 以 **`sitemap.xml`** 为权威路径全集生成 **`lib/migration/legacy-paths.ts`**；首页 **`/`** 仍由 Next 营销页承接（与「新首页替换」目标一致），其余 path 在迁移期由 **Edge middleware** 按环境变量 **rewrite** 到 **`LEGACY_UPSTREAM_ORIGIN`**；文档强调 **DNS 已切到本站时 upstream 不可同源** 以免死循环。顶栏与页内主要外链改为 **`legacyPublicPaths`**（与旧站 path 一致，含 **`/Solution/`** 大小写）。提供 **`npm run sync-legacy-paths`** 与 **`.env.example`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已生成 **668** 条（不含 `/`）+ 脚本补 **`/wxGetOpenId.jsp`**；**`npm run build`** 通过。未在 sitemap 出现的入口需维护 **`EXTRA_PATHNAMES`** 后重跑同步。演示/下载类按钮暂统一指向旧站 **`/h-msgBoard.html`**（若后续对照原站 HTML 有更细 URL，可在 **`conversion`** 中拆分）。
+
+**关联**  
+- `/Users/macbook/antbim-website/middleware.ts`、`lib/migration/legacy-paths.ts`、`scripts/sync-legacy-paths.mjs`、`lib/site-content.ts`、`app/page.tsx`、`components/SiteHeader.tsx`、`README.md`、`.env.example`、`package.json`
+
+---
+
+### 2026-04-20（antbim-website：顶栏使用原站横版带名称 Logo）
+
+**User（提示词/原意）**  
+- 原网站**带名称的 logo** 需用上（用户附图：橙标 +「蚂蚁分工」横版字标）。
+
+**Assistant（实现前说明，若有）**  
+- 将用户提供的 PNG 落入 **`public/assets/antbim/logo-wordmark.png`**；**`antbim-assets.ts`** 增加 **`logoWordmark`**；**`BrandLogo`** 改为 **`next/image`** 展示该资源，顶栏 **`priority`** 以利 LCP；组件标 **`"use client"`** 以便继续被 **`SiteHeader`**（客户端组件）引用。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已替换原先「蚂」字占位格 + 双行字标；**`npm run build`** 通过。若暗色顶栏对比不足，可再提供反白字标版本并做 **`dark:`** 切换。
+
+**关联**  
+- `/Users/macbook/antbim-website/public/assets/antbim/logo-wordmark.png`、`lib/antbim-assets.ts`、`components/BrandLogo.tsx`、`components/SiteHeader.tsx`
+
+---
+
+### 2026-04-20（antbim-website：Favicon 使用原站 favicon.ico）
+
+**User（提示词/原意）**  
+- **favicon** 也需要用**原站的图片**。
+
+**Assistant（实现前说明，若有）**  
+- 从 **`https://www.antbim.com/favicon.ico`** 拉取；响应对 body 为 **gzip**，需 **`gunzip -c`** 得到真实 **MS Windows icon**（多尺寸）后写入 **`app/favicon.ico`**，由 Next App Router 自动作为 **`/favicon.ico`** 提供，无需改 **`metadata.icons`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已落盘 **`antbim-website/app/favicon.ico`**（约 108KB，含多分辨率）；**`npm run build`** 通过。
+
+**关联**  
+- `/Users/macbook/antbim-website/app/favicon.ico`
+
+---
+
+### 2026-04-20（antbim-website：注册/登录指向 login.antbim.cn）
+
+**User（提示词/原意）**  
+- **注册/登录**按钮指向 **`https://login.antbim.cn/login`**。
+
+**Assistant（实现前说明，若有）**  
+- 在 **`lib/site-content.ts`** 增加 **`authAppLoginUrl`**，**`conversion.login.href`** 改为该绝对地址；**`legacyPublicPaths.login`** 更名为 **`legacyMarketingLogin`**（仅注释旧站 **`/h-login.html`**，避免与正式登录域混淆）。**`SiteHeader`** 顶栏与移动端抽屉改为 **`<a rel="noopener noreferrer">`**，去掉仅用于该外链的 **`next/link`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`npm run build`** 通过。
+
+**关联**  
+- `/Users/macbook/antbim-website/lib/site-content.ts`、`components/SiteHeader.tsx`
+
+---
+
+### 2026-04-20（antbim-website：顶栏各 path 默认回源，避免 404）
+
+**User（提示词/原意）**  
+- **各页签都 404**，应把页面**补全**（意指栏目页应能打开）。
+
+**Assistant（实现前说明，若有）**  
+- 根因多为未配置 **`LEGACY_PROXY_ENABLED` / `LEGACY_UPSTREAM_ORIGIN`** 时中间件直接放行，Next 又无对应路由。调整 **`middleware.ts`**：默认上游 **`https://www.antbim.com`**；**`LEGACY_PROXY_ENABLED`** 仅 **`0`/`false`** 时关闭，否则在**请求 Host 与上游 Host 不同**时默认回源（本地、**`*.vercel.app`** 预览免配）；**请求 Host 与上游 Host 相同**时跳过回源以防 DNS 已指本站时的死循环，并文档说明生产须独立 **`LEGACY_UPSTREAM_ORIGIN`** 或慎用 **`LEGACY_FORCE_SAME_HOST_PROXY`**。同步 **`.env.example`**、**`README.md`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`npm run build`** 通过。生产同域仍 404 时属预期保护，需按 README 配置镜像 origin。
+
+**关联**  
+- `/Users/macbook/antbim-website/middleware.ts`、`.env.example`、`README.md`
 
 ---
