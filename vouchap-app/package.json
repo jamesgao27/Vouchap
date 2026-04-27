@@ -1,6 +1,6 @@
 {
   "name": "vouchap-app",
-  "version": "2.5.8",
+  "version": "2.5.9",
   "main": "index.js",
   "scripts": {
     "start": "expo start --dev-client",

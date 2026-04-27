@@ -3874,3 +3874,20 @@
 - `/Users/macbook/antbim-website/middleware.ts`、`.env.example`、`README.md`
 
 ---
+
+### 2026-04-27（Vouchap：版本号更新至 2.5.9）
+
+**User（提示词/原意）**  
+- “Vouchap项目，app版本号更新2.5.9”。
+
+**Assistant（实现前说明，若有）**  
+- 按仓库版本管理规则，同步更新 `vouchap-app` 的版本号与原生构建号：`package.json`、`package-lock.json`、`app.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`；将版本升级到 `2.5.9`，Build 从 `46` 递增到 `47`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已完成版本同步：`version = 2.5.9`，`iOS CFBundleVersion = 47`，`Android versionCode = 47`，并补充最小 `app.json` 以满足发布规则链路完整性。  
+- 已按规范提交并推送，提交信息：`发布版本号 2.5.9 (Build 47)`。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/package.json`、`package-lock.json`、`app.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`
+
+---
