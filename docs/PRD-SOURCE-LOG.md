@@ -3891,3 +3891,20 @@
 - `/Users/macbook/Vouchap/vouchap-app/package.json`、`package-lock.json`、`app.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`
 
 ---
+
+### 2026-04-27（Vouchap：对齐 Expo 已构建号并改为后续自动递增）
+
+**User（提示词/原意）**  
+- “现在expo上已经构建的构建号ios是32，android是49。保持一致，后续本地不用动，有Expo在每次构建时自动更新。”
+
+**Assistant（实现前说明，若有）**  
+- 将本地版本配置中的构建号对齐到 Expo 当前状态：iOS 使用 `32`，Android 使用 `49`；不修改语义版本 `2.5.9`，仅修正构建号基线。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已更新构建号：`app.config.js`、`app.json`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`。  
+- 当前本地与 Expo 已构建号一致，可按你的要求后续由 Expo 构建自动递增，不再手动同步本地构建号。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/app.config.js`、`app.json`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`
+
+---
