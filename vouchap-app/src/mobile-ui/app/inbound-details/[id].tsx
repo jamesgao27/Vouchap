@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -53,42 +53,22 @@ export default function InboundDetailsScreen() {
     targetSource?: 'supplier' | 'customer';
     triggeredBy: 'save' | 'dropdown';
   } | null>(null);
+  const editingRef = useRef(false);
 
   useEffect(() => {
-    if (!showAiInventory) router.replace('/');
-  }, []);
-  useEffect(() => {
-    const task = InteractionManager.runAfterInteractions(() => loadInbound());
-    return () => task.cancel();
-  }, [id]);
+    editingRef.current = editing;
+  }, [editing]);
 
-  // Realtime：当前入库单或明细被更新时自动重新加载
-  useEffect(() => {
-    if (!id) return;
-    let ch: ReturnType<typeof supabase.channel> | null = null;
-    let chItems: ReturnType<typeof supabase.channel> | null = null;
-    const refresh = () => loadInbound();
-    ch = supabase
-      .channel(`inbound-detail-${id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'inbound', filter: `id=eq.${id}` }, refresh)
-      .subscribe();
-    chItems = supabase
-      .channel(`inbound-detail-items-${id}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'inbound_items', filter: `inbound_id=eq.${id}` }, refresh)
-      .subscribe();
-    return () => {
-      if (ch) supabase.removeChannel(ch);
-      if (chItems) supabase.removeChannel(chItems);
-    };
-  }, [id]);
-
-  const loadInbound = async () => {
+  const loadInbound = useCallback(async (options?: { forceSyncEdited?: boolean }) => {
     if (!id) return;
     try {
       const data = await getInboundById(id);
       setInbound(data);
-      setEditedInbound(data);
-      if (isNew === 'true') setEditing(true);
+      const shouldSyncEdited = options?.forceSyncEdited ?? !editingRef.current;
+      if (shouldSyncEdited) {
+        setEditedInbound(data);
+      }
+      if (isNew === 'true' && shouldSyncEdited) setEditing(true);
 
       // 加载与该入库单相关的语音记录（用于回放按钮）
       try {
@@ -110,7 +90,35 @@ export default function InboundDetailsScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, isNew]);
+
+  useEffect(() => {
+    if (!showAiInventory) router.replace('/');
+  }, []);
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => loadInbound());
+    return () => task.cancel();
+  }, [id, loadInbound]);
+
+  // Realtime：当前入库单或明细被更新时自动重新加载
+  useEffect(() => {
+    if (!id) return;
+    let ch: ReturnType<typeof supabase.channel> | null = null;
+    let chItems: ReturnType<typeof supabase.channel> | null = null;
+    const refresh = () => loadInbound();
+    ch = supabase
+      .channel(`inbound-detail-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inbound', filter: `id=eq.${id}` }, refresh)
+      .subscribe();
+    chItems = supabase
+      .channel(`inbound-detail-items-${id}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'inbound_items', filter: `inbound_id=eq.${id}` }, refresh)
+      .subscribe();
+    return () => {
+      if (ch) supabase.removeChannel(ch);
+      if (chItems) supabase.removeChannel(chItems);
+    };
+  }, [id, loadInbound]);
 
   const handleSave = async () => {
     if (!editedInbound || !id) return;

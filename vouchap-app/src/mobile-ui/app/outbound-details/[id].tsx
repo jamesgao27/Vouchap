@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -49,6 +49,29 @@ export default function OutboundDetailsScreen() {
     targetSource?: 'customer' | 'supplier';
     triggeredBy: 'save' | 'dropdown';
   } | null>(null);
+  const editingRef = useRef(false);
+
+  useEffect(() => {
+    editingRef.current = editing;
+  }, [editing]);
+
+  const loadOutbound = useCallback(async (options?: { forceSyncEdited?: boolean }) => {
+    if (!id) return;
+    try {
+      const data = await getOutboundById(id);
+      setOutbound(data);
+      const shouldSyncEdited = options?.forceSyncEdited ?? !editingRef.current;
+      if (shouldSyncEdited) {
+        setEditedOutbound(data);
+      }
+      if (isNew === 'true' && shouldSyncEdited) setEditing(true);
+    } catch (error) {
+      showToast('Failed to load outbound', 'error');
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }, [id, isNew]);
 
   useEffect(() => {
     if (!showAiInventory) router.replace('/');
@@ -56,7 +79,7 @@ export default function OutboundDetailsScreen() {
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => loadOutbound());
     return () => task.cancel();
-  }, [id]);
+  }, [id, loadOutbound]);
 
   // Realtime：当前出库单或明细被更新时自动重新加载
   useEffect(() => {
@@ -76,22 +99,7 @@ export default function OutboundDetailsScreen() {
       if (ch) supabase.removeChannel(ch);
       if (chItems) supabase.removeChannel(chItems);
     };
-  }, [id]);
-
-  const loadOutbound = async () => {
-    if (!id) return;
-    try {
-      const data = await getOutboundById(id);
-      setOutbound(data);
-      setEditedOutbound(data);
-      if (isNew === 'true') setEditing(true);
-    } catch (error) {
-      showToast('Failed to load outbound', 'error');
-      console.error(error);
-    } finally {
-      setLoading(false);
-    }
-  };
+  }, [id, loadOutbound]);
 
   const handleSave = async () => {
     if (!editedOutbound || !id) return;

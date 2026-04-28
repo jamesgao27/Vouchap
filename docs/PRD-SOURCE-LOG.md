@@ -3908,3 +3908,58 @@
 - `/Users/macbook/Vouchap/vouchap-app/app.config.js`、`app.json`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`
 
 ---
+
+### 2026-04-27（Vouchap：触发全平台 Production 构建）
+
+**User（提示词/原意）**  
+- “全平台构建production”。
+
+**Assistant（实现前说明，若有）**  
+- 在 `vouchap-app` 使用 EAS `production` profile 触发 `--platform all` 构建；遵循 `eas.json` 中 `appVersionSource: remote` 与 `autoIncrement: true` 配置。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已成功发起 Android + iOS 的 production 构建任务。  
+- 本次自动递增结果：Android `versionCode 49 -> 50`，iOS `buildNumber 32 -> 33`（由 Expo 远端版本源递增）。  
+- 当前状态：iOS `new`、Android `in queue`，构建仍在云端执行中，可通过日志链接实时查看。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/eas.json`
+
+---
+
+### 2026-04-28（Vouchap：Receipt 详情编辑态避免分类/用途改动覆盖草稿）
+
+**User（提示词/原意）**  
+- “receipt详情页中，修改entity、item名称、币种等内容之后，如果更换了category或attribution，会导致已修改的其他内容恢复原值。应该优化可以同时修改。”
+
+**Assistant（实现前说明，若有）**  
+- 排查 `receipt-details/[id].tsx` 中编辑态与实时刷新（realtime + `loadReceipt`）的状态同步逻辑，目标是避免在编辑过程中因分类/用途更新触发整单重载而覆盖 `editedReceipt` 草稿；保留必要场景下的强制回滚能力。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已将 `loadReceipt` 改为带可选参数的 `useCallback`，并新增 `editingRef`：编辑态默认仅更新 `receipt` 基线，不覆盖 `editedReceipt`。  
+- 修复后在同一编辑会话中可同时改 `entity/item name/currency/tax` 等字段，再改 `category/attribution` 不会把前述修改回滚。  
+- 对于商品项直改失败场景，保留 `loadReceipt({ forceSyncEdited: true })` 强制同步回滚，避免脏草稿残留。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`
+
+---
+
+### 2026-04-28（Vouchap：核查并修复其他详情页编辑草稿被回刷覆盖）
+
+**User（提示词/原意）**  
+- “其他模块的详情页也需核查同类问题”。
+
+**Assistant（实现前说明，若有）**  
+- 排查 `invoice-details`、`inbound-details`、`outbound-details` 的详情页加载与 realtime 回刷逻辑，重点核查是否存在 `loadXxx` 直接覆盖 `editedXxx` 导致编辑态草稿回滚。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已确认并修复 3 个详情页同类风险：新增 `editingRef`，将 `loadXxx` 改为 `useCallback` 且支持 `forceSyncEdited`；编辑态下默认只更新展示基线，不覆盖草稿，避免实时回刷导致用户已改字段丢失。  
+- 已同步调整相关 `useEffect` 依赖（含 realtime refresh 调用），确保行为稳定；`ReadLints` 检查通过。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/invoice-details/[id].tsx`  
+- `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/inbound-details/[id].tsx`  
+- `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/outbound-details/[id].tsx`
+
+---

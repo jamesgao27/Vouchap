@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
   View,
@@ -75,6 +75,55 @@ export default function InvoiceDetailsScreen() {
     targetSource?: 'customer' | 'supplier';
   } | null>(null);
   const [fileDetailForModal, setFileDetailForModal] = useState<FileDetailModalFile | null>(null);
+  const editingRef = useRef(false);
+
+  useEffect(() => {
+    editingRef.current = editing;
+  }, [editing]);
+
+  const loadInvoice = useCallback(async (options?: { forceSyncEdited?: boolean }) => {
+    if (!id) return;
+    try {
+      const data = await getInvoiceById(id);
+      setInvoice(data);
+      const shouldSyncEdited = options?.forceSyncEdited ?? !editingRef.current;
+      if (shouldSyncEdited) {
+        setEditedInvoice(data);
+      }
+      // 加载与该收入单相关的语音记录（用于回放按钮）：仅匹配 responseData.invoicePreview.id === 当前收入单 id
+      try {
+        const chatLogs = await getChatLogsPaginated(50, undefined, 'invoice');
+        const targetId = String(data.id);
+        const audioLog = chatLogs.find(
+          (log) =>
+            log.audioUrl &&
+            log.responseData?.invoicePreview &&
+            String(log.responseData.invoicePreview.id) === targetId
+        );
+        if (audioLog?.audioUrl) {
+          setAudioUrl(audioLog.audioUrl);
+        } else {
+          setAudioUrl(null);
+        }
+      } catch (chatError) {
+        console.log('Failed to get chat logs for invoice audio:', chatError);
+      }
+      if (isNew === 'true' && shouldSyncEdited) {
+        setEditing(true);
+        setTaxInputText((data?.tax || 0).toString());
+        const priceTexts: { [index: number]: string } = {};
+        (data?.items || []).forEach((item, index) => {
+          priceTexts[index] = item.price.toString();
+        });
+        setPriceInputTexts(priceTexts);
+      }
+    } catch (error) {
+      showToast('Failed to load invoice details', 'error');
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }, [id, isNew]);
 
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
@@ -84,7 +133,7 @@ export default function InvoiceDetailsScreen() {
       loadAccounts();
     });
     return () => task.cancel();
-  }, [id]);
+  }, [id, loadInvoice]);
 
   // Realtime：当前发票或明细被更新时自动重新加载
   useEffect(() => {
@@ -104,7 +153,7 @@ export default function InvoiceDetailsScreen() {
       if (ch) supabase.removeChannel(ch);
       if (chItems) supabase.removeChannel(chItems);
     };
-  }, [id]);
+  }, [id, loadInvoice]);
 
   useFocusEffect(
     useCallback(() => {
@@ -138,48 +187,6 @@ export default function InvoiceDetailsScreen() {
       setAccounts(data);
     } catch (error) {
       console.error('Error loading accounts:', error);
-    }
-  };
-
-  const loadInvoice = async () => {
-    if (!id) return;
-    try {
-      const data = await getInvoiceById(id);
-      setInvoice(data);
-      setEditedInvoice(data);
-      // 加载与该收入单相关的语音记录（用于回放按钮）：仅匹配 responseData.invoicePreview.id === 当前收入单 id
-      try {
-        const chatLogs = await getChatLogsPaginated(50, undefined, 'invoice');
-        const targetId = String(data.id);
-        const audioLog = chatLogs.find(
-          (log) =>
-            log.audioUrl &&
-            log.responseData?.invoicePreview &&
-            String(log.responseData.invoicePreview.id) === targetId
-        );
-        if (audioLog?.audioUrl) {
-          setAudioUrl(audioLog.audioUrl);
-        } else {
-          setAudioUrl(null);
-        }
-      } catch (chatError) {
-        console.log('Failed to get chat logs for invoice audio:', chatError);
-      }
-      if (isNew === 'true') {
-        setEditing(true);
-        const current = editedInvoice || data;
-        setTaxInputText((current?.tax || 0).toString());
-        const priceTexts: { [index: number]: string } = {};
-        (current?.items || []).forEach((item, index) => {
-          priceTexts[index] = item.price.toString();
-        });
-        setPriceInputTexts(priceTexts);
-      }
-    } catch (error) {
-      showToast('Failed to load invoice details', 'error');
-      console.error(error);
-    } finally {
-      setLoading(false);
     }
   };
 

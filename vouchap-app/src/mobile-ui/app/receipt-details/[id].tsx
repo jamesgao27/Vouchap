@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useFocusEffect } from 'expo-router';
 import {
   View,
@@ -84,6 +84,52 @@ export default function ReceiptDetailsScreen() {
     targetSource?: 'supplier' | 'customer';
   } | null>(null);
   const [fileDetailForModal, setFileDetailForModal] = useState<FileDetailModalFile | null>(null);
+  const editingRef = useRef(false);
+
+  useEffect(() => {
+    editingRef.current = editing;
+  }, [editing]);
+
+  const loadReceipt = useCallback(async (options?: { forceSyncEdited?: boolean }) => {
+    if (!id) return;
+    try {
+      const data = await getReceiptById(id);
+      setReceipt(data);
+
+      // 编辑态下保持草稿，不被实时刷新覆盖；仅在明确需要时强制同步
+      const shouldSyncEdited = options?.forceSyncEdited ?? !editingRef.current;
+      if (shouldSyncEdited) {
+        setEditedReceipt(data);
+      }
+      
+      // 获取该小票对应的聊天记录，查找 audioUrl
+      try {
+        const chatLogs = await getChatLogsByReceiptId(id);
+        const audioLog = chatLogs.find(log => log.audioUrl);
+        if (audioLog?.audioUrl) {
+          setAudioUrl(audioLog.audioUrl);
+        }
+      } catch (chatError) {
+        console.log('Failed to get chat logs for audio:', chatError);
+      }
+      
+      // 如果是新创建的小票，自动进入编辑模式（仅首轮初始化时执行）
+      if (isNew === 'true' && shouldSyncEdited) {
+        setEditing(true);
+        setTaxInputText((data?.tax || 0).toString());
+        const priceTexts: { [index: number]: string } = {};
+        (data?.items || []).forEach((item, index) => {
+          priceTexts[index] = item.price.toString();
+        });
+        setPriceInputTexts(priceTexts);
+      }
+    } catch (error) {
+      showToast('Failed to load receipt details', 'error');
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }, [id, isNew]);
 
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
@@ -93,7 +139,7 @@ export default function ReceiptDetailsScreen() {
       loadAccounts();
     });
     return () => task.cancel();
-  }, [id]);
+  }, [id, loadReceipt]);
 
   // Realtime：当前小票或明细被更新时自动重新加载
   useEffect(() => {
@@ -149,44 +195,6 @@ export default function ReceiptDetailsScreen() {
       setAccounts(data);
     } catch (error) {
       console.error('Error loading payment accounts:', error);
-    }
-  };
-
-  const loadReceipt = async () => {
-    if (!id) return;
-    try {
-      const data = await getReceiptById(id);
-      setReceipt(data);
-      setEditedReceipt(data);
-      
-      // 获取该小票对应的聊天记录，查找 audioUrl
-      try {
-        const chatLogs = await getChatLogsByReceiptId(id);
-        const audioLog = chatLogs.find(log => log.audioUrl);
-        if (audioLog?.audioUrl) {
-          setAudioUrl(audioLog.audioUrl);
-        }
-      } catch (chatError) {
-        console.log('Failed to get chat logs for audio:', chatError);
-      }
-      
-      // 如果是新创建的小票，自动进入编辑模式
-      if (isNew === 'true') {
-        setEditing(true);
-        // 初始化输入文本状态
-        const currentReceiptForInit = editedReceipt || receipt;
-        setTaxInputText((currentReceiptForInit?.tax || 0).toString());
-        const priceTexts: { [index: number]: string } = {};
-        (currentReceiptForInit?.items || []).forEach((item, index) => {
-          priceTexts[index] = item.price.toString();
-        });
-        setPriceInputTexts(priceTexts);
-      }
-    } catch (error) {
-      showToast('Failed to load receipt details', 'error');
-      console.error(error);
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -671,7 +679,7 @@ export default function ReceiptDetailsScreen() {
       console.error('Error updating item:', error);
       showToast('Failed to update item', 'error');
       // 如果失败，重新加载以恢复原状态
-      await loadReceipt();
+      await loadReceipt({ forceSyncEdited: true });
     }
   };
 
