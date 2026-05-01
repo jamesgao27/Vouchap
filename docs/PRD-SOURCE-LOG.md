@@ -8,6 +8,23 @@
 
 ---
 
+### 2026-05-01（vouchap-website：Showcase 配图 / 可读性 / 去掉底部四格 / marketplace 屏）
+
+**User（提示词/原意）**  
+- 每一幅增加**必要配图**（从网站现有资源选取）；**文字可读性更好**（主办方 PPT 上轮播，每家 **10 秒**）；**不需要底部页签**（即移除 InvestorQuad）；再增加宣传点：**tax filing marketplace**—firm 发布服务模板，吸引 client **直接下单报税服务**。
+
+**Assistant（实现前说明）**  
+- 拟用 `public/vouchap_landing_assets/*.png` 与 `dashboard.png` 等与各屏语义对齐；在 **`globals.css`** 增加 **`.showcase-*`** 对比面板与字重阴影类；**重写 `ShowcaseSlides.tsx`**：左/右图文分栏、删 **`InvestorQuad`**、精简英文文案；**新增第 5 屏** marketplace（`secure_portal_invitation.png` 贴合品牌化获客闭环）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已实现上述：**五屏**（CRM / AI / Market / aim.link / Marketplace）；配图分别为 firm client detail、client tasks、dashboard、shared tax todo、portal invitation；可读性靠半透明 **`showcase-text-panel`** + **`showcase-title`/`showcase-body` 阴影**与更大字号；底部四格已移除；元数据 description 已更新。
+
+**验证建议**  
+- `npm run dev` 打开 **`/showcase`**，全屏模拟 **1920×1080** 远距可读性；轮播计时自行对齐 **10s/屏**。
+
+**关联**  
+- `vouchap-website/app/globals.css`、`vouchap-website/components/ShowcaseSlides.tsx`、`vouchap-website/app/showcase/page.tsx`
+
 ### 2026-05-01（vouchap-website：投资人 Showcase 多幅 16:9 海报页）
 
 **User（提示词/原意）**  
