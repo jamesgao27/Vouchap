@@ -8,6 +8,23 @@
 
 ---
 
+### 2026-05-01（vouchap-website：Marketplace 截图 / 首页模块 / Showcase 全幅独立海报字阶）
+
+**User（提示词/原意）**  
+- **Marketplace** 用用户提供的 **Service Marketplace** 实机截图；**网站首页**增加同主题模块。  
+- Showcase 仍不够友好；场景为 **10 秒轮播**、文字要更突出；只向主办方交 **2–3 幅**、**可能只采用一页**—**每一页都要完整设计**。
+
+**Assistant（实现前说明）**  
+- 将截图保存为 **`public/vouchap_landing_assets/service_marketplace.png`**；新增 **`ServiceMarketplaceHighlight`**（`/#marketplace`，CTA 指向 **`platform…/tax-filing/service-catalog`**）。  
+- Showcase：**去掉分列弱视觉**，改为统一 **「顶部 aim.link + Vouchap + chip｜中间 showcase-hero-panel 超大标题 + 单行 tagline｜底部整幅配图 flex-1」**；**globals** 增加 **`showcase-hero-panel` / `showcase-hero-title` / `showcase-tagline`**；Marketplace 屏配图 **`object-contain`**；页脚说明「任选 2–3 屏」。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已实现并 **`npm run build`** 通过。  
+- **Navbar** 增加 **Marketplace** 锚点链接。
+
+**关联**  
+- `vouchap-website/public/vouchap_landing_assets/service_marketplace.png`、`vouchap-website/components/ServiceMarketplaceHighlight.tsx`、`vouchap-website/components/ShowcaseSlides.tsx`、`vouchap-website/app/globals.css`、`vouchap-website/app/page.tsx`、`vouchap-website/components/Navbar.tsx`
+
 ### 2026-05-01（vouchap-website：Showcase 配图 / 可读性 / 去掉底部四格 / marketplace 屏）
 
 **User（提示词/原意）**  
