@@ -8,6 +8,148 @@
 
 ---
 
+### 2026-05-01（Vouchap：`20260501120000` 移除 storage.objects 上 COMMENT ON POLICY）
+
+**User（提示词/原意）**  
+- `db push` 应用 `20260501120000_storage_tax_filing_scoped_policies.sql` 报错：`must be owner of relation objects (42501)`，停在 `COMMENT ON POLICY ... ON storage.objects`。
+
+**Assistant（实现前说明）**  
+- 托管 Supabase 上 **`storage.objects`** 属系统侧；迁移所用角色通常不是 owner，**`COMMENT ON POLICY`** 会触发 42501。策略 DDL 本身一般可执行。  
+- 拟删除该迁移文件末尾的 **`COMMENT ON POLICY`**，说明改写入文件头注释。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已编辑 **`20260501120000_storage_tax_filing_scoped_policies.sql`**：去掉对 `storage.objects` 策略的 COMMENT，并加 NOTE。  
+
+**验证建议**  
+- 若上次 push **整文件在单事务内回滚**，直接再次 **`supabase db push`**。若曾部分提交（少见），需在 Dashboard SQL 核对 `storage.objects` 上 `tax-filing` 策略后再决定是否手工补跑。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260501120000_storage_tax_filing_scoped_policies.sql`
+
+### 2026-05-01（Vouchap：拆分重复迁移版本 `20250313330000` 以消除 db push 歧义）
+
+**User（提示词/原意）**  
+- `db push` 仍要求 `--include-all`，且仅列出 `20250313330000_invitee_clients_single_email_and_clients_space_id.sql`。
+
+**Assistant（实现前说明）**  
+- 根因：同一目录下曾存在 **两个** `20250313330000_*.sql`，`schema_migrations.version` 只能对应一行，CLI 无法与两条本地文件对齐。  
+- 拟将较小且无顺序依赖的 **`drop_firm_projects_project_todos`** 重命名为 **`20250313330001_...`**（紧接在 invitee 迁移之后）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已重命名：`20250313330000_drop_firm_projects_project_todos.sql` → **`20250313330001_drop_firm_projects_project_todos.sql`**（内容未改，仍为 `DROP TABLE IF EXISTS`）。  
+- 更新 **`scripts/backfill-remote-migration-history.sh`** 注释。  
+
+**验证建议**  
+- 再次 **`supabase db push`**；若远程曾只 repair 过 `20250313330000` 一次，可再对 **`20250313330001`** 执行 **`migration repair --status applied`** 或让 push 执行该条（`IF EXISTS` 安全）。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20250313330001_drop_firm_projects_project_todos.sql`
+
+### 2026-05-01（Vouchap：`db push` 提示 include-all — 历史迁移与 remote_schema 时序）
+
+**User（提示词/原意）**  
+- 终端：`Found local migration files to be inserted before the last migration on remote database`，要求使用 `--include-all`。
+
+**Assistant（实现前说明）**  
+- 含义：远程 **`schema_migrations` 仅登记了较晚的基线**（如 `20260109040027`），本地大量更早版本在远程表中缺失；CLI 拒绝默认 push。**勿**在生产库上对已有对象盲跑 `--include-all`（会重放 DDL，易 `already exists`）。  
+- 拟新增脚本：对链接项目批量 **`supabase migration repair --status applied <version>`**（只补历史表、不执行迁移 SQL），并 **跳过** 仍待真实执行的版本（当前为 **`20260501120000`**）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 **`vouchap-app/scripts/backfill-remote-migration-history.sh`**：默认 dry-run 打印 repair 命令；**`--execute`** 执行。内置跳过 `20260109040027` 与待推送的 `20260501120000`；注释说明 **`20250313330000`** 两文件共版号。  
+- 流程建议：先 dry-run → 再 `--execute` → 最后 **`supabase db push`**（应仅剩未登记的新迁移）。  
+
+**关联**  
+- `vouchap-app/scripts/backfill-remote-migration-history.sh`
+
+### 2026-05-01（Vouchap：补齐远程 `remote_schema` 迁移记录以修复 db push）
+
+**User（提示词/原意）**  
+- 提供 `schema_migrations` 查询结果：`version = 20260109040027`，`statements = null`，`name = remote_schema`。
+
+**Assistant（实现前说明）**  
+- 判定为 **`supabase db pull`（或同类基线）**在远程写入的历史行，本地缺少同版本 `.sql` 导致 `db push` 报 “Remote migration versions not found in local migrations directory”。拟在本地新增 **`20260109040027_remote_schema.sql`**，内容为无实际 DDL 的占位（`SELECT 1`），与远程已登记版本对齐。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已新增 **`vouchap-app/supabase/migrations/20260109040027_remote_schema.sql`**。远程已存在该 version 时 **`db push` 不应重复执行**；若在新库从零应用迁移链，该文件为无害占位。  
+
+**验证建议**  
+- 在 `vouchap-app` 下执行 `supabase migration list` / `supabase db push`，确认不再因缺版本失败。  
+
+**残留风险**  
+- 若远程库 **`schema_migrations` 与真实 DDL 严重不一致**（仅一条 remote_schema 但库已含大量对象），后续 push 仍可能对「未登记」的旧迁移报错或冲突，需结合 `migration list` 全表排查。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260109040027_remote_schema.sql`
+
+### 2026-05-01（Vouchap：安全整改 — Edge 鉴权、tax-filing 存储、日志与预览 XSS）
+
+**User（提示词/原意）**  
+- 「列 todo，逐项立即整改。」（承接前序安全审计：Gemini 代理、邀请邮件、存储公读、敏感日志、表格预览等。）
+
+**Assistant（实现前说明）**  
+- 计划：① `gemini-proxy` 网关 `verify_jwt=true`，函数内 `getUser` 二次校验；可选 CORS 白名单环境变量；禁止向客户端返回 Google listModels 原始错误体。② `send-invitation-email` 改为 `verify_jwt=true`，用 service role 校验 `space_invitations` 与 inviter 后再 `inviteUserByEmail`；客户端 body 增加 `invitationId`。③ 新迁移收紧 `tax-filing` 桶 RLS（去掉 `public` SELECT，按路径首段 `client_space_id` + `user_spaces` / `firm.can_access_client`）；上传函数禁止空 `clientSpaceId`。④ `gemini.ts` / `auth/confirm.tsx` 脱敏日志；⑤ `office-inline-preview` 对 SheetJS 输出做脚本/事件剥离。⑥ 更新 README 与溯源。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`supabase/config.toml`**：`gemini-proxy`、`send-invitation-email` 均 **`verify_jwt = true`**。  
+- **`gemini-proxy/index.ts`**：`requireAuthenticatedUser`；`GEMINI_PROXY_ALLOWED_ORIGINS`；错误响应不附带 Google 响应 body；同源校验对带 `Origin` 的跨站请求生效。  
+- **`send-invitation-email/index.ts`**：同上 CORS 策略（`INVITE_EMAIL_ALLOWED_ORIGINS`）；校验邀请行与 inviter / email / `pending`；`isExistingUser` 仍短路不发邮件。  
+- **`space-invitations.ts`**：`invoke` body 增加 **`invitationId`**。  
+- **新迁移 `20260501120000_storage_tax_filing_scoped_policies.sql`**：删除 `tax_filing_public_select`，读写删选均按文件夹与成员/事务所权限收紧。**部署后**建议在 Dashboard 将 **`tax-filing` 桶改为 Private**（迁移注释已说明）。  
+- **`supabase.ts`**：`uploadTaxFilingFile` / `uploadTaxFilingFileBytes` 无 `clientSpaceId` 时抛错；税表上传成功日志仅在 dev。  
+- **`gemini.ts`**：`geminiDevLog` 包裹原 `console.log`，避免生产打印 URL/解析内容。  
+- **`auth/confirm.tsx`**：`authConfirmDevLog`，不再打印含 token 的完整 URL。  
+- **`office-inline-preview.ts`**：`sanitizePreviewTableHtml`。  
+- 新增 **`supabase/functions/gemini-proxy/README.md`**；更新 **`send-invitation-email/README.md`**。  
+
+**验证建议**  
+- 部署两枚 Edge Functions 后：匿名/无效 JWT 应 401；邀请邮件仅合法 inviter 可发。  
+- 执行迁移后：匿名应无法 SELECT `tax-filing`；成员与 firm 可读路径需与业务一致；将桶改为 Private 后验证 `getTaxFilingViewUrl` 签名打开。  
+
+**残留风险**  
+- 未实现按用户 Gemini **配额/限流**（仍依赖后续产品策略）。  
+- `marketplace` 存储仍为 public SELECT（本次未改）。  
+- Sheet 预览消毒为规则型，非完整 HTML 消毒器。
+
+**关联**  
+- `vouchap-app/supabase/functions/gemini-proxy/index.ts`  
+- `vouchap-app/supabase/functions/send-invitation-email/index.ts`  
+- `vouchap-app/supabase/config.toml`  
+- `vouchap-app/supabase/migrations/20260501120000_storage_tax_filing_scoped_policies.sql`  
+- `vouchap-app/src/shared-logic/space-invitations.ts`、`supabase.ts`、`gemini.ts`  
+- `vouchap-app/src/mobile-ui/app/auth/confirm.tsx`  
+- `vouchap-app/src/shared-logic/office-inline-preview.ts`
+
+### 2026-05-01（aim.link-v2：Web 顶栏通知 icon 与相邻 icon 对齐）
+
+**User（提示词/原意）**  
+- icon 的位置没有跟旁边的 icon 对齐。
+
+**Assistant（实现前说明，若有）**  
+- 对照 **`AppNavHeader`**：铃铛包在 **`Badge`** 内且 **`fontSize: 18`**，相邻 Help/Settings 为 **16px** 裸图标；**`.ant-badge`** 为 **`inline-block`**，在 **`inline-flex`** 的 **24×24** 按钮内可能产生与直接 **`anticon`** 不同的视觉中心。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`BellOutlined`** 改为 **16px**；**`.aimlink-header-icon-btn .ant-badge`** 改为 **`inline-flex`** + **`align-items/justify-content: center`**（**不**将 **Badge** 铺满 **24×24**，避免未读角标锚到按钮角而远离铃铛）。已追加 **aim.link-v2** **`PROMPTS-LOG`** / **`PRD`** 变更记录。
+
+**关联**  
+- `/Users/macbook/aim.link-v2/apps/web/src/components/app-chrome/AppNavHeader.tsx`  
+- `/Users/macbook/aim.link-v2/apps/web/src/styles/aimlink-web-app-shell.scss`
+
+### 2026-05-01（aim.link-v2：Web 顶栏通知 icon 与设置同色）
+
+**User（提示词/原意）**  
+- Web 端顶栏的通知 icon，颜色应改为和旁边的设置 icon 一样的浅色。
+
+**Assistant（实现前说明，若有）**  
+- 对照 **`AppNavHeader`** 与 **`aimlink-web-app-shell.scss`**：Help / Settings 为裸 **`anticon`**，消息为 **`Badge`** 包 **`BellOutlined`**；怀疑 **`.ant-badge`** 默认字色覆盖顶栏继承色。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 根因：**antd** **`.ant-badge`** 默认 **`color: rgba(0, 0, 0, 0.85)`**。在 **`aimlink-web-app-shell.scss`** 为 **`.aimlink-header-icon-btn .ant-badge`** 与内部 **`.anticon`** 增加 **`color: inherit`**（并 **`font-size` / `line-height: inherit`**），铃铛与相邻设置/帮助一致继承导航浅色。  
+- **aim.link-v2** 侧已同步 **`docs/PROMPTS-LOG.md`** 与 **`docs/PRD.md`** 变更记录。验证：登录后 **`/app/*`** 顶栏对比消息与设置图标色。
+
+**关联**  
+- `/Users/macbook/aim.link-v2/apps/web/src/styles/aimlink-web-app-shell.scss`  
+- `/Users/macbook/aim.link-v2/docs/PROMPTS-LOG.md` · `/Users/macbook/aim.link-v2/docs/PRD.md`
+
 ### 2026-05-01（Vouchap：Gemini 调用下沉 Supabase，移除 Expo/Web 对 AI Key 依赖）
 
 **User（提示词/原意）**  

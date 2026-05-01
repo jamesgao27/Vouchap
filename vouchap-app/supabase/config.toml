@@ -6,8 +6,12 @@
 [api]
 schemas = ["public", "graphql_public", "crm"]
 
-# Edge Function: allow browser/client to call without 401.
-# Gateway enforces JWT by default; this function only sends email from body (no DB).
-# Redeploy after change: supabase functions deploy send-invitation-email
+# Gemini: require valid Supabase user JWT at gateway; function double-checks via auth.getUser().
+# Optional secret GEMINI_PROXY_ALLOWED_ORIGINS=comma-separated origins (else *). Redeploy: supabase functions deploy gemini-proxy
+[functions.gemini-proxy]
+verify_jwt = true
+
+# Invitation email: JWT required; function verifies invitation row + inviter (see index.ts).
+# Redeploy: supabase functions deploy send-invitation-email
 [functions.send-invitation-email]
-verify_jwt = false
+verify_jwt = true

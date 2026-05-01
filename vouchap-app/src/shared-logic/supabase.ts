@@ -435,10 +435,15 @@ export async function uploadTaxFilingFile(
       mimeType = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
     }
     const fileName = `${tempFileName}.${fileExt}`;
-    const folder = clientSpaceId && clientSpaceId.trim() ? clientSpaceId.trim() : 'unknown';
+    const folder = clientSpaceId?.trim();
+    if (!folder) {
+      throw new Error('clientSpaceId is required for tax-filing uploads');
+    }
     const filePath = `${folder}/${fileName}`;
 
-    console.log(`Uploading to bucket: ${TAX_FILING_BUCKET}, path: ${filePath}`);
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log(`Uploading to bucket: ${TAX_FILING_BUCKET}, path: ${filePath}`);
+    }
 
     const uploadPayload = arrayBuffer instanceof ArrayBuffer ? arrayBuffer : (arrayBuffer as Uint8Array).buffer;
     const { error } = await supabase.storage
@@ -457,7 +462,9 @@ export async function uploadTaxFilingFile(
       .from(TAX_FILING_BUCKET)
       .getPublicUrl(filePath);
 
-    console.log('Tax-filing upload successful, public URL:', publicUrl);
+    if (typeof __DEV__ !== 'undefined' && __DEV__) {
+      console.log('Tax-filing upload successful');
+    }
     return publicUrl;
   } catch (error) {
     console.error('Error uploading tax-filing image:', error);
@@ -472,7 +479,10 @@ export async function uploadTaxFilingFileBytes(
   bytes: ArrayBuffer | Uint8Array,
   contentType: string
 ): Promise<string> {
-  const folder = clientSpaceId && clientSpaceId.trim() ? clientSpaceId.trim() : 'unknown';
+  const folder = clientSpaceId?.trim();
+  if (!folder) {
+    throw new Error('clientSpaceId is required for tax-filing uploads');
+  }
   const safeName = fileName.replace(/^\/+/, '');
   const filePath = `${folder}/${safeName}`;
   const payload = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);

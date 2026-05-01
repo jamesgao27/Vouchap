@@ -43,7 +43,13 @@ cd /Users/macbook/Vouchap/vouchap-app
 supabase functions deploy send-invitation-email
 ```
 
-无需给本函数配置任何 Secrets。
+`SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` 由 Supabase 托管环境注入（与 `verify_jwt = true` 配合使用）。
+
+**安全（必知）**
+
+- 调用必须携带**已登录用户**的 JWT；函数内会校验 `space_invitations`：**inviter_id**、**pending**、**invitee_email** 与请求体一致后才调用 `inviteUserByEmail`。
+- 请求体需包含 **`invitationId`**（或由 `inviteUrl` 中 `/invite/{uuid}` 解析）；**`isExistingUser: true`** 时仅短路返回、不发邮件，不校验邀请行。
+- 生产环境可在 Secrets 中设置 **`INVITE_EMAIL_ALLOWED_ORIGINS`**（逗号分隔的完整 Origin，如 `https://app.example.com`）；未设置时允许任意 Origin（`*`）。设置后浏览器来源不在列表中的请求会返回 403。
 
 ---
 

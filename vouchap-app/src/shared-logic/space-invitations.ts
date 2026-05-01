@@ -263,6 +263,7 @@ async function sendInvitationEmail(
       body: {
         email,
         inviteUrl,
+        invitationId,
         spaceName,
         inviterName: finalInviterName,
         isExistingUser,

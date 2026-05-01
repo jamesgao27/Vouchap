@@ -28,6 +28,13 @@ import { isSpreadsheetMime, spreadsheetBase64ToPlainText } from './spreadsheet-t
 import { isWordDocumentMime, wordDocumentBase64ToPlainText } from './word-document-to-text';
 import { aliasDistinctFromLineName, pickReceiptLineItemAlias } from './receipt-item-alias';
 
+/** Do not log signed URLs, tokens, or receipt text in production builds. */
+function geminiDevLog(...args: unknown[]) {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.log(...args);
+  }
+}
+
 function normalizedItemPosTaxCode(item: any): string | undefined {
   const raw = item?.posTaxCode ?? item?.pos_tax_code ?? item?.taxCode ?? item?.tax_code;
   if (raw == null || String(raw).trim() === '') return undefined;
@@ -235,19 +242,19 @@ Return ONLY valid JSON, no markdown. Format:
 // 识别小票内容（使用图片 URL）
 export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptResult> {
   const currentApiKey = getCurrentGeminiApiKey();
-  console.log('Starting receipt recognition (Supabase gemini-proxy)...');
-  console.log('Image URL:', imageUrl);
+  geminiDevLog('Starting receipt recognition (Supabase gemini-proxy)...');
+  geminiDevLog('Image URL:', imageUrl);
 
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
 
   // 首先尝试从 API 获取可用模型（如果缓存为空）
   if (!availableModelCache) {
-    console.log('Attempting to fetch available models from API...');
+    geminiDevLog('Attempting to fetch available models from API...');
     try {
       const availableModel = await getAvailableImageModel();
       if (availableModel) {
         availableModelCache = availableModel;
-        console.log('✅ Found available model via API:', availableModelCache);
+        geminiDevLog('✅ Found available model via API:', availableModelCache);
       } else {
         console.warn('⚠️  No image models found via API');
       }
@@ -322,8 +329,8 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
   const prompt = RECEIPT_IMAGE_PARSE_INTRO + extractionRules;
 
   // 从 URL 下载图片并转换为 base64（Web 用 fetch，Native 用 FileSystem）
-  console.log('Downloading image from URL...');
-  console.log('Image URL:', imageUrl);
+  geminiDevLog('Downloading image from URL...');
+  geminiDevLog('Image URL:', imageUrl);
 
   let base64: string;
   let mimeType = 'image/jpeg';
@@ -361,7 +368,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
     }
   }
 
-  console.log('Image downloaded, size:', base64.length, 'bytes, mime type:', mimeType);
+  geminiDevLog('Image downloaded, size:', base64.length, 'bytes, mime type:', mimeType);
 
   const modelsToTry = geminiModelsToTry(availableModelCache, {
     promptTextLength: prompt.length,
@@ -382,14 +389,14 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
 
   for (const modelName of modelsToTry) {
     try {
-      console.log(`Trying model: ${modelName}...`);
+      geminiDevLog(`Trying model: ${modelName}...`);
       const model = currentGenAI.getGenerativeModel({ model: modelName });
 
-      console.log('Sending request to Gemini API...');
+      geminiDevLog('Sending request to Gemini API...');
       const result = await model.generateContent([prompt, imagePart]);
       const apiResponse = await result.response;
       const text = apiResponse.text();
-      console.log(`✅ Model ${modelName} worked! Response length:`, text.length);
+      geminiDevLog(`✅ Model ${modelName} worked! Response length:`, text.length);
 
       // 提取JSON部分（去除可能的markdown代码块标记）
       let jsonText = text.trim();
@@ -481,7 +488,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
       // 如果是模型不存在的错误，尝试下一个模型
       const errorMsg = lastError.message.toLowerCase();
       if (errorMsg.includes('not found') || errorMsg.includes('404')) {
-        console.log(`  模型 ${modelName} 不可用，尝试下一个...`);
+        geminiDevLog(`  模型 ${modelName} 不可用，尝试下一个...`);
         continue;
       }
 
@@ -883,13 +890,13 @@ Return ONLY valid JSON format without any extra text:
 
     for (const modelName of modelsToTry) {
       try {
-        console.log(`[Supplier Info] Trying model: ${modelName}...`);
+        geminiDevLog(`[Supplier Info] Trying model: ${modelName}...`);
         const model = currentGenAI.getGenerativeModel({ model: modelName });
 
         const result = await model.generateContent([prompt, imagePart]);
         const apiResponse = await result.response;
         const text = apiResponse.text();
-        console.log(`[Supplier Info] ✅ Model ${modelName} worked! Response:`, text);
+        geminiDevLog(`[Supplier Info] ✅ Model ${modelName} worked! Response:`, text);
 
         // 提取JSON部分
         let jsonText = text.trim();
@@ -927,8 +934,8 @@ export async function recognizeReceiptFromText(text: string): Promise<GeminiRece
 
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
 
-  console.log('Starting receipt recognition with text...');
-  console.log('Text input:', text);
+  geminiDevLog('Starting receipt recognition with text...');
+  geminiDevLog('Text input:', text);
 
   // 支出：分类与用途
   let categoryNames: string[] = [];
@@ -962,7 +969,7 @@ export async function recognizeReceiptFromText(text: string): Promise<GeminiRece
   let userCurrencies: string[] = [];
   try {
     userCurrencies = await getCurrenciesByUsage();
-    console.log('User currencies by usage:', userCurrencies);
+    geminiDevLog('User currencies by usage:', userCurrencies);
   } catch (error) {
     console.warn('Failed to fetch currency usage:', error);
   }
@@ -1009,7 +1016,7 @@ User text:
     try {
       availableModel = await getAvailableImageModel();
       if (availableModel) {
-        console.log('✅ Found available model via API:', availableModel);
+        geminiDevLog('✅ Found available model via API:', availableModel);
       }
     } catch (error) {
       console.warn('⚠️  Could not fetch available models from API:', error);
@@ -1021,7 +1028,7 @@ User text:
 
     for (const modelName of modelsToTry) {
       try {
-        console.log(`Trying model: ${modelName}`);
+        geminiDevLog(`Trying model: ${modelName}`);
         const model = currentGenAI.getGenerativeModel({ model: modelName });
 
         // 使用文本提示
@@ -1029,7 +1036,7 @@ User text:
 
         const response = await result.response;
         const textResponse = response.text();
-        console.log('Gemini response:', textResponse);
+        geminiDevLog('Gemini response:', textResponse);
 
         // 解析JSON响应
         const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
@@ -1043,7 +1050,7 @@ User text:
         if ((!parsedResult.supplierName || parsedResult.supplierName === 'Unknown Supplier') && parsedResult.items && Array.isArray(parsedResult.items) && parsedResult.items.length > 0) {
           const firstItem = parsedResult.items[0];
           if (firstItem && firstItem.name) {
-            console.log('Supplier name not found, using first item name as supplier name:', firstItem.name);
+            geminiDevLog('Supplier name not found, using first item name as supplier name:', firstItem.name);
             parsedResult.supplierName = firstItem.name;
           }
         }
@@ -1118,8 +1125,8 @@ User text:
           }];
         }
 
-        console.log('Parsed result items count:', parsedResult.items.length);
-        console.log('Parsed result:', {
+        geminiDevLog('Parsed result items count:', parsedResult.items.length);
+        geminiDevLog('Parsed result:', {
           supplierName: parsedResult.supplierName,
           date: parsedResult.date,
           totalAmount: parsedResult.totalAmount,
@@ -1171,7 +1178,7 @@ User text:
         delete parsedResult.tax_jurisdiction_country;
         delete parsedResult.tax_jurisdiction_region;
 
-        console.log('Final parsed result:', {
+        geminiDevLog('Final parsed result:', {
           supplierName: parsedResult.supplierName,
           date: parsedResult.date,
           totalAmount: parsedResult.totalAmount,
@@ -1203,8 +1210,8 @@ export async function recognizeReceiptFromAudio(audioUri: string): Promise<Gemin
 
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
 
-  console.log('Starting receipt recognition with audio...');
-  console.log('Audio URI:', audioUri);
+  geminiDevLog('Starting receipt recognition with audio...');
+  geminiDevLog('Audio URI:', audioUri);
 
   // 获取用户的分类列表
   let categoryNames: string[] = [];
@@ -1238,7 +1245,7 @@ export async function recognizeReceiptFromAudio(audioUri: string): Promise<Gemin
   let userCurrencies: string[] = [];
   try {
     userCurrencies = await getCurrenciesByUsage();
-    console.log('User currencies by usage:', userCurrencies);
+    geminiDevLog('User currencies by usage:', userCurrencies);
   } catch (error) {
     console.warn('Failed to fetch currency usage:', error);
   }
@@ -1288,7 +1295,7 @@ Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymen
     try {
       availableModel = await getAvailableImageModel();
       if (availableModel) {
-        console.log('✅ Found available model via API:', availableModel);
+        geminiDevLog('✅ Found available model via API:', availableModel);
       }
     } catch (error) {
       console.warn('⚠️  Could not fetch available models from API:', error);
@@ -1304,7 +1311,7 @@ Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymen
 
     for (const modelName of modelsToTry) {
       try {
-        console.log(`Trying model: ${modelName}`);
+        geminiDevLog(`Trying model: ${modelName}`);
         const model = currentGenAI.getGenerativeModel({ model: modelName });
 
         // 使用音频和文本提示
@@ -1320,7 +1327,7 @@ Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymen
 
         const response = await result.response;
         const text = response.text();
-        console.log('Gemini response:', text);
+        geminiDevLog('Gemini response:', text);
 
         // 解析JSON响应
         const jsonMatch = text.match(/\{[\s\S]*\}/);

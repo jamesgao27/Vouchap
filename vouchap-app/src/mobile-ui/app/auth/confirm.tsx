@@ -6,6 +6,13 @@ import * as Linking from 'expo-linking';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUser } from '@/lib/auth';
 
+function authConfirmDevLog(message: string, extra?: Record<string, unknown>) {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    if (extra) console.log('[auth/confirm]', message, extra);
+    else console.log('[auth/confirm]', message);
+  }
+}
+
 // 根据认证类型返回对应的成功消息和跳转路径
 function getSuccessConfig(type: string | undefined): { message: string; redirect: string } {
   switch (type) {
@@ -81,28 +88,34 @@ export default function EmailConfirmScreen() {
           // 先尝试获取当前 URL（如果应用已经打开）
           const url = await Linking.getInitialURL();
           if (url) {
-            console.log('Parsing URL:', url);
+            authConfirmDevLog('Parsing deep link', {
+              hasQuery: url.includes('?'),
+              hasHash: url.includes('#'),
+            });
             const parsed = Linking.parse(url);
             // 检查 hash fragment（Supabase 通常在这里传递 access_token）
             if (parsed.fragment) {
               const fragmentParams = new URLSearchParams(parsed.fragment);
               access_token = fragmentParams.get('access_token') || undefined;
               type = (fragmentParams.get('type') || type) as any;
-              console.log('Found in fragment:', { access_token: access_token ? 'present' : 'missing', type });
+              authConfirmDevLog('Found in fragment', { access_token: access_token ? 'present' : 'missing', type });
             }
             // 也检查查询参数
             if (parsed.queryParams) {
               token_hash = (parsed.queryParams.token_hash as string) || token_hash;
               type = ((parsed.queryParams.type as string) || type) as any;
               access_token = (parsed.queryParams.access_token as string) || access_token;
-              console.log('Found in queryParams:', { token_hash: token_hash ? 'present' : 'missing', type });
+              authConfirmDevLog('Found in queryParams', { token_hash: token_hash ? 'present' : 'missing', type });
             }
           }
           
           // 如果还是没有，尝试监听 URL 变化（适用于应用已打开的情况）
           if (!token_hash && !access_token) {
             const subscription = Linking.addEventListener('url', (event) => {
-              console.log('URL event received:', event.url);
+              authConfirmDevLog('URL event received', {
+                hasHash: event.url.includes('#'),
+                hasTokenParam: event.url.includes('token_hash') || event.url.includes('access_token'),
+              });
               const parsed = Linking.parse(event.url);
               if (parsed.fragment) {
                 const fragmentParams = new URLSearchParams(parsed.fragment);
@@ -126,7 +139,7 @@ export default function EmailConfirmScreen() {
             }, 2000);
           }
         } catch (linkError) {
-          console.log('Error parsing URL:', linkError);
+          authConfirmDevLog('Error parsing URL', { error: String(linkError) });
         }
       }
 
@@ -142,7 +155,7 @@ export default function EmailConfirmScreen() {
           }
           
           if (url) {
-            console.log('Processing URL with access_token:', url);
+            authConfirmDevLog('Processing session from deep link');
             const parsed = Linking.parse(url);
             const hashFragment = parsed.fragment;
             
@@ -152,9 +165,9 @@ export default function EmailConfirmScreen() {
               const fragmentParams = new URLSearchParams(hashFragment);
               refresh_token = fragmentParams.get('refresh_token') || undefined;
               type = (fragmentParams.get('type') || type) as any;
-              console.log('Extracted from fragment:', { 
-                hasRefreshToken: !!refresh_token, 
-                type 
+              authConfirmDevLog('Extracted from fragment', {
+                hasRefreshToken: !!refresh_token,
+                type,
               });
             }
 
@@ -171,7 +184,7 @@ export default function EmailConfirmScreen() {
               }
 
               if (sessionData?.user) {
-                console.log('Session set successfully for user:', sessionData.user.id);
+                authConfirmDevLog('Session set successfully');
                 // Session 设置成功，确保 users 表中有用户记录
                 await ensureUserRecord(sessionData.user);
                 
@@ -203,7 +216,7 @@ export default function EmailConfirmScreen() {
         });
 
         if (error) {
-          console.log('Auth link expired or already used');
+          authConfirmDevLog('Auth link expired or already used');
           setStatus('error');
           setMessage('This link has expired or has already been used. Please request a new link.');
           setRedirectTo('/login');
@@ -226,7 +239,9 @@ export default function EmailConfirmScreen() {
         // 等待一小段时间后再试
         setTimeout(async () => {
           const url = await Linking.getInitialURL();
-          console.log('Retry URL check:', url);
+          authConfirmDevLog('Retry URL check', {
+            hasTokens: !!(url && (url.includes('access_token') || url.includes('token_hash'))),
+          });
           if (url && (url.includes('access_token') || url.includes('token_hash'))) {
             // 重新解析 URL
             const parsed = Linking.parse(url);
@@ -267,7 +282,7 @@ export default function EmailConfirmScreen() {
       setMessage('This link has expired or has already been used. Please request a new link.');
       setRedirectTo('/login');
     } catch (error) {
-      console.log('Auth link expired or already used');
+      authConfirmDevLog('Auth confirm error', { error: String(error) });
       setStatus('error');
       setMessage('This link has expired or has already been used. Please request a new link.');
       setRedirectTo('/login');
@@ -299,7 +314,7 @@ export default function EmailConfirmScreen() {
         if (insertError) {
           console.error('Error creating user record:', insertError);
         } else {
-          console.log('User record created successfully');
+          authConfirmDevLog('User record created successfully');
         }
       }
     } catch (error) {

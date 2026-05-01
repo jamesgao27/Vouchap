@@ -15,6 +15,13 @@ export function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+/** Strip scripts and inline event handlers from SheetJS HTML output (mitigate malicious xlsx). */
+export function sanitizePreviewTableHtml(html: string): string {
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '');
+}
+
 export async function fetchTaxFilingAttachmentArrayBuffer(attachmentUrl: string): Promise<ArrayBuffer> {
   const signed = await getTaxFilingViewUrl(attachmentUrl);
   const res = await fetch(signed, { mode: 'cors', credentials: 'omit' });
@@ -30,7 +37,7 @@ export function workbookArrayBufferToPreviewHtml(ab: ArrayBuffer): string {
     const sn = names[i];
     const ws = wb.Sheets[sn];
     if (!ws) continue;
-    const html = XLSX.utils.sheet_to_html(ws, { id: `sheet-${i}`, editable: false });
+    const html = sanitizePreviewTableHtml(XLSX.utils.sheet_to_html(ws, { id: `sheet-${i}`, editable: false }));
     chunks.push(
       `<section class="sheet-block"><h2 class="sheet-title">${escapeHtml(sn)}</h2><div class="sheet-wrap">${html}</div></section>`,
     );
