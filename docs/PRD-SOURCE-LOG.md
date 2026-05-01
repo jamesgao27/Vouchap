@@ -8,6 +8,21 @@
 
 ---
 
+### 2026-05-01（vouchap-website：Showcase 合并主题为一张 · 四构图版本 A–D）
+
+**User（提示词/原意）**  
+- 前述**两个内容重点合并在一张**，出**三四个版本**。**文字精简**，**图片需密切联系内容主题**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseSlides.tsx`**：共用常量 **`MERGED.head` / `MERGED.sub`**（一句标题 + 一句副文案）；**四屏 scroll-snap**，构图分别为：**A** 数据条 + Insights / Collaboration / Expenses（TAM+AI 证据）；**B** 左文案+芯片 + 大 engagement + 底栏 CRM·Portal·Catalog·Marketplace；**C** 双大 AI 屏 + 底四格迷你数据；**D** 顶精简标题 + **2×2** 四宫格（协作/意图/需求侧/规模化）。  
+- 更新 **`app/showcase/page.tsx`** metadata。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已实现；**`npm run build`** 通过。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`、`vouchap-website/app/showcase/page.tsx`
+
 ### 2026-05-01（vouchap-website：Showcase 重做 — 仅两幅海报：底座协作 vs AI+市场）
 
 **User（提示词/原意）**  
