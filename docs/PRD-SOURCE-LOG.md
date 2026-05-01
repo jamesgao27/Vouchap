@@ -8,6 +8,21 @@
 
 ---
 
+### 2026-05-01（vouchap-website：Showcase Variant A Insights 撑满屏 — 图片带限高）
+
+**User（提示词/原意）**  
+- **Insight 图片满屏**，其他内容都看不到。
+
+**Assistant（实现前说明）**  
+- 根因：Variant **A** 底部三图容器使用 **`flex-1`**，`next/image` **`fill`** 随弹性行增高，**Insights** 列占宽最大，视觉上占满屏。  
+- 拟去掉该行 **`flex-1`**，改为 **`shrink-0` + 固定 `clamp` 高度**；**Banner / Stat** 包 **`shrink-0`**；**Shot** 加 **`h-full min-h-0`**。Variant **C** 双图区同样去掉无界 **`flex-1`** 并限高。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 **`ShowcaseSlides.tsx`**；**`npm run build`** 通过。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
 ### 2026-05-01（vouchap-website：Showcase 合并主题为一张 · 四构图版本 A–D）
 
 **User（提示词/原意）**  
