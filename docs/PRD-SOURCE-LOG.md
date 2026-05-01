@@ -8,6 +8,22 @@
 
 ---
 
+### 2026-05-01（vouchap-website：全站 Web 截图换新 + Showcase 同步，`object-contain`）
+
+**User（提示词/原意）**  
+- 重新截取软件截图，**按主题替换**网站上现有 **Web 端**截图；**尽量不裁剪、不拉伸**。**Showcase** 也用新图。
+
+**Assistant（实现前说明）**  
+- 将用户提供的 8 张图复制到 **`public/vouchap_landing_assets/`**，统一命名为 **`web_*.png`**；**`lib/landingAssets.ts`** 用 **`ASSET_V=20260501`** 做缓存穿透；Hero / Firm invite 扇形卡 / Tax pains / Marketplace 模块 / Showcase 全部改引用。  
+- Showcase **`SlideFigure`** 默认 **`object-contain`** + 深色 letterbox，避免裁切。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 映射：**Expenses**→收据痛点；**Tax collaboration**→协同/任务+Tina；**Firm clients**→CRM 列表+Cody；**Insights**→全局洞察；**Engagement**→共享 engagement；**Service catalog**→firm 发布模板；**Tax filing marketplace**→客户端集市；**Cody**→邀请区副卡。Hero 主图改为 **Firm clients**；原 invite 落地长图引用已移除。  
+- **`npm run build`** 通过。
+
+**关联**  
+- `vouchap-website/public/vouchap_landing_assets/web_*.png`、`lib/landingAssets.ts`、`Hero.tsx`、`FirmInviteHighlight.tsx`、`TaxPainSolutions.tsx`、`ServiceMarketplaceHighlight.tsx`、`ShowcaseSlides.tsx`
+
 ### 2026-05-01（vouchap-website：Marketplace 截图 / 首页模块 / Showcase 全幅独立海报字阶）
 
 **User（提示词/原意）**  
