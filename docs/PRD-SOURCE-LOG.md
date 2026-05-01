@@ -8,6 +8,23 @@
 
 ---
 
+### 2026-05-01（vouchap-website：Showcase 重做 — 仅两幅海报：底座协作 vs AI+市场）
+
+**User（提示词/原意）**  
+- Showcase **越做越差**，需兼顾**构图与主题**；**必要时多张图**。集中精力：**①** 基于 **aim.link** 基础架构，**Vouchap** 垂直用于 **firm 与 client** 协作落地；**②** **AI** 服务最后一公里，**税务服务市场规模**很大。
+
+**Assistant（实现前说明）**  
+- 将 **`ShowcaseSlides.tsx`** 从五屏收束为 **两幅 16:9 海报**（scroll-snap）。  
+- **Poster 1**：左栏文案（aim.link 底座 → Vouchap 税务垂直、低边际、双方便利）+ 右栏 **1 大 3 小** 构图：主图 **engagement**，三缩略 **Clients / Portal / Service catalog** 并加短标注。  
+- **Poster 2**：**AI 最后一公里** 与 **TAM 数据**同屏：上段主文案、**四格数据**、下 **双图**（tax collaboration + expenses）+ 图注。  
+- 更新 **`app/showcase/page.tsx`** metadata。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已替换实现；**`npm run build`** 通过。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`、`vouchap-website/app/showcase/page.tsx`
+
 ### 2026-05-01（vouchap-website：营销截图「发糊」—`unoptimized` + `images.deviceSizes`）
 
 **User（提示词/原意）**  
