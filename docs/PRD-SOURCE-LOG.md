@@ -4401,3 +4401,21 @@
 - `/Users/macbook/Vouchap/test-gemini-api-simple.js`
 
 ---
+
+### 2026-05-01（Vouchap：发布 vouchap-app 2.6.0 / Build 50）
+
+**User（提示词/原意）**  
+- 「版本号更新为2.6.0」。
+
+**Assistant（实现前说明，若有）**  
+- 按 `.cursorrules` 同步 `vouchap-app` 的 `package.json`、`package-lock.json`、`app.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`；并检查 `ios/.../project.pbxproj` 中 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION` 与构建号一致。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 应用版本号统一为 **2.6.0**；iOS `CFBundleVersion` 与 Android `versionCode` 统一为 **50**（`project.pbxproj` 同步为 `MARKETING_VERSION = 2.6.0`、`CURRENT_PROJECT_VERSION = 50`）。  
+- 已执行 `git commit` + `git push`，提交说明：`发布版本号 2.6.0 (Build 50)`。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/package.json`  
+- `/Users/macbook/Vouchap/vouchap-app/ios/Vouchap.xcodeproj/project.pbxproj`
+
+---
