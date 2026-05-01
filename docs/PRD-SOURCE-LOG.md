@@ -8,6 +8,23 @@
 
 ---
 
+### 2026-05-01（vouchap-website：Hero / Firm invite 用新 Portal 主图 + Cody 副图，清理旧 landing 图）
+
+**User（提示词/原意）**  
+- 网站**主图仍用**新的 **Secure Portal** 截图；**此前旧图清理掉**。  
+- 「**A branded, secure landing page every time you invite a client**」模块：**主图**用新截的 **portal**，**副图**用 **Cody**。
+
+**Assistant（实现前说明）**  
+- 将 portal 存为 **`web_secure_portal_invite.png`**，**`landingAssets`** 以 **`webSecurePortalInvite`** 暴露；**Hero** 与 **FirmInviteHighlight** 主卡均用该资源；Firm invite 副卡保持 **`webCodyAssistant`**。  
+- **`ASSET_V`** 递增至 **`20260502`**。删除不再引用的 **legacy** `vouchap_landing_assets` 下旧 PNG 及根目录 **`dashboard.png`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已移除 **`client_auto_invite`**、**`secure_portal_invitation`** 等共 **9** 个旧资源文件 + **`public/dashboard.png`**。  
+- **`npm run build`** 通过。
+
+**关联**  
+- `vouchap-website/lib/landingAssets.ts`、`components/Hero.tsx`、`components/FirmInviteHighlight.tsx`、`public/vouchap_landing_assets/web_secure_portal_invite.png`
+
 ### 2026-05-01（vouchap-website：全站 Web 截图换新 + Showcase 同步，`object-contain`）
 
 **User（提示词/原意）**  
