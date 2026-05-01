@@ -8,6 +8,26 @@
 
 ---
 
+### 2026-05-01（vouchap-website：投资人 Showcase 多幅 16:9 海报页）
+
+**User（提示词/原意）**  
+- 在 **vouchap-website** 增加 **Showcase** 页面；面向天使投资人；每幅按 **1920×1080** 海报基准、多幅 **向下步进滚动**；各幅需覆盖：①税务 firm 与 client 协同 CRM；② AI 解决报税协同最后一公里（业务意图，非仅识别）；③ 北美税务市场规模（从根目录 **Vouchap BP2.5.5-202603** 取数）；④ Vouchap 为 **aim.link** 垂直落地、统一底座、垂直研发边际成本低；主品牌 **aim.link**，内容侧重 Vouchap；投资人视角文案；**UI 英文**。
+
+**Assistant（实现前说明）**  
+- 在 **`/Users/macbook/vouchap-website`** 新增 **`app/showcase/page.tsx`**（元数据 + 顶栏含 aim.link 标）与 **`components/ShowcaseSlides.tsx`**（`scroll-snap` 四屏，内层 **`aspect-ratio: 16/9`** 画布随视口缩放，等价 1920×1080 设计基准）。  
+- 从 BP 文档（`textutil` 转 TXT）摘录：**北美合规约 $160B+**、**美国约 $145.5B / ~157K firms**、**加拿大 2024 约 $30.3B CAD / 30,427 firms**、**加拿大微所占比 74.6%（少于 5 人）** 等用于第三屏。  
+- 导航 **`components/Navbar.tsx`** 增加 **Showcase** 链接。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已落地上述文件与导航；四屏分别以 CRM、AI 意图、市场规模、aim.link 平台为视觉中心，底部 **InvestorQuad** 四格在每屏重复四个主题（高亮随屏变化）。  
+- **`npm run build`** 阶段 **编译与类型检查通过**；收集 page data 时出现 **`/_document` PageNotFoundError**（疑为环境/既有 Next 配置问题，非本页独有语法错误）。
+
+**验证建议**  
+- 本地 **`cd vouchap-website && npm run web`**（或 `npm run dev`）打开 **`/showcase`**，竖向滚动确认 snap 与 16:9 画布；导出 PNG 时可用浏览器全屏 1920×1080 截屏每帧。
+
+**关联**  
+- `vouchap-website/app/showcase/page.tsx`、`vouchap-website/components/ShowcaseSlides.tsx`、`vouchap-website/components/Navbar.tsx`；市场数字出处：仓库根 **`Vouchap BP2.5.5-202603.docx`**（执行摘要 / 第 2 章）。
+
 ### 2026-05-01（Vouchap：`20260501120000` 移除 storage.objects 上 COMMENT ON POLICY）
 
 **User（提示词/原意）**  
