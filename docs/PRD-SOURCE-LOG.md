@@ -8,6 +8,21 @@
 
 ---
 
+### 2026-05-01（vouchap-website：营销截图「发糊」—`unoptimized` + `images.deviceSizes`）
+
+**User（提示词/原意）**  
+- 提供的图片分辨率很高，**为何网站上全是模糊的**？
+
+**Assistant（实现前说明）**  
+- 根因通常有三：**①** Next.js `Image` 默认经 Sharp 缩图并转 WebP（`quality` 默认 75），细文字易糊；**②** 仓库内 `web_*.png` 曾测得约 **1024px 宽**，在 **2× Retina** 上铺满栏宽时像素不足；**③** `sizes` 过小会拉更小的衍生图。  
+- 拟新增 **`lib/screenshotImage.ts`**（`unoptimized: true`）供 **Hero / Firm invite / Tax pains / Marketplace / Showcase 配图** 使用，**跳过优化管线**直出 `public` PNG；**`next.config.mjs`** 放宽 **`images.deviceSizes`**。并在日志中说明：若需极锐，**源图需约 2× 展示 CSS 宽度**（如 1920–2400px 宽）并覆盖 `public` 文件。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已落地；**`npm run build`** 通过。
+
+**关联**  
+- `vouchap-website/lib/screenshotImage.ts`、`next.config.mjs`、`components/Hero.tsx`、`FirmInviteHighlight.tsx`、`TaxPainSolutions.tsx`、`ServiceMarketplaceHighlight.tsx`、`ShowcaseSlides.tsx`
+
 ### 2026-05-01（vouchap-website：Hero / Firm invite 用新 Portal 主图 + Cody 副图，清理旧 landing 图）
 
 **User（提示词/原意）**  
