@@ -1,13 +1,11 @@
-// 测试 Gemini API Key 和可用模型
-// 运行: node test-gemini-api.js
+// Optional: direct Google Gemini key smoke test (Node only). The app uses Supabase gemini-proxy instead.
+// Run: GEMINI_API_KEY=... node test-gemini-api.js
 
-// 加载 .env 文件
 require('dotenv').config();
 
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 
-// 从环境变量获取 API Key
-const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+const apiKey = process.env.GEMINI_API_KEY;
 
 if (!apiKey) {
   console.error('错误: 未找到 GEMINI_API_KEY 环境变量');

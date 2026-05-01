@@ -1,4 +1,4 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI } from './gemini-server-sdk';
 import { getCategories } from './categories';
 import { getAttributions } from './attributions';
 import {
@@ -11,7 +11,6 @@ import { getAccountsForOptions } from './accounts';
 import { getEntityOptions } from './entity-list';
 import { getWarehousesForOptions, getLocationsByWarehouseForOptions } from './warehouse';
 import { getSkusForOptions } from './skus';
-import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as FileSystemNew from 'expo-file-system';
@@ -84,19 +83,23 @@ function resolveReadableItemName(item: any): { name: string; itemAlias?: string 
 // 引用 gemini-helper 中处理好的安全判断逻辑（如果 gemini-helper 导出了 apiKey）
 // 或者直接在此处复制安全获取逻辑：
 const getSafeKey = () => {
-  const k = process.env.EXPO_PUBLIC_GEMINI_API_KEY || Constants.expoConfig?.extra?.geminiApiKey || '';
-  return (k.includes('${') || k === 'undefined') ? '' : k;
+  return 'server-side-gemini-proxy';
 };
 
 function getCurrentGeminiApiKey(): string {
-  const raw =
-    Constants.expoConfig?.extra?.geminiApiKey ||
-    process.env.EXPO_PUBLIC_GEMINI_API_KEY ||
-    process.env.GEMINI_API_KEY ||
-    '';
-  const key = String(raw).trim();
-  if (!key || key === 'placeholder-key' || key === 'undefined' || key.includes('${')) return '';
-  return key;
+  return 'server-side-gemini-proxy';
+}
+
+/** User-facing hint: AI runs in Supabase Edge Function `gemini-proxy`, not in the app bundle. */
+const GEMINI_PROXY_SETUP_HINT =
+  'Configure Supabase Edge Function `gemini-proxy` secrets (GEMINI_API_KEY required; optional GEMINI_MODEL_DEFAULT, GEMINI_ENFORCE_SERVER_MODEL) and redeploy the function.';
+
+function throwGeminiProxyUnavailable(detail?: string): never {
+  const err = new Error(
+    detail ? `${detail}\n\n${GEMINI_PROXY_SETUP_HINT}` : `AI service unavailable.\n\n${GEMINI_PROXY_SETUP_HINT}`,
+  ) as Error & { code?: string };
+  err.code = 'GEMINI_PROXY_UNAVAILABLE';
+  throw err;
 }
 
 const apiKey = getSafeKey();
@@ -231,33 +234,10 @@ Return ONLY valid JSON, no markdown. Format:
 
 // 识别小票内容（使用图片 URL）
 export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptResult> {
-  // 重新获取 API Key（确保使用最新的值）
   const currentApiKey = getCurrentGeminiApiKey();
-
-  // 调试日志
-  console.log('=== Gemini API Key Debug ===');
-  console.log('Constants.expoConfig?.extra?.geminiApiKey:', Constants.expoConfig?.extra?.geminiApiKey ? `Present (length: ${Constants.expoConfig.extra.geminiApiKey.length})` : 'Missing');
-  console.log('process.env.EXPO_PUBLIC_GEMINI_API_KEY:', process.env.EXPO_PUBLIC_GEMINI_API_KEY ? `Present (length: ${process.env.EXPO_PUBLIC_GEMINI_API_KEY.length})` : 'Missing');
-  console.log('Final currentApiKey:', currentApiKey ? `Present (length: ${currentApiKey.length})` : 'Missing');
-  console.log('===========================');
-
-  // 验证 API Key 是否配置
-  if (!currentApiKey) {
-    const errorMsg = `Gemini API Key 未配置。\n\n调试信息：\n- Constants.expoConfig?.extra?.geminiApiKey: ${Constants.expoConfig?.extra?.geminiApiKey ? '存在' : '不存在'}\n- process.env.EXPO_PUBLIC_GEMINI_API_KEY: ${process.env.EXPO_PUBLIC_GEMINI_API_KEY ? '存在' : '不存在'}\n- 当前 API Key 值: ${currentApiKey || '(空)'}\n\n请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY，然后重新构建应用。`;
-    const error = new Error(errorMsg) as any;
-    error.code = 'GEMINI_API_KEY_MISSING';
-    throw error;
-  }
-
-  // 记录尝试使用的模型和 API Key 信息
-  console.log('Starting receipt recognition with image URL...');
+  console.log('Starting receipt recognition (Supabase gemini-proxy)...');
   console.log('Image URL:', imageUrl);
-  console.log('API Key present:', !!currentApiKey, 'Length:', currentApiKey?.length || 0);
-  if (currentApiKey) {
-    console.log('API Key prefix:', currentApiKey.substring(0, 10) + '...');
-  }
 
-  // 使用当前获取的 API Key 创建新的 genAI 实例
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
 
   // 首先尝试从 API 获取可用模型（如果缓存为空）
@@ -516,17 +496,8 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
   if (lastError) {
     const errorMsg = lastError.message.toLowerCase();
 
-    // API Key 相关错误
     if (errorMsg.includes('api key') || errorMsg.includes('api_key') || errorMsg.includes('invalid api key') || errorMsg.includes('401')) {
-      throw new Error(
-        `Gemini API Key 无效或未配置\n\n` +
-        `请检查：\n` +
-        `1. API Key 是否正确设置（检查 .env 文件或 app.config.js）\n` +
-        `2. API Key 是否有效（访问 https://makersuite.google.com/app/apikey 创建新的 Key）\n` +
-        `3. API Key 是否有访问 Gemini API 的权限\n\n` +
-        `当前 API Key 长度: ${apiKey?.length || 0}\n` +
-        `原始错误: ${lastError.message}`
-      );
+      throwGeminiProxyUnavailable(`Gemini rejected the request (often invalid or missing server GEMINI_API_KEY). Original: ${lastError.message}`);
     }
 
     // 配额相关错误
@@ -536,23 +507,13 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
 
     // 权限相关错误
     if (errorMsg.includes('permission') || errorMsg.includes('403') || errorMsg.includes('forbidden')) {
-      throw new Error(`API permission insufficient, please check API Key permissions\nOriginal error: ${lastError.message}`);
+      throwGeminiProxyUnavailable(`Permission denied calling AI. Original: ${lastError.message}`);
     }
 
     // 模型不存在错误
     if (errorMsg.includes('not found') || errorMsg.includes('404')) {
-      throw new Error(
-        `All Gemini models unavailable (404)\n\n` +
-        `Attempted models: ${POSSIBLE_MODELS.join(', ')}\n\n` +
-        `Possible causes:\n` +
-        `1. API Key does not have permission to access these models\n` +
-        `2. API Key may not be up to date (need to create new Key at Google AI Studio)\n` +
-        `3. API version mismatch\n\n` +
-        `Suggestions:\n` +
-        `1. Visit https://makersuite.google.com/app/apikey to create a new API Key\n` +
-        `2. Ensure API Key can access Gemini 1.5 models\n` +
-        `3. Check API enablement status in Google Cloud Console\n\n` +
-        `Original error: ${lastError.message}`
+      throwGeminiProxyUnavailable(
+        `No working Gemini model (404). Tried: ${POSSIBLE_MODELS.join(', ')}. Adjust GEMINI_MODEL_DEFAULT or GEMINI_ENFORCE_SERVER_MODEL on the server. Original: ${lastError.message}`,
       );
     }
 
@@ -564,28 +525,11 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
       errorMsg.includes('econnrefused') ||
       errorMsg.includes('failed to fetch') ||
       errorMsg.includes('generativelanguage.googleapis.com')) {
-      throw new Error(
-        `Network connection failed\n\n` +
-        `Possible causes:\n` +
-        `1. API Key not configured or invalid\n` +
-        `2. Network connectivity issue\n` +
-        `3. Google API service temporarily unavailable\n` +
-        `4. Firewall or proxy blocking the request\n\n` +
-        `Please check:\n` +
-        `- Gemini API Key is set in EAS Secrets (EXPO_PUBLIC_GEMINI_API_KEY)\n` +
-        `- Network connection is working\n` +
-        `- API Key is valid and has proper permissions\n\n` +
-        `Original error: ${lastError.message}`
-      );
+      throwGeminiProxyUnavailable(`Network error reaching AI (check device connectivity and that gemini-proxy is deployed). Original: ${lastError.message}`);
     }
 
     // 其他错误
-    throw new Error(
-      `Receipt recognition failed\n\n` +
-      `Error type: ${lastError.name}\n` +
-      `Details: ${lastError.message}\n\n` +
-      `Please check API Key configuration and network connection`
-    );
+    throwGeminiProxyUnavailable(`Receipt recognition failed (${lastError.name}): ${lastError.message}`);
   }
 
   throw new Error('Receipt recognition failed: Unknown error');
@@ -658,11 +602,6 @@ async function downloadFileToBase64(fileUrl: string, mimeHint?: string): Promise
  */
 export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: string): Promise<GeminiReceiptResult> {
   const currentApiKey = getCurrentGeminiApiKey();
-  if (!currentApiKey) {
-    const err = new Error('Gemini API Key 未配置') as any;
-    err.code = 'GEMINI_API_KEY_MISSING';
-    throw err;
-  }
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
   if (!availableModelCache) {
     try {
@@ -837,11 +776,6 @@ export async function recognizeSupplierInfo(
 }> {
   const currentApiKey = getCurrentGeminiApiKey();
 
-  if (!currentApiKey) {
-    console.warn('Gemini API Key not configured for supplier info recognition');
-    return {};
-  }
-
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
 
   const prompt = `You are a receipt analysis expert. Focus ONLY on extracting detailed merchant/supplier information from this receipt image.
@@ -990,12 +924,6 @@ Return ONLY valid JSON format without any extra text:
 export async function recognizeReceiptFromText(text: string): Promise<GeminiReceiptResult> {
   // 重新获取 API Key（确保使用最新的值）
   const currentApiKey = getCurrentGeminiApiKey();
-
-  if (!currentApiKey) {
-    const error = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
-    error.code = 'GEMINI_API_KEY_MISSING';
-    throw error;
-  }
 
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
 
@@ -1271,13 +1199,7 @@ User text:
 // 从音频识别小票内容
 export async function recognizeReceiptFromAudio(audioUri: string): Promise<GeminiReceiptResult> {
   // 重新获取 API Key（确保使用最新的值）
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
-    const error = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
-    error.code = 'GEMINI_API_KEY_MISSING';
-    throw error;
-  }
+  const currentApiKey = getCurrentGeminiApiKey();
 
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
 
@@ -1486,12 +1408,7 @@ export async function recognizeVoucherFromText(text: string, voucherType: Vouche
 
 /** 发票文字识别：输出 customerName、items、totalAmount、date、currency、paymentAccountName 等 */
 async function recognizeInvoiceFromText(text: string): Promise<GeminiVoucherResult> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
-    const error = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
-    error.code = 'GEMINI_API_KEY_MISSING';
-    throw error;
-  }
+  const currentApiKey = getCurrentGeminiApiKey();
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
 
   // 收入：分类与用途
@@ -1598,12 +1515,7 @@ const INVOICE_DOCUMENT_PARSE_INTRO = 'You are a financial expert. You are given 
 
 /** 发票文档识别（PDF 等）：解析部分与图片不同，数据规则与返回格式与 recognizeInvoiceFromText 一致，prompt 组合提交 */
 export async function recognizeInvoiceFromDocument(fileUrl: string, mimeHint?: string): Promise<GeminiVoucherResult> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
-    const error = new Error('Gemini API Key 未配置。') as any;
-    error.code = 'GEMINI_API_KEY_MISSING';
-    throw error;
-  }
+  const currentApiKey = getCurrentGeminiApiKey();
   let categoryNames: string[] = [];
   try {
     const categories = await getCategories('income');
@@ -1715,12 +1627,7 @@ export async function recognizeVoucherFromAudio(audioUri: string, voucherType: V
 
 /** 发票语音识别：与文字相同结构，输出 customerName 等 */
 async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVoucherResult> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
-    const error = new Error('Gemini API Key 未配置。') as any;
-    error.code = 'GEMINI_API_KEY_MISSING';
-    throw error;
-  }
+  const currentApiKey = getCurrentGeminiApiKey();
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
 
   let categoryNames: string[] = [];
@@ -1852,12 +1759,7 @@ const OUTBOUND_DOCUMENT_PARSE_INTRO = `You are a warehouse/inventory expert. You
 
 /** 入库单文字识别：按样例表格最完整字段提取 */
 export async function recognizeInboundFromText(text: string): Promise<GeminiInboundOutboundResult> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
-    const err = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
-    err.code = 'GEMINI_API_KEY_MISSING';
-    throw err;
-  }
+  const currentApiKey = getCurrentGeminiApiKey();
   const today = getLocalDateString();
   let supplierListIn = '';
   let warehouseListIn = '';
@@ -2001,12 +1903,7 @@ function normalizeOutboundItems(items: any[], defaultDate: string): any[] {
 
 /** 出库单文字识别：按样例表格最完整字段提取 */
 export async function recognizeOutboundFromText(text: string): Promise<GeminiInboundOutboundResult> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
-    const err = new Error('Gemini API Key 未配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_GEMINI_API_KEY。') as any;
-    err.code = 'GEMINI_API_KEY_MISSING';
-    throw err;
-  }
+  const currentApiKey = getCurrentGeminiApiKey();
   const today = getLocalDateString();
   let customerListOut = '';
   let warehouseListOut = '';
@@ -2071,12 +1968,7 @@ User input:
 
 /** 语音转文字（供入库/出库语音识别复用） */
 async function transcribeAudioToText(audioUri: string): Promise<string> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
-    const err = new Error('Gemini API Key 未配置。') as any;
-    err.code = 'GEMINI_API_KEY_MISSING';
-    throw err;
-  }
+  const currentApiKey = getCurrentGeminiApiKey();
   const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
   const prompt = 'Transcribe this audio to plain text. Output only the transcribed text, no JSON, no explanation.';
@@ -2137,12 +2029,7 @@ async function downloadImageToBase64(imageUrl: string): Promise<{ base64: string
 
 /** 入库单图片识别：按样例表格最完整字段提取（与文字识别同一结构） */
 export async function recognizeInboundFromImage(imageUrl: string): Promise<GeminiInboundOutboundResult> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
-    const err = new Error('Gemini API Key 未配置。') as any;
-    err.code = 'GEMINI_API_KEY_MISSING';
-    throw err;
-  }
+  const currentApiKey = getCurrentGeminiApiKey();
   const today = getLocalDateString();
   const prompt = `You are a warehouse/inventory expert. Analyze this IMAGE of an INBOUND document (入库单). INBOUND = goods received from a supplier. Extract ALL visible information. Return ONLY valid JSON, no markdown.
 
@@ -2193,12 +2080,7 @@ ${INBOUND_JSON_EXAMPLE(today)}`;
 
 /** 出库单图片识别：按样例表格最完整字段提取（与文字识别同一结构） */
 export async function recognizeOutboundFromImage(imageUrl: string): Promise<GeminiInboundOutboundResult> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
-    const err = new Error('Gemini API Key 未配置。') as any;
-    err.code = 'GEMINI_API_KEY_MISSING';
-    throw err;
-  }
+  const currentApiKey = getCurrentGeminiApiKey();
   const today = getLocalDateString();
   const prompt = `You are a warehouse/inventory expert. Analyze this IMAGE of an OUTBOUND document (出库单). OUTBOUND = goods shipped to a customer. Extract ALL visible information. Return ONLY valid JSON, no markdown.
 
@@ -2249,12 +2131,7 @@ ${OUTBOUND_JSON_EXAMPLE(today)}`;
 
 /** 入库单文档识别（PDF 等）：文档解析引导 + 与图片相同的数据规则与 JSON */
 export async function recognizeInboundFromDocument(fileUrl: string, mimeHint?: string): Promise<GeminiInboundOutboundResult> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
-    const err = new Error('Gemini API Key 未配置。') as any;
-    err.code = 'GEMINI_API_KEY_MISSING';
-    throw err;
-  }
+  const currentApiKey = getCurrentGeminiApiKey();
   const today = getLocalDateString();
   const rulesAndExample = `CURRENT DATE: ${today}. For ambiguous short slash dates, choose the date closest to today.
 
@@ -2358,12 +2235,7 @@ function buildClientRecognitionResult(clients: ExtractedClient[]): ClientRecogni
 
 /** Client Assistant: extract client list from pasted text or typed list. */
 export async function recognizeClientsFromText(text: string): Promise<ClientRecognitionResult> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
-    const err = new Error('Gemini API Key not configured.') as any;
-    err.code = 'GEMINI_API_KEY_MISSING';
-    throw err;
-  }
+  const currentApiKey = getCurrentGeminiApiKey();
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
   const prompt = `${CLIENT_EXTRACTION_PROMPT}\n\nContent to parse:\n${text}`;
   const modelsToTry = geminiModelsToTry(null, { promptTextLength: prompt.length });
@@ -2388,12 +2260,7 @@ export async function recognizeClientsFromText(text: string): Promise<ClientReco
 
 /** Client Assistant: extract client list from document (PDF/Word) or image URL. */
 export async function recognizeClientsFromDocument(fileUrl: string, mimeHint?: string): Promise<ClientRecognitionResult> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
-    const err = new Error('Gemini API Key not configured.') as any;
-    err.code = 'GEMINI_API_KEY_MISSING';
-    throw err;
-  }
+  const currentApiKey = getCurrentGeminiApiKey();
   const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
   if (isSpreadsheetMime(mimeType, fileUrl)) {
     const plain = spreadsheetBase64ToPlainText(base64, mimeType, fileUrl);
@@ -2440,12 +2307,7 @@ export async function recognizeClientsFromImage(imageUrl: string): Promise<Clien
 
 /** 出库单文档识别（PDF 等）：文档解析引导 + 与图片相同的数据规则与 JSON */
 export async function recognizeOutboundFromDocument(fileUrl: string, mimeHint?: string): Promise<GeminiInboundOutboundResult> {
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === '' || currentApiKey === 'placeholder-key') {
-    const err = new Error('Gemini API Key 未配置。') as any;
-    err.code = 'GEMINI_API_KEY_MISSING';
-    throw err;
-  }
+  const currentApiKey = getCurrentGeminiApiKey();
   const today = getLocalDateString();
   const rulesAndExample = `CURRENT DATE: ${today}. For ambiguous short slash dates, choose the date closest to today.
 

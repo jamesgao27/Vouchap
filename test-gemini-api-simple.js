@@ -1,9 +1,9 @@
-// 简单的 Gemini API Key 测试脚本
-// 运行: node test-gemini-api-simple.js
+// Optional: direct Google Gemini key smoke test (Node only). The app uses Supabase gemini-proxy instead.
+// Run: GEMINI_API_KEY=... node test-gemini-api-simple.js
 
 require('dotenv').config();
 
-const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY;
+const apiKey = process.env.GEMINI_API_KEY;
 
 if (!apiKey) {
   console.error('❌ 错误: 未找到 GEMINI_API_KEY 环境变量');

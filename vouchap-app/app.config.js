@@ -92,7 +92,7 @@ export default {
     // EAS projectId（原 app.json 已合并到本文件）
     // showAiInventory: production 默认隐藏；仅 develop 或显式 EXPO_PUBLIC_SHOW_AI_INVENTORY=true 时显示
     // showTaxFiling: 报税模块与 expenses/income 同级，全环境默认开启（feature-flags 中 extra.showTaxFiling !== false 即开）
-    // geminiApiKey: 构建时从 EAS Secrets 的 EXPO_PUBLIC_GEMINI_API_KEY 写入，确保 production 也能拿到 key
+    // geminiApiKey: 客户端仅保留代理标识，真实 Key 仅保存在 Supabase Edge Functions 环境变量
     extra: {
       eas: {
         projectId: "f98c5cea-fd51-41e3-9c9c-1512c6b1a8e7"
@@ -102,7 +102,7 @@ export default {
           ? true
           : process.env.EXPO_PUBLIC_SHOW_AI_INVENTORY === "true",
       showTaxFiling: true,
-      geminiApiKey: process.env.EXPO_PUBLIC_GEMINI_API_KEY || ""
+      geminiApiKey: "server-side-gemini-proxy"
     }
   }
 };

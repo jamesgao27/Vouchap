@@ -74,7 +74,7 @@ export default {
     ],
     // 这里通过扩展运算符引入 app.json 中的 projectId，保持同步
     // showAiInventory: production 默认隐藏；仅 develop 或显式 EXPO_PUBLIC_SHOW_AI_INVENTORY=true 时显示
-    // geminiApiKey: 构建时从 EAS Secrets 的 EXPO_PUBLIC_GEMINI_API_KEY 写入，确保 production 也能拿到 key
+    // geminiApiKey: client placeholder only; real key is Supabase Edge Function secret GEMINI_API_KEY
     extra: {
       eas: {
         projectId: "f98c5cea-fd51-41e3-9c9c-1512c6b1a8e7"
@@ -83,7 +83,7 @@ export default {
         process.env.NODE_ENV !== "production"
           ? true
           : process.env.EXPO_PUBLIC_SHOW_AI_INVENTORY === "true",
-      geminiApiKey: process.env.EXPO_PUBLIC_GEMINI_API_KEY || ""
+      geminiApiKey: "server-side-gemini-proxy"
     }
   }
 };

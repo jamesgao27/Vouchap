@@ -1,23 +1,11 @@
 // 辅助函数：列出所有可用的 Gemini 模型
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import Constants from 'expo-constants';
+import { listModelsViaGeminiProxy } from './gemini-server-sdk';
 
 /**
  * 严格获取 API Key
  * 排除 EAS 可能注入的 "${EXPO_PUBLIC_...}" 这种无效字符串
  */
-const getSafeApiKey = (): string => {
-  const key = process.env.EXPO_PUBLIC_GEMINI_API_KEY || 
-              Constants.expoConfig?.extra?.geminiApiKey || 
-              '';
-  
-  // 核心修复：如果 Key 包含 ${ 符号，说明是 EAS 占位符注入失败，视为空
-  if (key.includes('${') || key === 'undefined' || !key) {
-    return '';
-  }
-  return key;
-};
-
+const getSafeApiKey = (): string => 'server-side-gemini-proxy';
 const apiKey = getSafeApiKey();
 
 /**
@@ -35,35 +23,10 @@ if (!apiKey) {
 
 // 列出所有可用模型
 export async function listAvailableModels() {
-  if (!apiKey) {
-    throw new Error("API_KEY_MISSING");
-  }
-
   try {
-    // 增加超时控制，防止网络环境差导致应用卡死
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models?key=${apiKey}`,
-      { signal: controller.signal }
-    );
-    
-    clearTimeout(timeoutId);
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(`Google API Error: ${response.status} - ${errorData?.error?.message || response.statusText}`);
-    }
-    
-    const data = await response.json();
-    return data.models || [];
+    return await listModelsViaGeminiProxy();
   } catch (error: any) {
     console.error('Error listing models:', error);
-    // 针对网络连接失败（通常是没挂代理）给出明确提示
-    if (error.message === 'Aborted' || error.message.includes('Network request failed')) {
-      throw new Error("NETWORK_ERROR_OR_PROXY_REQUIRED");
-    }
     throw error;
   }
 }

@@ -8,6 +8,397 @@
 
 ---
 
+### 2026-05-01（Vouchap：Gemini 调用下沉 Supabase，移除 Expo/Web 对 AI Key 依赖）
+
+**User（提示词/原意）**  
+- “按你的设计方案执行修改。expo 上构建 app，cloudflare 上部署 web，最好更换模型时不需重新构建，统一在 supabase 一套调用。”
+
+**Assistant（实现前说明，若有）**  
+- 采用最小侵入改造：保留现有 `gemini.ts`/报税识别业务流程与模型重试逻辑，新增与 `GoogleGenerativeAI` 接口兼容的客户端代理层，把真实 Gemini 调用迁移到 Supabase Edge Function。  
+- 计划触达文件：`src/shared-logic/gemini*.ts`、`src/shared-logic/tax-filing-*.ts`、`supabase/functions/` 与 `app.config.js`；目标是客户端不再携带真实 AI Key，模型默认值与切换策略可在 Supabase 环境变量调整。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `supabase/functions/gemini-proxy/index.ts`：服务端统一处理 `generateContent` 与 `listModels`，真实密钥仅从 `GEMINI_API_KEY` 读取；新增 `GEMINI_MODEL_DEFAULT` 与 `GEMINI_ENFORCE_SERVER_MODEL` 以支持服务端模型切换。  
+- 新增 `src/shared-logic/gemini-server-sdk.ts`：提供兼容 `GoogleGenerativeAI` 的代理实现，内部通过 `supabase.functions.invoke('gemini-proxy')` 调用，避免重写大量既有业务代码。  
+- 已将 `tax-filing-recognition-run.ts`、`tax-filing-task-matcher.ts`、`gemini.ts`、`gemini-helper.ts` 切换为代理调用；`app.config.js` 中 `extra.geminiApiKey` 改为非敏感占位标识 `server-side-gemini-proxy`，不再依赖 `EXPO_PUBLIC_GEMINI_API_KEY`。  
+- `ReadLints` 对本次变更文件检查通过（无新增 lint 错误）。部署后仅需在 Supabase Functions 侧更新环境变量与函数版本即可完成 key/模型切换，无需重新构建 Expo App 或 Cloudflare Web 前端。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/supabase/functions/gemini-proxy/index.ts`  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini-server-sdk.ts`  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini-helper.ts`  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts`  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/tax-filing-recognition-run.ts`  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/tax-filing-task-matcher.ts`  
+- `/Users/macbook/Vouchap/vouchap-app/app.config.js`
+
+### 2026-04-30（aim.link：排查 GCP 部署 YAML 配置）
+
+**User（提示词/原意）**  
+- “给我找一下aim.link的各个项目中有没有用于GCP部署用的yaml文件”。
+
+**Assistant（实现前说明，若有）**  
+- 对 `aim.link`、`aim.link-v2`、`aim-link-website` 及 `Project-map` 进行 YAML 全量检索（`*.yml`/`*.yaml`）并补充按常见 GCP 部署命名（如 `cloudbuild.yaml`、`app.yaml`）二次筛查，确认是否存在可直接用于 GCP 部署的配置文件。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 检索结果：上述项目均未发现任何 `.yml/.yaml` 文件，也未发现 `cloudbuild.yaml`、`app.yaml`、`skaffold.yaml` 或名称含 `gcp` 的 YAML 配置。  
+- 结论：当前这些 aim.link 相关项目内，不存在可识别的 GCP 部署 YAML 文件。
+
+**关联**  
+- `/Users/macbook/aim.link`  
+- `/Users/macbook/aim.link-v2`  
+- `/Users/macbook/aim-link-website`  
+- `/Users/macbook/Project-map`
+
+### 2026-04-30（aim.link v2：任务表列序/显隐项目级持久化）
+
+**User（提示词/原意）**  
+- 列序和显隐需要保存，项目级统一并让项目成员一致。
+
+**Assistant（实现前）**  
+- 给 DataTable 增加受控布局输入/回调，在项目页读取与写回 `projects.project_rules`，实现成员共享。
+
+**Assistant（实现后说明）**  
+- `DataTable` 已支持 `columnLayout` / `onColumnLayoutChange`。  
+- `ProjectDetailPage` 加入 `task_table_layout` 读取与防抖保存（250ms）到 `project_rules`；同项目成员会看到统一配置。  
+- `apps/web` 执行 `npm run typecheck` 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/components/vouchap-web/DataTable.tsx`  
+- `aim.link-v2/apps/web/src/pages/ProjectDetailPage.tsx`
+
+### 2026-04-30（aim.link v2：项目任务表默认列序重排）
+
+**User（提示词/原意）**  
+- 默认列序中三个计数列放右端，`assignee`/`reviewer` 左移。
+
+**Assistant（实现前）**  
+- 调整 `ProjectDetailPage` DataTable 默认列数组顺序，不改列定义含义。
+
+**Assistant（实现后说明）**  
+- 已将 `Assignee`、`Reviewer` 提前；`Subtasks`、`Predecessors`、`Discussions` 放到最右侧。  
+- `apps/web` 执行 `npm run typecheck` 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/ProjectDetailPage.tsx`
+
+### 2026-04-30（aim.link v2：标题缩略裁剪二次修复）
+
+**User（提示词/原意）**  
+- 缩略后的 title 仍超列宽，末端被裁剪。
+
+**Assistant（实现前）**  
+- 改为基于按钮真实可用宽度与实时字体测量做截断，避免“估算宽度 + CSS ellipsis”叠加造成二次裁剪。
+
+**Assistant（实现后说明）**  
+- `ProjectTaskTableTitleLink` 现在观测按钮真实宽度并用 `getComputedStyle` 字体参与 `truncateMiddleByWidth` 测量。  
+- 任务表标题链接样式改为 `display:block; width:100%`，并移除 CSS `text-overflow: ellipsis`。  
+- `apps/web` 执行 `npm run typecheck` 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/ProjectDetailPage.tsx`  
+- `aim.link-v2/apps/web/src/styles/aimlink-web-project-port.scss`
+
+### 2026-04-30（aim.link v2：任务表标题缩略末端裁剪修复）
+
+**User（提示词/原意）**  
+- 缩略后的 title 仍超列宽，末端被裁剪。
+
+**Assistant（实现前）**  
+- 调整标题缩略可用宽度预算并移除链接默认左右 padding，保证计算宽度与实际绘制一致。
+
+**Assistant（实现后说明）**  
+- `ProjectTaskTableTitleLink` 可用宽度从 `w-2` 调整为 `w-18`（留出安全余量）。  
+- 标题链接补 `px-0`，去除默认横向 padding。  
+- `apps/web` 执行 `npm run typecheck` 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/ProjectDetailPage.tsx`
+
+### 2026-04-30（aim.link v2：任务表 Title 列约 50 字符上限）
+
+**User（提示词/原意）**  
+- title 列控制在 50 字符左右宽度；短标题完整显示，超出改中部缩略。
+
+**Assistant（实现前）**  
+- 在 `ProjectDetailPage` 给标题列增加像素上限（约 50 字符视觉宽度），继续沿用按溢出触发的中间缩略。
+
+**Assistant（实现后说明）**  
+- `Task title` 列新增 `maxWidth: 420`；短标题保持完整，超长标题仍由 `truncateMiddleByWidth` 做中部缩略。  
+- `apps/web` 执行 `npm run typecheck` 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/ProjectDetailPage.tsx`
+
+### 2026-04-30（aim.link v2：项目任务表列扩展、标题列宽、内置 Task 工作流修复）
+
+**User（提示词/原意）**  
+- 标题列仍未充满；表增加起止、子任务数、前序数、讨论数；去掉 deadline 列。  
+- 系统内置 Task 任务流转不生效，可能要刷新旧团队数据。
+
+**Assistant（实现前）**  
+- 用 `ResizeObserver` + 表单元格 `width:100%` 解决标题占满列；补查询与列；任务抽屉打开前 `ensureDefaultPdcaWorkflow` 并在种子后迁移 open/done 任务到 PDCA 相位。
+
+**Assistant（实现后说明）**  
+- 已实现上述逻辑；`typecheck` 通过。  
+- 讨论数仅计 `message_scope` 非 `workflow_outcome` 的线程消息；前序为 `task_precedence_links` 指入当前任务；子任务为同项目内 `parent_task_id` 计数。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/ProjectDetailPage.tsx`  
+- `aim.link-v2/apps/web/src/components/TaskDetailDrawer.tsx`  
+- `aim.link-v2/apps/web/src/lib/task-workflow-default-seed.ts`  
+- `aim.link-v2/docs/PROMPTS-LOG.md`、`aim.link-v2/docs/PRD.md`
+
+### 2026-04-30（aim.link v2：项目任务表状态标签修复）
+
+**User（提示词/原意）**  
+- 自定义任务类型的状态标签在表格中显示不正确，出现 id。
+
+**Assistant（实现前）**  
+- 调整项目详情页状态标签加载逻辑：不再仅取默认类型的状态字典，改为根据当前项目任务实际状态 id 集合加载标签映射。
+
+**Assistant（实现后说明）**  
+- `ProjectDetailPage` 已改为基于任务实际 `workflow_state_id` 查询 `task_workflow_status.display_label`。  
+- 自定义类型状态在任务表中不再回退显示为 id（除非数据库确实无对应状态行）。  
+- `apps/web` 执行 `npm run typecheck` 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/ProjectDetailPage.tsx`
+
+### 2026-04-30（aim.link v2：任务表标题改为按列宽中间缩略）
+
+**User（提示词/原意）**  
+- 标题缩略需按列宽溢出后触发，不用固定 15 汉字上限。
+
+**Assistant（实现前）**  
+- 新增基于像素宽度测量的中间缩略函数，并将项目任务表标题列改为按列宽预算动态截断。
+
+**Assistant（实现后说明）**  
+- `breadcrumb-label.ts` 增加 `truncateMiddleByWidth`：仅在文本实际宽度超过阈值时执行中间省略。  
+- `ProjectDetailPage` 的 `Task title` 列改为调用该函数；列宽与文本预算分离配置，未溢出时不截断。  
+- `apps/web` 执行 `npm run typecheck` 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/lib/breadcrumb-label.ts`  
+- `aim.link-v2/apps/web/src/pages/ProjectDetailPage.tsx`
+
+### 2026-04-30（aim.link v2：项目任务表标题列宽与中间省略）
+
+**User（提示词/原意）**  
+- 项目内任务 table 的 `Task title` 列限制最大宽度，超长用和面包屑一样的中间缩略。
+
+**Assistant（实现前）**  
+- 调整 `ProjectDetailPage` 数据表标题列配置：设置 `maxWidth`，并将标题渲染改为复用 `truncateBreadcrumbSegment`。
+
+**Assistant（实现后说明）**  
+- `Task title` 列已增加 `maxWidth: 320`。  
+- 列内容已改为中间省略（与面包屑同函数 `truncateBreadcrumbSegment`）；`Tooltip` 保留完整标题。  
+- `apps/web` 执行 `npm run typecheck` 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/ProjectDetailPage.tsx`
+
+### 2026-04-30（aim.link v2：停用任务类型从新建/切换候选移除）
+
+**User（提示词/原意）**  
+- Active 关闭的任务类型，在任务类型切换和新建任务时不可再用；已有任务不受影响。
+
+**Assistant（实现前）**  
+- 在任务详情类型下拉与新建任务默认类型解析两处加入 `retired_at` 过滤；保留存量任务当前类型显示，不做强制迁移。
+
+**Assistant（实现后说明）**  
+- `TaskDetailDrawer` 已过滤停用类型，仅展示可用类型用于切换；若当前任务类型已停用，仍保留当前值显示，确保历史任务可正常查看。  
+- `project-workflow.pickTaskBlueprintOpenState` 已过滤停用类型，避免新建任务选中停用类型。  
+- `apps/web` 执行 `npm run typecheck` 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/components/TaskDetailDrawer.tsx`  
+- `aim.link-v2/apps/web/src/lib/project-workflow.ts`
+
+### 2026-04-30（aim.link v2：Task types — System 标签进一步减小）
+
+**User（提示词/原意）**  
+- `system` 标进一步减小。
+
+**Assistant（实现前）**  
+- 在 `TaskTypesSettingsPage` 缩小 `System` 标签样式（字体、内边距、行高），保持其在名称后弱化展示。
+
+**Assistant（实现后说明）**  
+- 已将 `System` 标签进一步缩小（`10px` 字号，收窄 padding，降低行高）。  
+- `apps/web` 执行 `npm run typecheck` 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/settings/TaskTypesSettingsPage.tsx`
+
+### 2026-04-30（aim.link v2：Task types 列表 — 强化 Type name，弱化 System）
+
+**User（提示词/原意）**  
+- Task types 列表上强化 `Type name`；`System` 标签弱化，且放在名称列紧跟名称。
+
+**Assistant（实现前）**  
+- 调整 `TaskTypesSettingsPage` 表格列：强化 `Type name` 信息密度与可读性；将 `System` 从 `Creator` 列移回 `Type name` 且弱化样式；`Creator` 列恢复纯创建人。
+
+**Assistant（实现后说明）**  
+- `Type name` 列已加宽并提升名称字重；`System` 标签改为浅灰低对比样式，紧跟在名称后同列显示。  
+- `Creator` 列已移除 `System` 标签，仅显示创建人。  
+- `apps/web` 执行 `npm run typecheck` 通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/settings/TaskTypesSettingsPage.tsx`
+
+### 2026-04-30（aim.link v2：Task types 详情去 internal_code + 默认类型码 task）
+
+**User（提示词/原意）**  
+- 任务类型详情页去掉 `internal_code`；默认 Task 类型的 `internal_code` 改为 `task`。
+
+**Assistant（实现前）**  
+- 前端移除详情页 `internal_code` 可见项，并调整新建逻辑不再暴露 code 输入；新增 DB 迁移将系统默认类型码从 `general` 调整为 `task`，同时保留对历史数据兼容；同步项目默认蓝本选择逻辑。
+
+**Assistant（实现后说明）**  
+- `TaskTypesSettingsPage`：详情头部已移除 `internal_code` 标签；创建弹窗去除 `Internal code` 输入，创建时由标题自动生成内部 code。  
+- 新增迁移 `20260430214000_task_blueprint_default_internal_code_task.sql`：将系统默认类型码切到 `task`（无冲突 workspace 自动迁移），并更新 workspace 默认种子函数优先写入 `task`，兼容历史 `general`。  
+- `apps/web/src/lib/project-workflow.ts`：默认蓝本查找优先 `task`，回退 `general`。  
+- 已同步 `aim.link-v2/docs/PROMPTS-LOG.md`、`aim.link-v2/docs/PRD.md`、`aim.link-v2/docs/DATABASE-SCHEMA.md`。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/settings/TaskTypesSettingsPage.tsx`  
+- `aim.link-v2/apps/web/src/lib/project-workflow.ts`  
+- `aim.link-v2/supabase/migrations/20260430214000_task_blueprint_default_internal_code_task.sql`
+
+### 2026-04-30（aim.link v2：Task types — Linked tasks 列左对齐）
+
+**User（提示词/原意）**  
+- `linked tasks` 一列也靠左。
+
+**Assistant（实现前）**  
+- 修改 `TaskTypesSettingsPage` 表格列配置，移除 `Linked tasks` 的右对齐参数；随后执行类型检查。
+
+**Assistant（实现后说明）**  
+- `Linked tasks` 列已改为左对齐显示。  
+- `apps/web` 执行 `npm run typecheck` 通过。  
+- 已同步 `aim.link-v2/docs/PROMPTS-LOG.md`、`aim.link-v2/docs/PRD.md` 以及本溯源日志。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/settings/TaskTypesSettingsPage.tsx`
+
+### 2026-04-30（aim.link v2：Task types — System 标识移到 Creator 列）
+
+**User（提示词/原意）**  
+- `system` 标识放在 `creator` 一列。
+
+**Assistant（实现前）**  
+- 调整 `TaskTypesSettingsPage` 表格列渲染：从 `Type name` 列移除 `System` 标签，改到 `Creator` 列；完成后跑 `typecheck` 校验。
+
+**Assistant（实现后说明）**  
+- 已将 `System` 标签移动至 `Creator` 列，与创建人同列显示；`Type name` 列仅保留类型名。  
+- `apps/web` 执行 `npm run typecheck` 通过。  
+- 已同步 `aim.link-v2/docs/PROMPTS-LOG.md` 与 `aim.link-v2/docs/PRD.md` 记录。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/settings/TaskTypesSettingsPage.tsx`
+
+### 2026-04-30（aim.link v2：Task types — Type name 第二行移除）
+
+**User（提示词/原意）**  
+- `type name` 的第二行是什么，去掉。
+
+**Assistant（实现前）**  
+- 定位 `Task types` 表格 `Type name` 列渲染，移除第二行 `internal_code`，保留主标题与系统标识标签；随后跑 `typecheck` 确认无回归。
+
+**Assistant（实现后说明）**  
+- 已在 `TaskTypesSettingsPage` 删除 `Type name` 列内的 `row.internal_code` 第二行文案，仅保留类型名。  
+- `apps/web` 执行 `npm run typecheck` 通过。  
+- 已同步 `aim.link-v2/docs/PROMPTS-LOG.md` 与 `aim.link-v2/docs/PRD.md` 变更记录。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/settings/TaskTypesSettingsPage.tsx`
+
+### 2026-04-30（aim.link v2：Task types 设置页 — 列表布局与文档同步）
+
+**User（提示词/原意）**  
+- **Task types** 整页：去除 **Create task type** 模块、**Create new** 放右上、去掉 **Existing task types** 外层、标题下直接表格；列含类型名、创建人、创建/更新时间、关联任务数、活跃开关、编辑等。
+
+**Assistant（实现前）**  
+- 无新增实现；续作：确认 **`apps/web` `typecheck` 通过**；补 **`aim.link-v2`** 的 **`docs/DATABASE-SCHEMA.md` / `PROMPTS-LOG.md` / `PRD.md` 变更记录**（与 Task types 页及 **`task_blueprints.created_by_user_id`** 迁移一致）。
+
+**Assistant（实现后说明）**  
+- **`npm run typecheck`**（`@aimlink/web`）**通过**。  
+- 已更新 **`aim.link-v2/docs/DATABASE-SCHEMA.md`**（`task_blueprints` 行含 **`created_by_user_id`**、**`retired_at`**）；**`PROMPTS-LOG.md`** 与 **`PRD.md` 变更记录** 已追加 2026-04-30 条。  
+- 部署须执行 Supabase 迁移（含 **`20260430193000_task_blueprints_created_by_user.sql`**），否则新列查询/写入会失败。
+
+**关联**  
+- `aim.link-v2/apps/web/src/pages/settings/TaskTypesSettingsPage.tsx`、`aim.link-v2/supabase/migrations/20260430193000_task_blueprints_created_by_user.sql`
+
+### 2026-04-29（aim.link v2：工作流画布 — 右侧未到边即限位）
+
+**User（提示词/原意）**  
+- 画布右侧拖动**未到边缘**就被限制。
+
+**Assistant（实现后说明）**  
+- **`nodeExtent`** 的 **`maxNX`** 改为 **`w - 148`**（与 **`.aimlink-wf-node` min-width** 一致），不再用 **`WF_NODE_W` 176**。
+
+**关联**  
+- `aim.link-v2/apps/web/src/components/settings/TaskWorkflowVisualEditor.tsx`
+
+### 2026-04-29（aim.link v2：工作流画布 — 节点不可拖出画布）
+
+**User（提示词/原意）**  
+- 左右仍无滚动条；改为**限制不要拖出画布**。
+
+**Assistant（实现后说明）**  
+- **`TaskWorkflowVisualEditor`**：**`ResizeObserver`** + **`nodeExtent`/`translateExtent`**；**`clampWorkflowNodePosition`**；**`autoLayout`** 与初始节点写入前钳制；样式内层 **100%** 宽。
+
+**关联**  
+- `aim.link-v2/apps/web/src/components/settings/TaskWorkflowVisualEditor.tsx`、`aim.link-v2/apps/web/src/styles/aimlink-web-task-workflow-visual.scss`
+
+### 2026-04-29（aim.link v2：工作流画布滚轮不滚动 / 无横向条）
+
+**User（提示词/原意）**  
+- 有上下滚动条但滚不动；拖动滚动条可动画布；左右不完整且无横向滚动条。
+
+**Assistant（实现后说明）**  
+- **`TaskWorkflowVisualEditor`**：**`preventScrolling={false}`**，避免 React Flow **`preventDefault`** 吞掉滚轮。样式：**`width: max(100%,960px)`**、**`overflow-x/y: auto`**、**`scrollbar-gutter: stable`**。
+
+**关联**  
+- `aim.link-v2/apps/web/src/components/settings/TaskWorkflowVisualEditor.tsx`、`aim.link-v2/apps/web/src/styles/aimlink-web-task-workflow-visual.scss`
+
+### 2026-04-29（aim.link v2：工作流画布溢出 / 滚动）
+
+**User（提示词/原意）**  
+- 画布需**限制不能溢出**，或**支持滚动**。
+
+**Assistant（实现后说明）**  
+- **`aim.link-v2`**：**`aimlink-web-task-workflow-visual.scss`** — 根 **`overflow:hidden` + max-width**；画布列 **`overflow:hidden`**；滚动区 **`flex:1 1 0`**、**`min-height/min-width:0`**、**`overflow:auto`**，移除与 **`min-height:0`** 冲突的 **`min-height:440px`**；**`overscroll-behavior:contain`**。工具栏文案补充在灰色面板内滚动、不溢出页面。
+
+**关联**  
+- `aim.link-v2/apps/web/src/styles/aimlink-web-task-workflow-visual.scss`、`aim.link-v2/apps/web/src/components/settings/TaskWorkflowVisualEditor.tsx`
+
+### 2026-04-29（aim.link v2：工作流画布区与屏显左右错位）
+
+**User（提示词/原意）**  
+- 画布区与屏显区域**左右错位**：画布**左侧溢出**，**右侧**不到显示边缘，**右侧内容被裁剪**。
+
+**Assistant（实现后说明）**  
+- 在 **`aim.link-v2`** 调整 **`aimlink-web-task-workflow-visual.scss`**：画布列 **`flex: 1 1 0`**、侧栏 **`flex: 0 0 min(440px,42%)`** 并去掉重复 **`width:42%`**；内层由固定 **960×440** 改为 **`width:100%` + min 尺寸 + `height:100%`**，**`TaskWorkflowVisualEditor`** 去掉对应行内样式。**`npm run typecheck`**（`apps/web`）通过。
+
+**关联**  
+- `aim.link-v2/apps/web/src/styles/aimlink-web-task-workflow-visual.scss`、`aim.link-v2/apps/web/src/components/settings/TaskWorkflowVisualEditor.tsx`
+
+### 2026-04-29（aim.link v2 / 多根 Workspace：工作流画布 — 拖动连线端点改锚点）
+
+**User（提示词/原意）**  
+- 允许用户自行**拖动连线的起终点**，选择节点上的**其他锚点**（与自动贪心锚点分配配合）。
+
+**Assistant（实现前说明）**  
+- 在 **`aim.link-v2`** 的 **`TaskWorkflowVisualEditor`** 启用 React Flow **`onReconnect`**，用 **`reconnectEdge(..., { shouldReplaceId: false })`** 保持边 id 与 **`task_workflow_rules.id`** 一致；持久化 **`from_state_id` / `to_state_id`** 与 **`conditions.source_handle` / `target_handle`**；与 **`transitionExists`** 业务校验冲突则提示并拒收。为使 DB 锚点生效，在贪心结果上叠加 **`parsePersistedHandleOverride`**。同步 **`aim.link-v2` 的 `docs/PRD.md` / `PROMPTS-LOG.md`**，不修改 Vouchap 产品 PRD 正文。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 **`/Users/macbook/aim.link-v2/apps/web/src/components/settings/TaskWorkflowVisualEditor.tsx`**；**`npm run typecheck`**（`apps/web`）通过。  
+- **验证建议**：在 Task types → 流程可视化中拖动某条 transition 的端点改接四向锚点或另一状态对，保存后刷新应仍按持久化锚点绘制；尝试与已有「同路径同角色」冲突时应报错并回滚为服务端数据（**`onReload`**）。
+
+**关联**  
+- `aim.link-v2/apps/web/src/components/settings/TaskWorkflowVisualEditor.tsx`；`aim.link-v2/docs/PRD.md`；`aim.link-v2/docs/PROMPTS-LOG.md`
+
 ### 2026-04-26（Vouchap：Engagement 详情 / Todos — 手机浏览器与 App 对齐）
 
 **User（提示词/原意）**  
@@ -3961,5 +4352,52 @@
 - `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/invoice-details/[id].tsx`  
 - `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/inbound-details/[id].tsx`  
 - `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/outbound-details/[id].tsx`
+
+---
+
+
+### 2026-04-30（aim-link-website：统一登录入口到 appv2 /signin）
+
+**User（提示词/原意）**  
+- “把aim.link-website网站上的各处登录链接改为https://appv2.aim.link/signin”。
+
+**Assistant（实现前说明，若有）**  
+- 在 `aim-link-website` 全局检索旧登录 URL（`https://app.aim.link/login`），先覆盖前端页面中的用户可见入口，再同步更新项目内文档说明，最后回查确保无遗漏。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已将旧登录链接统一替换为 `https://appv2.aim.link/signin`，覆盖首页、导航、服务页及相关文档条目。  
+- 回查结果：仓库中不再存在 `https://app.aim.link/login`。
+
+**关联**  
+- `/Users/macbook/aim-link-website/src/pages/Home.jsx`  
+- `/Users/macbook/aim-link-website/src/components/Navbar.jsx`  
+- `/Users/macbook/aim-link-website/src/pages/Service.jsx`  
+- `/Users/macbook/aim-link-website/OPTIMIZATION_REPORT.md`  
+- `/Users/macbook/aim-link-website/CHECKLIST.md`
+
+---
+
+### 2026-05-01（Vouchap：客户端 Gemini key 文案与残留清理）
+
+**User（提示词/原意）**  
+- 在 Supabase 已用 CLI 配好密钥的前提下，要求助手直接改代码：排查并清理 app/web 端对 API key 的依赖与残留。
+
+**Assistant（实现前说明，若有）**  
+- 全库检索 `EXPO_PUBLIC_GEMINI`、`@google/generative-ai` 直连、根目录重复 `lib/gemini*`；集中整理 `vouchap-app/src/shared-logic/gemini.ts` 的错误码与提示，使其指向 Supabase `gemini-proxy`；移除 `.env` 中客户端 Gemini 变量，删除已无路径引用的根目录副本文件。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `gemini.ts`：统一 `throwGeminiProxyUnavailable` / 错误码 `GEMINI_PROXY_UNAVAILABLE`；移除对 `EXPO_PUBLIC_GEMINI_API_KEY`、`EAS Secrets` 的误导性提示与多余 `Constants` 引用；删除所有「无 key」分支（占位 key 恒为真时的死代码）。  
+- 根目录 `app.config.js`：`extra.geminiApiKey` 与 `vouchap-app` 一致为占位字符串，不再读取 `EXPO_PUBLIC_GEMINI_API_KEY`。  
+- 删除未再被 `@/lib/*` 解析使用的 `lib/gemini.ts`、`lib/gemini-helper.ts`；`test-gemini-api*.js` 仅接受环境变量 `GEMINI_API_KEY`（可选本地直连 Google 冒烟测试，与 App 无关）。  
+- `/.env` 与 `vouchap-app/.env`：移除 `EXPO_PUBLIC_GEMINI_API_KEY` 行，改为注释说明密钥仅在 Supabase Function secret。  
+- `ReadLints` 对改动 TS/JS 文件检查通过。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts`  
+- `/Users/macbook/Vouchap/app.config.js`  
+- `/Users/macbook/Vouchap/.env`  
+- `/Users/macbook/Vouchap/vouchap-app/.env`  
+- `/Users/macbook/Vouchap/test-gemini-api.js`  
+- `/Users/macbook/Vouchap/test-gemini-api-simple.js`
 
 ---

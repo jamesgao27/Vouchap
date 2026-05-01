@@ -2,10 +2,9 @@
  * 报税附件：按前述提示词调用 Gemini 识别图片，返回 summary / doc_type / extracted_data，供写回 project_todo_attachments。
  */
 
-import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI } from './gemini-server-sdk';
 import {
   getAvailableImageModel,
   buildGeminiModelOrder,
@@ -98,22 +97,7 @@ export async function runTaxFilingRecognition(
   mimeHint?: string,
   taskList?: TaxFilingTaskListItem[]
 ): Promise<TaxFilingRecognitionResult> {
-  const currentApiKeyRaw =
-    Constants.expoConfig?.extra?.geminiApiKey ||
-    process.env.EXPO_PUBLIC_GEMINI_API_KEY ||
-    process.env.GEMINI_API_KEY ||
-    '';
-  const currentApiKey = String(currentApiKeyRaw).trim();
-  const invalidApiKey =
-    !currentApiKey ||
-    currentApiKey === 'placeholder-key' ||
-    currentApiKey === 'undefined' ||
-    currentApiKey.includes('${');
-  if (invalidApiKey) {
-    const err = new Error('Gemini API Key 未配置') as any;
-    err.code = 'GEMINI_API_KEY_MISSING';
-    throw err;
-  }
+  const currentApiKey = 'server-side-gemini-proxy';
 
   const prompt = buildTaxFilingRecognitionPrompt({ projectContext, todoContext, taskList, userInstructions });
   const { base64, mimeType } = await downloadFileToBase64(imageUrl, mimeHint);

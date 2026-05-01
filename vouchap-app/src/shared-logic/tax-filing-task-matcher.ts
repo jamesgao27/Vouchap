@@ -2,10 +2,9 @@
  * 报税附件：根据文件内容识别文档类别，并自动匹配到项目的某个 task（用于 chat-to-log attachments 模式，不再由用户选 task）。
  */
 
-import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { GoogleGenerativeAI } from './gemini-server-sdk';
 import {
   getAvailableImageModel,
   buildGeminiModelOrder,
@@ -141,12 +140,7 @@ export async function classifyTaxDocumentAndPickTask(
   tasks: TaxDocumentTaskOption[]
 ): Promise<{ taskId: string }> {
   if (tasks.length === 0) throw new Error('No tasks to match');
-  const currentApiKey = Constants.expoConfig?.extra?.geminiApiKey || process.env.EXPO_PUBLIC_GEMINI_API_KEY || process.env.GEMINI_API_KEY || '';
-  if (!currentApiKey || currentApiKey === 'placeholder-key') {
-    const err = new Error('Gemini API Key 未配置') as any;
-    err.code = 'GEMINI_API_KEY_MISSING';
-    throw err;
-  }
+  const currentApiKey = 'server-side-gemini-proxy';
 
   const prompt = buildTaskMatcherPrompt(context, tasks);
   const { base64, mimeType } = await downloadImageToBase64(imageUrl);
