@@ -170,6 +170,8 @@ export interface Receipt {
   taxAuditComment?: string | null;
   createdBy?: string; // 提交者用户ID
   createdByUser?: User; // 提交者用户信息
+  /** 识别失败并进入 needs_retake 的累计次数；成功识别后归零 */
+  recognitionFailCount?: number;
 }
 
 // 用户数据
@@ -277,7 +279,7 @@ export interface Sku {
 }
 
 // 发票/入库/出库通用状态
-export type VoucherStatus = 'pending' | 'processing' | 'confirmed' | 'needs_retake';
+export type VoucherStatus = 'pending' | 'processing' | 'confirmed' | 'needs_retake' | 'duplicate';
 
 // 发票明细
 export interface InvoiceItem {
@@ -318,6 +320,8 @@ export interface Invoice {
   items: InvoiceItem[];
   createdAt?: string;
   updatedAt?: string;
+  /** 识别失败并进入 needs_retake 的累计次数；成功识别后归零 */
+  recognitionFailCount?: number;
 }
 
 // 入库/出库明细（含数量，可关联 SKU；名称/单位/规格通过 sku_id 关联 skus 获取，不冗余存储）

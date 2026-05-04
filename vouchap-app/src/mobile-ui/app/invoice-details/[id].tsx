@@ -17,7 +17,8 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { getInvoiceById, saveInvoice, updateInvoiceItem } from '@/lib/invoices';
+import { getInvoiceById, saveInvoice, updateInvoiceItem, deleteInvoice } from '@/lib/invoices';
+import { reprocessIncomeInvoiceFromStoredMedia } from '@/lib/reprocess-voucher-recognition';
 import { supabase, uploadInvoiceImage } from '@/lib/supabase';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getCategories } from '@/lib/categories';
@@ -33,7 +34,7 @@ import { Invoice, InvoiceItem, Category, Attribution, VoucherStatus, Account } f
 import { format } from 'date-fns';
 import { getLocalDateString } from '@/lib/date-utils';
 import { showToast } from '@/lib/toast';
-import { showChoiceDialog } from '@/lib/confirmDialog';
+import { showChoiceDialog, showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 
 export default function InvoiceDetailsScreen() {
@@ -45,6 +46,7 @@ export default function InvoiceDetailsScreen() {
   const [showImageModal, setShowImageModal] = useState(false);
   const [editedInvoice, setEditedInvoice] = useState<Invoice | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isReprocessingRecognition, setIsReprocessingRecognition] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [attributions, setAttributions] = useState<Attribution[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -795,6 +797,42 @@ export default function InvoiceDetailsScreen() {
     ]);
   };
 
+  const handleReRecognizeIncome = async () => {
+    if (!id) return;
+    setIsReprocessingRecognition(true);
+    try {
+      await reprocessIncomeInvoiceFromStoredMedia(id);
+      await loadInvoice({ forceSyncEdited: true });
+      showToast('Re-recognition complete', 'success');
+    } catch (error) {
+      console.error('Re-recognize failed:', error);
+      const msg = error instanceof Error ? error.message : 'Recognition failed';
+      showToast(msg, 'error');
+      await loadInvoice({ forceSyncEdited: true });
+    } finally {
+      setIsReprocessingRecognition(false);
+    }
+  };
+
+  const handleDeleteIncomeFromRetake = () => {
+    if (!id) return;
+    showConfirmDestructiveDialog(
+      'Delete income',
+      'This income record will be permanently deleted.',
+      async () => {
+        try {
+          await deleteInvoice(id);
+          showToast('Income deleted', 'info');
+          router.back();
+        } catch (e) {
+          console.error(e);
+          showToast('Failed to delete income', 'error');
+        }
+      },
+      { confirmLabel: 'Delete' }
+    );
+  };
+
   const uploadImage = async (imageUri: string) => {
     if (!id) return;
     setIsUploadingImage(true);
@@ -1147,26 +1185,68 @@ export default function InvoiceDetailsScreen() {
       )}
 
       {!editing && (
-        <TouchableOpacity
-          style={[styles.fab, styles.editFab]}
-          onPress={() => {
-            setEditedInvoice({ ...currentInvoice });
-            setEditing(true);
-            setTaxInputText((editedInvoice || invoice)?.tax?.toString() ?? '0');
-            const priceTexts: { [index: number]: string } = {};
-            ((editedInvoice || invoice)?.items || []).forEach((item, index) => {
-              priceTexts[index] = item.price.toString();
-            });
-            setPriceInputTexts(priceTexts);
-          }}
-        >
-          <Ionicons name="create" size={32} color="#fff" />
-        </TouchableOpacity>
+        currentInvoice.status === 'needs_retake' ? (
+          (currentInvoice.recognitionFailCount ?? 0) >= 3 ? (
+            <TouchableOpacity
+              style={[styles.fab, styles.retryFab]}
+              onPress={handleDeleteIncomeFromRetake}
+              disabled={isReprocessingRecognition}
+              accessibilityLabel="Delete income"
+            >
+              <View style={styles.fabRingInner}>
+                <Ionicons name="trash-outline" size={22} color="#E74C3C" />
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.fab, styles.retryFab]}
+              onPress={handleReRecognizeIncome}
+              disabled={isReprocessingRecognition}
+              accessibilityLabel="Re-recognize income"
+            >
+              <View style={styles.fabRingInner}>
+                {isReprocessingRecognition ? (
+                  <ActivityIndicator size="small" color="#E74C3C" />
+                ) : (
+                  <Ionicons name="refresh-outline" size={22} color="#E74C3C" />
+                )}
+              </View>
+            </TouchableOpacity>
+          )
+        ) : currentInvoice.status === 'duplicate' ? (
+          <TouchableOpacity
+            style={[styles.fab, styles.retryFab]}
+            onPress={handleDeleteIncomeFromRetake}
+            accessibilityLabel="Delete duplicate income"
+          >
+            <View style={styles.fabRingInner}>
+              <Ionicons name="trash-outline" size={22} color="#E74C3C" />
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.fab, styles.editFab]}
+            onPress={() => {
+              setEditedInvoice({ ...currentInvoice });
+              setEditing(true);
+              setTaxInputText((editedInvoice || invoice)?.tax?.toString() ?? '0');
+              const priceTexts: { [index: number]: string } = {};
+              ((editedInvoice || invoice)?.items || []).forEach((item, index) => {
+                priceTexts[index] = item.price.toString();
+              });
+              setPriceInputTexts(priceTexts);
+            }}
+          >
+            <Ionicons name="create" size={32} color="#fff" />
+          </TouchableOpacity>
+        )
       )}
 
-      {!editing && (currentInvoice.status === 'pending' || currentInvoice.status === 'needs_retake') && (
+      {!editing && currentInvoice.status === 'pending' && (
         <TouchableOpacity style={[styles.fab, styles.confirmFab]} onPress={handleConfirm}>
-          <Ionicons name="checkmark-circle" size={32} color="#fff" />
+          <View style={styles.fabRingInner}>
+            <Ionicons name="checkmark-circle-outline" size={22} color="#6C5CE7" />
+          </View>
         </TouchableOpacity>
       )}
 
@@ -1588,6 +1668,15 @@ const styles = StyleSheet.create({
   bottomBar: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: 'transparent', paddingHorizontal: 16, paddingBottom: 16, paddingTop: 8, borderTopWidth: 0, flexDirection: 'row', gap: 12 },
   fab: { position: 'absolute', right: 20, width: 64, height: 64, borderRadius: 32, backgroundColor: '#6C5CE7', justifyContent: 'center', alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 6, elevation: 6 },
   editFab: { bottom: 20, backgroundColor: '#95A5A6' },
+  retryFab: { bottom: 20, backgroundColor: '#E74C3C' },
+  fabRingInner: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   confirmFab: { bottom: 100 },
   cancelButton: { flex: 1, backgroundColor: '#DDE2E6', borderRadius: 12, padding: 16, alignItems: 'center', shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.22, shadowRadius: 6, elevation: 6 },
   cancelButtonText: { fontSize: 16, color: '#636E72', fontWeight: '600' },

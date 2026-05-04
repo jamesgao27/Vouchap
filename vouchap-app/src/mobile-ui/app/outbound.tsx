@@ -42,6 +42,7 @@ const statusColors: Record<VoucherStatus, string> = {
   processing: '#9B59B6',
   confirmed: '#00B894',
   needs_retake: '#E74C3C',
+  duplicate: '#95A5A6',
 };
 
 const statusLabels: Record<VoucherStatus, string> = {
@@ -49,6 +50,7 @@ const statusLabels: Record<VoucherStatus, string> = {
   processing: 'Processing',
   confirmed: 'Confirmed',
   needs_retake: 'Needs Retake',
+  duplicate: 'Duplicate',
 };
 
 const getCurrencySymbol = (currency?: string): string => {

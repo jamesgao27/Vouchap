@@ -162,11 +162,6 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
       );
       // 兼容 API 返回 amount 而非 price（如语音识别返回 "amount": 1200）
       const itemPrice = Number((item as { price?: number; amount?: number }).price ?? (item as { amount?: number }).amount ?? 0);
-      const posTaxCodeRaw = (item as { posTaxCode?: string | null }).posTaxCode;
-      const posTaxCode =
-        posTaxCodeRaw != null && String(posTaxCodeRaw).trim() !== ''
-          ? String(posTaxCodeRaw).trim().toUpperCase()
-          : undefined;
       return {
         name: itemName,
         itemAlias,
@@ -179,7 +174,6 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
         price: itemPrice,
         isAsset: item.isAsset || false,
         confidence: item.confidence,
-        ...(posTaxCode ? { posTaxCode } : {}),
       };
     })
   );

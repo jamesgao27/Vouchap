@@ -7,7 +7,6 @@ import { updateEntity, getEntityMergeMap, getEntityById, resolveEntityId, findOr
 import { getEntityOptionsForDuplicateCheck } from './entity-list';
 import { normalizeNameForCompare } from './name-utils';
 import { isMissingNestedAttributionEmbedError } from './postgrest-embed-errors';
-import { enqueueReceiptTaxReconcileFireAndForget } from './receipt-tax-queue-client';
 
 const ATTRIBUTION_LOOKUP_CHUNK = 120;
 const DEFAULT_RECEIPT_ITEM_NAME = 'Receipt item';
@@ -292,8 +291,6 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
       }
     }
 
-    enqueueReceiptTaxReconcileFireAndForget(supabase, receiptId);
-
     return receiptId;
   } catch (error) {
     console.error('Error saving receipt:', error);
@@ -399,6 +396,9 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
     if (receipt.status !== undefined) updateData.status = receipt.status;
     if (receipt.confidence !== undefined) updateData.confidence = receipt.confidence;
     if (receipt.imageUrl !== undefined) updateData.image_url = receipt.imageUrl;
+    if (receipt.recognitionFailCount !== undefined) {
+      updateData.recognition_fail_count = receipt.recognitionFailCount;
+    }
 
     const { error: receiptError } = await supabase
       .from('receipts')
@@ -407,14 +407,6 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
                 .eq('space_id', spaceId);
 
     if (receiptError) throw receiptError;
-
-    const shouldRecomputeItemTaxes =
-      receipt.items !== undefined ||
-      receipt.tax !== undefined ||
-      receipt.currency !== undefined ||
-      receipt.taxJurisdictionCountry !== undefined ||
-      receipt.taxJurisdictionRegion !== undefined ||
-      receipt.merchantEntityId !== undefined;
 
     // 如果更新了商品项，先删除旧的再插入新的
     if (receipt.items !== undefined) {
@@ -473,9 +465,6 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
       }
     }
 
-    if (shouldRecomputeItemTaxes) {
-      enqueueReceiptTaxReconcileFireAndForget(supabase, receiptId);
-    }
   } catch (error: any) {
     if (error?.code === 'ENTITY_NAME_EXISTS') {
       if (autoResolveDuplicate) {
@@ -1320,6 +1309,8 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
         name: data.created_by_user.name,
         spaceId: data.created_by_user.current_space_id,
       } : undefined,
+      recognitionFailCount:
+        data.recognition_fail_count != null ? Number(data.recognition_fail_count) : 0,
       items: (data.receipt_items || []).map((item: any) => {
         const attrId = receiptItemAttributionRefId(item);
         const attributionRow =

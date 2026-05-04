@@ -420,6 +420,63 @@ export async function getChatLogsByReceiptId(receiptId: string): Promise<ChatLog
 }
 
 /**
+ * 获取特定收入发票关联的聊天日志（语音附件 URL 等）
+ */
+export async function getChatLogsByInvoiceId(invoiceId: string): Promise<ChatLog[]> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) {
+      return [];
+    }
+
+    const spaceId = user.currentSpaceId || user.spaceId;
+    if (!spaceId) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from('ai_chat_logs')
+      .select('*')
+      .eq('space_id', spaceId)
+      .eq('invoice_id', invoiceId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Error fetching chat logs by invoice ID:', error);
+      return [];
+    }
+
+    return (data || []).map((row: any) => ({
+      id: row.id,
+      spaceId: row.space_id,
+      userId: row.user_id,
+      receiptId: row.receipt_id,
+      invoiceId: row.invoice_id ?? null,
+      inboundId: row.inbound_id ?? null,
+      outboundId: row.outbound_id ?? null,
+      projectId: row.project_id ?? null,
+      voucherType: row.voucher_type ?? undefined,
+      type: row.type,
+      modelName: row.model_name,
+      prompt: row.prompt,
+      response: row.response,
+      requestData: row.request_data,
+      responseData: row.response_data,
+      success: row.success,
+      errorMessage: row.error_message,
+      confidence: row.confidence,
+      processingTimeMs: row.processing_time_ms,
+      attachmentUrl: row.attachment_url ?? null,
+      audioUrl: row.attachment_url ?? null,
+      createdAt: row.created_at,
+    }));
+  } catch (error) {
+    console.error('Exception fetching chat logs by invoice ID:', error);
+    return [];
+  }
+}
+
+/**
  * 更新某条 chat log 的 response_data（用于持久化 clientPreview.confirmed 等状态）
  */
 export async function updateChatLogResponseData(

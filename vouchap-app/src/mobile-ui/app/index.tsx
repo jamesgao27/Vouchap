@@ -17,6 +17,7 @@ import { processImageForUpload } from '@/lib/image-processor';
 import { getLocalDateString } from '@/lib/date-utils';
 import { recognizeReceipt } from '@/lib/gemini';
 import { convertGeminiResultToInvoice } from '@/lib/receipt-helpers';
+import { recordInvoiceRecognitionFailure, resetInvoiceRecognitionFailCount } from '@/lib/recognition-fail-count';
 import { runWithRecognitionRetry } from '@/lib/recognition-retry';
 import { showToast } from '@/lib/toast';
 import { showChoiceDialog } from '@/lib/confirmDialog';
@@ -700,8 +701,10 @@ export default function HomeScreen() {
               },
               true
             );
+            await resetInvoiceRecognitionFailCount(invoiceId);
           } else {
             console.warn('Invoice recognition failed:', ret.error.message);
+            await recordInvoiceRecognitionFailure(invoiceId);
           }
         } else {
           const today = getLocalDateString();

@@ -8,6 +8,10 @@ import { findOrCreateEntity, updateEntity } from './entities';
 import { runWithRecognitionRetry } from './recognition-retry';
 import { getCurrentUser } from './auth';
 import { assertClientRecognitionAllowed, recordClientRecognitionSuccessIfEnforced } from './client-recognition-quota';
+import {
+  incrementReceiptRecognitionFailCount,
+  resetReceiptRecognitionFailCount,
+} from './recognition-fail-count';
 
 // 从公共 URL 提取 bucket 与对象路径。URL 格式: .../storage/v1/object/public/{bucket_id}/{path}
 function extractBucketAndPathFromUrl(url: string): { bucket: string; filePath: string } | null {
@@ -56,7 +60,8 @@ async function deleteTempFile(imageUrl: string): Promise<void> {
 export async function processReceiptInBackground(
   imageUrl: string,
   receiptId: string,
-  processedImageUri: string
+  processedImageUri: string,
+  options?: { skipDeleteSourceUrl?: boolean }
 ): Promise<void> {
   try {
     console.log('开始后台处理小票识别...', receiptId);
@@ -69,6 +74,7 @@ export async function processReceiptInBackground(
     if (!gate.allowed) {
       console.warn('[receipt-processor] recognition blocked by quota:', gate.message);
       await updateReceipt(receiptId, { status: 'needs_retake' }, true);
+      await incrementReceiptRecognitionFailCount(receiptId);
       return;
     }
 
@@ -77,6 +83,7 @@ export async function processReceiptInBackground(
     if (!ret.success) {
       console.warn('小票识别失败（重试后仍失败或内容质量差）:', ret.error.message);
       await updateReceipt(receiptId, { status: 'needs_retake' }, true); // autoResolveDuplicate = true，后台处理场景
+      await incrementReceiptRecognitionFailCount(receiptId);
       return;
     }
     const recognizedData = ret.result;
@@ -111,7 +118,7 @@ export async function processReceiptInBackground(
     console.log('最终处理后的图片已上传，URL:', finalImageUrl);
 
     // 4. 删除临时文件（如果存在）- 使用 try-catch 确保失败不影响主流程
-    if (imageUrl && imageUrl !== finalImageUrl) {
+    if (imageUrl && imageUrl !== finalImageUrl && !options?.skipDeleteSourceUrl) {
       console.log('删除临时文件:', imageUrl);
       await deleteTempFile(imageUrl);
     }
@@ -124,6 +131,12 @@ export async function processReceiptInBackground(
       imageUrl: finalImageUrl,
       confidence: receipt.confidence,
     }, true); // autoResolveDuplicate = true，自动处理重复名称
+
+    if (receipt.status === 'needs_retake') {
+      await incrementReceiptRecognitionFailCount(receiptId);
+    } else {
+      await resetReceiptRecognitionFailCount(receiptId);
+    }
 
     await recordClientRecognitionSuccessIfEnforced(receipt.spaceId || quotaSpaceId);
 
@@ -202,6 +215,7 @@ export async function processReceiptInBackground(
         await updateReceipt(receiptId, {
           status: 'duplicate',
         }, true); // autoResolveDuplicate = true，后台处理场景
+        await resetReceiptRecognitionFailCount(receiptId);
         console.log(`小票数据已更新，发现重复小票，状态：duplicate，重复的小票ID：${duplicateReceipt.id}`);
       } else {
         console.log(`小票数据已更新，后台处理完成，状态：${receipt.status}，置信度：${recognizedData.confidence}`);

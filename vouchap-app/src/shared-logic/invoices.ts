@@ -60,6 +60,8 @@ function rowToInvoice(row: any, items: InvoiceItem[] = []): Invoice {
     items,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    recognitionFailCount:
+      row.recognition_fail_count != null ? Number(row.recognition_fail_count) : 0,
   };
 }
 
@@ -558,6 +560,9 @@ export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolea
         image_url: invoice.imageUrl ?? null,
         input_type: invoice.inputType ?? 'image',
         confidence: invoice.confidence ?? null,
+        ...(invoice.recognitionFailCount !== undefined
+          ? { recognition_fail_count: invoice.recognitionFailCount }
+          : {}),
         updated_at: new Date().toISOString(),
       })
       .eq('id', invoice.id);
@@ -594,6 +599,8 @@ export async function saveInvoice(invoice: Invoice, autoResolveDuplicate: boolea
       image_url: invoice.imageUrl ?? null,
       input_type: invoice.inputType ?? 'image',
       confidence: invoice.confidence ?? null,
+      recognition_fail_count:
+        invoice.recognitionFailCount !== undefined ? invoice.recognitionFailCount : 0,
       created_by: user.id,
     })
     .select('id')

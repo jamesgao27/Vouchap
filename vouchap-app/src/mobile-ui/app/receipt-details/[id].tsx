@@ -17,7 +17,8 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import { getReceiptById, updateReceipt, updateReceiptItem } from '@/lib/database';
+import { getReceiptById, updateReceipt, updateReceiptItem, deleteReceipt } from '@/lib/database';
+import { reprocessExpenseReceiptFromStoredMedia } from '@/lib/reprocess-voucher-recognition';
 import { supabase, uploadReceiptImage } from '@/lib/supabase';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getCategories } from '@/lib/categories';
@@ -33,7 +34,7 @@ import { playAudio, stopPlayback } from '@/lib/audio';
 import { Receipt, ReceiptItem, Category, Attribution, ReceiptStatus, Account } from '@/types';
 import { format } from 'date-fns';
 import { showToast } from '@/lib/toast';
-import { showChoiceDialog } from '@/lib/confirmDialog';
+import { showChoiceDialog, showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 import {
   LineItemPillAnchorDropdownWeb,
@@ -54,6 +55,7 @@ export default function ReceiptDetailsScreen() {
   const [showImageModal, setShowImageModal] = useState(false);
   const [editedReceipt, setEditedReceipt] = useState<Receipt | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [isReprocessingRecognition, setIsReprocessingRecognition] = useState(false);
   const [categories, setCategories] = useState<Category[]>([]);
   const [attributions, setAttributions] = useState<Attribution[]>([]);
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -803,6 +805,42 @@ export default function ReceiptDetailsScreen() {
     ]);
   };
 
+  const handleReRecognizeExpense = async () => {
+    if (!id) return;
+    setIsReprocessingRecognition(true);
+    try {
+      await reprocessExpenseReceiptFromStoredMedia(id);
+      await loadReceipt({ forceSyncEdited: true });
+      showToast('Re-recognition complete', 'success');
+    } catch (error) {
+      console.error('Re-recognize failed:', error);
+      const msg = error instanceof Error ? error.message : 'Recognition failed';
+      showToast(msg, 'error');
+      await loadReceipt({ forceSyncEdited: true });
+    } finally {
+      setIsReprocessingRecognition(false);
+    }
+  };
+
+  const handleDeleteExpenseFromRetake = () => {
+    if (!id) return;
+    showConfirmDestructiveDialog(
+      'Delete expense',
+      'This expense will be permanently deleted.',
+      async () => {
+        try {
+          await deleteReceipt(id);
+          showToast('Expense deleted', 'info');
+          router.back();
+        } catch (e) {
+          console.error(e);
+          showToast('Failed to delete expense', 'error');
+        }
+      },
+      { confirmLabel: 'Delete' }
+    );
+  };
+
   const uploadImage = async (imageUri: string) => {
     if (!id) return;
 
@@ -1402,34 +1440,76 @@ export default function ReceiptDetailsScreen() {
         </View>
       )}
 
-      {/* 编辑按钮 - 不在编辑模式时显示 */}
+      {/* 编辑/重新识别按钮 - 不在编辑模式时显示 */}
       {!editing && (
-        <TouchableOpacity
-          style={[styles.fab, styles.editFab]}
-          onPress={() => {
-            setEditedReceipt({ ...currentReceipt });
-            setEditing(true);
-        // 初始化输入文本状态
-        const currentReceiptForInit = editedReceipt || receipt;
-        setTaxInputText((currentReceiptForInit?.tax || 0).toString());
-        const priceTexts: { [index: number]: string } = {};
-        (currentReceiptForInit?.items || []).forEach((item, index) => {
-          priceTexts[index] = item.price.toString();
-        });
-        setPriceInputTexts(priceTexts);
-          }}
-        >
-          <Ionicons name="create" size={32} color="#fff" />
-        </TouchableOpacity>
+        currentReceipt.status === 'needs_retake' ? (
+          (currentReceipt.recognitionFailCount ?? 0) >= 3 ? (
+            <TouchableOpacity
+              style={[styles.fab, styles.retryFab]}
+              onPress={handleDeleteExpenseFromRetake}
+              disabled={isReprocessingRecognition}
+              accessibilityLabel="Delete expense"
+            >
+              <View style={styles.fabRingInner}>
+                <Ionicons name="trash-outline" size={22} color="#E74C3C" />
+              </View>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.fab, styles.retryFab]}
+              onPress={handleReRecognizeExpense}
+              disabled={isReprocessingRecognition}
+              accessibilityLabel="Re-recognize receipt"
+            >
+              <View style={styles.fabRingInner}>
+                {isReprocessingRecognition ? (
+                  <ActivityIndicator size="small" color="#E74C3C" />
+                ) : (
+                  <Ionicons name="refresh-outline" size={22} color="#E74C3C" />
+                )}
+              </View>
+            </TouchableOpacity>
+          )
+        ) : currentReceipt.status === 'duplicate' ? (
+          <TouchableOpacity
+            style={[styles.fab, styles.retryFab]}
+            onPress={handleDeleteExpenseFromRetake}
+            accessibilityLabel="Delete duplicate expense"
+          >
+            <View style={styles.fabRingInner}>
+              <Ionicons name="trash-outline" size={22} color="#E74C3C" />
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.fab, styles.editFab]}
+            onPress={() => {
+              setEditedReceipt({ ...currentReceipt });
+              setEditing(true);
+          // 初始化输入文本状态
+          const currentReceiptForInit = editedReceipt || receipt;
+          setTaxInputText((currentReceiptForInit?.tax || 0).toString());
+          const priceTexts: { [index: number]: string } = {};
+          (currentReceiptForInit?.items || []).forEach((item, index) => {
+            priceTexts[index] = item.price.toString();
+          });
+          setPriceInputTexts(priceTexts);
+            }}
+          >
+            <Ionicons name="create" size={32} color="#fff" />
+          </TouchableOpacity>
+        )
       )}
       
-      {/* 确认按钮 - 在 pending / needs_retake 状态且不在编辑模式时显示 */}
-      {!editing && (currentReceipt.status === 'pending' || currentReceipt.status === 'needs_retake') && (
+      {/* 确认按钮 - pending 且不在编辑模式（识别失败 needs_retake 不显示确认） */}
+      {!editing && currentReceipt.status === 'pending' && (
         <TouchableOpacity
           style={[styles.fab, styles.confirmFab]}
           onPress={handleConfirm}
         >
-          <Ionicons name="checkmark-circle" size={32} color="#fff" />
+          <View style={styles.fabRingInner}>
+            <Ionicons name="checkmark-circle-outline" size={22} color="#6C5CE7" />
+          </View>
         </TouchableOpacity>
       )}
 
@@ -2678,6 +2758,19 @@ const styles = StyleSheet.create({
     bottom: 20,
     backgroundColor: '#95A5A6',
     // 继承 fab 的阴影，不再单独弱化
+  },
+  retryFab: {
+    bottom: 20,
+    backgroundColor: '#E74C3C',
+  },
+  /** 外环用 fab 底色；内白圆 + 同色线形 icon（与确认按钮同一结构） */
+  fabRingInner: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: '#fff',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   confirmFab: {
     bottom: 100,

@@ -8,6 +8,119 @@
 
 ---
 
+### 2026-05-04（Vouchap：duplicate 状态详情页编辑改为删除）
+
+**User（提示词/原意）**  
+- `duplicate` 状态的 **expenses / income** 详情页，**编辑**按钮也改成**删除**按钮。
+
+**Assistant（实现前说明）**  
+- 在 `receipt-details` / `invoice-details` 的 FAB 分支中，在 `needs_retake` 之后、默认编辑之前增加 `status === 'duplicate'`，复用已有删除确认与 `deleteReceipt` / `deleteInvoice`，样式与失败三次时的删除 FAB 一致（红底 `retryFab` + `trash-outline`）。  
+- `VoucherStatus` 增加 `duplicate`，并补齐 `invoices` / `inbound` / `outbound` 列表的 status 色与文案映射以满足 `Record<VoucherStatus, …>`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已更新详情页与上述列表映射；`ReadLints` 无新增问题。  
+- 若业务侧收入单尚未写入 `duplicate` 状态，仅支出 duplicate 会立刻受益；类型已支持收入同态扩展。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`  
+- `vouchap-app/src/mobile-ui/app/invoice-details/[id].tsx`  
+- `vouchap-app/src/shared-logic/types/index.ts`
+
+---
+
+### 2026-05-04（Vouchap：重新识别用已有附件；失败≥3 次 FAB 改删除）
+
+**User（提示词/原意）**  
+- 「重新识别」应直接用凭证已关联的**图片或音频**再次识别，**不要**再提示相册/拍照重传。  
+- 已累计识别失败次数 **≥3** 时，同一位置按钮改为**删除**，样式仍与同风格 FAB（红底白芯线形 icon）。
+
+**Assistant（实现前说明）**  
+- DB：`receipts` / `invoices` 增加 `recognition_fail_count`；识别结果为 `needs_retake` 或流水线失败时递增，成功识别后归零（支出后台处理器与收入首页失败分支对齐）。  
+- 共享模块：`reprocessExpenseReceiptFromStoredMedia` / `reprocessIncomeInvoiceFromStoredMedia` 下载已有 Storage URL 或使用 chat log 语音 URL，再走与原入口一致的 Gemini 流程（图片→`processReceiptInBackground` 且跳过删除用户原图；PDF/音频分支单独拼接）；详情页 FAB 不再调用 `handleImagePicker`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 迁移：`vouchap-app/supabase/migrations/20260504130000_recognition_fail_count.sql`。  
+- 逻辑：`recognition-fail-count.ts`、`reprocess-voucher-recognition.ts`；`receipt-processor.ts` 增加失败计数、`skipDeleteSourceUrl`；`index.tsx` 收入识别失败调用 `recordInvoiceRecognitionFailure`，成功 `resetInvoiceRecognitionFailCount`；`chat-logs.ts` 新增 `getChatLogsByInvoiceId`。  
+- UI：`receipt-details` / `invoice-details` 中 `recognitionFailCount >= 3` 显示 `trash-outline` + `showConfirmDestructiveDialog` 删除；否则走重新识别并显示 loading。  
+- **验证**：执行迁移后，对 needs_retake 凭证点重新识别应直接跑识别；连续失败三次后 FAB 变为删除。  
+- **残留**：未跑迁移时插入/更新可能报未知列；详情摘要区无图时点按仍可打开相册（仅 FAB 行为改变）。
+
+**关联**  
+- `vouchap-app/src/shared-logic/reprocess-voucher-recognition.ts`  
+- `vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`  
+- `vouchap-app/src/mobile-ui/app/invoice-details/[id].tsx`
+
+---
+
+### 2026-05-04（Vouchap：识别失败详情页将“编辑”改为“重新识别”）
+
+**User（提示词/原意）**  
+- 识别失败的 receipts / income，在详情页把编辑按钮替换为“重新识别”按钮，使用更合适 icon，配色更显眼。
+
+**Assistant（实现前说明）**  
+- 定位 `receipt-details/[id].tsx` 与 `invoice-details/[id].tsx` 的 FAB 区域；在 `status === 'needs_retake'` 且非编辑态时，将原编辑 FAB 替换为 re-recognize FAB。  
+- 为避免引入新流程，按钮复用现有 `handleImagePicker`（引导用户重拍/重选图片），普通状态保持原编辑按钮不变。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `receipt-details/[id].tsx`：失败态显示橙红色 `retryFab`，icon 改为 `refresh`，文案 `Re-recognize`；点击走 `handleImagePicker`。  
+- `invoice-details/[id].tsx`：同样改为失败态 `Re-recognize` 按钮（同 icon、同配色、同交互）。  
+- 已通过 `ReadLints` 检查，两文件无新增报错。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`  
+- `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/invoice-details/[id].tsx`
+
+---
+
+### 2026-05-04（Vouchap：去除“税额分析 + 拆分到 item”流程中的 AI 调用）
+
+**User（提示词/原意）**  
+- “去除分析和拆分税额到item这个流程对ai的调用”。
+
+**Assistant（实现前说明）**  
+- 当前 `receipt-item-tax` 本身是规则引擎，不直接调 Gemini；AI 依赖点在上游识别阶段（提示词要求输出税额/税区）以及保存后触发拆税队列。  
+- 计划两步：  
+  1) 小票识别提示词与解析中去掉税额/税区 AI 输出依赖，税额改为本地由 `totalAmount - itemsSum` 推导；  
+  2) 保存/更新收据后不再触发 `enqueue_receipt_tax_reconcile`，停止“拆分税额到 item”流程运行。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/shared-logic/gemini.ts`：  
+  - 删除小票 prompt 对 tax jurisdiction 字段的要求；  
+  - 删除小票 text/document 输出 schema 中税区字段；  
+  - 识别结果中 `tax` 改为本地推导（`max(totalAmount - itemsSum, 0)`，保留两位小数）；  
+  - `taxJurisdictionCountry/Region` 固定置 `null`，不再使用 AI 回传税区。  
+- `vouchap-app/src/shared-logic/database.ts`：  
+  - 移除 `enqueueReceiptTaxReconcileFireAndForget` 引入与调用；  
+  - 保存/更新收据后不再入队执行 item 税额拆分。  
+- `ReadLints` 已检查改动文件，无新增报错。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts`  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/database.ts`
+
+---
+
+### 2026-05-04（Vouchap：去除“拆分税到 item”的 AI 依赖字段）
+
+**User（提示词/原意）**  
+- “拆分税到item的AI调用逻辑现在去除”。
+
+**Assistant（实现前说明）**  
+- 核对当前拆税链路：`receipt-item-tax` 为规则引擎 + 税率表，不直接调用 Gemini；与 AI 的耦合点主要是识别阶段把 `posTaxCode` 注入 item，后续拆税再消费该字段。  
+- 计划：保留小票识别主流程，但移除“用于拆税”的 AI 输出字段约束与映射（`posTaxCode`），让拆税仅依赖税率规则/默认税级，不再依赖模型输出该字段。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已在 `vouchap-app/src/shared-logic/gemini.ts` 删除 `posTaxCode` 相关提示词与 schema 约束，并移除图片/文档/文本路径对 `item.posTaxCode` 的解析写入。  
+- 已在 `vouchap-app/src/shared-logic/receipt-helpers.ts` 去除从 Gemini 结果向 `ReceiptItem` 回填 `posTaxCode`。  
+- `ReadLints` 检查改动文件无新增报错。  
+- 结果：拆税阶段不再依赖 AI 提供的 `posTaxCode` 字段（税额拆分走规则与税率表逻辑）。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts`  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts`
+
+---
+
 ### 2026-05-01（vouchap-website：Showcase 关闭改为站内 `/` 非写死域名）
 
 **User（提示词/原意）**  
@@ -5790,5 +5903,56 @@
 - `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts`（`recognizeReceipt`、`downloadImageToBase64`）  
 - `/Users/macbook/Vouchap/vouchap-app/supabase/functions/gemini-proxy/index.ts`  
 - `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts`
+
+---
+
+### 2026-05-04（Vouchap：重新识别 FAB 去文案 + 白底图标；needs_retake 隐藏确认）
+
+**User（提示词/原意）**  
+- 重新识别按钮**去除文案**；icon **白底风格**（与确认按钮一致感）；**识别不成功**时**去除确认**按钮。
+
+**Assistant（实现前说明）**  
+- 在 `receipt-details` / `invoice-details`：失败态 `retryFab` 仅保留 icon；白底圆 + 彩色 `refresh`（与确认 FAB 同尺寸与阴影）；确认 FAB 仅在 `status === 'pending'` 显示，`needs_retake` 不再显示。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已更新两详情页样式与条件渲染；`ReadLints` 通过。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`  
+- `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/invoice-details/[id].tsx`
+
+---
+
+### 2026-05-04（Vouchap：确认/重新识别 FAB 外环色 + 内白圆 + 线形 icon）
+
+**User（提示词/原意）**  
+- **红底**内套**白底**+**红色线形** icon；与确认按钮**同样风格**（**紫底**+**白底**+**紫色线形** icon）。
+
+**Assistant（实现前说明）**  
+- 在 `receipt-details` / `invoice-details` 将确认与重新识别 FAB 统一为：外环为 `fab` 圆（确认紫、重试红），内层 `fabRingInner` 白圆，Ionicons 使用 `*-outline` 线形图标且与外环同色。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 确认：`checkmark-circle-outline` + `#6C5CE7`；重试：`refresh-outline` + `#E74C3C`，外环底 `#E74C3C`。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`  
+- `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/invoice-details/[id].tsx`
+
+---
+
+### 2026-05-04（Vouchap：FAB 内白圆缩小以对齐编辑钮比例）
+
+**User（提示词/原意）**  
+- **白底尺寸过大**，跟**编辑按钮**比例不一致。
+
+**Assistant（实现前说明）**  
+- 编辑 FAB 为 64×64 满底 + 32pt 图标；将 `fabRingInner` 由 44 改为 **34**，线形 icon **26→22**，使外环可见宽度更接近编辑钮图示留白比例。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已同步 `receipt-details` / `invoice-details`；`ReadLints` 通过。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`  
+- `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/invoice-details/[id].tsx`
 
 ---
