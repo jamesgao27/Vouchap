@@ -8,6 +8,1048 @@
 
 ---
 
+### 2026-05-01（vouchap-website：Showcase 关闭改为站内 `/` 非写死域名）
+
+**User（提示词/原意）**  
+- **showcase 右上角返回**不要写死链接，**返回网站首页**。
+
+**Assistant（实现前说明）**  
+- 去掉 **`SHOWCASE_HOME_URL`**；**`<Link href="/">`**（**`next/link`**）；**`aria-label`** 英文。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；本地 **`localhost`** / 任意部署域名均回站点根路径。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：顶栏精简 + 页脚 Vouchap 链 showcase）
+
+**User（提示词/原意）**  
+- **网站主页顶菜单**：去掉 **Marketplace**、**For firms & clients**、**Showcase**。  
+- **页面底部** **Vouchap** 名称链接改为指向 **showcase**。
+
+**Assistant（实现前说明）**  
+- **`Navbar.tsx`** 移除三项 **`Link`**；**`Footer.tsx`** 品牌 **`Link`** **`/` → `/showcase`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 顶栏保留 **Product / Tax season pains / Roadmap / Help**；验证首页 **`/`** 与含 **`Footer`** 的页面。
+
+**关联**  
+- `vouchap-website/components/Navbar.tsx`; `vouchap-website/components/Footer.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 关闭钮改用 mouse 悬停适配触控板）
+
+**User（提示词/原意）**  
+- **没有出现**；所说触摸指 **电脑上鼠标/触控板**，不是手机触摸。
+
+**Assistant（实现前说明）**  
+- 海报容器：**`onMouseEnter` / `onMouseLeave`** 替代 **`pointerenter` / `pointerleave`**（桌面触控板合成指针更一致）；保留 **`onTouchStartCapture`** 给真机。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 触摸显示关闭 + 指向 vouchap.com）
+
+**User（提示词/原意）**  
+- **触摸海报**时返回按钮**没了**；需 **右上角保留**，**触摸出现**，点击 **`https://www.vouchap.com/`**。
+
+**Assistant（实现前说明）**  
+- **`pointerleave`** 在触屏上会在 **touchend** 后误触，**仅 `pointerType === 'mouse'` 时置 false**；**`onTouchStartCapture`** 在海报上先置 true。关闭链改为 **`<a href="https://www.vouchap.com/">`**，**`SHOWCASE_HOME_URL`** 常量；去掉未用 **`Link`** import。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；触一次海报后关闭钮保持可点直到再次鼠标移出（仅 hover 设备会移出隐藏）。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase QR 说明文案同宽居中 + 略加大）
+
+**User（提示词/原意）**  
+- 文案 **Scan to email and discuss** **加大到与二维码同宽**，并与二维码 **水平居中对齐**。
+
+**Assistant（实现前说明）**  
+- 外层 **`w-[168px]`**（**112×1.5** 与缩放后视觉同宽）；二维码 **`origin-bottom`** + 行内 **居中**，与下方 **`w-full text-center`** 文案同一竖轴。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`** **`ShowcaseEmailQr`**；字号 **0.72 / sm 0.78 rem**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 邮箱 QR 视觉 1.5× 不占排版）
+
+**User（提示词/原意）**  
+- **二维码放大 1.5 倍**，**不影响其他内容的位置**。
+
+**Assistant（实现前说明）**  
+- **占位仍为 112×112**，**`scale-[1.5]` + `origin-bottom-right`**；**qrserver** **`size=180`**；外层 **`overflow-visible`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`** **`ShowcaseEmailQr`**；扫码区域视觉上更大，**TAM / platform** 流式位置不变（可能向画布内侧视觉溢出）。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 右下角 QR 改为 mailto jamesgao@aim.link）
+
+**User（提示词/原意）**  
+- **右下角二维码更换成扫码发 email 的码**：**jamesgao@aim.link**。
+
+**Assistant（实现前说明）**  
+- **`SHOWCASE_QR_*`** 改为 **`mailto:jamesgao@aim.link`**；**qrserver** **`data`** 编码该字符串；**alt / 说明**英文；组件 **`LinkedInQr` → `ShowcaseEmailQr`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；扫码一般会打开手机邮件客户端并填入收件人。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase TAM / total 区块再下移）
+
+**User（提示词/原意）**  
+- **total 部分再下移一点**。
+
+**Assistant（实现前说明）**  
+- 加大 **Flow gap**（**`h-40·44·48`**）；**TAM 行** **`mt`/`pt`** 各加一档（含 **`sm`/`lg`** 与 **`lg:pt`** arbitrary）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 底区 **TAM** 相对中部内容更低。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 副标题与 TAM 脚注强制单行）
+
+**User（提示词/原意）**  
+- **不要换行**。
+
+**Assistant（实现前说明）**  
+- **`subtitleLead`**、**`tamNote`** 段落：**`whitespace-nowrap`**；外层 **`overflow-x-auto`**，窄屏可横向滑动读完。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 两处文案不换行。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase TAM 脚注改为 IBISWorld & Statista）
+
+**User（提示词/原意）**  
+- **`Reliable data for a scalable future`** 改为 **`Based on IBISWorld & Statista Tax Services Analytics 2024-2026`**。
+
+**Assistant（实现前说明）**  
+- 更新 **`COPY.tamNote`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** TAM 区块第三行。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 副标题补后半句 tax filing scenarios）
+
+**User（提示词/原意）**  
+- **`Based on aim.link — The Intelligent Collaborative Infrastructure — in tax filing collaboration scenarios.`**；**slogan 下一句**增加后半句。
+
+**Assistant（实现前说明）**  
+- 更新 **`COPY.subtitleLead`** 全文。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 主标题下分隔线区块文案。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 顶栏 aim.link 左移 + 右上关闭回首页）
+
+**User（提示词/原意）**  
+- **左上 logo 左移**；**返回按钮放右上角**；**icon 改为关闭样式**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseSlides`** 顶栏：**`justify-between`**；aim.link 外包一层 **`translate-x` 负向**左移；**`Link` `/`** 置右；**chevron** → **叉线 SVG**；隐藏态用 **`translate-x-2`** 从右侧收起。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改；**`aria-label`**：**Close and return home**。验证 **`/showcase`** 指针进入画布后右上出现关闭钮。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 仅画布 + 悬停/指针进入显示返回）
+
+**User（提示词/原意）**  
+- **海报画布以外的内容都去掉**；**鼠标/触摸海报时**，在**左上 logo 左侧**显示**返回 icon**。
+
+**Assistant（实现前说明）**  
+- **`app/showcase/page.tsx`**：移除固定顶栏（画布外）。**`ShowcaseSlides`**：移除底部 footer；主区域全屏居中；**`PosterFrame`** 的 **16:9** 最大宽由 **`100svh-8rem`** 改为 **`100svh-5rem`**（无顶栏/footer）。海报卡片容器 **`onPointerEnter` / `onPointerLeave`** 控制状态；**aim.link** 行左侧 **`Link` `/`** + **chevron**；隐藏时用 **`max-w-0`** 不占位。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已按上实施；验证 **`/showcase`** 仅见海报、指针进入画布后左上角出现返回、点击回首页。
+
+**关联**  
+- `vouchap-website/app/showcase/page.tsx`; `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 三图第一张 collaboration → engagement）
+
+**User（提示词/原意）**  
+- **三张图片**里 **collaboration** 图改为 **engagement** 图。
+
+**Assistant（实现前说明）**  
+- **`SHOTS[0]`**：`web_tax_collaboration.png` → **`web_firm_engagement.png`**；核对 PNG 像素；**`intrinsicW/H`** 与 **`alt`**（英文）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`web_firm_engagement.png`** 为 **1024×632**，与旧图一致，**`intrinsicW/H`** 不变；**`alt`**：**Firm engagement workspace**。验证 **`/showcase`** 左侧第一张截图。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`; `public/vouchap_landing_assets/web_firm_engagement.png`
+
+### 2026-05-01（vouchap-website：Showcase 副标题 Powered by → Based on）
+
+**User（提示词/原意）**  
+- **`Powered by aim.link`** 改为 **`Based on aim.link`**（后半句不变）。
+
+**Assistant（实现前说明）**  
+- **`COPY.subtitleLead`** 文案替换。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 分隔副标题行。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase TAM 再下移 + platform/QR translate 补偿）
+
+**User（提示词/原意）**  
+- **二维码和链接位置不变**；**total** **再下移一点**。
+
+**Assistant（实现前说明）**  
+- **TAM** 行：**`mt`/`pt` 各加一档**（**`mt-10·12·14`**, **`pt-14·16·18`**）；**platform** **`translate-y-4/6` → `2/4`**；**QR** **`4.5/7.5rem` → `4/7rem`**，抵消 TAM 增高对底区的连带下移。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase TAM 文案约 1.3×字号）
+
+**User（提示词/原意）**  
+- **total** 部分文字**同比加大约 1.3 倍**。
+
+**Assistant（实现前说明）**  
+- **`tamHead`/`tamLine`/`tamNote`** 由 **`0.8·0.9` / `0.75·0.82` / `0.7` rem** → **`1.04·1.17` / `0.975·1.065` / `0.91` rem**（×**1.3**）；**`space-y-1` → `space-y-1.5`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase TAM 单独下移 + platform/QR 微调补偿）
+
+**User（提示词/原意）**  
+- **二维码和链接位置理想**；**Total** **部分没动**，需**下移**，与 **Solving** 一行**间距**。
+
+**Assistant（实现前说明）**  
+- **TAM** 行：**`mt-8 sm:mt-10 lg:mt-12`** + **`pt` 加大**（**`pt-12 sm:pt-14 lg:pt-16`**），与上方 **Innovation** 拉开（**不改** **spacer `h-36–44`**）；**platform / QR** **`translate-y`** 略减以**抵消** TAM 增高对底区的连带下移。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 三部分再略下移）
+
+**User（提示词/原意）**  
+- **三部分再多下移一点**（空白带 + platform + QR）。
+
+**Assistant（实现前说明）**  
+- **spacer**：**`h-36 sm:h-40 lg:h-44`**；**platform**：**`translate-y-6 sm:translate-y-8`**；**QR**：**`translate-y-[5rem] sm:translate-y-32`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase spacer / translate 取中间值）
+
+**User（提示词/原意）**  
+- **矫枉过正**，取**介于二者之间**。
+
+**Assistant（实现前说明）**  
+- **spacer**：**`h-10–12` 与 `14–18rem` 之间** → **`h-32 sm:h-36 lg:h-40`**（**8/9/10 rem**）。  
+- **platform**：**`translate-y-4 sm:translate-y-6`**；**QR**：**`translate-y-[4.25rem] sm:translate-y-28`**（介于 **14/24** 与 **20/32**）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 缩小 spacer + 恢复底栏 mt-auto）
+
+**User（提示词/原意）**  
+- **移动太多**；**链接与二维码**两段被**推移**不适。
+
+**Assistant（实现前说明）**  
+- **spacer**：**`14/16/18rem` → `h-10 sm:h-11 lg:h-12`**；**TAM+platform** 外包 **`mt-auto`**，底栏再贴海报底。  
+- **platform**：**`translate-y-6/10` → `translate-y-2 sm:translate-y-3`**；**`LinkedInQr`**：**`20/32` → `14/24`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；若与 Innovation 又叠再略增 **spacer `h-*`**（勿回到 **rem 两位数**）。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase spacer 移出 mt-auto 块 + 加高 h-*）
+
+**User（提示词/原意）**  
+- **无效、没动**，**继续下移**（TAM 与左栏间距）。
+
+**Assistant（实现前说明）**  
+- **原因**：**spacer 放在 `mt-auto` 底栏包内**时，与 **flex-1 grid** 的分配易表现为「加 min-h 也不动」。  
+- **改法**：**spacer 为 grid 的下一兄弟**（**`h-[14rem] sm:16 lg:18`** 固定高，**非**内层 min-h）；**TAM+platform** 再其后；**去掉**整段底栏外包层的 **`mt-auto`**（避免整块贴底挤掉内层空白感知）。  
+- 去掉误加在 platform 上的 **`mt-auto`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **16:9** 海报滚动与底区。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 底区 spacer 加高）
+
+**User（提示词/原意）**  
+- **继续下移一点**，**间距不足**。
+
+**Assistant（实现前说明）**  
+- **spacer `min-h`**：**`7/8/9rem` → `9/10/12rem`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase TAM 用底区 wrapper + 流式 spacer 治重叠）
+
+**User（提示词/原意）**  
+- **TAM 下移**仍**无效**，**仍与 Innovation 重叠**。
+
+**Assistant（实现前说明）**  
+- 仅加 **TAM `pt` / grid `mb`** 在 **`mt-auto` 单列 flex** 下未形成可靠流式间隔。  
+- 将 **TAM + platform** 与 **固定 `min-h` 的块级 spacer** 同包在 **`mt-auto flex flex-col`** 内；**spacer 在文档流中**（**`min-h-[7rem] sm:8rem lg:9rem`**），再接 **`border-t` TAM**；**`mt-auto` 改挂在外层 wrapper**，不再单独挂 TAM。  
+- 去掉中段 **grid** 的 **大 `mb-*`**，改由 **spacer** 负责分隔。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证海报 **16:9** 下左栏第三段与 **TAM** 首行。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase TAM 块下移避 Innovation 重叠）
+
+**User（提示词/原意）**  
+- **Total Addressable Market** 部分需**下移**，与左栏 **Innovation** 描述**重叠较多**。
+
+**Assistant（实现前说明）**  
+- **TAM 行**：**`pt-8 sm:pt-12` → `pt-14 sm:pt-16 lg:pt-20`**；中段 **grid `mb`**、左栏 **`pb`** 略增（**`mb-8 sm:mb-10 lg:mb-12`**，**`pb-12 sm:pb-14 lg:pb-16`**）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 左栏第三段与 TAM 首行间距。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 左栏底留白避叠 TAM）
+
+**User（提示词/原意）**  
+- **左边文字最下部分需下移**，现在**重叠**了。
+
+**Assistant（实现前说明）**  
+- 左栏三部曲容器增 **`pb-10 sm:pb-12 lg:pb-14`**；中段 **`grid`** 增 **`mb-5 sm:mb-6 lg:mb-8`**，与 **TAM** 区分隔。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** `lg` 与窄屏。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 左栏三部曲下移 + QR 再 translate）
+
+**User（提示词/原意）**  
+- **左部文字区整体下移**；**右下角二维码再下移**。
+
+**Assistant（实现前说明）**  
+- 左列 **`lg:col-span-5`** 加 **`pt-6 sm:pt-8 lg:pt-10`**；**`LinkedInQr`** **`translate-y-14/24` → `translate-y-20/32`**（仅 transform）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 左栏与底右 QR。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase platform 块撤回 mt 改用 translate）
+
+**User（提示词/原意）**  
+- **上一步改坏了**，其他内容**错位**；**撤回**；**换办法**下移链接与市场标识。
+
+**Assistant（实现前说明）**  
+- **撤回**：**`mt/pt` 大增**、**`LinkedInQr` translate 减小**；恢复 **`LinkedInQr`** **`translate-y-14 sm:translate-y-24`**；**platform** 区回到 **`pt-4 sm:pt-5`** 量级而不叠 **`mt-14`**。  
+- **新办法**：仅在 **platform + `ShowcaseStoreBadges`** 外包 **`translate-y-6 sm:translate-y-10`**（**transform** 不落排版）；保留轻度 **`z-[12]`**（>`QR z-10`）叠绘。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase platform 与商店标下移避叠）
+
+**User（提示词/原意）**  
+- **链接和两个市场标识下移**，与**其他内容不重叠**。
+
+**Assistant（实现前说明）**  
+- **platform + `ShowcaseStoreBadges`** 容器：**`mt-10 sm:mt-14`**、**`pt-6 sm:pt-10`**、**`relative z-[15]`**（高于 QR **`z-10`**）；**`LinkedInQr`** **`translate-y`** 略减（**`14/24` → `10/16`**）降低侵入下方区块。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 底区与右下 QR。（后续已由「撤回 + translate」替代。）
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 底栏 platform 下增加 App Store / Google Play）
+
+**User（提示词/原意）**  
+- **`platform.vouchap.com`** 链接下方再摆 **Apple App Store**、**Google Play**；**素材用站内已有**。
+
+**Assistant（实现前说明）**  
+- 站内无单独徽章 PNG；与 **`client-join`** 一致使用 **`NEXT_PUBLIC_APP_STORE_URL` / `NEXT_PUBLIC_PLAY_STORE_URL`** 及默认 **`apps.apple.com`**、**`play.google.com`**；新增 **`ShowcaseStoreBadges`**（SVG + **App Store** / **Google Play** 文案），深色海报样式 **`border-white/15`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 外链与 `.env` 覆盖。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`、`vouchap-website/app/client-join/page.tsx`
+
+### 2026-05-01（vouchap-website：Showcase QR translate 再加大）
+
+**User（提示词/原意）**  
+- **继续往下**（二维码）。
+
+**Assistant（实现前说明）**  
+- **`LinkedInQr`**：**`translate-y-8 sm:translate-y-14` → `translate-y-14 sm:translate-y-24`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase QR 单独 translate 下移）
+
+**User（提示词/原意）**  
+- **继续下移**；**单独容器**下移，**不影响其他内容位置**。
+
+**Assistant（实现前说明）**  
+- **`LinkedInQr`** 增加 **`translate-y-8 sm:translate-y-14`**（与 **`sm:absolute`** 叠加）；**transform 不参与文档流**，TAM / 平台 URL / 梯形占位不变。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；若与底部链接视觉重叠可略减 **`translate`**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 右下 QR 下移避梯形）
+
+**User（提示词/原意）**  
+- **右下角二维码下移**，与**梯形不重叠**。
+
+**Assistant（实现前说明）**  
+- **TAM+QR** 行 **`pt-4` → `pt-8 sm:pt-12`** 增高该区，**`sm:bottom-0`** 的 QR 相对梯形整体上移开的空隙变大；**`LinkedInQr`** **`sm:z-10`**；容器 **`overflow-visible z-[2]`**（避免用 **`translate-y`** 压住下方平台 URL）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 右下与双层梯形间隙。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 底部平台链接加大 + 下移）
+
+**User（提示词/原意）**  
+- **底部正中链接**文字**加大**、**往下移**。
+
+**Assistant（实现前说明）**  
+- 平台 URL 区块 **`pt-1 sm:pt-2` → `pt-4 sm:pt-5`**；**`a`** 字号 **`0.72/0.78` → `0.95/1.05/1.1` rem** 断点。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 海报底区。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase collaboration 图 intrinsic 修正以实现三图同高）
+
+**User（提示词/原意）**  
+- **保持三张图片一样的高度**。
+
+**Assistant（实现前说明）**  
+- **`web_tax_collaboration.png`** 实测 **1024×632**，代码曾误写 **550×1024**，框比例错误导致横屏图在竖框内 **`object-contain`** 上下留白、看似更矮；**`SHOTS`** 第一项改为 **`intrinsicW: 1024`, `intrinsicH: 632`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；三帧共享 **`shotRowHeight`**，横屏占更宽宽、竖屏更窄，像素高度一致。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 三图同高、比例不裁不拉）
+
+**User（提示词/原意）**  
+- **collaboration** 图**不必同宽**；**三张同高**；**原图宽高比**、**不裁剪不拉伸**。
+
+**Assistant（实现前说明）**  
+- 保留行统一高度 + 每帧 **`aspectRatio: intrinsicW/intrinsicH`**（宽度随比例）；**`Image`** 去掉 **`h-full w-full`**，改为 **`max-h-full max-w-full object-contain object-center`**，避免在框内被拉满变形；外框 **`flex` 居中**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`RatioScreenshot`**；若某 PNG 与声明 intrinsic 比例不一致，会出现对称留白而非裁切。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 三图同高 + 宽度随各自比例）
+
+**User（提示词/原意）**  
+- **三张图片保持同高**，**宽度按图片自身比例**。
+
+**Assistant（实现前说明）**  
+- 去掉 **`flex-1`** 均分宽；每帧 **`aspectRatio: intrinsicW / intrinsicH`** + **`h-full w-auto shrink-0`**，高度由行统一、宽度由比例导出；**`Image`** **`h-full w-full object-contain`**；行上 **`overflow-x-auto`** 防极窄屏撑破。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`** · **`RatioScreenshot`**；验证 **`/showcase`** 三图宽度差异与单行。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 三图等高）
+
+**User（提示词/原意）**  
+- **保持三张图片高度一致**。
+
+**Assistant（实现前说明）**  
+- 将 **`shotRowHeight`** 固定在**三图行容器**上；**`items-center` → `items-stretch`**；子卡片 **`h-full`**；**`RatioScreenshot`** 内 **`Image`** 使用 **`h-full object-contain`**（取代 **`max-h-full`**），保证栅格内像素高度一致。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 三图列宽变化时仍单行等高。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 三图强制单行 + 撤销右栏 pr）
+
+**User（提示词/原意）**  
+- **上一步改坏了**，图片**换行**；**三张图应保持水平一行**。
+
+**Assistant（实现前说明）**  
+- **`sm:pr-36 lg:pr-40`** 挤压右栏宽度导致三图 **`flex-wrap`** 换行；**移除**右栏 **`pr`**；三图行 **`flex-wrap` → `flex-nowrap`**，**`RatioScreenshot`** 容器 **`shrink-0` → `min-w-0 flex-1`** 以便窄宽下等分收窄仍单行。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 各宽下三图一行；QR 避让用户若仍需再议布局。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 右栏整体上移避 QR）
+
+**User（提示词/原意）**  
+- **两张梯形和三张图整体上移**，与 **二维码不重叠**。
+
+**Assistant（实现前说明）**  
+- 右栏 **`pt-12 sm:pt-16 lg:pt-[5rem]` → `pt-6 sm:pt-8 lg:pt-10`** 上移整块；**`sm:pr-36 lg:pr-40`** 与底部 TAM 区 **`sm:pr-36`** 思路一致，避免与右下 **QR** 抢宽；**`ShowcaseTripleStack`** **`pb-4→pb-2`**、透视容器 **`pb-8→pb-5 sm:pb-6`** 略收底沿。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** `sm+` 宽屏右栏与 QR、窄屏布局。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase platform URL 移入海报内底部居中）
+
+**User（提示词/原意）**  
+- **文字链接加在海报页面内底部正中**（非页面最外 footer）。
+
+**Assistant（实现前说明）**  
+- **`SHOWCASE_PLATFORM_URL`**；在海报 **`showcase-dualcore-bg`** 内层、**TAM+QR 行下方**增加 **`flex justify-center`** 区块；从 **`main` 外沿 `footer`** 移除同一链接。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 卡片底正中 URL 与外链行为。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 页脚居中 platform URL）
+
+**User（提示词/原意）**  
+- **底部正中**加上文字 **`https://platform.vouchap.com/`**。
+
+**Assistant（实现前说明）**  
+- 在 **`ShowcaseSlides`** 页脚 **`footer`**（已居中）中增加 **外链**，**`target="_blank"`** + **`rel="noopener noreferrer"`**，文案为完整 URL。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 页脚展示与点击跳转。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 主 slogan 加入 Tax Filing）
+
+**User（提示词/原意）**  
+- **Tax filing Collaboration**（主 slogan 措辞）。
+
+**Assistant（实现前说明）**  
+- **`COPY.titleEn`**：**Tax Collaboration → Tax Filing Collaboration**（标题大小写 **Tax Filing**）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 主标题。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase slogan Collaboration + 左上 logo 再下移）
+
+**User（提示词/原意）**  
+- **主 slogan** 中 **Coordination → Collaboration**；**左上角 logo 单独再下移一点**，**不影响其他内容位置**。
+
+**Assistant（实现前说明）**  
+- **`COPY.titleEn`** 替换用词；**`header`** 保持 **`pt` 与 `-mb` 等量**（**`pt-2.5 -mb-2.5 sm:pt-3 sm:-mb-3`**），仅增高 logo 绘制区并抵消 flex 占位。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 标题文案与顶区其余垂直节奏。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 仅下移左上角 logo，其余不动）
+
+**User（提示词/原意）**  
+- **上一步不对**：**只动左上角 logo**，**下面主标题等内容不要跟着移动**。
+
+**Assistant（实现前说明）**  
+- 撤销内层 **`pt-[4%] sm:pt-[5%]`**，恢复 **`pt-2 sm:pt-2.5`**；在 **`header`** 上加 **`pt-1.5 sm:pt-2`** 下移 aim.link，并用同等 **`-mb-1.5 sm:-mb-2`** 抵消 header 增高，避免 flex 后续块下移。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 仅 **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 顶区主标题与左栏是否与改全文件 **`pt`** 前对齐，仅 logo 略低。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 左上角 logo 顶边与左边距对齐）
+
+**User（提示词/原意）**  
+- **左上角 logo 下移一点**；**左边距与上边距保持一致**。
+
+**Assistant（实现前说明）**  
+- 海报内层原为 **`pt-2 sm:pt-2.5`**，左右为 **`px-[4%] sm:px-[5%]`**，顶远小于左右百分比留白；改为 **`pt-[4%] sm:pt-[5%]`**，与左右同一百分比，CSS 百分比 padding 与宽度同源，顶/左视觉对齐；logo 随整块下移。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 仅 **`ShowcaseSlides.tsx`** 内层容器；验证 **`/showcase`** 顶区密度是否可接受。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 三图高度 +20%）
+
+**User（提示词/原意）**  
+- **三张图片高度增加 20%**，**宽度等比**，**间距不变**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseTripleStack`** 的 **`shotHeight`** 三档 **`9.25 / 11.5 / 13.25 rem`** 各乘 **1.2 → 11.1 / 13.8 / 15.9 rem**；**`RatioScreenshot`** 已 **`object-contain` + `w-auto`**，宽度随比例变化；**`gap-1.5 sm:gap-2`** 不动。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 仅改 **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 三图与梯形是否仍对齐、窄屏是否换行正常。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 右栏下移 + 双梯形间距减半）
+
+**User（提示词/原意）**  
+- **三张图片和大梯形再下移一点**；**大小梯形间距保留现状的一半**。
+
+**Assistant（实现前说明）**  
+- 右栏 **`pt-10 sm:pt-14 lg:pt-[4.25rem]` → `pt-12 sm:pt-16 lg:pt-[5rem]`**，整块（三图 + 双梯形）下移；下层梯形 **`mt-6 sm:mt-8` → `mt-3 sm:mt-4`**（约为原一半）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 仅改 **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 右栏垂直位置与两梯形间距。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 收紧三图与梯形间距）
+
+**User（提示词/原意）**  
+- **下移太多**；**大梯形与图片之间不需要留空隙**。
+
+**Assistant（实现前说明）**  
+- 撤销 **`ShowcaseTripleStack`** 父级 **`gap-8 sm:gap-10 lg:gap-12`**，改为 **`gap-0`**；梯形透视容器 **`pt-1` → `pt-0`**；保留 **`shrink-0`** 以免 flex 挤压。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 三图与上层梯形视觉紧贴（无刻意纵向间距）；验证 **`/showcase`** 右栏密度是否符合预期。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 梯形下移与三图分离）
+
+**User（提示词/原意）**  
+- **两套梯形下移**，须**整体在三张图片下方**、**不与图片重叠**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseTripleStack`** 原 **`mt-3 sm:mt-4`** 间距偏小，透视/投影易与上图视觉相交；改为父级 **`flex-col` + `gap-8 sm:gap-10 lg:gap-12`**，三图行与梯形块均 **`shrink-0`**；去掉梯形容器 **`mt-*`**，略减梯形顶 **`pt`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已更新 **`ShowcaseSlides.tsx`**；验证 **`/showcase`** 右栏宽屏与窄屏下三图与双层底座之间是否有清晰空隙。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 梯形填充变浅 + 双边框）
+
+**User（提示词/原意）**  
+- **两套梯形边框几乎看不见**；**把填充改浅**，在**深色背景**上更突出。
+
+**Assistant（实现前说明）**  
+- 原先 **`showcase-circuit-base` + Tailwind `shadow-[inset…]`** 会**整段覆盖 `box-shadow`**，inset 白边与底图对比度弱；计划新增专用类 **`.showcase-trapezoid-tier` / `--lower`**，在 **`globals.css`** 统一定义**更亮 slate 填充**、**2px+1px 双层白 inset** 与内暗角；**`ShowcaseSlides`** 两层梯形改挂新类并去掉长 shadow 工具类；下层遮罩 **`from-black/35` → `from-black/15`**，避免再压暗。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已添加上述类并替换组件 class；验证：本地打开 **`/showcase`** 看右下双梯形**边缘与平面**是否清晰。残留：若仍觉边淡，可再提 **inset alpha** 或 **filter: drop-shadow**（注意与 clip-path 组合）。
+
+**关联**  
+- `vouchap-website/app/globals.css`、`vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 梯形白边框）
+
+**User（提示词/原意）**  
+- **两套梯形要加白色边框**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseSlides`** 两层梯形 **`box-shadow inset`** 由青色描边改为 **`rgba(255,255,255,0.5–0.55)`** 1px，内光改为淡白。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 再下移、梯形间距与边框、去内横线）
+
+**User（提示词/原意）**  
+- **还要下移**；**两套梯形增加上下间距**；**梯形增加边框**；**去除中间两条横线**。
+
+**Assistant（实现前说明）**  
+- 右栏 **`pt`** 加大（**`pt-10 sm:pt-14 lg:pt-[4.25rem]`**）；下层梯形 **`mt-6 sm:mt-8`**（取代 **`-mt-1`**）；两层梯形用 **`box-shadow inset 1px`** 描边 + 淡内光；**删除**内侧 **`clip-path + border`** 装饰层（易产生横线段）；略减弱渐变。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 右列图 + 梯形整体下移）
+
+**User（提示词/原意）**  
+- **图片和两套梯形要下移**。
+
+**Assistant（实现前说明）**  
+- 右栏容器 **`justify-center` → `justify-start`**，并加 **`pt-6 sm:pt-9 lg:pt-11`**，使 **三图 + 双梯形**整体下移（避免居中抵消 margin）。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 透视可见化 + 三图留缝）
+
+**User（提示词/原意）**  
+- **网格透视效果没出来**；**三张图片留一点间距**（不应为 0）。
+
+**Assistant（实现前说明）**  
+- **`overflow-hidden` / 滚动层会破坏 `preserve-3d`**：海报壳改为 **`overflow-visible`**，内容列 **`overflow-visible`**；透视容器 **`perspective: 520px`**（原 1400 过弱）；上层 **`rotateX(22deg)`**、下层 **`rotateX(32deg)` + `translateZ(-12px)`**，加 **`transform-gpu`**、**`pb-8`** 留投影空间；三图 **`gap-1.5 sm:gap-2`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 圆角外若偶有像素溢出可再收紧或改用 **mask**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 恢复顶区 Vouchap + 网格区 logo 减半）
+
+**User（提示词/原意）**  
+- **顶部中间的 logo 要保留**；**网格区两套 logo / 名称减小一半**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseSlides.tsx`**：在 **header** 与 **主标题** 之间**恢复**居中 **Vouchap** 大图锁区；**梯形上层**：**Vouchap** 图 **`h` ~原一半**，字 **`clamp` ~一半**，**padding** 收紧；**梯形下层**：**partner-aimlink** **`h-5 / sm:h-6`**（约为原 **`h-10/12`** 的一半）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 网格区内 **Vouchap** 不再 **`priority`**（顶区已占优先加载）。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 三图更密 + 双层梯形电路底座）
+
+**User（提示词/原意）**  
+- **右下角三张图间距再减小**；**aim.link 网格**做成**上宽下窄梯形**、**内层也梯形透视**；**上大下小两层梯形**，**上层 Vouchap+logo**，**下层 aim.link logo**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseTripleStack`**：三图行 **`gap-0`**；底座改为 **双层 `showcase-circuit-base`**，**`clip-path: polygon(…)`** 梯形，**`perspective` + `rotateX`** 透视；**内层**用 **`clip-path` 边框条** 做内梯形；**Vouchap** 从页中独立区移入**上层梯形**，页中**删除**重复锁区。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 小屏下层面 **`max-w-[64–70%]`** 更窄以体现「台基」；参数可再调百分比。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase logo 透明底、去白块、缓存穿透）
+
+**User（提示词/原意）**  
+- **logo 仍未更新**；**`public/logo.png` 四周透明**，**不需填充**。
+
+**Assistant（实现前说明）**  
+- 再次 **`cp`** **`assets/logo.png` → `vouchap-website/public/logo.png`**；**`ShowcaseSlides`** 去掉 **`bg-white` 圆角容器**，Logo 仅用 **`object-contain` + `h-* w-auto` + 轻 `drop-shadow`**；**`?v=VOUCHAP_LOGO_V`** 穿透缓存。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`VOUCHAP_LOGO_V`**（当前 **`20260501b`**）更换 **`logo.png`** 后请顺手递增。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`、`vouchap-website/public/logo.png`
+
+### 2026-05-01（vouchap-website：Showcase 使用 `public/logo.png` 紫盾标）
+
+**User（提示词/原意）**  
+- **logo 用** `vouchap-website/public/logo.png`（用户提供的紫盾 **AI** 标）。
+
+**Assistant（实现前说明）**  
+- 将工作区内 **`…/assets/logo.png`** **覆盖写入** **`vouchap-website/public/logo.png`**；**`ShowcaseSlides`** 已引用 **`VOUCHAP_LOGO_MARK = "/logo.png"`**，无需改路径。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 全站 **`/logo.png`** 现为该文件；若需与旧站并存可另存 **`logo-legacy.png`** 再切引用（未做）。
+
+**关联**  
+- `vouchap-website/public/logo.png`、`vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 收紧顶留白 + Vouchap 紫标白底 + 字色）
+
+**User（提示词/原意）**  
+- **Vouchap 上方留白太多**；**青色渐变名称与金色 logo 不协调**；**logo 用网站紫色白底版**；**名称与 logo 配色匹配**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseSlides.tsx`**：`section` **`py`** 减小；内层改为 **`px/pb` + 更小 `pt`**，块间 **`gap`** 略收；**Vouchap** 使用 **`/logo.png`** 置于 **白底圆角容器**；**`showcase-aurora-text`** 改为 **`font-poppins` + 紫系渐变**（**`violet-200` → `#7c3aed`**）；常量改名为 **`VOUCHAP_LOGO_MARK`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 若需改用单独导出的 **紫底透明 PNG**，可只换 **`VOUCHAP_LOGO_MARK`** 路径。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 盾牌 logo、底座与图距、LinkedIn 二维码）
+
+**User（提示词/原意）**  
+- **Vouchap logo** 用网站**盾牌形**，不用最早那张图；**aim.link 网格底座放在图片下方**；**三图间距再减小一半**；海报右下角二维码链接 **LinkedIn**：`https://www.linkedin.com/in/james-aim-link/`。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseSlides.tsx`**：居中锁区改用 **`/logo3.png`**（常量 **`VOUCHAP_SHIELD_LOGO`**）；三图行 **`gap-1` / `lg:gap-1.5`**（约为原先一半）；**电路底座块**紧接在截图行下（**`mt-2`**），全宽 **`showcase-circuit-base`**；**`LinkedInQr`** 编码 **`SHOWCASE_QR_URL`**，文案 **LinkedIn profile**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 若 **`logo3.png`** 非盾牌最终稿，可替换文件或改常量路径。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`、`public/logo3.png`
+
+### 2026-05-01（vouchap-website：Showcase 海报密度 + 底座网格 + 顶栏与中轴 Vouchap）
+
+**User（提示词/原意）**  
+- **图片再加高**，**间距减小**；**aim.link 作为底座**此前的**网格保留**，要有**底座支撑**的视觉效果；**主 slogan 文字加大**；删除 **General collaboration primitives…** 一句；**顶行 aim.link logo 维持现状**；**Vouchap 及 logo 放大**放在**页面水平居中**；**右上角 Investor 去除**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseSlides.tsx`**：顶栏仅 **`partner-aimlink-dark`**；其下**居中**大号 **Vouchap** lockup；**`titleEn` clamp 加大**；删 **`subtitleSupport`** 与渲染；内层 **`gap`/`padding`/`py`** 收紧；**`RatioScreenshot` 行**增高 **`shotHeight`**、栏间距减小；**底座**恢复 **`showcase-circuit-base`** + 渐变衬「托起」感；右侧栈去掉重复的 **Vouchap** 小标题行。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`Powered by aim.link…`** 单独保留为窄副标题带；**`Investor`** 已移除。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`、`app/globals.css`（沿用 `.showcase-circuit-base`）
+
+### 2026-05-01（vouchap-website：Showcase 右侧恢复三层 + 等高三图 + 宽随宽高比）
+
+**User（提示词/原意）**  
+- **保持三层结构**；**aim.link 是底座**；**三张图片高度一致**；**宽度按图片宽高比**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseTripleStack`**：纵排 **① Vouchap**、**② 三图行**、**③ aim.link**（**`border-t`** 作底座区隔）；**`RatioScreenshot`** 用 **固定 `heightClass` + `Image` `width/height` 内联尺寸 + `max-h-full w-auto`**，宽随比例；**`intrinsicW/H`** 与 **`landingAssets`** 中 portal/cody 一致，collaboration 暂同 550×1024。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已弃用 **`fill` 的 SoftShot** 等比实现；若 **collaboration** 源文件比例不同，可只改 **`SHOTS[0]` 的 intrinsic**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 右侧横排：Vouchap + 三图 + aim.link logo）
+
+**User（提示词/原意）**  
+- **图片按顺序水平一排摆放**；**Vouchap 及其 logo 还要保留**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseTripleStack`** 改为单行 **`flex-row`**：顺序 **Vouchap（`/logo.png` + 字）→ collaboration → portal → cody → aim.link（`/partner-aimlink-dark.png`）**；截图统一高度 **`stripH`**；窄屏 **`overflow-x-auto`** 保一排语义。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`SoftShot`** 改为接收 **`className`**（含高度与 **`flex-1`**）；去掉纵向三层布局。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 右侧图放大、去掉图片标题）
+
+**User（提示词/原意）**  
+- **图片放大**；**不需图片的标题**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseTripleStack`**：提高 **`SoftShot` `min-h`**；去掉 **Collaboration / Portal / Cody / Infrastructure** 及首层 **Vouchap** 标题行；底层仅 **aim.link** logo（略加大 **`h-10` / `sm:h-12`**）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 首层为单张 collaboration 全宽；**`sizes`** 略增；**`SoftShot`** 内边距略减以露更多画面。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 右侧恢复三层 + 无底框 aim.link OS + logo）
+
+**User（提示词/原意）**  
+- 右侧保持**此前的三层结构**；配图**不要套框**的 **aim.link OS**；**aim.link 换成 logo 图片**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseSlides.tsx`**：以 **`ShowcaseTripleStack`** 替换 **bento Collage**：自上而下 **① Vouchap + Collaboration**、**② Portal | Cody**、**③ aim.link**（**`/partner-aimlink-dark.png`**）；去掉 **`showcase-circuit-base` / “aim.link OS”** 底板；截图用 **`SoftShot`**（圆角 + 轻阴影，无 ring / 无底栏边框）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 三层与 pillars 叙事一致；底层仅 logo + 小字 **Infrastructure**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 左列品牌加粗放大 + 右侧三图拼贴）
+
+**User（提示词/原意）**  
+- 左侧列出的 **aim.link** 和 **Vouchap** 要**加大加粗**；右侧要**美观摆放**多张界面截图：**portal、cody、collaboration** 三张图。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseSlides.tsx`**：pillars 渲染时对 **`name === "aim.link"` / `"Vouchap"`** 使用 **`font-extrabold` + clamp 字号**；移除原 **LegoStack**，新增 **`ShowcaseScreenshotCollage`**：**Collaboration** 大图占左 **`lg:col-span-7`** **`row-span-2`**，**Portal / Cody** 叠放在右 **`lg:col-span-5`** 两行；小屏 Collaboration **`sm:col-span-2`** 通栏，其下两列 Portal | Cody；**`CollageTile`** 统一圆角、细边框、底栏标签、Collaboration 加强 **`ring`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 资源：`web_tax_collaboration.png`、`web_secure_portal_invite.png`、`web_cody_assistant.png`；**`Image`** 区域 **`relative` + `fill`** + **`object-contain`**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 再次去除中文 — 仅英文）
+
+**User（提示词/原意）**  
+- **不要中文**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseSlides.tsx`**：删除 **titleZh / subtitleZh** 与中文段落；副标题用 **`subtitleLead` + `subtitleSupport`** 两句英文承载原「智能底座 → 税务生产力」语义。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 海报对外文案均为英文；**aim.link** 仍为小写。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 海报文案 — 落地与价值 + aim.link 全小写）
+
+**User（提示词/原意）**  
+- **聚焦落地与价值**：主标题 **AI Implementation: Solving the Last Mile of Tax Coordination** / **AI 落地：重构税务协同「最后一公里」**；副标题 **Powered by aim.link — The Intelligent Collaborative Infrastructure** / 中文支撑句；**aim.link 文字全部小写**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseSlides.tsx`**：用主标题（英+中）、副标题（英+中）替换原 slogan + 旧主标题；**Foundation** 名称与 Lego 底座 **`aim.link OS`** 统一小写品牌（**OS** 保持大写）；去除顶部独立 **Build Once** 行以免抢占层级。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 副标题区增加浅分隔（上下 border）；**metadata** 中品牌改为 **aim.link**。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`、`vouchap-website/app/showcase/page.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 去除中文 — 仅英文文案）
+
+**User（提示词/原意）**  
+- **去除所有中文文案**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseSlides.tsx`**：删除 slogan / 主标题 / 三部曲之 **Zh** 字段与渲染；**pillars** 仅保留 **phaseEn + name + lineEn**（**lineEn** 略写一句补足原双语信息量）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 海报与用户可见字符串均为英文；**`app/showcase/page.tsx`** metadata 去掉「bilingual」表述。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`、`vouchap-website/app/showcase/page.tsx`
+
+### 2026-05-01（vouchap-website：Showcase「Power & Implementation」双核海报重做）
+
+**User（提示词/原意）**  
+- 海报方案 **Dual-Core**：**深邃底漆 Navy + 极光绿 / 科技蓝**；**由下至上阶梯**：底部 **Aim.Link** 厚实底座（半透明电路纹）、上方悬浮 **Vouchap** 轻盈界面；**大量留白**。  
+- **文案中英文对照**：主标题 From Infrastructure… / 从底层底座…；**三部曲** Foundation(Aim.Link)、Application(Vouchap)、Innovation(Last Mile)；**底部 TAM** $175.8B+，USA | Canada 分列；(Reliable data…)  
+- **视觉**：中心 **Lego 积木**示意，底层发光 **Aim.Link OS**、顶层 **Vouchap**；**Slogan**「Build Once, Implement Everywhere. / 一次构建，随处落地」最显眼；**右下角二维码**「Get the Full Whitepaper」。
+
+**Assistant（实现前说明）**  
+- **重写** **`ShowcaseSlides.tsx`**：去掉原 A–D 四屏，改为**单张 16:9** 海报；**`globals.css`** 增加 **`showcase-dualcore-bg` / `showcase-circuit-base` / `showcase-aurora-text`**。  
+- **`showcase/page.tsx`**：页底色与 header 对齐 Deep Navy；metadata 更新。  
+- QR：**未新增 npm 依赖**（环境 npm 权限失败），使用 **`api.qrserver.com`** 生成图 + `<img>`；目标 URL **`NEXT_PUBLIC_WHITEPAPER_URL`** 缺省 **`https://vouchap.com`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已落地阶梯 Lego 区（上 **Vouchap** 卡片含产品截图、下 **Aim.Link OS** 电路底）；全稿中英对照；底部 TAM 与右下角 Whitepaper 文案。  
+- **`npm run lint`** 触发了 Next **交互式 ESLint 初始化**（仓库无现成 `.eslintrc`），未完成自动化 lint。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`、`vouchap-website/app/globals.css`、`vouchap-website/app/showcase/page.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 主标题三句三行 + 更顺口英文）
+
+**User（提示词/原意）**  
+- 原英文主文案拟得更**朗朗上口**；**三句分三行**。
+
+**Assistant（实现前说明）**  
+- **`ShowcaseSlides.tsx`**：将 **`MERGED.head`** 改为 **`headLines`** 三句；新增 **`HeadlineBlock`** 用 **`span.block`** 分行；**CopyBlock** 与 **Poster D** 共用。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 三行文案：**aim.link 协作底座 → Vouchap 门户+CRM → 最后一公里 AI**；紧凑模式略收紧字号与行距。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 叙事 — aim.link 底座 / Vouchap 垂直 + TAM 仅美加两数）
+
+**User（提示词/原意）**  
+- **市场规模**只需列 **145.5B + 30.3B** 两个数字。  
+- **体现**：**aim.link** 是**协同工作平台**；**Vouchap** 是基于 aim.link 的 **AI 税务协同 portal**、**firm 的 CRM**，用 **AI** 服务税务协同**最后一公里**；**总可触达市场规模** **145.5B + 30.3B**。
+
+**Assistant（实现前说明）**  
+- 更新 **`ShowcaseSlides.tsx`** 中 **`MERGED.head` / `MERGED.sub`**（英文）；**`StatsInline`** 仅保留 **United States $145.5B** 与 **Canada $30.3B CAD**；**Variant B** 芯片标签改为 **aim.link platform / AI tax portal / Firm CRM**，去掉 **$160B+ NA**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已按上落地；与全站 **`npm run build`** 的 **`/privacy`** 缺失问题无新增耦合。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`
+
+### 2026-05-01（vouchap-website：Showcase 去「层层套框」— 轻渐变海报 + 截图单一阴影）
+
+**User（提示词/原意）**  
+- **视觉效果都很差**，**层层套框毫无美感**。
+
+**Assistant（实现前说明）**  
+- 与既有 **`globals.css`** 中 **`showcase-hero-title` / `showcase-tagline` / `showcase-lede`** 对齐，**不再使用**已移除的 **`showcase-hero-panel`**。  
+- 重写 **`ShowcaseSlides.tsx`**：**SlideCanvas** 用大圆角渐变底 + 单层柔和投影（无粗边框）；**Screen / MiniScreen / Mosaic** 仅保留 **圆角 + 一层阴影**，**图注在图下方**小字；**Stat** 改为行内排版；**Variant D** 标题区为纯文字块，无套框。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已落地上述结构；**`next build`** 在 **Compile / Lint / TS** 阶段通过，但在 **collect page data** 因项目内 **`/privacy` 页面模块缺失**失败（与本次 Showcase 改动无关）。本地 **`/showcase`** 建议人工核对四屏比例与限高。
+
+**关联**  
+- `vouchap-website/components/ShowcaseSlides.tsx`、`vouchap-website/app/globals.css`
+
 ### 2026-05-01（vouchap-website：Showcase Variant A Insights 撑满屏 — 图片带限高）
 
 **User（提示词/原意）**  
@@ -4708,5 +5750,45 @@
 **关联**  
 - `/Users/macbook/Vouchap/vouchap-app/package.json`  
 - `/Users/macbook/Vouchap/vouchap-app/ios/Vouchap.xcodeproj/project.pbxproj`
+
+---
+
+### 2026-05-03（Vouchap：iOS 小票频繁 Needs Retake —— HEIC 误标为 JPEG 上传修复）
+
+**User（提示词/原意）**  
+- vouchap app **iOS 版频繁出现 needs retake**，**同一张小票 Android 正常**；均为 **v2.6.0**。
+
+**Assistant（实现前说明）**  
+- 追溯 `needs_retake`：`receipt-helpers` 中 `adjustedConfidence < 0.4`；`receipt-processor` 中识别失败/配额也会置该状态。  
+- 对比上传链：`getImageExtAndMime` 仅从路径识别 `jpg/png/gif/webp`；iOS 相册常见 **HEIC**，路径无匹配扩展名时会被**默认成 `.jpg` + `image/jpeg`**，但字节仍为 **HEIC**，与 MIME 不一致易导致远端/Gemini 解码差、置信度低；Android 多为 JPEG，故现象不对称。  
+- 计划在 **`uploadReceiptImageTempWithSpace`**、**`uploadReceiptImage`**（原生、图片类）上传前与 **`uploadSpaceImage`** 一致：**统一经 `expo-image-manipulator` 转为 JPEG**；非图片 MIME（如 PDF，`fileOpts`）跳过。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 在 `vouchap-app/src/shared-logic/supabase.ts` 增加 **`ensureNativeImageUriIsJpegForStorage`**，并在上述两函数中在读取/上传前调用；Web 与 `blob:`/`data:` 不变。  
+- **验证建议**：iOS 从相册选 HEIC 小票 → 识别应不再因格式误判大面积 Needs Retake；Android 回归抽查。  
+- **残留风险**：相册图会多一次 JPEG 重编码（与 scanner 已 JPEG 路径叠加时轻微质量损失）；非图片 `fileOpts` 必须保持正确 MIME 以免误转。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/supabase.ts`  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts`（置信度规则背景）
+
+---
+
+### 2026-05-03（Vouchap：v2.6.0 服务端 AI 与 iOS/Android 差异 —— 补充核实）
+
+**User（提示词/原意）**  
+- **v2.6.0** 把 AI 调到**服务端**后出现差异；**之前 iOS 拍照识别也正常**；要求**再核实其它可能原因**。
+
+**Assistant（实现前说明）**  
+- 无新代码变更；阅读 **`gemini-server-sdk`**、**`supabase/functions/gemini-proxy`**、**`recognizeReceipt`**：图片仍在**客户端** `downloadAsync` → base64，`generateContent` 经 **`gemini-proxy`** 转发 Google；澄清「服务端」仅密钥与 API 调用位置，**不**改变客户端图片字节与 **URL 推断 mime** 逻辑。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 列出除 **HEIC 误标** 外可能原因：**(1)** **`recognizeReceipt` / `downloadImageToBase64`** 仅用 **URL 子串**定 `mimeType`，与真实字节不一致时迁服务端前后都存在；**(2)** **`GEMINI_ENFORCE_SERVER_MODEL` / `GEMINI_MODEL_DEFAULT`** 若强制单模型，与旧版多模型回退相比对难样本的 **confidence / imageQuality** 可能更差；**(3)** **`receipt-helpers`** 金额钩稽与 **imageQuality** 惩罚导致 **adjustedConfidence &lt; 0.4**；**(4)** 相册入口 **`fromGallery`** 曾跳过预处理，与扫描/相机链不一致；**(5)** 模型随机性、分辨率与 **VisionKit vs Android** 扫描输出差异。  
+- **建议**：对失败样本看 **`Confidence calculation`** 日志；核对 Edge Function 环境变量；长期可在客户端按 **魔数** 修正 **inlineData.mimeType**。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/gemini.ts`（`recognizeReceipt`、`downloadImageToBase64`）  
+- `/Users/macbook/Vouchap/vouchap-app/supabase/functions/gemini-proxy/index.ts`  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/receipt-helpers.ts`
 
 ---

@@ -213,6 +213,27 @@ export async function uploadReceiptImageTemp(fileUri: string, tempFileName: stri
   return uploadReceiptImageTempWithSpace(fileUri, tempFileName, '');
 }
 
+/**
+ * 原生相册常见 HEIC/HEIF；getImageExtAndMime 无法从路径识别时会误用 .jpg + image/jpeg，
+ * 字节与 MIME 不一致会导致存储/CDN 与 Gemini 解码异常、置信度极低（表现为 Needs Retake）。
+ * 与 uploadSpaceImage 一致：非 Web 的本地图片在上传前统一转为 JPEG。
+ */
+async function ensureNativeImageUriIsJpegForStorage(
+  fileUri: string,
+  fileOpts?: { fileName?: string; mimeType?: string }
+): Promise<string> {
+  if (Platform.OS === 'web') return fileUri;
+  if (fileUri.startsWith('blob:') || fileUri.startsWith('data:')) return fileUri;
+  const mime = fileOpts?.mimeType?.trim();
+  if (mime && !mime.toLowerCase().startsWith('image/')) return fileUri;
+
+  const manipulated = await ImageManipulator.manipulateAsync(fileUri, [], {
+    compress: 0.9,
+    format: ImageManipulator.SaveFormat.JPEG,
+  });
+  return manipulated.uri;
+}
+
 /** 按 space_id 分文件夹上传到 receipts bucket，路径为 {spaceId}/temp/{tempFileName}.{ext}；支持图片与 PDF/DOC 等文档；expenses/income/inbound/outbound 新上传使用此方法 */
 export async function uploadReceiptImageTempWithSpace(
   fileUri: string,
@@ -221,19 +242,22 @@ export async function uploadReceiptImageTempWithSpace(
   fileOpts?: { fileName?: string; mimeType?: string }
 ): Promise<string> {
   try {
+    const normalizedUri = await ensureNativeImageUriIsJpegForStorage(fileUri, fileOpts);
     let arrayBuffer: ArrayBuffer | Uint8Array;
     if (Platform.OS === 'web') {
-      const res = await fetch(fileUri);
+      const res = await fetch(normalizedUri);
       if (!res.ok) throw new Error(`Failed to fetch file: ${res.status}`);
       arrayBuffer = await res.arrayBuffer();
     } else {
-      const base64 = await FileSystem.readAsStringAsync(fileUri, {
+      const base64 = await FileSystem.readAsStringAsync(normalizedUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
       arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
     }
 
-    const { ext: fileExt, mimeType } = fileOpts ? getFileExtAndMime(fileUri, fileOpts) : getImageExtAndMime(fileUri);
+    const { ext: fileExt, mimeType } = fileOpts
+      ? getFileExtAndMime(normalizedUri, fileOpts)
+      : getImageExtAndMime(normalizedUri);
     const fileName = `${tempFileName}.${fileExt}`;
     const folder = spaceId && spaceId.trim() ? spaceId.trim() : 'unknown';
     const filePath = `${folder}/temp/${fileName}`;
@@ -539,16 +563,17 @@ export async function getTaxFilingViewUrl(attachmentUrl: string): Promise<string
 /** 上传小票正式图到 receipts，路径 {spaceId}/receipt_{receiptId}.{ext}；支持 Web blob/file URI */
 export async function uploadReceiptImage(fileUri: string, receiptId: string, spaceId: string): Promise<string> {
   try {
+    const normalizedUri = await ensureNativeImageUriIsJpegForStorage(fileUri);
     let arrayBuffer: ArrayBuffer | Uint8Array;
-    if (Platform.OS === 'web' || fileUri.startsWith('blob:') || fileUri.startsWith('data:')) {
-      const res = await fetch(fileUri);
+    if (Platform.OS === 'web' || normalizedUri.startsWith('blob:') || normalizedUri.startsWith('data:')) {
+      const res = await fetch(normalizedUri);
       if (!res.ok) throw new Error(`Failed to fetch image: ${res.status}`);
       arrayBuffer = await res.arrayBuffer();
     } else {
-      const base64 = await FileSystem.readAsStringAsync(fileUri, { encoding: FileSystem.EncodingType.Base64 });
+      const base64 = await FileSystem.readAsStringAsync(normalizedUri, { encoding: FileSystem.EncodingType.Base64 });
       arrayBuffer = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
     }
-    const { ext: fileExt, mimeType } = getImageExtAndMime(fileUri);
+    const { ext: fileExt, mimeType } = getImageExtAndMime(normalizedUri);
     const folder = spaceId && spaceId.trim() ? spaceId.trim() : 'unknown';
     const filePath = `${folder}/receipt_${receiptId}.${fileExt}`;
     const uploadPayload = arrayBuffer instanceof ArrayBuffer ? arrayBuffer : (arrayBuffer as Uint8Array).buffer;
