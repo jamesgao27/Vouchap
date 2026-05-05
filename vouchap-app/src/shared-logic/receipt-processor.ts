@@ -1,10 +1,9 @@
 // 后台处理小票识别的模块
-import { recognizeReceipt, recognizeSupplierInfo } from './gemini';
+import { recognizeReceipt } from './gemini';
 import { convertGeminiResultToReceipt } from './receipt-helpers';
 import { updateReceipt, getReceiptById } from './database';
 import { uploadReceiptImage, supabase } from './supabase';
 import { checkDuplicateReceipt } from './receipt-duplicate-checker';
-import { findOrCreateEntity, updateEntity } from './entities';
 import { runWithRecognitionRetry } from './recognition-retry';
 import { getCurrentUser } from './auth';
 import { assertClientRecognitionAllowed, recordClientRecognitionSuccessIfEnforced } from './client-recognition-quota';
@@ -141,72 +140,9 @@ export async function processReceiptInBackground(
     await recordClientRecognitionSuccessIfEnforced(receipt.spaceId || quotaSpaceId);
 
     // Line taxes + reconciliation run inside updateReceipt (database.ts); avoid duplicate apply here.
+    // Payee tax/phone/address：单独供应商二次识别已移除，全部由 recognizeReceipt 单次 JSON 的 supplierInfo + convertGeminiResultToReceipt 写库。
 
-    // 6. 异步识别供应商详细信息（不阻塞主流程）
-    // 如果基本识别中已经有一些供应商信息，先使用它们；然后异步补充更完整的信息
-    const supplierInfoFromBasic = recognizedData.supplierInfo;
-    const hasBasicSupplierInfo = supplierInfoFromBasic && (
-      supplierInfoFromBasic.taxNumber ||
-      supplierInfoFromBasic.phone ||
-      supplierInfoFromBasic.address
-    );
-
-    // 异步识别供应商详细信息（即使基本识别已有信息，也尝试获取更完整的信息）
-    recognizeSupplierInfo(finalImageUrl, receipt.supplierName || recognizedData.supplierName)
-      .then(async (detailedSupplierInfo) => {
-        try {
-          console.log('[Supplier Info] 异步识别供应商详细信息完成:', detailedSupplierInfo);
-          
-          // 合并基本识别和详细识别的结果（详细识别优先）
-          const mergedSupplierInfo = {
-            taxNumber: detailedSupplierInfo.taxNumber || supplierInfoFromBasic?.taxNumber,
-            phone: detailedSupplierInfo.phone || supplierInfoFromBasic?.phone,
-            address: detailedSupplierInfo.address || supplierInfoFromBasic?.address,
-          };
-
-          // 如果有任何关联方信息，更新 entity 记录
-          if (receipt.entityId && (mergedSupplierInfo.taxNumber || mergedSupplierInfo.phone || mergedSupplierInfo.address)) {
-            console.log('[Entity Info] 更新关联方详细信息:', mergedSupplierInfo);
-            try {
-              await updateEntity(receipt.entityId, {
-                taxNumber: mergedSupplierInfo.taxNumber,
-                phone: mergedSupplierInfo.phone,
-                address: mergedSupplierInfo.address,
-              });
-              console.log('[Entity Info] ✅ 关联方详细信息已更新');
-            } catch (error: any) {
-              if (error?.code === 'ENTITY_NAME_EXISTS' || error?.message === '关联方名称已存在') {
-                console.log('[Entity Info] 关联方名称已存在，跳过更新');
-              } else {
-                throw error;
-              }
-            }
-          } else if (receipt.supplierName && (mergedSupplierInfo.taxNumber || mergedSupplierInfo.phone || mergedSupplierInfo.address)) {
-            try {
-              const entity = await findOrCreateEntity(
-                receipt.supplierName,
-                true,
-                mergedSupplierInfo.taxNumber,
-                mergedSupplierInfo.phone,
-                mergedSupplierInfo.address
-              );
-              await updateReceipt(receiptId, { entityId: entity.id }, true);
-              console.log('[Entity Info] ✅ 关联方已创建/更新，小票已关联');
-            } catch (error) {
-              console.warn('[Entity Info] 更新关联方失败:', error);
-            }
-          }
-        } catch (error) {
-          console.error('[Supplier Info] 异步更新供应商信息失败:', error);
-          // 不抛出错误，因为这是异步补充信息，失败不影响主流程
-        }
-      })
-      .catch((error) => {
-        console.error('[Supplier Info] 异步识别供应商信息失败:', error);
-        // 不抛出错误，因为这是异步补充信息，失败不影响主流程
-      });
-
-    // 7. 检测是否与已有小票重复
+    // 6. 检测是否与已有小票重复
     const updatedReceipt = await getReceiptById(receiptId);
     if (updatedReceipt) {
       const duplicateReceipt = await checkDuplicateReceipt(updatedReceipt);

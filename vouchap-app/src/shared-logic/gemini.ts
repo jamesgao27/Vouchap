@@ -135,9 +135,9 @@ function clearModelCacheIfUnavailable(err: unknown) {
   }
 }
 
-/** 小票识别统一 JSON 输出规范：所有录入方式（图片/文字/语音/文档）必须使用同一套字段，便于下游一致解析 */
+/** 小票识别统一 JSON 输出规范（精简版提示词，完整校验仍在下游 ensureGeminiParsedReceiptItems） */
 const RECEIPT_JSON_ITEMS_RULE =
-  'Each item MUST have: "name" (string), "categoryName" (string), "attributionName" (string), "price" (number), and "itemAlias" (string) when it adds clarity: REQUIRED if the printed line is a SKU, PLU, dept code, register shorthand, truncated code, mostly digits/symbols, or not self-explanatory to an end user. Use plain English Title Case (avoid ALL CAPS), max ~8 words; never put currency amounts or unit prices in itemAlias. Omit itemAlias only when "name" is already a clear, normal product description (e.g. "Organic milk 2L"). If the ticket shows both a code and a readable phrase on one line, keep full OCR in "name" and put the clearest shopper-facing label in "itemAlias".';
+  'items: ≥1 row. Each: name, categoryName, attributionName, price; itemAlias when line is SKU/code/cryptic (plain English label, no amounts in itemAlias).';
 const RECEIPT_JSON_ITEMS_EXAMPLE = {
   name: 'FD BRKFST 4729',
   itemAlias: 'Breakfast sandwich combo',
@@ -146,13 +146,15 @@ const RECEIPT_JSON_ITEMS_EXAMPLE = {
   price: 12.99,
 };
 
-/** 图片解析引导：针对拍照/扫描的小票图片 */
-const RECEIPT_IMAGE_PARSE_INTRO = 'You are a financial expert specializing in North American receipts. Analyze the receipt image and extract ALL available information with maximum accuracy.\n\n';
+/** 图片解析引导（短） */
+const RECEIPT_IMAGE_PARSE_INTRO =
+  'North American retail receipt: extract purchase fields to one JSON object. Be concise in free-text comment fields.\n\n';
 
-/** 文档解析引导：针对 PDF/Word 等文档，解析方式不同，但数据规则与返回格式与图片一致 */
-const RECEIPT_DOCUMENT_PARSE_INTRO = 'You are a financial expert. You are given a DOCUMENT (PDF or Word), not a photo. First read and parse the entire document content (all text, tables, layout). Then extract receipt/purchase information using the EXACT SAME rules and JSON output format as for receipt images. For imageQuality, rate document readability and completeness (0–1).\n\n';
+/** 文档解析引导（短；规则与图片共用） */
+const RECEIPT_DOCUMENT_PARSE_INTRO =
+  'Document (PDF/Word): read full text/layout, same JSON schema as receipt photos. imageQuality = readability/completeness 0–1.\n\n';
 
-/** 小票数据识别规则与 JSON 格式（图片/文档共用，与 RECEIPT_*_INTRO 组合提交） */
+/** 小票数据识别规则（图片/文档共用，精简 token；字段约束与下游解析不变） */
 function buildReceiptExtractionRules(opts: {
   supplierListImg: string;
   categoryList: string;
@@ -162,69 +164,23 @@ function buildReceiptExtractionRules(opts: {
   currencyList: string;
   defaultAttributionName: string;
 }): string {
-  const { supplierListImg, categoryList, attributionNamesCsv, paymentAccountList, defaultCurrency, currencyList, defaultAttributionName } = opts;
-  return `Existing Suppliers (pick from list if match else return new name, will create): [${supplierListImg || 'None'}]. Same rule for categoryName, attributionName, paymentAccountName: match from injected lists or return new value (will create).
+  const {
+    supplierListImg,
+    categoryList,
+    attributionNamesCsv,
+    paymentAccountList,
+    defaultCurrency,
+    currencyList,
+    defaultAttributionName,
+  } = opts;
+  return `Lists (semantic match; else new values may be created). Suppliers: [${supplierListImg || 'None'}]. Categories: [${categoryList}]. Attributions: [${attributionNamesCsv}], default "${defaultAttributionName}". Payment accounts: [${paymentAccountList || 'None'}]. Currencies (hints): [${currencyList}], default "${defaultCurrency}".
 
-Selection priority for categoryName and attributionName:
-- Choose the MOST semantically accurate option from the provided lists.
-- Treat the list order as unranked suggestions; DO NOT assume earlier options are preferred.
-- Use frequency/popularity only as a weak tie-breaker when two options are equally good.
-- Decide per line item using BOTH "name" and "itemAlias" together.
-- If "name" is code-like/cryptic and itemAlias is clearer, prioritize itemAlias meaning for categoryName/attributionName matching.
-- Prefer selecting from provided customer options whenever there is a close semantic match; create a new value only when none of the options reasonably fit.
-- Also use receipt-level context to disambiguate categoryName/attributionName: supplier/entity identity, merchant type, receipt title/header keywords, tax jurisdiction clues, and payment/account hints.
-- Keep line-level and receipt-level signals consistent: avoid assigning categories/attributions that conflict with the merchant/entity profile or document context unless the line explicitly indicates an exception.
-- If a line is ambiguous, infer from nearby lines and overall basket pattern (e.g., grocery basket vs fuel station vs restaurant) before choosing categoryName/attributionName.
+Single pass only: include EVERYTHING in this one JSON (line items, supplierInfo, quality, consistency)—the app does not run a second image call for merchant tax/phone/address.
 
-1. Supplier name (supplierName): Extract the complete merchant/store name from the receipt header (usually the most prominent text at the top). 
-   - Pick from Existing Suppliers above if it matches; else return the extracted name (will create new supplier).
-   - DO NOT use generic terms like "Receipt", "Invoice", "Bill", "Processing", "Pending", or status words
-   - If truly unidentifiable, use "Unknown Supplier" only as last resort
+Rules: (1) supplierName—merchant header; not generic words. (2) supplierInfo—scan full receipt for taxNumber (US EIN / CA GST etc.), phone, address when printed (null only if absent). (3) date YYYY-MM-DD. (4) totalAmount. (5) currency ISO. (6) paymentAccountName from list or card hint. (7) tax if printed (app may reconcile); no extra tax jurisdiction fields. (8) ${RECEIPT_JSON_ITEMS_RULE} (9) imageQuality clarity/completeness 0–1 + short comments. (10) dataConsistency. (11) confidence 0–1.
 
-2. Supplier information (supplierInfo) - CRITICAL: Extract ALL visible merchant information with MAXIMUM DETAIL. Scan the ENTIRE receipt systematically: header, footer, sides, corners, and every section. This information is ESSENTIAL for complete merchant identification.
-   
-   - Tax number (taxNumber): Extract ALL tax identification numbers if present. This is ESSENTIAL for merchant identification and MUST be extracted if visible anywhere on the receipt.
-     * United States formats: EIN XX-XXXXXXX; labels: "EIN", "Tax ID", "Federal Tax ID"
-     * Canada formats: GST/HST, PST, QST; labels: "GST", "HST", "PST", "QST", "Business Number", "BN"
-     * **Extract ALL tax numbers if multiple. Combine with commas if multiple.**
-   
-   - Phone (phone): Extract the main business phone if visible. North American formats: (XXX) XXX-XXXX, XXX-XXX-XXXX, 1-XXX-XXX-XXXX.
-   - Address (address): Extract the COMPLETE business address (street, city, state/province, ZIP/postal code) if visible.
-
-3. Date (date, format: YYYY-MM-DD): Extract the purchase/transaction date. For ambiguous slash dates, choose the interpretation closest to today (past). Convert to YYYY-MM-DD.
-
-4. Total amount (totalAmount, numeric). Common labels: "Total", "Amount Due", "Grand Total". Exclude tip if separate.
-
-5. Currency (currency, ISO: USD, CAD, MXN). User's most used: [${currencyList}]. Default if not stated: "${defaultCurrency}".
-
-6. Payment account (paymentAccountName): Match from [${paymentAccountList || 'No existing accounts'}] by card suffix or type; else descriptive name with last 4 digits and type.
-
-7. Do not output tax breakdown or tax jurisdiction fields. Tax handling is computed by app-side deterministic logic.
-
-8. Detailed item list (items). ${RECEIPT_JSON_ITEMS_RULE}
-   - name, categoryName (pick from [${categoryList}]), attributionName (pick from [${attributionNamesCsv}], default "${defaultAttributionName}"), price (number).
-   - Prefer verbatim receipt text in "name"; put the clearest shopper-facing label in "itemAlias" whenever the printed line is not already obvious (codes, SKUs, dept numbers, cryptic abbreviations). Never put currency amounts in itemAlias.
-
-9. Image quality assessment (imageQuality): clarity and completeness (0.0–1.0), clarityComment, completenessComment. For documents, rate readability and completeness of content.
-
-10. Data consistency (dataConsistency): itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment.
-
-11. Overall confidence (confidence): 0.0–1.0.
-
-Return ONLY valid JSON, no markdown. Format:
-{
-  "supplierName": "string",
-  "supplierInfo": { "taxNumber": "string or null", "phone": "string or null", "address": "string or null" },
-  "date": "YYYY-MM-DD",
-  "totalAmount": number,
-  "currency": "USD",
-  "paymentAccountName": "string or null",
-  "tax": number,
-  "items": [ { "name": "string", "itemAlias": "string or omit", "categoryName": "string", "attributionName": "string", "price": number } ],
-  "imageQuality": { "clarity": number, "completeness": number, "clarityComment": "string", "completenessComment": "string" },
-  "dataConsistency": { "itemsSum": number, "itemsSumMatchesTotal": boolean, "missingItems": boolean, "consistencyComment": "string" },
-  "confidence": number
-}`;
+Return ONLY valid JSON (no markdown fences). Required shape:
+{"supplierName":"string","supplierInfo":{"taxNumber":null,"phone":null,"address":null},"date":"YYYY-MM-DD","totalAmount":0,"currency":"USD","paymentAccountName":null,"tax":0,"items":[{"name":"","itemAlias":"","categoryName":"","attributionName":"","price":0}],"imageQuality":{"clarity":0,"completeness":0,"clarityComment":"","completenessComment":""},"dataConsistency":{"itemsSum":0,"itemsSumMatchesTotal":false,"missingItems":false,"consistencyComment":""},"confidence":0}`;
 }
 
 // 识别小票内容（使用图片 URL）
@@ -303,7 +259,8 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
   const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
   const supplierListImg = supplierNamesImg.length > 0 ? supplierNamesImg.join(', ') : '';
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
-  const currencyList = userCurrencies.length > 0 ? userCurrencies.join(', ') : 'USD, CAD, MXN';
+  const currencyList =
+    userCurrencies.length > 0 ? userCurrencies.slice(0, 6).join(', ') : 'USD, CAD, MXN';
 
   const extractionRules = buildReceiptExtractionRules({
     supplierListImg,
@@ -372,7 +329,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
     },
   };
 
-  // 尝试每个模型，直到找到一个可用的
+  // 同一 base64 按模型列表依次尝试（模型不可用/坏输出时换模型；外层另有 runWithRecognitionRetry）
   let lastError: Error | null = null;
 
   for (const modelName of modelsToTry) {
@@ -384,6 +341,9 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
       const result = await model.generateContent([prompt, imagePart]);
       const apiResponse = await result.response;
       const text = apiResponse.text();
+      if (!text || !String(text).trim()) {
+        throw new Error('Empty model response');
+      }
       geminiDevLog(`✅ Model ${modelName} worked! Response length:`, text.length);
 
       // 提取JSON部分（去除可能的markdown代码块标记）
@@ -395,7 +355,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
       }
 
       const parsedResult: GeminiReceiptResult = JSON.parse(jsonText);
-      ensureGeminiParsedReceiptItems(parsedResult as Record<string, unknown>, {
+      ensureGeminiParsedReceiptItems(parsedResult as unknown as Record<string, unknown>, {
         categoryNames,
         defaultAttributionName: 'Personal',
       });
@@ -467,15 +427,34 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
       console.error(`❌ Model ${modelName} failed:`, lastError.message);
       clearModelCacheIfUnavailable(error);
 
-      // 如果是模型不存在的错误，尝试下一个模型
       const errorMsg = lastError.message.toLowerCase();
+      // 模型不可用：换下一个（同一请求内仍传同一图片，不重复下载）
       if (errorMsg.includes('not found') || errorMsg.includes('404')) {
-        geminiDevLog(`  模型 ${modelName} 不可用，尝试下一个...`);
+        geminiDevLog(`  Model ${modelName} unavailable, next model...`);
         continue;
       }
-
-      // 如果是其他错误（如 API Key 错误），不再尝试其他模型
-      break;
+      // 空响应 / 非 JSON / 解析失败：换下一个模型（原先直接 break 会导致连试多模型却只吃最后一次）
+      if (
+        errorMsg.includes('empty model response') ||
+        /unexpected token|json|parse|syntax|expected json/i.test(errorMsg)
+      ) {
+        geminiDevLog(`  Model ${modelName} bad output, next model...`);
+        continue;
+      }
+      // 认证 / 额度：不必换模型
+      if (
+        errorMsg.includes('api key') ||
+        errorMsg.includes('401') ||
+        errorMsg.includes('403') ||
+        errorMsg.includes('quota') ||
+        errorMsg.includes('429') ||
+        errorMsg.includes('permission')
+      ) {
+        break;
+      }
+      // 其余错误：尝试列表中的下一模型
+      geminiDevLog(`  Model ${modelName} error, next model if any...`);
+      continue;
     }
   }
 
@@ -636,7 +615,8 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
     } catch (_) {}
   }
   const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
-  const currencyList = userCurrencies.length > 0 ? userCurrencies.slice(0, 3).join(', ') : 'USD, CAD, MXN';
+  const currencyList =
+    userCurrencies.length > 0 ? userCurrencies.slice(0, 6).join(', ') : 'USD, CAD, MXN';
   const supplierListImg = supplierNamesImg.join(', ');
   const categoryList = toUnrankedOptionList(categoryNames).join(', ');
   const attributionNamesCsv = toUnrankedOptionList(attributionNames).join(', ');
@@ -678,11 +658,14 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
       const model = currentGenAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent([prompt, filePart]);
       const text = result.response.text();
+      if (!text || !String(text).trim()) {
+        throw new Error('Empty model response');
+      }
       let jsonText = text.trim();
       if (jsonText.startsWith('```json')) jsonText = jsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
       else if (jsonText.startsWith('```')) jsonText = jsonText.replace(/^```\s*/, '').replace(/\s*```$/, '');
       const parsedResult: GeminiReceiptResult = JSON.parse(jsonText);
-      ensureGeminiParsedReceiptItems(parsedResult as Record<string, unknown>, {
+      ensureGeminiParsedReceiptItems(parsedResult as unknown as Record<string, unknown>, {
         categoryNames,
         defaultAttributionName: 'Personal',
       });
@@ -746,8 +729,8 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
 }
 
 /**
- * 异步识别供应商详细信息（地址、电话、税号）
- * 这是一个独立的识别任务，可以在基本小票信息返回后异步执行
+ * 仅商户税号/电话/地址的独立识别（历史兼容）。
+ * 主流程应以 recognizeReceipt 单次 JSON 中的 supplierInfo 为准并已写库；请勿在主链路再次调用以免重复传图。
  */
 export async function recognizeSupplierInfo(
   imageUrl: string,
@@ -1734,71 +1717,6 @@ const OUTBOUND_DOCUMENT_PARSE_INTRO = `You are a warehouse/inventory expert. You
 
 `;
 
-/** 入库单文字识别：按样例表格最完整字段提取 */
-export async function recognizeInboundFromText(text: string): Promise<GeminiInboundOutboundResult> {
-  const currentApiKey = getCurrentGeminiApiKey();
-  const today = getLocalDateString();
-  let supplierListIn = '';
-  let warehouseListIn = '';
-  let locationListIn = '';
-  let skuListIn = '';
-  try {
-    const [suppliers, warehouses, skus] = await Promise.all([
-      getEntityOptions(),
-      getWarehousesForOptions(),
-      getSkusForOptions(),
-    ]);
-    supplierListIn = suppliers.map((s) => s.name).join(', ');
-    warehouseListIn = warehouses.map((w) => w.name).join(', ');
-    const locNames: string[] = [];
-    for (const w of warehouses) {
-      const locs = await getLocationsByWarehouseForOptions(w.id);
-      locNames.push(...locs.map((l) => l.name));
-    }
-    locationListIn = [...new Set(locNames)].join(', ');
-    skuListIn = skus.map((s) => (s.code ? `${s.code}(${s.name})` : s.name)).join(', ');
-  } catch (e) {
-    console.warn('Failed to fetch inbound options:', e);
-  }
-  const prompt = `Extract INBOUND (入库单) from text. INBOUND = goods received from supplier. Return ONLY valid JSON, no markdown.
-
-Rules: For supplierName, warehouseName, locationName, skuCode/productCode: pick from injected lists if match, else return new value (will create). date YYYY-MM-DD, use ${today} if missing; ambiguous slash dates → closest to today.
-
-Data: today=${today}. Suppliers [${supplierListIn || 'None'}]. Warehouses [${warehouseListIn || 'None'}]. Locations [${locationListIn || 'None'}]. SKUs (code or name) [${skuListIn || 'None'}].
-
-HEADER: documentNo, supplierName, warehouseName, locationName, date, inboundType, totalAmount, totalAmountChinese, currency, handlerName, warehouseKeeperName, accountantName, remarks.
-ITEMS (array, REQUIRED): lineNo, productCode, productName, specification, quantity, qualifiedQuantity, defectiveQuantity, unit, unitPrice, amount, skuCode, remarks. Output confidence(0-1).
-
-User input:
-"${text}"`;
-
-  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = geminiModelsToTry(null, { promptTextLength: prompt.length });
-  let lastError: Error | null = null;
-  for (const modelName of modelsToTry) {
-    try {
-      const model = currentGenAI.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent(prompt);
-      const textResponse = result.response.text();
-      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('No JSON in response');
-      const parsed: any = JSON.parse(jsonMatch[0]);
-      if (!parsed.supplierName) parsed.supplierName = 'Supplier';
-      if (!parsed.date) parsed.date = today;
-      parsed.date = normalizeShortDate(parsed.date);
-      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
-      parsed.items = normalizeInboundItems(parsed.items, today);
-      if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
-      if (parsed.confidence === undefined) parsed.confidence = 0.8;
-      return parsed as GeminiInboundOutboundResult;
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-      continue;
-    }
-  }
-  throw lastError || new Error('All models failed');
-}
-
 function normalizeInboundItems(items: any[], defaultDate: string): any[] {
   return items
     .filter(
@@ -1878,10 +1796,141 @@ function normalizeOutboundItems(items: any[], defaultDate: string): any[] {
     });
 }
 
-/** 出库单文字识别：按样例表格最完整字段提取 */
-export async function recognizeOutboundFromText(text: string): Promise<GeminiInboundOutboundResult> {
+type InboundOptionLists = {
+  supplierListIn: string;
+  warehouseListIn: string;
+  locationListIn: string;
+  skuListIn: string;
+};
+
+async function loadInboundOptionLists(): Promise<InboundOptionLists> {
+  let supplierListIn = '';
+  let warehouseListIn = '';
+  let locationListIn = '';
+  let skuListIn = '';
+  try {
+    const [suppliers, warehouses, skus] = await Promise.all([
+      getEntityOptions(),
+      getWarehousesForOptions(),
+      getSkusForOptions(),
+    ]);
+    supplierListIn = suppliers.map((s) => s.name).join(', ');
+    warehouseListIn = warehouses.map((w) => w.name).join(', ');
+    const locNames: string[] = [];
+    for (const w of warehouses) {
+      const locs = await getLocationsByWarehouseForOptions(w.id);
+      locNames.push(...locs.map((l) => l.name));
+    }
+    locationListIn = [...new Set(locNames)].join(', ');
+    skuListIn = skus.map((s) => (s.code ? `${s.code}(${s.name})` : s.name)).join(', ');
+  } catch (e) {
+    console.warn('Failed to fetch inbound options:', e);
+  }
+  return { supplierListIn, warehouseListIn, locationListIn, skuListIn };
+}
+
+function buildInboundExtractionRules(today: string, lists: InboundOptionLists): string {
+  const { supplierListIn, warehouseListIn, locationListIn, skuListIn } = lists;
+  return `Rules: For supplierName, warehouseName, locationName, skuCode/productCode: pick from injected lists if match, else return new value (will create). date YYYY-MM-DD, use ${today} if missing; ambiguous slash dates → closest to today.
+
+Data: today=${today}. Suppliers [${supplierListIn || 'None'}]. Warehouses [${warehouseListIn || 'None'}]. Locations [${locationListIn || 'None'}]. SKUs (code or name) [${skuListIn || 'None'}].
+
+HEADER: documentNo, supplierName, warehouseName, locationName, date, inboundType, totalAmount, totalAmountChinese, currency, handlerName, warehouseKeeperName, accountantName, remarks.
+ITEMS (array, REQUIRED): lineNo, productCode, productName, specification, quantity, qualifiedQuantity, defectiveQuantity, unit, unitPrice, amount, skuCode, remarks. Output confidence(0-1).`;
+}
+
+function parseInboundModelJson(textResponse: string, today: string): GeminiInboundOutboundResult {
+  const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('No JSON in response');
+  const parsed: any = JSON.parse(jsonMatch[0]);
+  if (!parsed.supplierName) parsed.supplierName = 'Supplier';
+  if (!parsed.date) parsed.date = today;
+  parsed.date = normalizeShortDate(parsed.date);
+  if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
+  parsed.items = normalizeInboundItems(parsed.items, today);
+  if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
+  if (parsed.confidence === undefined) parsed.confidence = 0.8;
+  return parsed as GeminiInboundOutboundResult;
+}
+
+/** 入库单文字识别：按样例表格最完整字段提取 */
+export async function recognizeInboundFromText(text: string): Promise<GeminiInboundOutboundResult> {
   const currentApiKey = getCurrentGeminiApiKey();
   const today = getLocalDateString();
+  const lists = await loadInboundOptionLists();
+  const prompt = `Extract INBOUND (入库单) from text. INBOUND = goods received from supplier. Return ONLY valid JSON, no markdown.
+
+${buildInboundExtractionRules(today, lists)}
+
+User input:
+"${text}"`;
+
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  const modelsToTry = geminiModelsToTry(null, { promptTextLength: prompt.length });
+  let lastError: Error | null = null;
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const textResponse = result.response.text();
+      return parseInboundModelJson(textResponse, today);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+/** 入库单语音识别：音频一次 multimodal 调用，与文字路径同一 schema（不再先转写再解析） */
+export async function recognizeInboundFromAudio(audioUri: string): Promise<GeminiInboundOutboundResult> {
+  const currentApiKey = getCurrentGeminiApiKey();
+  const today = getLocalDateString();
+  const lists = await loadInboundOptionLists();
+  const prompt = `Extract INBOUND (入库单) from the attached audio. INBOUND = goods received from supplier. Return ONLY valid JSON, no markdown.
+
+${buildInboundExtractionRules(today, lists)}
+
+Listen to the audio and output one JSON object. Unclear or noise-only audio → still return valid JSON with appropriate confidence; use empty or minimal items when nothing usable is heard.`;
+
+  const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch {}
+  const modelsToTry = geminiModelsToTry(availableModel, {
+    promptTextLength: prompt.length,
+    inlineBase64Length: audioBase64.length,
+    mimeType: 'audio/m4a',
+  });
+  let lastError: Error | null = null;
+  for (const modelName of modelsToTry) {
+    try {
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([
+        { inlineData: { data: audioBase64, mimeType: 'audio/m4a' } },
+        prompt,
+      ]);
+      const textResponse = result.response.text();
+      return parseInboundModelJson(textResponse, today);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      clearModelCacheIfUnavailable(error);
+      continue;
+    }
+  }
+  throw lastError || new Error('All models failed');
+}
+
+type OutboundOptionLists = {
+  customerListOut: string;
+  warehouseListOut: string;
+  locationListOut: string;
+  skuListOut: string;
+};
+
+async function loadOutboundOptionLists(): Promise<OutboundOptionLists> {
   let customerListOut = '';
   let warehouseListOut = '';
   let locationListOut = '';
@@ -1904,14 +1953,41 @@ export async function recognizeOutboundFromText(text: string): Promise<GeminiInb
   } catch (e) {
     console.warn('Failed to fetch outbound options:', e);
   }
-  const prompt = `Extract OUTBOUND (出库单) from text. OUTBOUND = goods shipped to customer. Return ONLY valid JSON, no markdown.
+  return { customerListOut, warehouseListOut, locationListOut, skuListOut };
+}
 
-Rules: For customerName, warehouseName, locationName, skuCode: pick from injected lists if match, else return new value (will create). date YYYY-MM-DD, use ${today} if missing; ambiguous slash dates → closest to today.
+function buildOutboundExtractionRules(today: string, lists: OutboundOptionLists): string {
+  const { customerListOut, warehouseListOut, locationListOut, skuListOut } = lists;
+  return `Rules: For customerName, warehouseName, locationName, skuCode: pick from injected lists if match, else return new value (will create). date YYYY-MM-DD, use ${today} if missing; ambiguous slash dates → closest to today.
 
 Data: today=${today}. Customers [${customerListOut || 'None'}]. Warehouses [${warehouseListOut || 'None'}]. Locations [${locationListOut || 'None'}]. SKUs (code or name) [${skuListOut || 'None'}].
 
 HEADER: documentNo, customerName, warehouseName, locationName, date, totalAmount, totalTax, currency, handlerName, preparerName, accountantName, remarks.
-ITEMS (array, REQUIRED): lineNo, productName, specification, quantity, unit, unitPrice, amount, supplyPrice, tax, skuCode, remarks. Output confidence(0-1).
+ITEMS (array, REQUIRED): lineNo, productName, specification, quantity, unit, unitPrice, amount, supplyPrice, tax, skuCode, remarks. Output confidence(0-1).`;
+}
+
+function parseOutboundModelJson(textResponse: string, today: string): GeminiInboundOutboundResult {
+  const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error('No JSON in response');
+  const parsed: any = JSON.parse(jsonMatch[0]);
+  if (!parsed.customerName) parsed.customerName = 'Customer';
+  if (!parsed.date) parsed.date = today;
+  parsed.date = normalizeShortDate(parsed.date);
+  if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
+  parsed.items = normalizeOutboundItems(parsed.items, today);
+  if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
+  if (parsed.confidence === undefined) parsed.confidence = 0.8;
+  return parsed as GeminiInboundOutboundResult;
+}
+
+/** 出库单文字识别：按样例表格最完整字段提取 */
+export async function recognizeOutboundFromText(text: string): Promise<GeminiInboundOutboundResult> {
+  const currentApiKey = getCurrentGeminiApiKey();
+  const today = getLocalDateString();
+  const lists = await loadOutboundOptionLists();
+  const prompt = `Extract OUTBOUND (出库单) from text. OUTBOUND = goods shipped to customer. Return ONLY valid JSON, no markdown.
+
+${buildOutboundExtractionRules(today, lists)}
 
 User input:
 "${text}"`;
@@ -1924,17 +2000,7 @@ User input:
       const model = currentGenAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent(prompt);
       const textResponse = result.response.text();
-      const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error('No JSON in response');
-      const parsed: any = JSON.parse(jsonMatch[0]);
-      if (!parsed.customerName) parsed.customerName = 'Customer';
-      if (!parsed.date) parsed.date = today;
-      parsed.date = normalizeShortDate(parsed.date);
-      if (!parsed.items || !Array.isArray(parsed.items)) parsed.items = [];
-      parsed.items = normalizeOutboundItems(parsed.items, today);
-      if (parsed.items.length === 0) parsed.items = [{ productName: 'Goods', quantity: 1, unit: '件', unitPrice: parsed.totalAmount }];
-      if (parsed.confidence === undefined) parsed.confidence = 0.8;
-      return parsed as GeminiInboundOutboundResult;
+      return parseOutboundModelJson(textResponse, today);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
       continue;
@@ -1943,13 +2009,24 @@ User input:
   throw lastError || new Error('All models failed');
 }
 
-/** 语音转文字（供入库/出库语音识别复用） */
-async function transcribeAudioToText(audioUri: string): Promise<string> {
+/** 出库单语音识别：音频一次 multimodal 调用，与文字路径同一 schema（不再先转写再解析） */
+export async function recognizeOutboundFromAudio(audioUri: string): Promise<GeminiInboundOutboundResult> {
   const currentApiKey = getCurrentGeminiApiKey();
+  const today = getLocalDateString();
+  const lists = await loadOutboundOptionLists();
+  const prompt = `Extract OUTBOUND (出库单) from the attached audio. OUTBOUND = goods shipped to customer. Return ONLY valid JSON, no markdown.
+
+${buildOutboundExtractionRules(today, lists)}
+
+Listen to the audio and output one JSON object. Unclear or noise-only audio → still return valid JSON with appropriate confidence; use empty or minimal items when nothing usable is heard.`;
+
   const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const prompt = 'Transcribe this audio to plain text. Output only the transcribed text, no JSON, no explanation.';
-  const modelsToTry = geminiModelsToTry(null, {
+  let availableModel: string | null = null;
+  try {
+    availableModel = await getAvailableImageModel();
+  } catch {}
+  const modelsToTry = geminiModelsToTry(availableModel, {
     promptTextLength: prompt.length,
     inlineBase64Length: audioBase64.length,
     mimeType: 'audio/m4a',
@@ -1962,26 +2039,15 @@ async function transcribeAudioToText(audioUri: string): Promise<string> {
         { inlineData: { data: audioBase64, mimeType: 'audio/m4a' } },
         prompt,
       ]);
-      const text = result.response.text()?.trim() || '';
-      if (text) return text;
+      const textResponse = result.response.text();
+      return parseOutboundModelJson(textResponse, today);
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
+      clearModelCacheIfUnavailable(error);
       continue;
     }
   }
-  throw lastError || new Error('Transcription failed');
-}
-
-/** 入库单语音识别：先转写再按入库单 prompt 解析 */
-export async function recognizeInboundFromAudio(audioUri: string): Promise<GeminiInboundOutboundResult> {
-  const text = await transcribeAudioToText(audioUri);
-  return recognizeInboundFromText(text);
-}
-
-/** 出库单语音识别：先转写再按出库单 prompt 解析 */
-export async function recognizeOutboundFromAudio(audioUri: string): Promise<GeminiInboundOutboundResult> {
-  const text = await transcribeAudioToText(audioUri);
-  return recognizeOutboundFromText(text);
+  throw lastError || new Error('All models failed');
 }
 
 /** 从 URL 下载图片并转为 base64 + mimeType（入库/出库图片识别复用） */

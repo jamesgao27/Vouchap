@@ -1676,7 +1676,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               const recognizeFn = voucherType === 'receipt'
                 ? () => (isImage ? recognizeReceipt(fileUrl) : recognizeReceiptFromDocument(fileUrl, file.mimeType))
                 : () => (isImage ? recognizeReceipt(fileUrl) : recognizeInvoiceFromDocument(fileUrl, file.mimeType));
-              const first = await runWithRecognitionRetry(recognizeFn as () => Promise<Awaited<ReturnType<typeof recognizeReceipt>>>, { maxAttempts: 3, delayMs: 1500 });
+              const first = await runWithRecognitionRetry(recognizeFn as () => Promise<Awaited<ReturnType<typeof recognizeReceipt>>>, { maxAttempts: 5, delayMs: 1500 });
               if (!first.success) {
                 const errText = first.isContentQuality ? '❌ Content unclear or not recognized. Please resubmit.' : `❌ ${getUserFacingMessage(first)}`;
                 setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: errText, isUser: false, timestamp: new Date() } : m)));
