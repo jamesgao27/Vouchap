@@ -8,6 +8,86 @@
 
 ---
 
+### 2026-05-04（Vouchap：发布版本 2.6.1 Build 51）
+
+**User（提示词/原意）**  
+- 版本号 v2.6.1。
+
+**Assistant（实现前说明）**  
+- 按仓库准则同步 `package.json` / `package-lock.json` / `app.json` / `app.config.js` / Android `build.gradle` / iOS `Info.plist`；构建号由上一版 50 递增为 **51**，与 iOS `CFBundleVersion`、Android `versionCode` 一致。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已全部写入 **2.6.1** / **51**；已执行 `git commit` + `git push`，提交说明：`发布版本号 2.6.1 (Build 51)`。
+
+**关联**  
+- `vouchap-app/package.json`、`app.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`
+
+---
+
+### 2026-05-04（Vouchap：入库/出库语音 — 去掉「转写 + 二次解析」双次 Gemini）
+
+**User（提示词/原意）**  
+- 把收入/其它凭证里类似的「二次识别」也扫一遍并优化（接续支出侧「同一张图不要为补字段再调一轮 API」的思路）。
+
+**Assistant（实现前说明）**  
+- 扫描结论：`recognizeInboundFromAudio` / `recognizeOutboundFromAudio` 原为 **`transcribeAudioToText` + `recognize*FromText`**，同一音频 **两次** Gemini；收入语音 **`recognizeInvoiceFromAudio`** 已是单次 multimodal，无需改。  
+- 计划：入库/出库语音改为 **音频 inline + 与文字路径相同的 extraction 规则**，一次 `generateContent`，共用 **`parseInboundModelJson` / `parseOutboundModelJson`** 与 **`normalizeInboundItems` / `normalizeOutboundItems`**；删除仅被上述路径使用的 **`transcribeAudioToText`**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `gemini.ts`：抽取 **`loadInboundOptionLists` / `buildInboundExtractionRules`**（出库同理）、解析函数；**`recognizeInboundFromText` / `recognizeOutboundFromText`** 改为复用规则字符串；**`recognizeInboundFromAudio` / `recognizeOutboundFromAudio`** 单次 multimodal（`audio/m4a` + `getAvailableImageModel` 与 `geminiModelsToTry` 与发票语音一致）；移除 **`transcribeAudioToText`**。  
+- **验证**：入库/出库语音路径日志中「同一 URI」应只出现 **一轮**带音频的 `generateContent`；文本聊天入库/出库路径行为不变。  
+- **残留**：收入 **拍照** 仍为 `recognizeReceipt` + `convertGeminiResultToInvoice`（单次）；若需客户税号/电话等与支出 `supplierInfo` 对齐，属字段与 prompt 扩展，未在本轮做。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini.ts`
+
+---
+
+### 2026-05-04（Vouchap：更正 — 保留重试；去掉「商户二次识别」重复传图）
+
+**User（提示词/原意）**  
+- 先前理解有误：**模型不可用 / 识别失败**的重复尝试机制需**继续保留**。  
+- 真实诉求：避免为**不同信息**拆成多次 input；**整合提示词与输出格式**，让多次返回的内容在**一次识别**里完整返回并正确写库。
+
+**Assistant（实现前说明）**  
+- 根因：`receipt-processor` 在主链路 `recognizeReceipt` 之后仍 **`recognizeSupplierInfo(finalImageUrl)`**，对**同一图片**再跑一轮 Gemini（典型日志里「第二次空 / 第三次截断」常与「主识别 + 备用模型 + 商户二次」叠加有关）。  
+- `convertGeminiResultToReceipt` 已从首次结果的 `supplierInfo` 写入 `findOrCreateEntity`，二次调用冗余。  
+- 恢复：`runWithRecognitionRetry` **`maxAttempts: 5`**；`recognizeReceipt` / `recognizeReceiptFromDocument` 内 **`geminiModelsToTry`** 完整模型回退；移除 helper 中 **`receiptImageModelsToTry`** 截断。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `receipt-processor.ts`：删除异步 **`recognizeSupplierInfo`** 及其 entity 合并逻辑；供应商税号/电话/地址仅依赖 **`recognizeReceipt` 单次 JSON**。  
+- `gemini.ts`：`buildReceiptExtractionRules` 增加 **single pass** 说明；**`recognizeSupplierInfo`** 标注为历史兼容、主链路勿再调。  
+- 多处 **`maxAttempts`** 恢复为 **5**（processor / index / chat-to-log / reprocess）。  
+- **验证**：成功路径应对同一 receipt **仅一次**主 multimodal（外加模型回退或外层重试时仍属「失败恢复」）；关联方字段随首次识别写库。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-processor.ts`  
+- `vouchap-app/src/shared-logic/gemini.ts`
+
+---
+
+### 2026-05-04（Vouchap：小票识别减少 Gemini 调用次数 + 精简提示词）
+
+**User（提示词/原意）**  
+- AI API log 显示单次识别约 **3 次调用**，图片均重复提交；第二次空响应、第三次仅少量 JSON。  
+- 要求：**整合提示词与识别流程**，减少调用次数；在**保证返回格式约束**前提下**精简提示词**以降低 input token。
+
+**Assistant（实现前说明）**  
+- 根因：`recognizeReceipt` 使用 `geminiModelsToTry` 合并「探测模型 + 长 fallback 列表」，单次函数内可能连续多次 `generateContent`（每次都带整图）；JSON 解析失败时原先 **`break`**，不再试后续模型；外层 `runWithRecognitionRetry(..., 5)` 会整轮重复下载图片并重跑。  
+- 计划：`gemini-helper` 增加 **`receiptImageModelsToTry`**（每请求最多 **2** 个模型）；图片路径对空响应/解析失败 **`continue`** 换模型；精简 **`buildReceiptExtractionRules`** / intro / `RECEIPT_JSON_ITEMS_RULE`；外层 retry 改为 **2** 次（processor / index / reprocess / chat-to-log 中对 recognizeReceipt 的路径）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `gemini-helper.ts`：`receiptImageModelsToTry`、`MAX_RECEIPT_VISION_MODEL_ATTEMPTS`。  
+- `gemini.ts`：`recognizeReceipt` / `recognizeReceiptFromDocument` 改用上述列表；空响应显式报错；catch 对空/JSON 错误继续下一模型；支出规则与 schema 合并为短文案（下游 `ensureGeminiParsedReceiptItems` 仍兜底）。  
+- 多处 `runWithRecognitionRetry` 的 `maxAttempts` 改为 **2**。  
+- **验证**：同一识别在日志中应为「单次下载 base64 + 至多 2 次 multimodal + 至多 2 轮外层重试」的上限显著低于原先；抽查中英文小票 JSON 字段齐全。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini.ts`  
+- `vouchap-app/src/shared-logic/gemini-helper.ts`
+
+---
+
 ### 2026-05-04（Vouchap：duplicate 状态详情页编辑改为删除）
 
 **User（提示词/原意）**  
