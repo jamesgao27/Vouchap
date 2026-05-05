@@ -183,6 +183,95 @@ Return ONLY valid JSON (no markdown fences). Required shape:
 {"supplierName":"string","supplierInfo":{"taxNumber":null,"phone":null,"address":null},"date":"YYYY-MM-DD","totalAmount":0,"currency":"USD","paymentAccountName":null,"tax":0,"items":[{"name":"","itemAlias":"","categoryName":"","attributionName":"","price":0}],"imageQuality":{"clarity":0,"completeness":0,"clarityComment":"","completenessComment":""},"dataConsistency":{"itemsSum":0,"itemsSumMatchesTotal":false,"missingItems":false,"consistencyComment":""},"confidence":0}`;
 }
 
+const INVOICE_JSON_ITEMS_RULE =
+  'items: ≥1 row. Each: name, categoryName, attributionName, price; itemAlias when line is SKU/code/cryptic (plain English label, no amounts in itemAlias).';
+
+const INVOICE_IMAGE_PARSE_INTRO =
+  "Sales invoice, payment advice, or incoming payment slip: extract fields for money received by the user's business. Identify the customer/payer (Bill To, buyer, client) and any printed tax ID, phone, and mailing address for that party.\n\n";
+
+function buildInvoiceImageExtractionRules(opts: {
+  customerListImg: string;
+  categoryList: string;
+  attributionNamesCsv: string;
+  paymentAccountList: string;
+  defaultCurrency: string;
+  currencyList: string;
+  defaultAttributionName: string;
+}): string {
+  const {
+    customerListImg,
+    categoryList,
+    attributionNamesCsv,
+    paymentAccountList,
+    defaultCurrency,
+    currencyList,
+    defaultAttributionName,
+  } = opts;
+  return `Lists (semantic match; else new values may be created). Customers / counterparties: [${customerListImg || 'None'}]. Categories: [${categoryList}]. Attributions: [${attributionNamesCsv}], default "${defaultAttributionName}". Deposit/receipt accounts: [${paymentAccountList || 'None'}]. Currencies (hints): [${currencyList}], default "${defaultCurrency}".
+
+Single pass only: include EVERYTHING in this one JSON (line items, supplierInfo for customer tax/phone/address, quality, consistency)—the app does not run a second image call.
+
+Rules: (1) customerName—the buyer/payer or Bill To party (not generic words). (2) supplierInfo—the CUSTOMER taxNumber (VAT/GST/EIN etc.), phone, and address as printed for that party; keep JSON key supplierInfo for app compatibility; null only when absent. (3) date YYYY-MM-DD. (4) totalAmount. (5) currency ISO. (6) paymentAccountName from list when visible. (7) tax if printed (else app may infer). (8) ${INVOICE_JSON_ITEMS_RULE} (9) imageQuality clarity/completeness 0–1 + short comments. (10) dataConsistency. (11) confidence 0–1.
+
+Return ONLY valid JSON (no markdown fences). Required shape:
+{"customerName":"string","supplierInfo":{"taxNumber":null,"phone":null,"address":null},"date":"YYYY-MM-DD","totalAmount":0,"currency":"USD","paymentAccountName":null,"tax":0,"items":[{"name":"","itemAlias":"","categoryName":"","attributionName":"","price":0}],"imageQuality":{"clarity":0,"completeness":0,"clarityComment":"","completenessComment":""},"dataConsistency":{"itemsSum":0,"itemsSumMatchesTotal":false,"missingItems":false,"consistencyComment":""},"confidence":0}`;
+}
+
+/** Normalize tax/phone/address from supplierInfo or customerInfo (Gemini may emit either). */
+function normalizePrintedPartyContact(raw: unknown): GeminiVoucherResult['supplierInfo'] {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const o = raw as Record<string, unknown>;
+  const str = (v: unknown) => {
+    if (v == null || v === 'null') return undefined;
+    const s = String(v).trim();
+    return s.length ? s : undefined;
+  };
+  const taxNumber = str(o.taxNumber);
+  const phone = str(o.phone);
+  const address = str(o.address);
+  if (!taxNumber && !phone && !address) return undefined;
+  return { taxNumber, phone, address };
+}
+
+/** Load a remote image URL to base64 for Gemini inlineData (Web + Native). */
+async function loadImageUrlAsBase64ForGemini(imageUrl: string): Promise<{ base64: string; mimeType: string }> {
+  let mimeType = 'image/jpeg';
+  if (imageUrl.includes('.png')) mimeType = 'image/png';
+  else if (imageUrl.includes('.gif')) mimeType = 'image/gif';
+  else if (imageUrl.includes('.webp')) mimeType = 'image/webp';
+
+  if (Platform.OS === 'web') {
+    const res = await fetch(imageUrl, { mode: 'cors' });
+    if (!res.ok) throw new Error('Failed to fetch image from URL');
+    const blob = await res.blob();
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const b64 = dataUrl.split(',')[1];
+        resolve(b64 ?? '');
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+    return { base64, mimeType };
+  }
+  const downloadResult = await FileSystem.downloadAsync(
+    imageUrl,
+    FileSystem.documentDirectory + `temp-${Date.now()}.jpg`
+  );
+  if (!downloadResult.uri) throw new Error('Failed to download image from URL');
+  const base64 = await FileSystem.readAsStringAsync(downloadResult.uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  try {
+    await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true });
+  } catch (e) {
+    console.warn('Failed to delete temp file:', e);
+  }
+  return { base64, mimeType };
+}
+
 // 识别小票内容（使用图片 URL）
 export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptResult> {
   const currentApiKey = getCurrentGeminiApiKey();
@@ -273,45 +362,10 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
   });
   const prompt = RECEIPT_IMAGE_PARSE_INTRO + extractionRules;
 
-  // 从 URL 下载图片并转换为 base64（Web 用 fetch，Native 用 FileSystem）
   geminiDevLog('Downloading image from URL...');
   geminiDevLog('Image URL:', imageUrl);
 
-  let base64: string;
-  let mimeType = 'image/jpeg';
-  if (imageUrl.includes('.png')) mimeType = 'image/png';
-  else if (imageUrl.includes('.gif')) mimeType = 'image/gif';
-  else if (imageUrl.includes('.webp')) mimeType = 'image/webp';
-
-  if (Platform.OS === 'web') {
-    const res = await fetch(imageUrl, { mode: 'cors' });
-    if (!res.ok) throw new Error('Failed to fetch image from URL');
-    const blob = await res.blob();
-    base64 = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        const b64 = dataUrl.split(',')[1];
-        resolve(b64 ?? '');
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  } else {
-    const downloadResult = await FileSystem.downloadAsync(
-      imageUrl,
-      FileSystem.documentDirectory + `temp-${Date.now()}.jpg`
-    );
-    if (!downloadResult.uri) throw new Error('Failed to download image from URL');
-    base64 = await FileSystem.readAsStringAsync(downloadResult.uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-    try {
-      await FileSystem.deleteAsync(downloadResult.uri, { idempotent: true });
-    } catch (e) {
-      console.warn('Failed to delete temp file:', e);
-    }
-  }
+  const { base64, mimeType } = await loadImageUrlAsBase64ForGemini(imageUrl);
 
   geminiDevLog('Image downloaded, size:', base64.length, 'bytes, mime type:', mimeType);
 
@@ -501,6 +555,309 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
   }
 
   throw new Error('Receipt recognition failed: Unknown error');
+}
+
+/** Income voucher photo: one multimodal pass returns customerName, supplierInfo (customer tax/phone/address), and line items—aligned with expense receipt single-call behavior. */
+export async function recognizeInvoiceFromImage(imageUrl: string): Promise<GeminiVoucherResult> {
+  const currentApiKey = getCurrentGeminiApiKey();
+  geminiDevLog('Starting invoice (income) image recognition...');
+  geminiDevLog('Image URL:', imageUrl);
+
+  const currentGenAI = new GoogleGenerativeAI(currentApiKey);
+
+  if (!availableModelCache) {
+    geminiDevLog('Attempting to fetch available models from API...');
+    try {
+      const availableModel = await getAvailableImageModel();
+      if (availableModel) {
+        availableModelCache = availableModel;
+        geminiDevLog('✅ Found available model via API:', availableModelCache);
+      } else {
+        console.warn('⚠️  No image models found via API');
+      }
+    } catch (error) {
+      console.warn('⚠️  Could not fetch available models from API:', error);
+      console.warn('Will try default model list...');
+    }
+  }
+
+  let categoryNames: string[] = [];
+  try {
+    const categories = await getCategories('income');
+    categoryNames = categories.map((cat) => cat.name);
+  } catch (error) {
+    console.warn('Failed to fetch income categories, using default list:', error);
+    categoryNames = [...DEFAULT_INCOME_CATEGORIES];
+  }
+  if (categoryNames.length === 0) categoryNames = [...DEFAULT_INCOME_CATEGORIES];
+
+  let attributionNames: string[] = [];
+  try {
+    const attributions = await getAttributions('income');
+    attributionNames = attributions.map((p) => p.name);
+  } catch (error) {
+    console.warn('Failed to fetch income attributions, using default list:', error);
+    attributionNames = [...DEFAULT_INCOME_ATTRIBUTIONS];
+  }
+  if (attributionNames.length === 0) attributionNames = [...DEFAULT_INCOME_ATTRIBUTIONS];
+
+  let paymentAccountNames: string[] = [];
+  try {
+    const accounts = await getAccountsForOptions();
+    paymentAccountNames = accounts.map((pa) => pa.name);
+  } catch (error) {
+    console.warn('Failed to fetch payment accounts:', error);
+  }
+
+  let userCurrencies: string[] = [];
+  try {
+    userCurrencies = await getCurrenciesByUsage();
+  } catch (error) {
+    console.warn('Failed to fetch currency usage:', error);
+  }
+
+  let customerNamesImg: string[] = [];
+  try {
+    const entities = await getEntityOptions();
+    customerNamesImg = entities.map((e) => e.name);
+  } catch (e) {
+    console.warn('Failed to fetch customers:', e);
+  }
+
+  const categoryList = toUnrankedOptionList(categoryNames).join(', ');
+  const attributionNamesCsv = toUnrankedOptionList(attributionNames).join(', ');
+  const paymentAccountList = paymentAccountNames.length > 0 ? paymentAccountNames.join(', ') : '';
+  const customerListImg = customerNamesImg.length > 0 ? customerNamesImg.join(', ') : '';
+  const defaultCurrency = userCurrencies.length > 0 ? userCurrencies[0] : 'USD';
+  const currencyList =
+    userCurrencies.length > 0 ? userCurrencies.slice(0, 6).join(', ') : 'USD, CAD, MXN';
+  const defaultAttribution =
+    attributionNames.find((n) => /employer/i.test(n)) || attributionNames[0] || 'Employer';
+
+  const extractionRules = buildInvoiceImageExtractionRules({
+    customerListImg,
+    categoryList,
+    attributionNamesCsv,
+    paymentAccountList,
+    defaultCurrency,
+    currencyList,
+    defaultAttributionName: defaultAttribution,
+  });
+  const prompt = INVOICE_IMAGE_PARSE_INTRO + extractionRules;
+
+  const { base64, mimeType } = await loadImageUrlAsBase64ForGemini(imageUrl);
+
+  geminiDevLog('Invoice image downloaded, size:', base64.length, 'bytes, mime type:', mimeType);
+
+  const modelsToTry = geminiModelsToTry(availableModelCache, {
+    promptTextLength: prompt.length,
+    inlineBase64Length: base64.length,
+    mimeType,
+  });
+
+  const imagePart = {
+    inlineData: {
+      data: base64,
+      mimeType,
+    },
+  };
+
+  let lastError: Error | null = null;
+
+  for (const modelName of modelsToTry) {
+    try {
+      geminiDevLog(`Trying model (invoice image): ${modelName}...`);
+      const model = currentGenAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent([prompt, imagePart]);
+      const apiResponse = await result.response;
+      const text = apiResponse.text();
+      if (!text || !String(text).trim()) {
+        throw new Error('Empty model response');
+      }
+      geminiDevLog(`✅ Model ${modelName} worked (invoice image)! Response length:`, text.length);
+
+      let jsonText = text.trim();
+      if (jsonText.startsWith('```json')) {
+        jsonText = jsonText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+      } else if (jsonText.startsWith('```')) {
+        jsonText = jsonText.replace(/^```\s*/, '').replace(/\s*```$/, '');
+      }
+
+      const parsedResult: Record<string, unknown> = JSON.parse(jsonText);
+      ensureGeminiParsedReceiptItems(parsedResult, {
+        categoryNames,
+        defaultAttributionName: defaultAttribution,
+      });
+
+      const prAny = parsedResult as Record<string, any>;
+      const paymentAccountName = prAny.paymentAccountName || prAny.paymentAccount || undefined;
+
+      const imageQuality = prAny.imageQuality
+        ? {
+            clarity: prAny.imageQuality.clarity !== undefined ? Number(prAny.imageQuality.clarity) : undefined,
+            completeness:
+              prAny.imageQuality.completeness !== undefined ? Number(prAny.imageQuality.completeness) : undefined,
+            clarityComment: prAny.imageQuality.clarityComment,
+            completenessComment: prAny.imageQuality.completenessComment,
+          }
+        : undefined;
+
+      const dataConsistency = prAny.dataConsistency
+        ? {
+            itemsSum: prAny.dataConsistency.itemsSum !== undefined ? Number(prAny.dataConsistency.itemsSum) : undefined,
+            itemsSumMatchesTotal:
+              prAny.dataConsistency.itemsSumMatchesTotal !== undefined
+                ? Boolean(prAny.dataConsistency.itemsSumMatchesTotal)
+                : undefined,
+            missingItems:
+              prAny.dataConsistency.missingItems !== undefined ? Boolean(prAny.dataConsistency.missingItems) : undefined,
+            consistencyComment: prAny.dataConsistency.consistencyComment,
+          }
+        : undefined;
+
+      const itemsArr = Array.isArray(prAny.items) ? prAny.items : [];
+      const calculatedItemsSum = itemsArr.reduce(
+        (sum: number, item: any) => sum + (Number(item?.price ?? item?.amount) || 0),
+        0,
+      );
+      const totalAmount = Number(prAny.totalAmount) || 0;
+      const explicitTax = prAny.tax !== undefined ? Number(prAny.tax) : NaN;
+      let tax: number;
+      if (Number.isFinite(explicitTax)) {
+        tax = explicitTax;
+      } else {
+        const inferredTax = totalAmount - calculatedItemsSum;
+        tax = inferredTax > 0 ? Number(inferredTax.toFixed(2)) : 0;
+      }
+      const expectedTotal = calculatedItemsSum + tax;
+      const actualItemsSumMatches = Math.abs(expectedTotal - totalAmount) <= 0.01;
+
+      const defaultCategory = categoryNames.length > 0 ? categoryNames[0] : 'Sales';
+      const customerName =
+        String(prAny.customerName || prAny.supplierName || '').trim() || 'Customer';
+      const supplierInfo = normalizePrintedPartyContact(prAny.supplierInfo ?? prAny.customerInfo);
+
+      let itemsOut = itemsArr
+        .map((item: any) => {
+          const readable = resolveReadableItemName(item);
+          const attributionName =
+            (item.attributionName ?? item.purposeName ?? item.purpose ?? defaultAttribution) || defaultAttribution;
+          return {
+            ...readable,
+            categoryName: item.categoryName ?? item.category ?? defaultCategory,
+            price: Number(item.price ?? item.amount ?? 0),
+            attributionName,
+            isAsset: item.isAsset !== undefined ? Boolean(item.isAsset) : false,
+            confidence: item.confidence !== undefined ? Number(item.confidence) : 0.8,
+          };
+        })
+        .filter((item: any) => item.name != null && item.price !== undefined && item.categoryName);
+
+      if (itemsOut.length === 0) {
+        itemsOut = [
+          {
+            name: 'Sale',
+            categoryName: defaultCategory,
+            attributionName: defaultAttribution,
+            price: totalAmount || 0,
+            isAsset: false,
+            confidence: 0.8,
+          },
+        ];
+      }
+
+      return {
+        customerName,
+        supplierInfo,
+        date: normalizeShortDate(prAny.date || getLocalDateString()),
+        totalAmount,
+        currency: prAny.currency || defaultCurrency,
+        paymentAccountName,
+        tax,
+        items: itemsOut,
+        confidence: prAny.confidence !== undefined ? Number(prAny.confidence) : 0.8,
+        imageQuality,
+        dataConsistency:
+          dataConsistency || {
+            itemsSum: calculatedItemsSum,
+            itemsSumMatchesTotal: actualItemsSumMatches,
+            missingItems: !actualItemsSumMatches && calculatedItemsSum < totalAmount,
+            consistencyComment: actualItemsSumMatches
+              ? 'Items sum matches total'
+              : `Items sum (${calculatedItemsSum.toFixed(2)}) differs from total (${totalAmount.toFixed(2)}) by ${Math.abs(expectedTotal - totalAmount).toFixed(2)}`,
+          },
+      } as GeminiVoucherResult;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      console.error(`❌ Model ${modelName} failed (invoice image):`, lastError.message);
+      clearModelCacheIfUnavailable(error);
+
+      const errorMsg = lastError.message.toLowerCase();
+      if (errorMsg.includes('not found') || errorMsg.includes('404')) {
+        geminiDevLog(`  Model ${modelName} unavailable, next model...`);
+        continue;
+      }
+      if (
+        errorMsg.includes('empty model response') ||
+        /unexpected token|json|parse|syntax|expected json/i.test(errorMsg)
+      ) {
+        geminiDevLog(`  Model ${modelName} bad output, next model...`);
+        continue;
+      }
+      if (
+        errorMsg.includes('api key') ||
+        errorMsg.includes('401') ||
+        errorMsg.includes('403') ||
+        errorMsg.includes('quota') ||
+        errorMsg.includes('429') ||
+        errorMsg.includes('permission')
+      ) {
+        break;
+      }
+      geminiDevLog(`  Model ${modelName} error, next model if any...`);
+      continue;
+    }
+  }
+
+  console.error('All models failed (invoice image). Last error:', lastError);
+
+  if (lastError) {
+    const errorMsg = lastError.message.toLowerCase();
+
+    if (errorMsg.includes('api key') || errorMsg.includes('api_key') || errorMsg.includes('invalid api key') || errorMsg.includes('401')) {
+      throwGeminiProxyUnavailable(`Gemini rejected the request (often invalid or missing server GEMINI_API_KEY). Original: ${lastError.message}`);
+    }
+
+    if (errorMsg.includes('quota') || errorMsg.includes('429') || errorMsg.includes('rate limit')) {
+      throw new Error(`API quota exhausted or limit reached\nOriginal error: ${lastError.message}`);
+    }
+
+    if (errorMsg.includes('permission') || errorMsg.includes('403') || errorMsg.includes('forbidden')) {
+      throwGeminiProxyUnavailable(`Permission denied calling AI. Original: ${lastError.message}`);
+    }
+
+    if (errorMsg.includes('not found') || errorMsg.includes('404')) {
+      throwGeminiProxyUnavailable(
+        `No working Gemini model (404). Tried: ${POSSIBLE_MODELS.join(', ')}. Adjust GEMINI_MODEL_DEFAULT or GEMINI_ENFORCE_SERVER_MODEL on the server. Original: ${lastError.message}`,
+      );
+    }
+
+    if (
+      errorMsg.includes('network') ||
+      errorMsg.includes('fetch') ||
+      errorMsg.includes('connection') ||
+      errorMsg.includes('timeout') ||
+      errorMsg.includes('econnrefused') ||
+      errorMsg.includes('failed to fetch') ||
+      errorMsg.includes('generativelanguage.googleapis.com')
+    ) {
+      throwGeminiProxyUnavailable(`Network error reaching AI (check device connectivity and that gemini-proxy is deployed). Original: ${lastError.message}`);
+    }
+
+    throwGeminiProxyUnavailable(`Invoice image recognition failed (${lastError.name}): ${lastError.message}`);
+  }
+
+  throw new Error('Invoice image recognition failed: Unknown error');
 }
 
 /** 从 URL 下载文件（图片或 PDF/文档）为 base64 + mimeType，供文档识别使用 */
@@ -1423,7 +1780,9 @@ Rules: Gibberish/no real content → confidence 0.1, customerName "Unknown", tot
 
 Data: today=${today}. Customers [${customerList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Employer".
 
-Output: customerName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[] where each item includes name, itemAlias(optional), categoryName, attributionName, price, dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
+Single pass only: include supplierInfo for the customer/payer taxNumber, phone, address when mentioned (JSON key supplierInfo; null when absent)—no second parsing step.
+
+Output: customerName, supplierInfo{taxNumber,phone,address}, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[] where each item includes name, itemAlias(optional), categoryName, attributionName, price, dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
 
 User input:
 "${text}"`;
@@ -1443,6 +1802,8 @@ User input:
       const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON in response');
       const parsed: any = JSON.parse(jsonMatch[0]);
+
+      parsed.supplierInfo = normalizePrintedPartyContact(parsed.supplierInfo ?? parsed.customerInfo);
 
       if (!parsed.customerName) parsed.customerName = 'Customer';
       if (!parsed.date) parsed.date = today;
@@ -1515,7 +1876,9 @@ export async function recognizeInvoiceFromDocument(fileUrl: string, mimeHint?: s
 
 Data: today=${today}. Customers [${customerList}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Employer".
 
-Output: customerName, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[] where each item includes name, itemAlias(optional), categoryName, attributionName, price, dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
+Single pass only: include supplierInfo for the customer/payer taxNumber, phone, address as printed (JSON key supplierInfo; null when absent).
+
+Output: customerName, supplierInfo{taxNumber,phone,address}, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[] where each item includes name, itemAlias(optional), categoryName, attributionName, price, dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
 
   const prompt = INVOICE_DOCUMENT_PARSE_INTRO + rulesAndData;
   const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
@@ -1547,6 +1910,7 @@ Output: customerName, date, totalAmount, currency, paymentAccountName (optional)
       const jsonMatch = textResponse.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON in response');
       const parsed: any = JSON.parse(jsonMatch[0]);
+      parsed.supplierInfo = normalizePrintedPartyContact(parsed.supplierInfo ?? parsed.customerInfo);
       if (!parsed.customerName) parsed.customerName = 'Customer';
       if (!parsed.date) parsed.date = today;
       parsed.date = normalizeShortDate(parsed.date);
@@ -1634,7 +1998,11 @@ async function recognizeInvoiceFromAudio(audioUri: string): Promise<GeminiVouche
 
 Rules: Unclear/noise-only audio → confidence 0.1, customerName "Unknown", totalAmount 0, items []. For customerName, categoryName, attributionName, paymentAccountName: pick from injected lists if match, else return new value (will create). For categoryName/attributionName, prioritize semantic fit, not list position/frequency (frequency is only weak tie-breaker). Only extract what you actually hear.
 
-Data: today=${today}. Customers [${customerListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Employer". Return ONLY valid JSON: customerName, date (YYYY-MM-DD), totalAmount, currency, tax, paymentAccountName, items (name, itemAlias(optional), categoryName, attributionName, price), dataConsistency (itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment), confidence(0-1).`;
+Data: today=${today}. Customers [${customerListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Employer".
+
+Single pass: include supplierInfo for customer taxNumber, phone, address when clearly spoken (JSON key supplierInfo).
+
+Return ONLY valid JSON: customerName, supplierInfo{taxNumber,phone,address}, date (YYYY-MM-DD), totalAmount, currency, tax, paymentAccountName, items (name, itemAlias(optional), categoryName, attributionName, price), dataConsistency (itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment), confidence(0-1).`;
 
   const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
   let availableModel: string | null = null;
@@ -1659,6 +2027,7 @@ Data: today=${today}. Customers [${customerListAudio || 'None'}]. Currencies [${
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) throw new Error('No JSON in response');
       const parsed: any = JSON.parse(jsonMatch[0]);
+      parsed.supplierInfo = normalizePrintedPartyContact(parsed.supplierInfo ?? parsed.customerInfo);
       if (!parsed.customerName) parsed.customerName = 'Customer';
       if (!parsed.date) parsed.date = today;
       parsed.date = normalizeShortDate(parsed.date);

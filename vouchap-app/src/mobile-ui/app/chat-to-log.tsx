@@ -22,7 +22,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { recognizeReceipt, recognizeReceiptFromDocument, recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio, recognizeInvoiceFromDocument, recognizeInboundFromText, recognizeInboundFromAudio, recognizeOutboundFromText, recognizeOutboundFromAudio, recognizeInboundFromImage, recognizeOutboundFromImage, recognizeInboundFromDocument, recognizeOutboundFromDocument, recognizeClientsFromText, recognizeClientsFromDocument, recognizeClientsFromImage } from '@/lib/gemini';
+import { recognizeReceipt, recognizeReceiptFromDocument, recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio, recognizeInvoiceFromImage, recognizeInvoiceFromDocument, recognizeInboundFromText, recognizeInboundFromAudio, recognizeOutboundFromText, recognizeOutboundFromAudio, recognizeInboundFromImage, recognizeOutboundFromImage, recognizeInboundFromDocument, recognizeOutboundFromDocument, recognizeClientsFromText, recognizeClientsFromDocument, recognizeClientsFromImage } from '@/lib/gemini';
 import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition-retry';
 import { saveReceipt, updateReceipt, getReceiptById } from '@/lib/database';
 import { checkDuplicateReceipt } from '@/lib/receipt-duplicate-checker';
@@ -1675,8 +1675,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               }
               const recognizeFn = voucherType === 'receipt'
                 ? () => (isImage ? recognizeReceipt(fileUrl) : recognizeReceiptFromDocument(fileUrl, file.mimeType))
-                : () => (isImage ? recognizeReceipt(fileUrl) : recognizeInvoiceFromDocument(fileUrl, file.mimeType));
-              const first = await runWithRecognitionRetry(recognizeFn as () => Promise<Awaited<ReturnType<typeof recognizeReceipt>>>, { maxAttempts: 5, delayMs: 1500 });
+                : () => (isImage ? recognizeInvoiceFromImage(fileUrl) : recognizeInvoiceFromDocument(fileUrl, file.mimeType));
+              const first = await runWithRecognitionRetry(recognizeFn as () => Promise<Awaited<ReturnType<typeof recognizeReceipt>> | Awaited<ReturnType<typeof recognizeInvoiceFromImage>>>, { maxAttempts: 5, delayMs: 1500 });
               if (!first.success) {
                 const errText = first.isContentQuality ? '❌ Content unclear or not recognized. Please resubmit.' : `❌ ${getUserFacingMessage(first)}`;
                 setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: errText, isUser: false, timestamp: new Date() } : m)));

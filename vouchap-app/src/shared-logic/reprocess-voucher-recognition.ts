@@ -3,9 +3,9 @@
  */
 import * as FileSystem from 'expo-file-system/legacy';
 import {
-  recognizeReceipt,
   recognizeReceiptFromAudio,
   recognizeReceiptFromDocument,
+  recognizeInvoiceFromImage,
   recognizeInvoiceFromDocument,
   recognizeVoucherFromAudio,
 } from './gemini';
@@ -249,7 +249,7 @@ export async function reprocessIncomeInvoiceFromStoredMedia(invoiceId: string): 
     return;
   }
 
-  const ret = await runWithRecognitionRetry(() => recognizeReceipt(imageUrl), {
+  const ret = await runWithRecognitionRetry(() => recognizeInvoiceFromImage(imageUrl), {
     maxAttempts: 5,
     delayMs: 2000,
   });

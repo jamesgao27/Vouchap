@@ -8,6 +8,28 @@
 
 ---
 
+### 2026-05-04（Vouchap：收入拍照单次识别客户税号/电话/地址并与支出对齐写库）
+
+**User（提示词/原意）**  
+- 收入拍照要和支出一样在一次结果里带齐客户税号/电话等。
+
+**Assistant（实现前说明）**  
+- 原因：收入拍照此前复用 **`recognizeReceipt`**（支出 prompt），客户侧字段偏离「买方/Bill To」，且 **`convertGeminiResultToInvoice`** 调用 **`findOrCreateEntity`** 未传入 **`supplierInfo`** 税号/电话/地址。  
+- 计划：新增 **`recognizeInvoiceFromImage`**（收入分类 + 单次 JSON 含 **customerName + supplierInfo**）；抽取 **`loadImageUrlAsBase64ForGemini`** 供支出/收入共用下载逻辑；**`normalizePrintedPartyContact`** 统一解析 **supplierInfo / customerInfo**；收入文字/文档/语音 prompt 补充 **supplierInfo**；入口与 **`convertGeminiResultToInvoice`** 写入实体三字段。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `gemini.ts`：新增 **`recognizeInvoiceFromImage`**、**`buildInvoiceImageExtractionRules`**、**`loadImageUrlAsBase64ForGemini`**、**`normalizePrintedPartyContact`**；**`recognizeReceipt`** 改用共享下载；收入 **text / document / audio** 路径补充 **supplierInfo** 与归一化。  
+- `receipt-helpers.ts`：**`convertGeminiResultToInvoice`** 中 **`findOrCreateEntity`** 传入税号/电话/地址（与支出一致）。  
+- `index.tsx`、`chat-to-log.tsx`、`reprocess-voucher-recognition.ts`：收入 **图片** 改调 **`recognizeInvoiceFromImage`**。  
+- **验证**：拍收入凭证一张，日志仅一轮识图；数据库 **entities** 在名称匹配时应写入（或补全）税号/电话/地址。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini.ts`、`receipt-helpers.ts`  
+- `vouchap-app/src/mobile-ui/app/index.tsx`、`chat-to-log.tsx`  
+- `vouchap-app/src/shared-logic/reprocess-voucher-recognition.ts`
+
+---
+
 ### 2026-05-04（Vouchap：发布版本 2.6.1 Build 51）
 
 **User（提示词/原意）**  

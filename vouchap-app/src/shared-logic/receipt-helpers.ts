@@ -399,7 +399,13 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
     const invalidNames = ['processing', 'pending', 'loading', '识别中', '处理中', '待处理', 'customer'];
     if (!invalidNames.includes(trimmed.toLowerCase())) {
       try {
-        const entity = await findOrCreateEntity(trimmed, true);
+        const entity = await findOrCreateEntity(
+          trimmed,
+          true,
+          result.supplierInfo?.taxNumber,
+          result.supplierInfo?.phone,
+          result.supplierInfo?.address
+        );
         entityId = entity.id;
       } catch (_) {}
     }

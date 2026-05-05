@@ -15,7 +15,7 @@ import { saveInvoice } from '@/lib/invoices';
 import { processReceiptInBackground } from '@/lib/receipt-processor';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getLocalDateString } from '@/lib/date-utils';
-import { recognizeReceipt } from '@/lib/gemini';
+import { recognizeInvoiceFromImage } from '@/lib/gemini';
 import { convertGeminiResultToInvoice } from '@/lib/receipt-helpers';
 import { recordInvoiceRecognitionFailure, resetInvoiceRecognitionFailCount } from '@/lib/recognition-fail-count';
 import { runWithRecognitionRetry } from '@/lib/recognition-retry';
@@ -689,7 +689,7 @@ export default function HomeScreen() {
           );
           setLastInvoiceId(invoiceId);
 
-          const ret = await runWithRecognitionRetry(() => recognizeReceipt(imageUrl), { maxAttempts: 5, delayMs: 2000 });
+          const ret = await runWithRecognitionRetry(() => recognizeInvoiceFromImage(imageUrl), { maxAttempts: 5, delayMs: 2000 });
           if (ret.success) {
             const invoice = await convertGeminiResultToInvoice(ret.result);
             await saveInvoice(
