@@ -8,6 +8,47 @@
 
 ---
 
+### 2026-05-05（Vouchap：失败小票详情重试被额度拦截修复）
+
+**User（提示词/原意）**  
+- 「vouchap中，没有识别成功的receipt，详情中重试识别有如图报错。」（报错文案为“included recognitions for this month are used up...”）。
+
+**Assistant（实现前说明）**  
+- 排查 `receipt-details` 重试入口与 `reprocess-voucher-recognition` 调用链，确认失败小票（`needs_retake`）在详情页点击重试时也会先执行 `assertClientRecognitionAllowed`，被月度额度前置拦截。  
+- 计划在重试逻辑中增加失败重试判定：仅对非失败重试场景执行额度前置校验，失败重试直接进入识别流程。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 在 `reprocessExpenseReceiptFromStoredMedia` 增加 `isFailedRecognitionRetry`（`status === 'needs_retake'` 或 `recognitionFailCount > 0`）分支；该分支不再触发额度前置拦截。  
+- 对非失败场景仍保留原有额度校验与失败计数逻辑，避免影响正常配额控制。  
+- 已对改动文件执行 `ReadLints`，无新增 lint 错误。
+
+**关联**  
+- `/Users/macbook/Vouchap/vouchap-app/src/shared-logic/reprocess-voucher-recognition.ts`  
+- `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`
+
+---
+
+### 2026-05-05（Vouchap：Expo / EAS 全平台 production 构建）
+
+**User（提示词/原意）**  
+- expo 构建全平台 production。
+
+**Assistant（实现前说明）**  
+- Web：`NODE_ENV=production npx expo export -p web` → `dist/`。  
+- 原生：**EAS** `production`（`eas.json`）；需已登录；**appVersionSource: remote** 会递增云端 Android **versionCode** / iOS **buildNumber**。  
+- 说明：`npx eas-cli` 若遇全局 npm 缓存权限错误，可用 **`NPM_CONFIG_CACHE=/tmp/npm-cache-$(whoami)`** 规避。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已在 `vouchap-app` 执行 **Web production export**，输出 **`dist/`**。  
+- **Android**：已提交 EAS production（示例：`builds/4ed53995-d1c1-4589-b319-4e3baa6549c7`，Version **2.6.1**，versionCode **52**，进行中/请在 Expo 控制台查看最终状态）。  
+- **iOS**：单独提交 production（**builds/be534944-2084-4c86-a245-05f0b8d65447**，云端递增 **buildNumber 36**）；CLI 可能在云端编译阶段阻塞较久，可在网页跟踪日志与 artifact。  
+- 归档约 **337 MB**，可考虑 `.easignore` 减小上传体积。
+
+**关联**  
+- `vouchap-app/eas.json`、`docs/DEPLOY-CLOUDFLARE.md`（Web 部署）
+
+---
+
 ### 2026-05-04（Vouchap：收入拍照单次识别客户税号/电话/地址并与支出对齐写库）
 
 **User（提示词/原意）**  

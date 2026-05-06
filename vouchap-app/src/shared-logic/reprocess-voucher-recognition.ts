@@ -71,11 +71,15 @@ export async function reprocessExpenseReceiptFromStoredMedia(receiptId: string):
   if (!receipt) throw new Error('Expense not found');
 
   const quotaSpaceId = receipt.spaceId ?? '';
-  const gate = await assertClientRecognitionAllowed(quotaSpaceId);
-  if (!gate.allowed) {
-    await updateReceipt(receiptId, { status: 'needs_retake' }, true);
-    await incrementReceiptRecognitionFailCount(receiptId);
-    throw new Error(gate.message || 'Recognition limit reached.');
+  const isFailedRecognitionRetry =
+    receipt.status === 'needs_retake' || (receipt.recognitionFailCount ?? 0) > 0;
+  if (!isFailedRecognitionRetry) {
+    const gate = await assertClientRecognitionAllowed(quotaSpaceId);
+    if (!gate.allowed) {
+      await updateReceipt(receiptId, { status: 'needs_retake' }, true);
+      await incrementReceiptRecognitionFailCount(receiptId);
+      throw new Error(gate.message || 'Recognition limit reached.');
+    }
   }
 
   const chatLogs = await getChatLogsByReceiptId(receiptId);
