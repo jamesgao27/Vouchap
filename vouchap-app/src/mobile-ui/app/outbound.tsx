@@ -166,9 +166,8 @@ export default function OutboundScreen() {
     }, [load, list.length])
   );
 
-  // Supabase Realtime：Web 端 DataTable 列表不启用；移动端列表启用。
+  // Supabase Realtime：Web / 移动端列表均启用。
   useEffect(() => {
-    if (isDesktopWeb) return;
     let outboundChannel: ReturnType<typeof supabase.channel> | null = null;
     let outboundItemsChannel: ReturnType<typeof supabase.channel> | null = null;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -208,7 +207,7 @@ export default function OutboundScreen() {
       if (outboundChannel) supabase.removeChannel(outboundChannel);
       if (outboundItemsChannel) supabase.removeChannel(outboundItemsChannel);
     };
-  }, [isDesktopWeb, load]);
+  }, [load]);
 
   const onRefresh = () => {
     setRefreshing(true);

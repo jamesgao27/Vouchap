@@ -105,9 +105,9 @@ export default function FirmClientDetailScreen() {
     load();
   }, [load]);
 
-  // Realtime：移动端订单列表（桌面 Web 的 orders tab 为 DataTable，不订阅以避免协作抖动）
+  // Realtime：客户空间订单列表（含桌面 Web DataTable）。
   useEffect(() => {
-    if (isDesktopWeb || !resolvedClientSpaceId) return;
+    if (!resolvedClientSpaceId) return;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
     const debouncedRefresh = () => {
       if (refreshTimeout) clearTimeout(refreshTimeout);
@@ -132,7 +132,7 @@ export default function FirmClientDetailScreen() {
       if (refreshTimeout) clearTimeout(refreshTimeout);
       void supabase.removeChannel(ch);
     };
-  }, [isDesktopWeb, resolvedClientSpaceId, load]);
+  }, [resolvedClientSpaceId, load]);
 
   useEffect(() => {
     if (!client?.firmSpaceId) return;

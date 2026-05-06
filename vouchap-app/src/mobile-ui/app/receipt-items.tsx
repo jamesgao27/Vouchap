@@ -169,9 +169,8 @@ export default function ReceiptLineItemsScreen() {
     }, [load])
   );
 
-  // Realtime：Web 端 DataTable 不启用；移动端行项列表启用。
+  // Realtime：Web / 移动端行项列表均启用。
   useEffect(() => {
-    if (isDesktopWeb) return;
     let receiptsCh: ReturnType<typeof supabase.channel> | null = null;
     let itemsCh: ReturnType<typeof supabase.channel> | null = null;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -206,7 +205,7 @@ export default function ReceiptLineItemsScreen() {
       if (receiptsCh) void supabase.removeChannel(receiptsCh);
       if (itemsCh) void supabase.removeChannel(itemsCh);
     };
-  }, [isDesktopWeb, load]);
+  }, [load]);
 
   useEffect(() => {
     getCategories('expense').then(setCategories).catch(() => {});

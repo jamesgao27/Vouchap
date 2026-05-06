@@ -155,9 +155,8 @@ export default function EntitiesManageScreen() {
   const loadListRef = useRef(loadList);
   loadListRef.current = loadList;
 
-  // Supabase Realtime：entities 表变更时自动局部刷新列表（桌面 Web 不启用；移动 Web 与原生启用）
+  // Supabase Realtime：entities 表变更时自动局部刷新列表（含桌面 Web）。
   useEffect(() => {
-    if (isDesktopWeb) return;
     let entitiesChannel: ReturnType<typeof supabase.channel> | null = null;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -190,7 +189,7 @@ export default function EntitiesManageScreen() {
       if (refreshTimeout) clearTimeout(refreshTimeout);
       if (entitiesChannel) supabase.removeChannel(entitiesChannel);
     };
-  }, [isDesktopWeb]);
+  }, []);
 
   const handleAddEntity = async () => {
     if (!newName.trim()) {

@@ -29,7 +29,7 @@ export const AMOUNT_COLOR_INCOME = '#D35400';
 function AmountCell({ amount, currency, amountColor = AMOUNT_COLOR_EXPENSE }: { amount: number; currency?: string; amountColor?: string }) {
   const symbol = getCurrencySymbol(currency);
   return (
-    <Text style={{ fontSize: 14 }}>
+    <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">
       <Text style={{ color: '#A0A0A0', fontSize: 12 }}>{symbol}</Text>
       <Text style={{ fontWeight: '600', color: amountColor }}>{amount.toFixed(2)}</Text>
     </Text>
@@ -493,7 +493,14 @@ function LineTagPill({ label, color }: { label: string; color?: string }) {
 
 /** 提交方式：四类 icon（camera/voice/text/attachment）。图片与拍照统一用 camera icon；attachment 仅 document 用 📎，尾随文案 Image/Doc */
 function InputTypeCell({ type }: { type?: import('@/types').InputType }) {
-  const row = { flexDirection: 'row' as const, alignItems: 'center' as const, gap: 4 };
+  const row = {
+    flexDirection: 'row' as const,
+    alignItems: 'center' as const,
+    gap: 4,
+    flexWrap: 'nowrap' as const,
+    maxHeight: 40,
+    overflow: 'hidden' as const,
+  };
   const textStyle = { fontSize: 13, color: '#636E72' };
   if (type === 'audio') return <View style={row}><Ionicons name="mic" size={16} color="#636E72" /><Text style={textStyle}>Voice</Text></View>;
   if (type === 'text') return <View style={row}><Ionicons name="document-text" size={16} color="#636E72" /><Text style={textStyle}>Text</Text></View>;
@@ -514,14 +521,14 @@ export interface ReceiptColumnOptions {
 export function getReceiptColumns(opts: ReceiptColumnOptions): DataTableColumn<Receipt>[] {
   const { formatDate, formatTimeAgo, statusLabels, statusColors } = opts;
   return [
-    { id: 'supplier', label: 'Payee', minWidth: 140, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.entity?.name || r.supplierName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.supplierName || '').toLowerCase() },
+    { id: 'supplier', label: 'Payee', minWidth: 140, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.entity?.name || r.supplierName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.supplierName || '').toLowerCase() },
     { id: 'amount', label: 'Amount', minWidth: 100, getValue: r => <AmountCell amount={r.totalAmount} currency={r.currency} amountColor={AMOUNT_COLOR_EXPENSE} />, getSortValue: r => r.totalAmount ?? -Infinity },
-    { id: 'account', label: 'Account', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{r.account?.name || '—'}</Text>, getSortValue: r => (r.account?.name || '').toLowerCase() },
-    { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
+    { id: 'account', label: 'Account', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.account?.name || '—'}</Text>, getSortValue: r => (r.account?.name || '').toLowerCase() },
+    { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
     { id: 'status', label: 'Status', minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
-    { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '—'}</Text>, getSortValue: r => (r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '').toLowerCase() },
+    { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '—'}</Text>, getSortValue: r => (r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '').toLowerCase() },
     { id: 'inputType', label: 'Method', minWidth: 90, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
-    { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }}>{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
+    { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }} numberOfLines={1} ellipsizeMode="tail">{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
   ];
 }
 
@@ -586,7 +593,7 @@ export function getReceiptLineItemColumns(opts: ReceiptLineItemColumnOptions): D
           return r.category?.name ? (
             <LineTagPill label={r.category.name} color={r.category.color} />
           ) : (
-            <Text style={{ fontSize: 13, color: '#95A5A6' }}>—</Text>
+            <Text style={{ fontSize: 13, color: '#95A5A6' }} numberOfLines={1}>—</Text>
           );
         }
         const opts = buildLineItemCategoryOptions(r, categories);
@@ -616,7 +623,7 @@ export function getReceiptLineItemColumns(opts: ReceiptLineItemColumnOptions): D
           return r.attribution?.name ? (
             <LineTagPill label={r.attribution.name} color={r.attribution.color} />
           ) : (
-            <Text style={{ fontSize: 13, color: '#95A5A6' }}>—</Text>
+            <Text style={{ fontSize: 13, color: '#95A5A6' }} numberOfLines={1}>—</Text>
           );
         }
         const opts = buildLineItemAttributionOptions(r, attributions);
@@ -669,14 +676,14 @@ export function getReceiptLineItemColumns(opts: ReceiptLineItemColumnOptions): D
       id: 'payee',
       label: 'Payee',
       minWidth: 130,
-      getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.payeeName || '—'}</Text>,
+      getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.payeeName || '—'}</Text>,
       getSortValue: r => (r.payeeName || '').toLowerCase(),
     },
     {
       id: 'receiptDate',
       label: 'Transaction date',
       minWidth: 120,
-      getValue: r => <Text style={{ fontSize: 14 }}>{formatDate(r.receiptDate)}</Text>,
+      getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.receiptDate)}</Text>,
       getSortValue: r => r.receiptDate || '',
     },
   ];
@@ -693,14 +700,14 @@ export interface InvoiceColumnOptions {
 export function getInvoiceColumns(opts: InvoiceColumnOptions): DataTableColumn<Invoice>[] {
   const { formatDate, formatTimeAgo, statusLabels, statusColors } = opts;
   return [
-    { id: 'customer', label: 'Payer', minWidth: 140, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.entity?.name || r.customerName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.customerName || '').toLowerCase() },
+    { id: 'customer', label: 'Payer', minWidth: 140, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.entity?.name || r.customerName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.customerName || '').toLowerCase() },
     { id: 'amount', label: 'Amount', minWidth: 100, getValue: r => <AmountCell amount={r.totalAmount} currency={r.currency} amountColor={AMOUNT_COLOR_INCOME} />, getSortValue: r => r.totalAmount ?? -Infinity },
-    { id: 'account', label: 'Account', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{r.account?.name || '—'}</Text>, getSortValue: r => (r.account?.name || '').toLowerCase() },
-    { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
+    { id: 'account', label: 'Account', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.account?.name || '—'}</Text>, getSortValue: r => (r.account?.name || '').toLowerCase() },
+    { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
     { id: 'status', label: 'Status', minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
-    { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '—'}</Text>, getSortValue: r => (r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '').toLowerCase() },
+    { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '—'}</Text>, getSortValue: r => (r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '').toLowerCase() },
     { id: 'inputType', label: 'Method', minWidth: 90, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
-    { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }}>{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
+    { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }} numberOfLines={1} ellipsizeMode="tail">{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
   ];
 }
 
@@ -715,19 +722,19 @@ export interface InboundColumnOptions {
 export function getInboundColumns(opts: InboundColumnOptions): DataTableColumn<Inbound>[] {
   const { formatDate, formatTimeAgo, statusLabels, statusColors } = opts;
   return [
-    { id: 'supplier', label: 'Sender', minWidth: 120, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.entity?.name || r.supplierName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.supplierName || '').toLowerCase() },
+    { id: 'supplier', label: 'Sender', minWidth: 120, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.entity?.name || r.supplierName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.supplierName || '').toLowerCase() },
     { id: 'amount', label: 'Amount', minWidth: 100, getValue: r => (
       r.totalAmount != null
         ? <AmountCell amount={Number(r.totalAmount)} currency={r.currency} />
-        : <Text style={{ fontSize: 14, color: '#95A5A6' }}>—</Text>
+        : <Text style={{ fontSize: 14, color: '#95A5A6' }} numberOfLines={1}>—</Text>
     ), getSortValue: r => r.totalAmount != null ? Number(r.totalAmount) : -Infinity },
-    { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
+    { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
     { id: 'status', label: 'Status', minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
-    { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{(r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? (r.createdBy ? '…' : '—')}</Text>, getSortValue: r => ((r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? '').toLowerCase() },
-    { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }}>{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
-    { id: 'documentNo', label: 'Doc No', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }}>{r.documentNo || '—'}</Text>, getSortValue: r => (r.documentNo || '').toLowerCase() },
-    { id: 'handler', label: 'Handler', minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.handlerName || '—'}</Text>, getSortValue: r => (r.handlerName || '').toLowerCase() },
-    { id: 'warehouseKeeper', label: 'Keeper', minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.warehouseKeeperName || '—'}</Text>, getSortValue: r => (r.warehouseKeeperName || '').toLowerCase() },
+    { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{(r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? (r.createdBy ? '…' : '—')}</Text>, getSortValue: r => ((r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? '').toLowerCase() },
+    { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }} numberOfLines={1} ellipsizeMode="tail">{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
+    { id: 'documentNo', label: 'Doc No', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.documentNo || '—'}</Text>, getSortValue: r => (r.documentNo || '').toLowerCase() },
+    { id: 'handler', label: 'Handler', minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.handlerName || '—'}</Text>, getSortValue: r => (r.handlerName || '').toLowerCase() },
+    { id: 'warehouseKeeper', label: 'Keeper', minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.warehouseKeeperName || '—'}</Text>, getSortValue: r => (r.warehouseKeeperName || '').toLowerCase() },
   ];
 }
 
@@ -742,18 +749,18 @@ export interface OutboundColumnOptions {
 export function getOutboundColumns(opts: OutboundColumnOptions): DataTableColumn<Outbound>[] {
   const { formatDate, formatTimeAgo, statusLabels, statusColors } = opts;
   return [
-    { id: 'customer', label: 'Receiver', minWidth: 120, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.entity?.name || r.customerName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.customerName || '').toLowerCase() },
+    { id: 'customer', label: 'Receiver', minWidth: 120, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.entity?.name || r.customerName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.customerName || '').toLowerCase() },
     { id: 'amount', label: 'Amount', minWidth: 100, getValue: r => (
       r.totalAmount != null
         ? <AmountCell amount={Number(r.totalAmount)} currency={r.currency} amountColor={AMOUNT_COLOR_INCOME} />
-        : <Text style={{ fontSize: 14, color: '#95A5A6' }}>—</Text>
+        : <Text style={{ fontSize: 14, color: '#95A5A6' }} numberOfLines={1}>—</Text>
     ), getSortValue: r => r.totalAmount != null ? Number(r.totalAmount) : -Infinity },
-    { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }}>{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
+    { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
     { id: 'status', label: 'Status', minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
-    { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{(r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? (r.createdBy ? '…' : '—')}</Text>, getSortValue: r => ((r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? '').toLowerCase() },
-    { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }}>{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
-    { id: 'documentNo', label: 'Doc No', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }}>{r.documentNo || '—'}</Text>, getSortValue: r => (r.documentNo || '').toLowerCase() },
-    { id: 'handler', label: 'Handler', minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.handlerName || '—'}</Text>, getSortValue: r => (r.handlerName || '').toLowerCase() },
-    { id: 'preparer', label: 'Preparer', minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1}>{r.preparerName || '—'}</Text>, getSortValue: r => (r.preparerName || '').toLowerCase() },
+    { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{(r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? (r.createdBy ? '…' : '—')}</Text>, getSortValue: r => ((r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? '').toLowerCase() },
+    { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }} numberOfLines={1} ellipsizeMode="tail">{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
+    { id: 'documentNo', label: 'Doc No', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.documentNo || '—'}</Text>, getSortValue: r => (r.documentNo || '').toLowerCase() },
+    { id: 'handler', label: 'Handler', minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.handlerName || '—'}</Text>, getSortValue: r => (r.handlerName || '').toLowerCase() },
+    { id: 'preparer', label: 'Preparer', minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.preparerName || '—'}</Text>, getSortValue: r => (r.preparerName || '').toLowerCase() },
   ];
 }

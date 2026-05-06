@@ -105,14 +105,14 @@ function getClientColumns(): DataTableColumn<FirmClientWithDetails>[] {
       id: 'contact',
       label: 'Contact',
       minWidth: 120,
-      getValue: (r) => <Text style={cellText} numberOfLines={1}>{r.contactName ?? '—'}</Text>,
+      getValue: (r) => <Text style={cellText} numberOfLines={1} ellipsizeMode="tail">{r.contactName ?? '—'}</Text>,
       getSortValue: (r) => (r.contactName ?? '').toLowerCase(),
     },
     {
       id: 'contactEmail',
       label: 'Contact email',
       minWidth: 180,
-      getValue: (r) => <Text style={cellText} numberOfLines={1}>{r.contactEmail ?? '—'}</Text>,
+      getValue: (r) => <Text style={cellText} numberOfLines={1} ellipsizeMode="tail">{r.contactEmail ?? '—'}</Text>,
       getSortValue: (r) => (r.contactEmail ?? '').toLowerCase(),
     },
     {
@@ -151,21 +151,29 @@ function getClientColumns(): DataTableColumn<FirmClientWithDetails>[] {
       id: 'assignee',
       label: 'Assignee',
       minWidth: 100,
-      getValue: (r) => <Text style={cellText} numberOfLines={1}>{r.assigneeName ?? r.assigneeEmail ?? '—'}</Text>,
+      getValue: (r) => <Text style={cellText} numberOfLines={1} ellipsizeMode="tail">{r.assigneeName ?? r.assigneeEmail ?? '—'}</Text>,
       getSortValue: (r) => (r.assigneeName ?? r.assigneeEmail ?? '').toLowerCase(),
     },
     {
       id: 'lastFollowUpAt',
       label: 'Last follow-up',
       minWidth: 110,
-      getValue: (r) => <Text style={cellText}>{formatLastFollowUp(r.lastFollowUpAt ?? null)}</Text>,
+      getValue: (r) => (
+        <Text style={cellText} numberOfLines={1} ellipsizeMode="tail">
+          {formatLastFollowUp(r.lastFollowUpAt ?? null)}
+        </Text>
+      ),
       getSortValue: (r) => r.lastFollowUpAt ?? '',
     },
     {
       id: 'serviceStartAt',
       label: 'Service start',
       minWidth: 110,
-      getValue: (r) => <Text style={cellText}>{formatServiceStart(r.serviceStartAt)}</Text>,
+      getValue: (r) => (
+        <Text style={cellText} numberOfLines={1} ellipsizeMode="tail">
+          {formatServiceStart(r.serviceStartAt)}
+        </Text>
+      ),
       getSortValue: (r) => r.serviceStartAt ?? '',
     },
   ];
@@ -182,9 +190,11 @@ const CLIENT_TYPE_DOT = {
 function ClientNameCell({ name, isPendingClaim }: { name: string; isPendingClaim?: boolean }) {
   const color = isPendingClaim ? CLIENT_TYPE_DOT.pendingInvitee : CLIENT_TYPE_DOT.client;
   return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color, marginRight: 6 }} />
-      <Text style={cellText} numberOfLines={1}>{name || '—'}</Text>
+    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, minWidth: 0 }}>
+      <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: color, marginRight: 6, flexShrink: 0 }} />
+      <Text style={[cellText, { flex: 1, minWidth: 0 }]} numberOfLines={1} ellipsizeMode="tail">
+        {name || '—'}
+      </Text>
     </View>
   );
 }
@@ -330,7 +340,7 @@ export default function FirmClientsScreen() {
   }, [loadData]);
 
   useEffect(() => {
-    if (isDesktopWeb || !firmSpaceId) return;
+    if (!firmSpaceId) return;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
     const debouncedRefresh = () => {
       if (refreshTimeout) clearTimeout(refreshTimeout);

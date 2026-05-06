@@ -1,6 +1,6 @@
 /**
  * Supabase Realtime helpers for tax filing / engagement screens.
- * Web DataTable list views intentionally do not use these (see receipts/invoices comments).
+ * List DataTable views on Web also subscribe via screen-level postgres_changes (debounced refresh).
  */
 import { useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';

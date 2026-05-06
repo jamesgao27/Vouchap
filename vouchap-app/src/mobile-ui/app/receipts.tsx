@@ -391,9 +391,8 @@ export default function ReceiptsScreen() {
     router.push('/chat-to-log');
   };
 
-  // Supabase Realtime：Web 端 DataTable 列表不启用（避免协作抖动）；移动端与其它非表格视图启用。
+  // Supabase Realtime：列表在 Web / 移动端均订阅；列宽由 DataTable 持久化，刷新不再触发表格列宽重算。
   useEffect(() => {
-    if (isDesktopWeb) return;
     let receiptsChannel: any = null;
     let receiptItemsChannel: any = null;
     let paymentAccountsChannel: any = null;
@@ -524,7 +523,7 @@ export default function ReceiptsScreen() {
         supabase.removeChannel(paymentAccountsChannel);
       }
     };
-  }, [isDesktopWeb, loadReceipts]);
+  }, [loadReceipts]);
 
   // 仅首次进入时加载，返回列表时保留当前结果；下拉刷新时由 onRefresh 处理
   useFocusEffect(useCallback(() => {

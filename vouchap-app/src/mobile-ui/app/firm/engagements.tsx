@@ -90,23 +90,6 @@ function isOrderPendingClaim(o: { clientSpaceId?: string | null; clientId?: stri
   return !o.clientSpaceId && !!o.clientId;
 }
 
-// 与报税项目 Info 页相同的标签配色
-const TAG_PALETTE: [string, string][] = [
-  ['#E3F2FD', '#1E88E5'],  // blue
-  ['#E8F5E9', '#2ECC71'],  // green
-  ['#FFF3E0', '#E67E22'],  // amber
-  ['#FCE4EC', '#E91E63'],  // rose
-  ['#E0F7FA', '#00ACC1'],  // teal
-  ['#FFF8E1', '#F9A825'],  // yellow
-  ['#F3E5F5', '#9C27B0'],  // purple
-];
-
-function getTagColor(tag: string): [string, string] {
-  let hash = 0;
-  for (let i = 0; i < tag.length; i++) hash = (hash * 31 + tag.charCodeAt(i)) & 0xffff;
-  return TAG_PALETTE[hash % TAG_PALETTE.length];
-}
-
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—';
   try {
@@ -227,9 +210,9 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
         const isInvitee = isOrderPendingClaim(r);
         const dotColor = isInvitee ? CLIENT_TYPE_DOT.pendingInvitee : CLIENT_TYPE_DOT.client;
         return (
-          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dotColor }} />
-            <Text style={cellText} numberOfLines={1}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, minWidth: 0, flex: 1 }}>
+            <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: dotColor, flexShrink: 0 }} />
+            <Text style={[cellText, { flex: 1, minWidth: 0 }]} numberOfLines={1} ellipsizeMode="tail">
               {r.clientName || '—'}
             </Text>
           </View>
@@ -242,7 +225,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
       label: 'Service',
       minWidth: 160,
       getValue: (r) => (
-        <Text style={cellText} numberOfLines={1}>
+        <Text style={cellText} numberOfLines={1} ellipsizeMode="tail">
           {serviceItemLabel(r)}
         </Text>
       ),
@@ -252,47 +235,19 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
       id: 'category',
       label: 'Classification',
       minWidth: 200,
-      getValue: (r) => (
-        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6 }}>
-          {(() => {
-            const tags = getCategoryTags(r);
-            if (tags.length === 0) {
-              return <Text style={[cellText, { color: '#95A5A6' }]}>—</Text>;
-            }
-            return tags.map((t) => {
-              // 4 位纯数字的 tag 视为「税季年份」：同色系浅底色 + 深字色；其余标签走通用 TAG_PALETTE
-              const isYearTag = /^\d{4}$/.test(t);
-              const [tagBg, tagFg] = getTagColor(t);
-              const year = isYearTag ? Number(t) : null;
-              const bg = isYearTag ? getTaxSeasonBgColor(year) : tagBg;
-              const fg = isYearTag ? getTaxSeasonColor(year) : tagFg;
-              return (
-                <View
-                  key={t}
-                  style={{
-                    paddingHorizontal: 8,
-                    paddingVertical: 2,
-                    borderRadius: 999,
-                    backgroundColor: bg,
-                    alignSelf: 'flex-start',
-                  }}
-                >
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      fontWeight: '500',
-                      color: fg,
-                    }}
-                    numberOfLines={1}
-                  >
-                    {t}
-                  </Text>
-                </View>
-              );
-            });
-          })()}
-        </View>
-      ),
+      getValue: (r) => {
+        const txt = formatCategory(r);
+        return (
+          <Text
+            style={[cellText, txt === '—' ? { color: '#95A5A6' } : undefined]}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            {...(Platform.OS === 'web' && txt !== '—' ? ({ title: txt } as Record<string, string>) : {})}
+          >
+            {txt}
+          </Text>
+        );
+      },
       getSortValue: (r) => formatCategory(r).toLowerCase(),
     },
     {
@@ -329,7 +284,19 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
       id: 'updatedAt',
       label: 'Updated',
       minWidth: 120,
-      getValue: (r) => <Text style={cellText}>{formatDateTime(r.updatedAt)}</Text>,
+      getValue: (r) => {
+        const txt = formatDateTime(r.updatedAt);
+        return (
+          <Text
+            style={cellText}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            {...(Platform.OS === 'web' && txt !== '—' ? ({ title: txt } as Record<string, string>) : {})}
+          >
+            {txt}
+          </Text>
+        );
+      },
       getSortValue: (r) => r.updatedAt ?? '',
     },
     {
@@ -337,7 +304,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
       label: 'Manager',
       minWidth: 100,
       getValue: (r) => (
-        <Text style={cellText} numberOfLines={1}>
+        <Text style={cellText} numberOfLines={1} ellipsizeMode="tail">
           {r.assigneeName ?? '—'}
         </Text>
       ),
@@ -347,7 +314,11 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
       id: 'createdAt',
       label: 'Created date',
       minWidth: 110,
-      getValue: (r) => <Text style={cellText}>{formatDate(r.createdAt)}</Text>,
+      getValue: (r) => (
+        <Text style={cellText} numberOfLines={1} ellipsizeMode="tail">
+          {formatDate(r.createdAt)}
+        </Text>
+      ),
       getSortValue: (r) => r.createdAt ?? '',
     },
     {
@@ -356,7 +327,7 @@ function getOrderColumns(): DataTableColumn<FirmOrderWithDetails>[] {
       minWidth: 90,
       visible: false,
       getValue: (r) => (
-        <Text style={cellText} numberOfLines={1}>
+        <Text style={cellText} numberOfLines={1} ellipsizeMode="tail">
           {r.source || '—'}
         </Text>
       ),
@@ -536,7 +507,7 @@ export default function FirmEngagementsScreen() {
   }, [loadData]);
 
   useEffect(() => {
-    if (isDesktopWeb || !firmSpaceId) return;
+    if (!firmSpaceId) return;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
     const debouncedRefresh = () => {
       if (refreshTimeout) clearTimeout(refreshTimeout);

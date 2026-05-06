@@ -145,9 +145,8 @@ export default function InvoicesScreen() {
     if (invoices.length === 0) loadInvoices();
   }, [loadInvoices, invoices.length]));
 
-  // Supabase Realtime：Web 端 DataTable 列表不启用；移动端列表启用。
+  // Supabase Realtime：Web / 移动端列表均启用。
   useEffect(() => {
-    if (isDesktopWeb) return;
     let invoicesChannel: ReturnType<typeof supabase.channel> | null = null;
     let invoiceItemsChannel: ReturnType<typeof supabase.channel> | null = null;
     let refreshTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -187,7 +186,7 @@ export default function InvoicesScreen() {
       if (invoicesChannel) supabase.removeChannel(invoicesChannel);
       if (invoiceItemsChannel) supabase.removeChannel(invoiceItemsChannel);
     };
-  }, [isDesktopWeb, loadInvoices]);
+  }, [loadInvoices]);
 
   const onRefresh = () => {
     setRefreshing(true);

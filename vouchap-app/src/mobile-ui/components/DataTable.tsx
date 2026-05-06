@@ -1,5 +1,11 @@
 /**
- * Web 端通用数据表格：支持列显隐与列顺序（状态可扩展为持久化）。
+ * Web 端通用数据表格：支持列显隐与列顺序。
+ * Web 统一规则：
+ * - 每次进入表格（storageKey 变化）或全页刷新：读取「表格窗口」`#data-table-wrapper` 宽度（已含侧栏开闭后的可用宽），按列 minWidth 比例分配数据列像素，使 **齿轮列 40px + 数据列 = 容器宽 100%**；写入 intrinsic 并固定。**Realtime 仅刷新数据，不重算列宽。**
+ * - 用户手动拖拽列宽后：该列写入 columnWidths；表宽按列像素之和，**大于**当前容器宽时出现横向滚动，**小于**则右端留白；拖拽仍同步 colgroup col。
+ * - 手动单列范围 1px～视口宽度 80%；初始分配不受 80% 限制。
+ * - 单元格允许 **水平方向内容溢出**（可视重叠），行高仍固定。
+ * - storageKey 区分表格实例；列宽不写 localStorage。
  * 仅 Web 使用；移动端由各页 SectionList 展示。
  */
 import React, { useState, useCallback, useMemo, useEffect, useRef, useLayoutEffect } from 'react';
@@ -50,6 +56,7 @@ export interface DataTableProps<T> {
   sortDirection?: 'asc' | 'desc';
   /** 点击表头时调用，父组件负责对 data/sections 排序后重新传入 */
   onSort?: (columnId: string, direction: 'asc' | 'desc') => void;
+  /** Web：区分不同表格的列宽状态键（会话内；刷新/重新进入该表会重算 intrinsic） */
   storageKey?: string;
   emptyMessage?: string;
   /** 是否启用行多选（Web） */
@@ -71,6 +78,54 @@ const TABLE_BORDER = '#DEE2E6';
 const TABLE_SECTION_BG = '#E9ECEF';
 /** 与 UI 规范一致的无衬线字体，避免 table 默认衬线（如 Times） */
 const TABLE_FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
+
+/** 手动拖拽列宽上限：视口宽度的 80%（初始 intrinsic 不受此限制） */
+function getManualColumnMaxPx(): number {
+  if (typeof window === 'undefined') return 10000;
+  return Math.max(1, Math.floor(window.innerWidth * 0.8));
+}
+
+function clampManualColumnWidth(px: number): number {
+  return Math.min(getManualColumnMaxPx(), Math.max(1, Math.round(px)));
+}
+
+const GEAR_COLUMN_PX = 40;
+
+/** Web：从**本实例**根 View 读宽。勿用 `getElementById('data-table-wrapper')`：Stack 保留上一屏时命中隐藏节点会得到 0。 */
+function readWebDataTableWrapperWidthPx(node: unknown): number {
+  if (node == null || typeof node !== 'object') return 0;
+  const el = node as HTMLElement;
+  const ow = el.offsetWidth;
+  const cw = el.clientWidth;
+  if (typeof ow === 'number' && ow > 0) return Math.round(ow);
+  if (typeof cw === 'number' && cw > 0) return Math.round(cw);
+  if (typeof el.getBoundingClientRect === 'function') {
+    const r = el.getBoundingClientRect();
+    if (r.width > 0) return Math.round(r.width);
+  }
+  return 0;
+}
+
+/** 将 availablePx 按列 minWidth 比例分为整数像素，且总和严格等于 availablePx */
+function distributeFlexColumnWidths(
+  cols: { id: string; minWidth?: number }[],
+  availablePx: number
+): Record<string, number> {
+  if (cols.length === 0 || availablePx < 1) return {};
+  const weights = cols.map(c => Math.max(1, c.minWidth ?? 90));
+  const sumW = weights.reduce((a, b) => a + b, 0);
+  const raw = weights.map(w => (availablePx * w) / sumW);
+  const floors = raw.map(x => Math.floor(x));
+  let used = floors.reduce((a, b) => a + b, 0);
+  let rem = availablePx - used;
+  const order = raw.map((x, i) => ({ i, f: x - floors[i] })).sort((a, b) => b.f - a.f);
+  for (let k = 0; k < rem && k < order.length; k++) floors[order[k].i]++;
+  const out: Record<string, number> = {};
+  cols.forEach((c, i) => {
+    out[c.id] = Math.max(1, floors[i]);
+  });
+  return out;
+}
 
 /** Web 浮窗统一样式：列配置、分组、筛选三者一致 */
 export const WEB_POPOVER = {
@@ -141,8 +196,9 @@ function TableGlobalStyles() {
       'table.data-table-body thead tr { height: 44px !important; }',
       'table.data-table-body thead th { height: 44px !important; max-height: 44px !important; box-sizing: border-box !important; }',
       'table.data-table-body tbody tr { height: 40px !important; }',
-      'table.data-table-body tbody td { height: 40px !important; max-height: 40px !important; box-sizing: border-box !important; overflow: hidden !important; vertical-align: middle !important; }',
-      'table.data-table-body tbody td > div { max-height: 40px !important; min-height: 0 !important; overflow: hidden !important; }',
+      'table.data-table-body tbody td.data-table-td-cell { height: 40px !important; max-height: 40px !important; box-sizing: border-box !important; overflow-x: visible !important; overflow-y: hidden !important; vertical-align: middle !important; }',
+      'table.data-table-body tbody td.data-table-td-cell .data-table-cell-clip { display: block !important; min-width: 0 !important; box-sizing: border-box !important; max-height: 40px !important; overflow-x: visible !important; overflow-y: hidden !important; }',
+      'table.data-table-body tbody td > div { max-height: 40px !important; min-height: 0 !important; overflow-x: visible !important; overflow-y: hidden !important; }',
       '.data-table-checkbox-reveal-on-hover tbody tr td:first-child input[type=checkbox] { opacity: 0; transition: opacity 0.15s ease; }',
       '.data-table-checkbox-reveal-on-hover tbody tr:hover td:first-child input[type=checkbox] { opacity: 1; }',
     ].join('\n');
@@ -176,6 +232,9 @@ export default function DataTable<T>({
   const sections = hasSections ? sectionsProp! : null;
   const defaultVisibleIds = useMemo(() => columns.filter(c => c.visible !== false).map(c => c.id), [columns]);
   const defaultOrderIds = useMemo(() => columns.map(c => c.id), [columns]);
+  const columnIdsFingerprint = useMemo(() => columns.map(c => c.id).join(','), [columns]);
+  const columnsRef = useRef(columns);
+  columnsRef.current = columns;
 
   const [visibleIds, setVisibleIds] = useState<Set<string>>(() => new Set(defaultVisibleIds));
   const [orderIds, setOrderIds] = useState<string[]>(() => defaultOrderIds);
@@ -185,7 +244,42 @@ export default function DataTable<T>({
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
   const pickerWrapRef = useRef<View | null>(null);
+  /** 本表格外层 View，用于测量「表格窗口」宽度（与全局 id 解耦） */
+  const dataTableWrapperRef = useRef<View | null>(null);
   const columnResizingRef = useRef(false);
+
+  /** 用户拖拽覆盖的列宽（会话内）；进入新表或 storageKey 变化时清空 */
+  const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
+  /** 初始按容器宽比例分配后冻结的列宽；仅 layoutCaptureKey / storageKey 变化时重算，Realtime 不重算 */
+  const [intrinsicWidths, setIntrinsicWidths] = useState<Record<string, number>>({});
+  const intrinsicCapturedKeyRef = useRef<string | null>(null);
+  const columnWidthsRef = useRef(columnWidths);
+  columnWidthsRef.current = columnWidths;
+
+  const layoutCaptureKey = useMemo(() => {
+    const vis = [...visibleIds].sort().join(',');
+    return `${storageKey ?? ''}|${columnIdsFingerprint}|${orderIds.join(',')}|${vis}`;
+  }, [storageKey, columnIdsFingerprint, orderIds, visibleIds]);
+
+  const commitColumnWidth = useCallback((colId: string, widthPx: number) => {
+    const w = clampManualColumnWidth(widthPx);
+    setColumnWidths(prev => ({ ...prev, [colId]: w }));
+  }, []);
+
+  /** 换表 / 列集合变化：清空列宽状态并重置列顺序与可见性（避免复用实例时仍持有上一模块的 orderIds 导致 visible 为空） */
+  const dataTableIdentityRef = useRef<string>('');
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const id = `${storageKey ?? ''}|${columnIdsFingerprint}`;
+    if (dataTableIdentityRef.current === id) return;
+    dataTableIdentityRef.current = id;
+    setColumnWidths({});
+    intrinsicCapturedKeyRef.current = null;
+    setIntrinsicWidths({});
+    const cols = columnsRef.current;
+    setOrderIds(cols.map(c => c.id));
+    setVisibleIds(new Set(cols.filter(c => c.visible !== false).map(c => c.id)));
+  }, [storageKey, columnIdsFingerprint]);
 
   // 多选：内部维护选中行，若父组件提供受控 selectedIds 则以外部为准
   const [internalSelected, setInternalSelected] = useState<Set<string>>(new Set());
@@ -230,6 +324,69 @@ export default function DataTable<T>({
     });
     return result;
   }, [orderIds, visibleIds, idToColumn]);
+
+  // 按「表格窗口」宽度比例分配初始列宽（含侧栏开闭后的实际宽）；每个 layoutCaptureKey 只算一次；不依赖 data/sections
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+    if (intrinsicCapturedKeyRef.current === layoutCaptureKey) return;
+
+    let cancelled = false;
+    let attempts = 0;
+    const run = () => {
+      if (cancelled) return;
+      if (intrinsicCapturedKeyRef.current === layoutCaptureKey) return;
+      attempts += 1;
+      const w = readWebDataTableWrapperWidthPx(dataTableWrapperRef.current as unknown);
+      if (w < 24 && attempts < 40) {
+        requestAnimationFrame(run);
+        return;
+      }
+      const user = columnWidthsRef.current;
+      const visible = orderedVisibleColumns;
+      if (visible.length === 0 && columns.length > 0 && attempts < 40) {
+        requestAnimationFrame(run);
+        return;
+      }
+      if (visible.length === 0) {
+        intrinsicCapturedKeyRef.current = layoutCaptureKey;
+        return;
+      }
+      let reserved = 0;
+      visible.forEach(col => {
+        if (user[col.id] != null) reserved += clampManualColumnWidth(user[col.id]);
+      });
+      const flexCols = visible.filter(col => user[col.id] == null);
+      const available = Math.max(1, w - GEAR_COLUMN_PX - reserved);
+      const next =
+        flexCols.length > 0 ? distributeFlexColumnWidths(flexCols, available) : {};
+      intrinsicCapturedKeyRef.current = layoutCaptureKey;
+      setIntrinsicWidths(prev => {
+        const merged = { ...prev };
+        visible.forEach(col => {
+          if (user[col.id] != null) delete merged[col.id];
+        });
+        Object.assign(merged, next);
+        return merged;
+      });
+    };
+    requestAnimationFrame(run);
+    return () => {
+      cancelled = true;
+    };
+  }, [layoutCaptureKey, orderedVisibleColumns, columns.length]);
+
+  const columnSizeStyle = useCallback((col: DataTableColumn<T>): { minWidth: number; width: number } => {
+    const userW = columnWidths[col.id];
+    const frozenW = intrinsicWidths[col.id];
+    const floor = col.minWidth ?? 90;
+    if (userW != null) {
+      const w = clampManualColumnWidth(userW);
+      return { minWidth: w, width: w };
+    }
+    if (frozenW != null) return { minWidth: frozenW, width: frozenW };
+    /** 未冻结前也用 width=floor，避免 fixed 布局下「仅 minWidth」的列吃掉剩余宽度、挤占他列 */
+    return { minWidth: floor, width: floor };
+  }, [columnWidths, intrinsicWidths]);
 
   const toggleColumn = useCallback((id: string) => {
     setVisibleIds(prev => {
@@ -516,9 +673,12 @@ export default function DataTable<T>({
 
   if (Platform.OS !== 'web') return null;
 
+  /** 表宽=齿轮列 + 各数据列 width（px），与初始分配一致；侧栏变宽时列宽不随动，右侧留白；变窄则横向滚动 */
+  const totalDataPx = orderedVisibleColumns.reduce((sum, col) => sum + columnSizeStyle(col).width, 0);
+  const tableWidthPx = GEAR_COLUMN_PX + totalDataPx;
   const tableStyle = {
-    width: '100%' as const,
-    minWidth: '100%' as const,
+    width: tableWidthPx,
+    tableLayout: 'fixed' as const,
     borderCollapse: 'collapse' as const,
     fontFamily: TABLE_FONT_FAMILY,
     fontSize: 14,
@@ -552,7 +712,8 @@ export default function DataTable<T>({
     maxHeight: '40px' as const,
     verticalAlign: 'middle' as const,
     boxSizing: 'border-box' as const,
-    overflow: 'hidden' as const,
+    overflowX: 'visible' as const,
+    overflowY: 'hidden' as const,
   };
   const sectionHeaderStyle = {
     padding: '6px 14px',
@@ -568,7 +729,7 @@ export default function DataTable<T>({
   };
 
   return (
-    <View style={styles.wrapper} nativeID="data-table-wrapper">
+    <View ref={dataTableWrapperRef} style={styles.wrapper} nativeID="data-table-wrapper">
       <ScrollView 
         horizontal 
         style={styles.scroll} 
@@ -580,6 +741,13 @@ export default function DataTable<T>({
           className={'data-table-body' + (selectable && selectableRevealOnHover && selectedSet.size === 0 ? ' data-table-checkbox-reveal-on-hover' : '')}
           id="data-table-body"
         >
+          <colgroup>
+            <col style={{ width: 40, minWidth: 40 }} />
+            {orderedVisibleColumns.map(col => {
+              const s = columnSizeStyle(col);
+              return <col key={col.id} style={{ width: s.width, minWidth: s.width }} />;
+            })}
+          </colgroup>
           <thead
             style={{
               position: 'sticky' as const,
@@ -744,14 +912,15 @@ export default function DataTable<T>({
                 const isSortable = !!onSort && !!col.getSortValue;
                 const isActive = sortKey === col.id;
                 const nextDir = isActive && sortDirection === 'asc' ? 'desc' : 'asc';
+                const size = columnSizeStyle(col);
                 return (
                   <th
                     key={col.id}
                     data-column-id={col.id}
                     style={{
                       ...thStyle,
-                      minWidth: col.minWidth ?? 90,
-                      ...(col.maxWidth != null ? { maxWidth: col.maxWidth } : {}),
+                      ...size,
+                      ...(col.maxWidth != null && columnWidths[col.id] == null ? { maxWidth: col.maxWidth } : {}),
                       cursor: isSortable ? 'pointer' : 'default',
                       userSelect: 'none',
                       position: 'relative' as const,
@@ -802,28 +971,40 @@ export default function DataTable<T>({
                           if (!th) return;
                           const startX = e.clientX;
                           const startWidth = th.offsetWidth;
-                          const minW = col.minWidth ?? 90;
-                          const handleMouseMove = (moveE: MouseEvent) => {
-                            const diff = moveE.clientX - startX;
-                            const newWidth = Math.max(minW, startWidth + diff);
+                          const colId = col.id;
+                          const applyWidthPx = (rawPx: number) => {
+                            const newWidth = clampManualColumnWidth(rawPx);
                             th.style.width = `${newWidth}px`;
                             th.style.minWidth = `${newWidth}px`;
+                            th.style.maxWidth = '';
                             const table = th.closest('table');
                             if (table) {
+                              const colNodes = table.querySelectorAll('colgroup col');
+                              const colNode = colNodes.item(colIdx + 1) as HTMLElement | null;
+                              if (colNode) {
+                                colNode.style.width = `${newWidth}px`;
+                                colNode.style.minWidth = `${newWidth}px`;
+                              }
                               const tds = table.querySelectorAll(`td:nth-child(${colIdx + 2})`);
-                              tds.forEach((td: any) => {
-                                if (td) {
-                                  td.style.width = `${newWidth}px`;
-                                  td.style.minWidth = `${newWidth}px`;
-                                }
+                              tds.forEach((td: Element) => {
+                                const el = td as HTMLElement;
+                                el.style.width = `${newWidth}px`;
+                                el.style.minWidth = `${newWidth}px`;
+                                el.style.maxWidth = '';
                               });
                             }
+                          };
+                          const handleMouseMove = (moveE: MouseEvent) => {
+                            const diff = moveE.clientX - startX;
+                            applyWidthPx(startWidth + diff);
                           };
                           const handleMouseUp = () => {
                             document.removeEventListener('mousemove', handleMouseMove);
                             document.removeEventListener('mouseup', handleMouseUp);
                             document.body.style.cursor = '';
                             document.body.style.userSelect = '';
+                            const finalW = clampManualColumnWidth(th.offsetWidth);
+                            commitColumnWidth(colId, finalW);
                             setTimeout(() => { columnResizingRef.current = false; }, 0);
                           };
                           document.addEventListener('mousemove', handleMouseMove);
@@ -944,13 +1125,20 @@ export default function DataTable<T>({
                           {orderedVisibleColumns.map(col => (
                             <td
                               key={col.id}
+                              className="data-table-td-cell"
                               style={{
                                 ...tdStyle,
-                                ...(col.maxWidth != null ? { maxWidth: col.maxWidth } : {}),
+                                ...columnSizeStyle(col),
+                                ...(col.maxWidth != null && columnWidths[col.id] == null ? { maxWidth: col.maxWidth } : {}),
                               }}
                               onClick={col.stopRowPress ? (e: React.MouseEvent) => e.stopPropagation() : undefined}
                             >
-                              {col.getValue(row)}
+                              <View
+                                style={styles.cellBodyClip}
+                                {...(Platform.OS === 'web' ? ({ className: 'data-table-cell-clip' } as Record<string, string>) : {})}
+                              >
+                                {col.getValue(row)}
+                              </View>
                             </td>
                           ))}
                         </tr>
@@ -993,13 +1181,20 @@ export default function DataTable<T>({
                     {orderedVisibleColumns.map(col => (
                       <td
                         key={col.id}
+                        className="data-table-td-cell"
                         style={{
                           ...tdStyle,
-                          ...(col.maxWidth != null ? { maxWidth: col.maxWidth } : {}),
+                          ...columnSizeStyle(col),
+                          ...(col.maxWidth != null && columnWidths[col.id] == null ? { maxWidth: col.maxWidth } : {}),
                         }}
                         onClick={col.stopRowPress ? (e: React.MouseEvent) => e.stopPropagation() : undefined}
                       >
-                        {col.getValue(row)}
+                        <View
+                          style={styles.cellBodyClip}
+                          {...(Platform.OS === 'web' ? ({ className: 'data-table-cell-clip' } as Record<string, string>) : {})}
+                        >
+                          {col.getValue(row)}
+                        </View>
                       </td>
                     ))}
                   </tr>
@@ -1027,6 +1222,14 @@ const styles = StyleSheet.create({
   },
   scroll: { alignSelf: 'flex-start', width: '100%', flexGrow: 0 },
   scrollContent: { minWidth: '100%', flexGrow: 0, alignSelf: 'flex-start' },
+  /** 行高仍限 40px；水平方向允许内容溢出到相邻区域（与 td overflow-x: visible 一致） */
+  cellBodyClip: {
+    minWidth: 0,
+    maxHeight: 40,
+    overflowX: 'visible' as const,
+    overflowY: 'hidden' as const,
+    justifyContent: 'center' as const,
+  },
   columnPickerWrap: { position: 'relative' as const },
   columnPickerBtn: { padding: 4 },
   columnPickerDropdown: {

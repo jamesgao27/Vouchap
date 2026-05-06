@@ -8,6 +8,168 @@
 
 ---
 
+### 2026-05-06（Vouchap Web：DataTable 切换模块列宽为 0 — ref 测量 + 换表重置列状态）
+
+**User（提示词/原意）**  
+- 「现在刷新页面后列宽计算没问题，切换模块时列宽全部成 0 了。」
+
+**Assistant（实现前说明）**  
+- 怀疑 `getElementById('data-table-wrapper')` 在 Stack 仍挂载上一屏时命中**隐藏**表格容器，`clientWidth` 为 0，分配异常。  
+- 另：若 `DataTable` 实例在路由间复用，`orderIds`/`visibleIds` 不随新 `columns` 更新会导致 `orderedVisibleColumns` 为空并完成一次错误 capture。  
+- 计划：根 `View` 使用 **`ref`** 读取本实例宽度；`storageKey` 或 **列 id 集合**变化时重置 order/visible 与列宽状态；可见列暂为空且 `columns` 非空时 **rAF 重试** capture。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `DataTable.tsx`：新增 `readWebDataTableWrapperWidthPx`、`dataTableWrapperRef`、`columnIdsFingerprint`；换表 identity 的 `useLayoutEffect` 同步 `orderIds`/`visibleIds`；capture 用 ref 宽度并增加空列重试；`layoutCaptureKey` 纳入 `columnIdsFingerprint`。  
+- **验证**：Web 在模块间切换列宽应正常；刷新行为保持。  
+- **残留**：仍依赖 RN Web 上 `View` ref 指向可测 DOM；若极端环境下 ref 无宽高，仍会重试至多约 40 帧。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/DataTable.tsx`
+
+---
+
+### 2026-05-06（Vouchap Web：DataTable 初始列宽按容器 100% 比例分配、缓存至刷新、单元格水平可溢出）
+
+**User（提示词/原意）**  
+- 「初始计算分配的列宽，需按表格窗口宽度 100% 填满（考虑该页面的右侧栏是否默认打开），允许表格内单元格数据宽度溢出。在此基础上缓存列宽，直至下次加载或刷新时重算，中途后端数据变动 realtime 不改变列宽。」
+
+**Assistant（实现前说明）**  
+- 侧栏开闭由布局反映到 `#data-table-wrapper` 的 `clientWidth`，无需单独传参；首次进入表（`layoutCaptureKey` / `storageKey`）用 **齿轮列 40px + 未手动列按 `minWidth` 权重比例分配** 填满当前容器宽；已手动列先从可分配宽度中扣除。  
+- 列宽缓存：`intrinsicWidths` + `columnWidths` 仅在上述 key 变化时重算；`data`/`sections` 不参与分配 effect，Realtime 只更行数据。  
+- 表宽固定为各列像素之和（不用 `width:100%`），避免侧栏变宽后 `fixed` 表把列再拉伸；变窄则横向滚动、变宽则表窄于容器时右侧留白。  
+- 单元格：`td` / `.data-table-cell-clip` 水平 `overflow: visible`，垂直仍限制行高。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `DataTable.tsx`：新增 `GEAR_COLUMN_PX`、`distributeFlexColumnWidths`；用 `useLayoutEffect` + `rAF` 读 wrapper 宽并写入 `intrinsicWidths`（合并时清掉已有手动列的 intrinsic）；表 `width` 改为 **`GEAR_COLUMN_PX + Σ列宽`**；`td`/`cellBodyClip`/注入 CSS 改为水平可溢出。未引入 ResizeObserver 重算列宽（仅初始按当时容器宽分配并冻结）。  
+- **验证**：全页刷新或换 `storageKey` 后列宽和应等于当时表格区宽度；Realtime 更新行数据列宽不变；长文本可水平叠出单元格边界（若外层横向 ScrollView 裁剪则为容器限制）。  
+- **残留**：极长内容可能与相邻列视觉重叠，依赖业务列仍可用 `ellipsis`/`title`。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/DataTable.tsx`
+
+---
+
+### 2026-05-06（Vouchap Web：DataTable 初始列宽每开表重算、可缩小、拖拽 1～80% 视口）
+
+**User（提示词/原意）**  
+- 「现在在初始列宽基础上只能拉大，不能缩小列宽了。再强调下需求：1、每次打开一个表格时（或全页刷新时），按此前的规则计算列宽，并把列宽值缓存下来固定。2、用户手动可拖动各列调整列宽，列宽调整幅度可从1px-窗口宽度的80%范围内自由拖动。3、调整单列列宽不应影响其他各列，列宽之和小于窗口则右端留空，大于窗口则设置横向滚动条。」
+
+**Assistant（实现前说明）**  
+- 缩小失效主因：`table-layout:fixed` 下 **`<colgroup><col>`** 仍为 React 上一次渲染的较大宽度时，会压过表头 `th` 上拖拽写入的较小宽度。拖拽过程中需同步更新对应 **col** 节点。  
+- 与需求 1 对齐：去掉列宽 **localStorage**，**storageKey 变化 / 进入该表 / 全页刷新** 时清空手动覆盖并重跑 intrinsic 测量；会话内数据刷新仍不重复测量。  
+- 与需求 2 对齐：**手动**宽度用 **`clamp(1, floor(0.8 * window.innerWidth))`**；**初始 intrinsic** 仍按测量/列 minWidth，不套 80% 上限。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `DataTable.tsx`：删除 `readStoredColumnWidths` 与写入 localStorage；`useLayoutEffect([storageKey])` 清空 `columnWidths` + intrinsic 并允许重新 capture；`commitColumnWidth` 仅 state 且 clamp；拖拽 `mousemove/mouseup` 内 **`applyWidthPx`** 同步 **th、tbody td、colgroup col**；`columnSizeStyle` 对用户覆盖值 clamp；intrinsic 写入改为无测量结果时置 `{}`。  
+- 历史键 `localStorage` `vouchap.dataTable.columnWidths.*` 不再读取，可手动清理。  
+- **验证**：新开/刷新表格列宽应重新计算；列宽可拖窄；单列上限约 0.8×视口宽；总宽小于容器时右侧留白、大于时出现横向滚动。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/DataTable.tsx`
+
+---
+
+### 2026-05-06（Vouchap Web：DataTable 列宽互不挤占、统一规则）
+
+**User（提示词/原意）**  
+- 「现在调整单列列宽仍会挤压/拉伸其他列宽，似乎是挤压到一定程度时才增加横向滚动条。web端各个模块的表格需统一交互规则。」
+
+**Assistant（实现前说明）**  
+- 根因：`table` 上 `minWidth:100%` 在 `table-layout:fixed` 下会让列宽向视口看齐并再分配；部分列仅有 `minWidth` 无 `width` 会参与吃剩余宽度；`td.max-width:0` 也会干扰列分配。  
+- 计划：每列始终输出相同像素 `width`+`minWidth`；去掉表 `minWidth`（保留 ScrollView `contentContainerStyle.minWidth:100%`）；加 `<colgroup>`；移除数据 `td` 的 `max-width:0`；文件头注明 Web 统一规则（各业务仍只用本 `DataTable`）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `DataTable.tsx`：按上修改；`columnSizeStyle` 未冻结列亦 `width=floor`；表仅 `width:max-content` + `fixed`。  
+- **验证**：拖宽一列应即刻出现/增加横向滚动，他列像素宽度不变；窄表时滚动条区域仍至少视口宽（content minWidth）。**残留**：若某屏仍有非 `DataTable` 的 `<table>`，需单独对齐（当前主列表均为 `DataTable`）。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/DataTable.tsx`
+
+---
+
+### 2026-05-06（Vouchap Web：DataTable 列宽拖拽无下限、总宽可溢出横向滚动）
+
+**User（提示词/原意）**  
+- 「手动调整列宽时不需控制最小列宽，调整单列列宽不需调整其他列宽，可以让列宽之和溢出窗口，横向滚动条浏览右端列。」
+
+**Assistant（实现前说明）**  
+- 去掉拖拽时的 `col.minWidth` 下限；表宽由 `100%` 改为可随列宽增长（`max-content` + `min-width: 100%`），并用 `table-layout: fixed` 减轻单列拖动时挤占他列；用户保存的列宽允许窄于列定义 `minWidth`，且不再被 `maxWidth` 限制。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `DataTable.tsx`：拖拽与持久化列宽使用 **`Math.max(1, …)`** 仅防止 0px，不再使用列定义 `minWidth`；拖拽过程中清除 **`maxWidth`** 内联以便拉宽。  
+- **`columnSizeStyle`**：仅对 **`columnWidths`（用户保存）** 允许小于列 `minWidth`；`col.maxWidth` 仅在未手动保存该列宽度时作用于 th/td，避免用户拉宽后被定义 `maxWidth` 压回。  
+- 表样式改为 **`width: max-content`** + **`minWidth: 100%`** + **`table-layout: fixed`**，列宽总和可超过视口，由原有横向 `ScrollView` 滚动查看。  
+- localStorage 读取列宽允许 **`>= 1`**。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/DataTable.tsx`
+
+---
+
+### 2026-05-06（Vouchap Web：DataTable 单元格单行缩略、Engagement 分类列不换行）
+
+**User（提示词/原意）**  
+- 「firm端engagement表格，打开右侧栏时，压缩了列宽，updated列内容溢出导致换行而改变了表格行高。内容溢出的改为缩略模式处理，不要自动换行影响行高，检查其他各表格的各列」
+
+**Assistant（实现前说明）**  
+- 根因：`Updated` 等列 `Text` 未限制行数；Classification 使用 `flexWrap: 'wrap'` 标签会在窄列多行。  
+- 计划在 `DataTable` 数据单元格外包一层裁剪容器，并对 Web 注入 `td.data-table-td-cell` + `max-width: 0` 以利于列内缩略；各列 `Text` 统一 `numberOfLines={1}` + `ellipsizeMode="tail"`（日期类 Web 上补 `title` 展示全文）。Engagement / buildEngagement 的 Classification 改为单行 `formatCategory` 字符串（与列表密度一致）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `DataTable.tsx`：数据 `td` 增加 `data-table-td-cell`，内容外包 `View` + `data-table-cell-clip`；全局样式收紧数据列高度与裁剪。  
+- `engagementTableColumns.tsx`、`firm/engagements.tsx`：`updatedAt`/`createdAt`/Client/Classification 等按上处理；分类列去掉多行标签；删除仅用于旧分类渲染的 TAG 调色板与 `getTagColor`（engagements 页）。  
+- `voucher-table-columns.tsx`：收据/收入/进销存/行项等补全单行缩略；`InputTypeCell` 禁止换行。  
+- `firm/clients.tsx`：客户名与日期类列单行缩略。  
+- **验证**：桌面端打开 Engagements 并展开右侧栏，行高应保持 40px，过长文案省略号；悬停 `title` 可看完整分类/时间（Web）。**残留**：行内下拉（Category/Attribution）列在极窄时可能截断控件，可再单独设 `minWidth`。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/DataTable.tsx`  
+- `vouchap-app/src/mobile-ui/components/engagementTableColumns.tsx`、`app/firm/engagements.tsx`  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`  
+- `vouchap-app/src/mobile-ui/app/firm/clients.tsx`
+
+---
+
+### 2026-05-06（Vouchap Web：DataTable 首列过宽 / 冻结规则与 auto 初始布局）
+
+**User（提示词/原意）**  
+- 「现在登录时自动计算的首列列宽太宽，导致表格大幅溢出窗口，无法看到和调整其他列宽了。初始列宽按此前的规则计算，只是数据加载或变动时不再重新计算」
+
+**Assistant（实现前说明）**  
+- 上一版 `table-layout: fixed` 在仅设 `minWidth` 时易让首列吃掉余量、整体过宽。改为默认 **auto** 表布局，使首帧与此前一致由浏览器按内容与 `minWidth` 分配。  
+- 在 **paint 后**（`requestAnimationFrame`）对「无 localStorage 列宽」的列测量 `th` 宽度写入 `intrinsicWidths` 并固定；同一 `layoutCaptureKey`（storageKey + 列顺序 + 可见列）下 **不因数据/Realtime 刷新重测**；用户拖拽仍写入 localStorage 并优先生效。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `DataTable.tsx`：去掉 `tableLayout: 'fixed'`；新增 `intrinsicWidths` + 每 key 一次捕获；`storageKey` 仍用 `useLayoutEffect` 同步持久化列宽并清空冻结；捕获用 `useEffect`+rAF 避免与同步列宽同一周期读到旧 DOM。  
+- **验证**：冷启动登录表格首列不应异常撑满；刷新列表或 Realtime 更新后未改列集合时列宽稳定；改列显隐/顺序后应重新冻结。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/DataTable.tsx`
+
+---
+
+### 2026-05-06（Vouchap Web：DataTable 列宽持久化 + 列表 Realtime 含桌面端）
+
+**User（提示词/原意）**  
+- 「vouchap项目web端，前端缓存各表格列宽，数据加载时不进行列宽自动计算。然后让表格数据全面支持realtime。」
+
+**Assistant（实现前说明）**  
+- `DataTable` 已有拖拽改列宽但仅写 DOM，数据重渲染后丢失；`storageKey` 未接入持久化。计划在 Web 表格上使用 `localStorage`（`vouchap.dataTable.columnWidths.${storageKey}`）读写列宽，渲染时合并 `width`/`minWidth`，`table-layout: fixed`，避免依赖内容反复重算列宽。  
+- 移除各列表页在 `isDesktopWeb` 时跳过 Supabase `postgres_changes` 的逻辑，使支出/收入/进销存/行项/实体/客户订单/Engagements 等在桌面 Web 与移动端一致订阅（保留防抖刷新）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `DataTable.tsx`：列宽状态 + 拖拽结束 `commitColumnWidth` 写回 state 与 localStorage；`storageKey` 变化时重载缓存；表头/单元格统一应用 `columnSizeStyle`；表 `tableLayout: 'fixed'`。  
+- 以下页面移除 Web 端 Realtime 早退并调整 effect 依赖：`receipts.tsx`、`invoices.tsx`、`inbound.tsx`、`outbound.tsx`、`receipt-items.tsx`、`entities-manage.tsx`、`firm/client/[clientSpaceId].tsx`、`firm/engagements.tsx`、`firm/clients.tsx`；`engagement-realtime.ts` 顶部注释同步。  
+- **验证建议**：Web 上打开带 `storageKey` 的表格，拖拽列宽后触发列表刷新或 Realtime 更新，列宽应保持；两客户端协作改同一列表应能自动刷新（约 300ms 防抖）。**残留风险**：Realtime 高频写入时列表全量刷新仍有一定开销；极窄视口下 `table-layout: fixed` 与横向 ScrollView 需肉眼确认无回归。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/DataTable.tsx`  
+- `vouchap-app/src/mobile-ui/app/receipts.tsx`、`invoices.tsx`、`inbound.tsx`、`outbound.tsx`、`receipt-items.tsx`、`entities-manage.tsx`  
+- `vouchap-app/src/mobile-ui/app/firm/client/[clientSpaceId].tsx`、`firm/engagements.tsx`、`firm/clients.tsx`  
+- `vouchap-app/src/mobile-ui/lib/engagement-realtime.ts`
+
+---
+
 ### 2026-05-05（Vouchap：失败小票详情重试被额度拦截修复）
 
 **User（提示词/原意）**  
