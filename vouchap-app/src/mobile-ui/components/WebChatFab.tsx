@@ -221,7 +221,7 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
               <View style={webInputBlockStyles.webInputActionsLeftGroup}>
                 <View style={webInputBlockStyles.webInputActionsLeft}>
                   <TouchableOpacity style={webInputBlockStyles.webActionIcon} onPress={pickImagesForSend}>
-                    <Ionicons name="image-outline" size={22} color="#636E72" />
+                    <Ionicons name="image" size={22} color="#636E72" />
                   </TouchableOpacity>
                   <TouchableOpacity style={webInputBlockStyles.webActionIcon} onPress={pickFoldersForSend}>
                     <Ionicons name="folder-open-outline" size={22} color="#636E72" />

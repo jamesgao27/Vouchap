@@ -11,6 +11,7 @@ import type { Receipt, Invoice, Inbound, Outbound, ReceiptLineItemListRow, Categ
 import type { ReceiptStatus } from '@/types';
 import type { VoucherStatus } from '@/types';
 import { sortScopeTagsForDisplay } from '@/lib/sort-scope-tags-for-display';
+import { inputTypeMethodIonicon, normalizeInputTypeForUi } from '@/lib/input-type-ionicon';
 
 const getCurrencySymbol = (currency?: string): string => {
   const symbols: Record<string, string> = {
@@ -491,7 +492,7 @@ function LineTagPill({ label, color }: { label: string; color?: string }) {
   );
 }
 
-/** 提交方式：四类 icon（camera/voice/text/attachment）。图片与拍照统一用 camera icon；attachment 仅 document 用 📎，尾随文案 Image/Doc */
+/** 提交方式：Web Method 列（与 App confirmed 角标共用 inputTypeMethodIonicon） */
 function InputTypeCell({ type }: { type?: import('@/types').InputType }) {
   const row = {
     flexDirection: 'row' as const,
@@ -502,12 +503,14 @@ function InputTypeCell({ type }: { type?: import('@/types').InputType }) {
     overflow: 'hidden' as const,
   };
   const textStyle = { fontSize: 13, color: '#636E72' };
-  if (type === 'audio') return <View style={row}><Ionicons name="mic" size={16} color="#636E72" /><Text style={textStyle}>Voice</Text></View>;
-  if (type === 'text') return <View style={row}><Ionicons name="document-text" size={16} color="#636E72" /><Text style={textStyle}>Text</Text></View>;
-  if (type === 'camera') return <View style={row}><Ionicons name="camera" size={16} color="#636E72" /><Text style={textStyle}>Camera</Text></View>;
-  if (type === 'document') return <View style={row}><Ionicons name="attach" size={16} color="#636E72" /><Text style={textStyle}>Doc</Text></View>;
-  // image 或未设置（含旧数据）：统一用相机 icon + Image
-  return <View style={row}><Ionicons name="camera" size={16} color="#636E72" /><Text style={textStyle}>Image</Text></View>;
+  const t = normalizeInputTypeForUi(type);
+  const icon = inputTypeMethodIonicon(type);
+  if (t === 'audio') return <View style={row}><Ionicons name={icon} size={16} color="#636E72" /><Text style={textStyle}>Voice</Text></View>;
+  if (t === 'text') return <View style={row}><Ionicons name={icon} size={16} color="#636E72" /><Text style={textStyle}>Text</Text></View>;
+  if (t === 'camera') return <View style={row}><Ionicons name={icon} size={16} color="#636E72" /><Text style={textStyle}>Camera</Text></View>;
+  if (t === 'image') return <View style={row}><Ionicons name={icon} size={16} color="#636E72" /><Text style={textStyle}>Image</Text></View>;
+  if (t === 'document') return <View style={row}><Ionicons name={icon} size={16} color="#636E72" /><Text style={textStyle}>Doc</Text></View>;
+  return <View style={row}><Ionicons name={icon} size={16} color="#636E72" /><Text style={textStyle}>Camera</Text></View>;
 }
 
 export interface ReceiptColumnOptions {

@@ -85,7 +85,7 @@ export default function LoginScreen() {
       const { getCurrentUser, getCurrentSpace } = await import('@/lib/auth');
       const { initializeAuthCache } = await import('@/lib/auth-cache');
       const u = await getCurrentUser(true);
-      const s = u ? await getCurrentSpace(true) : null;
+      const s = u ? await getCurrentSpace(false) : null;
       await initializeAuthCache(u, s);
     } catch (_) {
       // Non-blocking; index will refresh auth state.

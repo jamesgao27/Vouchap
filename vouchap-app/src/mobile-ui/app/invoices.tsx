@@ -32,6 +32,7 @@ import WebChatFab, { WEB_CHAT_FAB_BOTTOM, WEB_CHAT_FAB_RIGHT, WEB_CHAT_FAB_SIZE 
 import DataTable, { WEB_POPOVER } from '@/components/DataTable';
 import { getInvoiceColumns } from '@/components/voucher-table-columns';
 import { isMobileWebWidth } from '../lib/web-viewport';
+import { inputTypeConfirmBadgeIonicon } from '@/lib/input-type-ionicon';
 
 type GroupByType = 'none' | 'month' | 'recordDate' | 'paymentAccount' | 'createdBy' | 'customer';
 
@@ -782,7 +783,7 @@ export default function InvoicesScreen() {
                     {item.status === 'confirmed' ? (
                       <View style={styles.confirmedStatusContainer}>
                         <View style={styles.confirmedBadge}>
-                          <Ionicons name={item.inputType === 'audio' ? 'mic' : item.inputType === 'text' ? 'menu' : item.inputType === 'document' ? 'attach' : 'camera'} size={12} color="#fff" />
+                          <Ionicons name={inputTypeConfirmBadgeIonicon(item.inputType)} size={13} color="#fff" />
                         </View>
                         {item.createdByUser && (
                           <Text style={styles.confirmedByText}>

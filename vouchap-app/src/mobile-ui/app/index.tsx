@@ -6,7 +6,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
 import { isAuthenticated, getCurrentUser, getCurrentSpace, setCurrentSpace, getUserSpaces, createSpace } from '@/lib/auth';
-import { initializeAuthCache, isCacheInitialized } from '@/lib/auth-cache';
+import { initializeAuthCache, isCacheInitialized, getCachedSpace } from '@/lib/auth-cache';
 import { Space, UserSpace, User } from '@/types';
 import { getPendingInvitationsForUser } from '@/lib/space-invitations';
 import { uploadReceiptImageTempWithSpace } from '@/lib/supabase';
@@ -88,6 +88,10 @@ export default function HomeScreen() {
   const [firmOrderCountByStatus, setFirmOrderCountByStatus] = useState<Record<string, number>>({});
   const [pendingClaimCount, setPendingClaimCount] = useState(0);
 
+  /** useFocusEffect 内读取最新登录态，避免 isLoggedIn 从 false→true 时 callback 引用变化触发二次 focus 刷新（重复 getUserSpaces + 闪屏） */
+  const isLoggedInRef = useRef<boolean | null>(null);
+  isLoggedInRef.current = isLoggedIn;
+
   // Check if running in Expo Go
   const isExpoGo = Constants.appOwnership === 'expo';
 
@@ -137,62 +141,6 @@ export default function HomeScreen() {
     return () => { cancelled = true; };
   }, [currentSpace?.kind, currentSpace?.id]);
 
-  const continueAfterAuth = async () => {
-    // 检查用户是否有当前空间（使用缓存，如果缓存未初始化则从数据库读取）
-    const user = await getCurrentUser();
-    if (!user) {
-      router.replace('/setup-space');
-      return;
-    }
-
-    // 检查用户是否有空间（区分新用户和老用户）
-    const { getUserSpaces } = await import('@/lib/auth');
-    const spaces = await getUserSpaces();
-    
-    // 新用户：没有空间，跳转到设置空间页面（创建空间）
-    if (spaces.length === 0) {
-      router.replace('/setup-space');
-      return;
-    }
-
-    // 老用户：有空间
-    // 如果用户已经有当前空间（currentSpaceId 或 spaceId），直接进入应用
-    if (user.currentSpaceId || user.spaceId) {
-      setIsLoggedIn(true);
-      return;
-    }
-
-    // 老用户：有空间但没有当前空间
-    if (spaces.length === 1) {
-      // 只有一个空间，自动设置并进入
-      const { setCurrentSpace } = await import('@/lib/auth');
-      await setCurrentSpace(spaces[0].spaceId);
-      // 更新缓存
-      const updatedUser = await getCurrentUser(true);
-      const updatedSpace = updatedUser ? await getCurrentSpace(true) : null;
-      await initializeAuthCache(updatedUser, updatedSpace);
-      setIsLoggedIn(true);
-      return;
-    } else {
-      // 多个空间但没有当前空间：自动选择最新空间并进入
-      const sortedSpaces = [...spaces].sort((a, b) => {
-        const at = a.createdAt ? Date.parse(a.createdAt) || 0 : 0;
-        const bt = b.createdAt ? Date.parse(b.createdAt) || 0 : 0;
-        if (at !== bt) return bt - at;
-        return (a.spaceId || '').localeCompare(b.spaceId || '');
-      });
-      const latest = sortedSpaces[0];
-      if (latest) {
-        await setCurrentSpace(latest.spaceId);
-        const updatedUser = await getCurrentUser(true);
-        const updatedSpace = updatedUser ? await getCurrentSpace(true) : null;
-        await initializeAuthCache(updatedUser, updatedSpace);
-      }
-      setIsLoggedIn(true);
-      return;
-    }
-  };
-
   const checkAuth = async () => {
     let authenticated = await isAuthenticated();
     // Session may not be readable on the same tick as navigation from /login (in-memory storage / bridge timing).
@@ -205,28 +153,41 @@ export default function HomeScreen() {
       return;
     }
 
-    // 如果缓存未初始化，后台异步初始化缓存（不阻塞页面渲染）
+    // 冷启动：先一次性灌入缓存，再继续校验（避免与 continueAuthCheck 并行打两套 RPC）
     if (!isCacheInitialized()) {
-      // 后台异步加载，不阻塞，同时先尝试继续路由检查
-      // 如果缓存加载完成前需要数据，会从数据库读取；完成后会使用缓存
-      (async () => {
+      try {
+        const u = await getCurrentUser(true);
+        const sp = u ? await getCurrentSpace(false) : null;
+        await initializeAuthCache(u, sp);
+      } catch (error) {
+        console.error('Error initializing auth cache:', error);
+      }
+    }
+    await continueAuthCheck();
+  };
+
+  /** 邀请 / claim 角标：与首屏 session 拉取解耦；须在 continueAuthCheck 之前声明以便闭包清晰 */
+  const scheduleHomeSidebarBadges = useCallback((userEmail: string | null | undefined) => {
+    InteractionManager.runAfterInteractions(() => {
+      void (async () => {
         try {
-          const user = await getCurrentUser(true); // 强制刷新
-          const space = user ? await getCurrentSpace(true) : null; // 强制刷新
-          await initializeAuthCache(user, space);
-        } catch (error) {
-          console.error('Error initializing auth cache:', error);
-          // 错误不影响流程，目标页面会处理
+          const invitations = await getPendingInvitationsForUser();
+          setPendingInvitationsCount(invitations.length);
+        } catch (e) {
+          console.error('Error checking pending invitations:', e);
+          setPendingInvitationsCount(0);
+        }
+        if (userEmail) {
+          try {
+            const { list } = await getPendingInviteesForEmail(userEmail);
+            setPendingClaimCount(list.length);
+          } catch (e) {
+            console.error('Error loading pending claim count:', e);
+          }
         }
       })();
-      
-      // 不等待缓存加载，立即继续检查（会从数据库读取，但保证页面正常显示）
-      continueAuthCheck();
-    } else {
-      // 缓存已初始化，直接继续
-      continueAuthCheck();
-    }
-  };
+    });
+  }, []);
 
   const continueAuthCheck = async () => {
     // 流程：登录成功 -> member 邀请 -> firm 邀请 -> 当前/最新空间或新建空间（由本页与 login 共同完成）
@@ -235,7 +196,8 @@ export default function HomeScreen() {
     let user: User | null;
     let spaces: UserSpace[];
     try {
-      [user, spaces] = await Promise.all([getCurrentUser(true), getUserSpaces()]);
+      // 登录页已 initializeAuthCache 时走缓存，避免再触发一轮 get_user_by_id + spaces 全量刷新
+      [user, spaces] = await Promise.all([getCurrentUser(false), getUserSpaces()]);
     } catch {
       console.log('Index: Error getting user, redirecting to setup-space');
       router.replace('/setup-space');
@@ -264,6 +226,14 @@ export default function HomeScreen() {
 
     if (hasValidCurrentSpace) {
       console.log('Index: User has valid current space, entering app');
+      try {
+        const space = getCachedSpace() ?? (await getCurrentSpace(false));
+        setCurrentSpaceState(space);
+        await initializeAuthCache(user, space);
+      } catch (e) {
+        console.error('Index: bootstrap space for valid current failed', e);
+      }
+      scheduleHomeSidebarBadges(user.email);
       setIsLoggedIn(true);
       return;
     }
@@ -303,9 +273,11 @@ export default function HomeScreen() {
       const { setCurrentSpace } = await import('@/lib/auth');
       await setCurrentSpace(spaces[0].spaceId);
       // 更新缓存（使用已设置的空间ID，避免再次查询）
-      const updatedUser = await getCurrentUser(true); // 强制刷新
-      const updatedSpace = updatedUser ? await getCurrentSpace(true) : null; // 强制刷新
+      const updatedUser = await getCurrentUser(true);
+      const updatedSpace = updatedUser ? await getCurrentSpace(false) : null;
       await initializeAuthCache(updatedUser, updatedSpace);
+      setCurrentSpaceState(updatedSpace);
+      scheduleHomeSidebarBadges(updatedUser?.email ?? user.email);
       setIsLoggedIn(true);
       return;
     } else {
@@ -319,14 +291,18 @@ export default function HomeScreen() {
         return (a.spaceId || '').localeCompare(b.spaceId || '');
       });
       const latest = sortedSpaces[0];
+      let badgeEmail = user.email;
       if (latest) {
         console.log('Index: Auto-select latest space for user without valid current:', latest.spaceId);
         const { setCurrentSpace } = await import('@/lib/auth');
         await setCurrentSpace(latest.spaceId);
         const updatedUser = await getCurrentUser(true);
-        const updatedSpace = updatedUser ? await getCurrentSpace(true) : null;
+        const updatedSpace = updatedUser ? await getCurrentSpace(false) : null;
         await initializeAuthCache(updatedUser, updatedSpace);
+        setCurrentSpaceState(updatedSpace);
+        badgeEmail = updatedUser?.email ?? badgeEmail;
       }
+      scheduleHomeSidebarBadges(badgeEmail);
       // 兜底：即使 sortedSpaces 为空（理论上不会），也进入首页
       setIsLoggedIn(true);
       return;
@@ -354,8 +330,9 @@ export default function HomeScreen() {
   const homeSessionRefreshRef = useRef<Promise<void> | null>(null);
 
   const runHomeSessionRefresh = useCallback(() => {
-    if (isLoggedIn !== true) {
-      if (isLoggedIn === false) setPendingInvitationsCount(0);
+    const loggedIn = isLoggedInRef.current;
+    if (loggedIn !== true) {
+      if (loggedIn === false) setPendingInvitationsCount(0);
       return Promise.resolve();
     }
     if (homeSessionRefreshRef.current) {
@@ -363,7 +340,8 @@ export default function HomeScreen() {
     }
     const job = (async () => {
       try {
-        const user = await getCurrentUser(true);
+        let user = await getCurrentUser(false);
+        if (!user) user = await getCurrentUser(true);
         if (!user) {
           router.replace('/setup-space');
           return;
@@ -377,23 +355,11 @@ export default function HomeScreen() {
           router.replace('/setup-space');
           return;
         }
-        const space = await getCurrentSpace(true);
+        let space = await getCurrentSpace(false);
+        if (!space) space = await getCurrentSpace(true);
         setCurrentSpaceState(space);
-        try {
-          const invitations = await getPendingInvitationsForUser();
-          setPendingInvitationsCount(invitations.length);
-        } catch (e) {
-          console.error('Error checking pending invitations:', e);
-          setPendingInvitationsCount(0);
-        }
-        if (user.email) {
-          try {
-            const { list } = await getPendingInviteesForEmail(user.email);
-            setPendingClaimCount(list.length);
-          } catch (e) {
-            console.error('Error loading pending claim count:', e);
-          }
-        }
+
+        scheduleHomeSidebarBadges(user.email);
       } catch (error) {
         console.error('Error refreshing home session:', error);
         router.replace('/setup-space');
@@ -404,12 +370,9 @@ export default function HomeScreen() {
       if (homeSessionRefreshRef.current === job) homeSessionRefreshRef.current = null;
     });
     return job;
-  }, [isLoggedIn, router]);
+  }, [router, scheduleHomeSidebarBadges]);
 
-  useEffect(() => {
-    void runHomeSessionRefresh();
-  }, [runHomeSessionRefresh]);
-
+  /** 再次进入首页时刷新 session；依赖须稳定，勿绑定 isLoggedIn（否则登录后 callback 变引用会再跑一轮，重复打 getUserSpaces） */
   useFocusEffect(
     useCallback(() => {
       void runHomeSessionRefresh();
@@ -765,18 +728,27 @@ export default function HomeScreen() {
     }
   };
 
-  // 认证检查中，不渲染任何内容（避免闪烁）
+  // 认证 / 当前空间加载中：用占位替代全白屏（登录后曾出现 isLoggedIn 已 true 但 currentSpace 未就绪的长期空白）
   if (isLoggedIn === null) {
-    return null;
+    return (
+      <View style={styles.bootLoadingRoot}>
+        <StatusBar style="dark" />
+        <ActivityIndicator size="large" color="#6C5CE7" />
+      </View>
+    );
   }
 
   if (!isLoggedIn) {
     return null; // 会跳转到登录页或设置家庭页面
   }
 
-  // 当前空间尚未加载完成时，不渲染首页，避免在 firm 空间加载前短暂显示 client 端内容
   if (!currentSpace) {
-    return null;
+    return (
+      <View style={styles.bootLoadingRoot}>
+        <StatusBar style="dark" />
+        <ActivityIndicator size="large" color="#6C5CE7" />
+      </View>
+    );
   }
 
   const isFirmPending = currentSpace?.kind === 'firm' && currentSpace?.firmStatus !== 'approved';
@@ -1233,6 +1205,12 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  bootLoadingRoot: {
+    flex: 1,
+    backgroundColor: '#F8F9FA',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   container: {
     flex: 1,
     backgroundColor: '#F8F9FA',

@@ -8,6 +8,62 @@
 
 ---
 
+### 2026-05-06（Vouchap 移动端：登录后角标与 continueAuthCheck 对齐）
+
+**User（提示词/原意）**  
+- 对话续作：核对 `continueAuthCheck` 在各成功进入首页分支是否在 `setIsLoggedIn(true)` 前调用 `scheduleHomeSidebarBadges`，避免首屏仅靠 `runHomeSessionRefresh` 才拉邀请/claim 角标；此前已针对重复 `getUserSpaces` 将 `runHomeSessionRefresh` 依赖收窄并抽出角标调度。
+
+**Assistant（实现前说明）**  
+- `scheduleHomeSidebarBadges` 原定义在 `continueAuthCheck` 之后，且仅由 `runHomeSessionRefresh` 调用；从登录页直达首页时若 focus 刷新未再跑完整段逻辑，角标可能延迟。  
+- 计划：将 `scheduleHomeSidebarBadges` 上移到 `continueAuthCheck` 之前（hooks 顺序不变、闭包清晰）；在「有效当前空间」「单空间自动设当前」「多空间选最新」三处 `setIsLoggedIn(true)` 前调用 `scheduleHomeSidebarBadges`（多空间分支用 `badgeEmail` 覆盖 `updatedUser` 作用域）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `vouchap-app/src/mobile-ui/app/index.tsx`：上移 `useCallback(scheduleHomeSidebarBadges)`，删除重复块；三处进入应用前调度角标。  
+- **验证**：登录后进首页，侧栏邀请/claim 数字应在首屏稍后（`InteractionManager.runAfterInteractions`）出现；日志上仍可能有一次 `getUserSpaces`（bootstrap 必要），不应因角标缺失而依赖第二次完整 session 刷新。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/index.tsx`
+
+---
+
+### 2026-05-06（Vouchap 移动端：登录后进首页仍很慢 ~10s）
+
+**User（提示词/原意）**  
+- 「dev 环境现在只有一次加载没有闪屏了，但时间仍然非常长，我需数到 10 才出现首页。」
+
+**Assistant（实现前说明）**  
+- 登录页已 `initializeAuthCache`，但 `index` 的 `continueAuthCheck` 仍 `getCurrentUser(true)` + `getCurrentSpace(true)` + 再次 `getCurrentUser(true)`，与 `getCurrentSpace` 内部再拉用户叠加，RPC/查询链过长。  
+- `checkAuth` 在缓存未初始化时曾 **后台** `initializeAuthCache` 与 `continueAuthCheck` **并行**，易重复打满一套请求。  
+- `runHomeSessionRefresh` 在首屏后又强制全量刷新并与邀请/claim 串行。  
+- 计划：冷启动改为 **await** 一次缓存初始化后再 `continueAuthCheck`；校验阶段优先 `getCurrentUser(false)` / `getCurrentSpace(false)` / `getCachedSpace()`；`setCurrentSpace` 后只强刷 user 一次；`runHomeSessionRefresh` 软缓存优先，角标请求 `InteractionManager.runAfterInteractions`；登录页 `getCurrentSpace(false)`；`getUserSpaces` 冗长日志仅 `__DEV__`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `index.tsx`、`login.tsx`、`shared-logic/auth.ts`；**验证**：dev 登录后进首页应明显缩短（仍取决于 Supabase 与 `getUserSpaces` 单次延迟）。**残留**：若远端极慢，瓶颈在必要的一两次网络而非前端串行重复。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/index.tsx`、`login.tsx`、`shared-logic/auth.ts`
+
+---
+
+### 2026-05-06（Vouchap 移动端：登录后首页二次加载 / 白屏久）
+
+**User（提示词/原意）**  
+- 「移动端 app 登录后出现两次加载（出现 index 页后又白屏重新加载），且时间很长。」
+
+**Assistant（实现前说明）**  
+- `index.tsx` 在 `continueAuthCheck` 里 `setIsLoggedIn(true)` 时**未**写入 `currentSpaceState`，而渲染要求 `currentSpace` 非空，否则 `return null` 全白；`currentSpace` 仅依赖异步 `runHomeSessionRefresh`，形成「已登录 → 长时间白屏 → 再出内容」，并易感知为二次加载。  
+- `useEffect` + `useFocusEffect` 均调用 `runHomeSessionRefresh`，挂载后可能触发两轮完整拉取。  
+- 计划：`setIsLoggedIn(true)` 前同步 `getCurrentSpace` + `setCurrentSpaceState`（并 `initializeAuthCache`）；去掉重复的 `useEffect`；认证/等空间时用 `ActivityIndicator` 占位；删除未使用的 `continueAfterAuth`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/mobile-ui/app/index.tsx`：按上修改；新增 `bootLoadingRoot` 样式。  
+- **验证**：真机/模拟器登录后应明显减少白屏时长与「加载两次」感；若仍有个别网络慢，应只见 spinner 而非全白。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/index.tsx`
+
+---
+
 ### 2026-05-06（Vouchap Web：DataTable 切换模块列宽为 0 — ref 测量 + 换表重置列状态）
 
 **User（提示词/原意）**  
@@ -6259,5 +6315,103 @@
 **关联**  
 - `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`  
 - `/Users/macbook/Vouchap/vouchap-app/src/mobile-ui/app/invoice-details/[id].tsx`
+
+---
+
+### 2026-05-06（Vouchap：input_type 历史回填 SQL + image/camera 图标区分）
+
+**User（提示词/原意）**  
+- 写 SQL：将 **2026-03-01 17:00 之前** 的 receipt/invoice 中 `input_type = 'image'` 改为 **`camera`**。  
+- 将 **`image`** 提交方式在 **Web Method 列**与 **App 确认状态角标** 换为**图片样式** icon（与 `camera` 区分）。
+
+**Assistant（实现前说明）**  
+- 表名：`public.receipts`、`public.invoices`；字段 `input_type`、`created_at`、`updated_at`。截止时间默认按 **东八区 2026-03-01 17:00** 写入 SQL 注释中说明可改时区。  
+- UI：`voucher-table-columns` 的 `InputTypeCell` 为 Web Method；列表 confirmed 角标在 `receipts` / `invoices` / `inbound` / `outbound`；抽 `input-type-ionicon.ts` 避免重复。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `vouchap-app/docs/sql/backfill-input-type-image-to-camera-before-2026-03-01.sql`（`BEGIN`/`COMMIT` 两段 `UPDATE`）。  
+- `InputTypeCell`：`image` → `images-outline` + 文案 Image；`camera` → `camera` + Camera。  
+- 角标统一 `inputTypeConfirmBadgeIonicon`：`image` → `images-outline`。  
+- **验证**：在 Supabase 先 `SELECT COUNT` 再执行 SQL；App/Web 打开支出/收入列表，确认相册类为图集 icon、拍摄为相机 icon。  
+- **残留**：若截止时间需与仓库 -06 时区对齐，请改 SQL 内 `timestamptz` 字面量。
+
+**关联**  
+- `vouchap-app/docs/sql/backfill-input-type-image-to-camera-before-2026-03-01.sql`  
+- `vouchap-app/src/shared-logic/input-type-ionicon.ts`（`@/lib/*` → shared-logic，勿放 mobile-ui/lib）  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`  
+- `vouchap-app/src/mobile-ui/app/receipts.tsx`、`invoices.tsx`、`inbound.tsx`、`outbound.tsx`
+
+---
+
+### 2026-05-06（Vouchap dev 白屏：Metro 解析 `@/lib/input-type-ionicon` 路径错误）
+
+**User（提示词/原意）**  
+- 「dev白屏了」
+
+**Assistant（实现前说明）**  
+- Metro 报错：`Failed to get the SHA-1 for .../src/shared-logic/input-type-ionicon`；`tsconfig` 中 `@/lib/*` 映射到 `shared-logic`，模块曾误放在 `mobile-ui/lib`，解析到不存在的 shared-logic 路径导致打包失败。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 将 `input-type-ionicon.ts` 移至 `src/shared-logic/input-type-ionicon.ts`，删除 `mobile-ui/lib` 下旧文件；`@/lib/input-type-ionicon` 导入不变。**验证**：`npx expo start` 后 Web/Android 应能正常 bundle。
+
+**关联**  
+- `vouchap-app/src/shared-logic/input-type-ionicon.ts`
+
+---
+
+### 2026-05-06（Vouchap：image 提交方式改为 solid `images` 与相机/录音一致）
+
+**User（提示词/原意）**  
+- 图片 icon 改为 **solid**，与已有相机/录音风格一致；**App** expenses/income 列表**确认状态**标识也要换 icon。
+
+**Assistant（实现前说明）**  
+- Web Method 列：`InputTypeCell` 中 `image` 由 `images-outline` 改为 **`images`**（Ionicons 实心）。  
+- App 角标：`inputTypeConfirmBadgeIonicon` 同步为 **`images`**（receipts/invoices/inbound/outbound 已统一引用该函数）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `input-type-ionicon.ts`、`voucher-table-columns.tsx`；`ReadLints` 通过。
+
+**关联**  
+- `vouchap-app/src/shared-logic/input-type-ionicon.ts`  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`
+
+---
+
+### 2026-05-06（Vouchap：image 提交方式 icon 与 Chat 上传一致，统一 solid `image`）
+
+**User（提示词/原意）**  
+- icon 与 **chat 窗口上传文件**一致，要 **solid** 版。
+
+**Assistant（实现前说明）**  
+- Chat 上传原为 `image-outline`；实心对应 **`image`**（与 `images` 多图标区分）。Method 列与 `inputTypeConfirmBadgeIonicon` 同步；`chat-to-log`、`WebChatFab` 上传钮改为 `image` 以全链路一致。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `input-type-ionicon.ts`、`voucher-table-columns.tsx`、`chat-to-log.tsx`（Web+Native 上传钮）、`WebChatFab.tsx`。
+
+**关联**  
+- `vouchap-app/src/shared-logic/input-type-ionicon.ts`  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`  
+- `vouchap-app/src/mobile-ui/app/chat-to-log.tsx`  
+- `vouchap-app/src/mobile-ui/components/WebChatFab.tsx`
+
+---
+
+### 2026-05-06（Vouchap：App confirmed 角标与 Web Method 图标统一 + input_type 规范化）
+
+**User（提示词/原意）**  
+- App expenses/income 列表 **confirmed** 角标仍未与 Web 对齐；**image** 用图片 icon、**camera** 用相机 icon。
+
+**Assistant（实现前说明）**  
+- 抽出 `inputTypeMethodIonicon` + `normalizeInputTypeForUi`（大小写/异常值）；Web `InputTypeCell` 与角标共用同一映射；**text** 与 Web 一致改为 `document-text`（原角标 `menu`）。  
+- 修正 invoice 列表 `inputType` 缺省：由一律 `image` 改为与 receipt 一致 `image_url ? image : text`。  
+- 角标 icon **12→13** 略增可读性。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已更新 `input-type-ionicon.ts`、`voucher-table-columns.tsx`、`invoices.ts`（rowToInvoice + first paint）、`receipts.tsx` / `invoices.tsx` 角标字号；`ReadLints` 通过。
+
+**关联**  
+- `vouchap-app/src/shared-logic/input-type-ionicon.ts`、`invoices.ts`  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`  
+- `vouchap-app/src/mobile-ui/app/receipts.tsx`、`invoices.tsx`
 
 ---

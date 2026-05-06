@@ -38,6 +38,7 @@ import WebChatFab, { WEB_CHAT_FAB_BOTTOM, WEB_CHAT_FAB_RIGHT, WEB_CHAT_FAB_SIZE 
 import DataTable, { WEB_POPOVER } from '@/components/DataTable';
 import { getReceiptColumns } from '@/components/voucher-table-columns';
 import { isMobileWebWidth } from '../lib/web-viewport';
+import { inputTypeConfirmBadgeIonicon } from '@/lib/input-type-ionicon';
 
 // 分组类型：
 // - none: 不分组
@@ -1292,15 +1293,10 @@ export default function ReceiptsScreen() {
                 {item.status === 'confirmed' ? (
                   <View style={styles.confirmedStatusContainer}>
                     <View style={styles.confirmedBadge}>
-                      <Ionicons 
-                        name={
-                          item.inputType === 'audio' ? 'mic' :
-                          item.inputType === 'text' ? 'menu' :
-                          item.inputType === 'document' ? 'attach' :
-                          'camera'
-                        } 
-                        size={12} 
-                        color="#fff" 
+                      <Ionicons
+                        name={inputTypeConfirmBadgeIonicon(item.inputType)}
+                        size={13}
+                        color="#fff"
                       />
                     </View>
                     {item.createdByUser && (

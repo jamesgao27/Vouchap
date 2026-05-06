@@ -285,11 +285,11 @@ export async function getUserSpaces(): Promise<UserSpace[]> {
   try {
     const { data: { user: authUser } } = await supabase.auth.getUser();
     if (!authUser) {
-      console.log('getUserSpaces: No authenticated user');
+      if (__DEV__) console.log('getUserSpaces: No authenticated user');
       return [];
     }
 
-    console.log('getUserSpaces: Querying for user_id:', authUser.id);
+    if (__DEV__) console.log('getUserSpaces: Querying for user_id:', authUser.id);
 
     const { data, error } = await supabase
       .from('user_spaces')
@@ -311,11 +311,11 @@ export async function getUserSpaces(): Promise<UserSpace[]> {
     }
 
     if (!data) {
-      console.log('getUserSpaces: No data returned (null)');
+      if (__DEV__) console.log('getUserSpaces: No data returned (null)');
       return [];
     }
 
-    console.log('getUserSpaces: Found', data.length, 'spaces for user', authUser.id);
+    if (__DEV__) console.log('getUserSpaces: Found', data.length, 'spaces for user', authUser.id);
 
     const firmSpaceIds = data.filter((row: any) => row.spaces?.kind === 'firm').map((row: any) => row.spaces.id);
     let firmStatusBySpaceId: Record<string, 'pending' | 'approved'> = {};
@@ -347,14 +347,15 @@ export async function getUserSpaces(): Promise<UserSpace[]> {
       createdAt: row.created_at,
     }));
 
-    // 记录每个space的详细信息
-    result.forEach((userSpace, index) => {
-      console.log(`getUserSpaces: Space ${index + 1}:`, {
-        spaceId: userSpace.spaceId,
-        spaceName: userSpace.space?.name || 'Unknown',
-        hasSpaceData: !!userSpace.space,
+    if (__DEV__) {
+      result.forEach((userSpace, index) => {
+        console.log(`getUserSpaces: Space ${index + 1}:`, {
+          spaceId: userSpace.spaceId,
+          spaceName: userSpace.space?.name || 'Unknown',
+          hasSpaceData: !!userSpace.space,
+        });
       });
-    });
+    }
 
     return result;
   } catch (error) {

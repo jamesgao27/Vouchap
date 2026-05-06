@@ -3239,7 +3239,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 <View style={webInputBlockStyles.webInputActionsLeftGroup}>
                   <View style={webInputBlockStyles.webInputActionsLeft}>
                     <TouchableOpacity style={webInputBlockStyles.webActionIcon} onPress={pickImagesForSend} disabled={isProcessing}>
-                      <Ionicons name="image-outline" size={22} color="#636E72" />
+                      <Ionicons name="image" size={22} color="#636E72" />
                     </TouchableOpacity>
                     {isDesktopWeb ? (
                       <TouchableOpacity
@@ -3369,7 +3369,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 </TouchableOpacity>
               )}
               <TouchableOpacity style={styles.attachIconButton} onPress={pickImagesForSend} disabled={isProcessing}>
-                <Ionicons name="image-outline" size={22} color="#6C5CE7" />
+                <Ionicons name="image" size={22} color="#6C5CE7" />
               </TouchableOpacity>
               {(isVoiceMode && !isPanel) ? (
                 <Pressable

@@ -34,6 +34,7 @@ import { confirmThen, confirmDestructive } from '@/lib/alertWeb';
 import DataTable, { WEB_POPOVER } from '@/components/DataTable';
 import { getInboundColumns } from '@/components/voucher-table-columns';
 import { useWebViewportKind } from '../lib/web-viewport';
+import { inputTypeConfirmBadgeIonicon } from '@/lib/input-type-ionicon';
 
 type GroupByType = 'none' | 'month' | 'recordDate' | 'createdBy' | 'sender';
 
@@ -838,7 +839,7 @@ export default function InboundScreen() {
                     {item.status === 'confirmed' ? (
                       <View style={styles.confirmedStatusContainer}>
                         <View style={styles.confirmedBadge}>
-                          <Ionicons name={item.inputType === 'audio' ? 'mic' : item.inputType === 'text' ? 'menu' : item.inputType === 'document' ? 'attach' : 'camera'} size={12} color="#fff" />
+                          <Ionicons name={inputTypeConfirmBadgeIonicon(item.inputType)} size={12} color="#fff" />
                         </View>
                       </View>
                     ) : (
