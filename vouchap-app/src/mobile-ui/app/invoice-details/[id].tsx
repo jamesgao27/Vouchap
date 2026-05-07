@@ -1244,9 +1244,7 @@ export default function InvoiceDetailsScreen() {
 
       {!editing && currentInvoice.status === 'pending' && (
         <TouchableOpacity style={[styles.fab, styles.confirmFab]} onPress={handleConfirm}>
-          <View style={styles.fabRingInner}>
-            <Ionicons name="checkmark-circle-outline" size={22} color="#6C5CE7" />
-          </View>
+          <Ionicons name="checkmark-circle" size={32} color="#fff" />
         </TouchableOpacity>
       )}
 

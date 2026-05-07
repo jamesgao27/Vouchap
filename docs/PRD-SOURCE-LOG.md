@@ -8,6 +8,41 @@
 
 ---
 
+### 2026-05-06（Vouchap 移动端：receipt 详情保存 — 重复名弹窗后一次确认即保存）
+
+**User（提示词/原意）**  
+- 「修改 receipt 详情时若同时改 entity、account、item，需多次点确认才保存；可能 entity/account 各自触发三选项弹窗。应优化为确认一次即可。」
+
+**Assistant（实现前说明）**  
+- `handleDuplicateNameReplace` / `Merge` 使用 `setPendingDuplicateChoice` 等异步 state，`handleSave` 仅在下次渲染后才读到 pending，用户必须在弹窗选择后再点一次底部 Confirm；若仍存在第二次重复名校验失败，还会再弹窗，体感「多次确认」。  
+- 计划：用同步 `duplicateResolutionRef` 携带 replace/merge 与 payload；`handleSave` 优先消费 ref 并调用抽离的 `runDuplicateResolutionSave`；`triggeredBy === 'save'` 时在关闭弹窗后 `void handleSave()` 立即继续保存；在 `runDuplicateResolutionSave` 与主保存的 catch 中统一 `openDuplicateModalFromSaveError`（含 `ACCOUNT_NAME_EXISTS`）以便链式冲突时再次弹窗而非仅 toast。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`；移除 `pendingDuplicateChoice` / `pendingDuplicatePayload` state。  
+- **验证**：编辑后点 Confirm → 若出现重复名，选 Replace/Merge 后应直接完成保存（无需再点 Confirm）；dropdown 来源仍写入 ref，下一次点 Confirm 时消费。收入详情 `invoice-details` 对 save 路径本已内联保存，本次未改。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`
+
+---
+
+### 2026-05-06（Vouchap 移动端：支出/收入详情 pending 确认 FAB 样式恢复）
+
+**User（提示词/原意）**  
+- 「昨天增加 expenses 详情页的重新识别和删除按钮，把之前样式很好的确认按钮改不好了，确认按钮的样式需恢复之前的。」
+
+**Assistant（实现前说明）**  
+- 对比 `7f7280b` 前：pending 确认为 `[styles.fab, styles.confirmFab]` 内直接 `<Ionicons name="checkmark-circle" size={32} color="#fff" />`；`2de4b3f` 后为与重试 FAB 统一套了 `fabRingInner` + `checkmark-circle-outline` 紫色，视觉上不像「确认」而像次要操作。  
+- 计划：仅恢复 pending 确认 FAB 的 JSX（去掉内环、改回实心白勾）；收入详情 `invoice-details` 同步；`fabRingInner` 注释改为仅描述重试/删除。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`、`invoice-details/[id].tsx`。**验证**：pending 详情右下角上层确认钮应为整颗品牌紫底 + 白色实心 `checkmark-circle`（32）；`needs_retake` 仍为红底白环刷新/删除，与确认区分。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`、`invoice-details/[id].tsx`
+
+---
+
 ### 2026-05-06（Vouchap 移动端：登录后角标与 continueAuthCheck 对齐）
 
 **User（提示词/原意）**  

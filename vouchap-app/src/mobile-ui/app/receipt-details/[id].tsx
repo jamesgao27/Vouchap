@@ -78,12 +78,15 @@ export default function ReceiptDetailsScreen() {
     targetSource?: 'supplier' | 'customer';
     triggeredBy: 'save' | 'dropdown';
   } | null>(null);
-  const [pendingDuplicateChoice, setPendingDuplicateChoice] = useState<'replace' | 'merge' | 'keep_original' | null>(null);
-  const [pendingDuplicatePayload, setPendingDuplicatePayload] = useState<{
-    code: string;
-    duplicateName: string;
-    targetId?: string;
-    targetSource?: 'supplier' | 'customer';
+  /** Replace/Merge 若只写 React state，下一次点 Confirm 才可能读到 pending，造成「弹窗选完还要再点一次确认」；用 ref 同步携带并在 save 来源时立即继续保存 */
+  const duplicateResolutionRef = useRef<{
+    choice: 'replace' | 'merge' | 'keep_original';
+    payload: {
+      code: string;
+      duplicateName: string;
+      targetId?: string;
+      targetSource?: 'supplier' | 'customer';
+    };
   } | null>(null);
   const [fileDetailForModal, setFileDetailForModal] = useState<FileDetailModalFile | null>(null);
   const editingRef = useRef(false);
@@ -200,137 +203,172 @@ export default function ReceiptDetailsScreen() {
     }
   };
 
+  const openDuplicateModalFromSaveError = (error: any) => {
+    const code = error?.code as string | undefined;
+    const duplicateName = (error?.duplicateName ?? '') as string;
+    const targetId = error?.targetId as string | undefined;
+    const targetSource = error?.targetSource as 'supplier' | 'customer' | undefined;
+    if (
+      code === 'SUPPLIER_NAME_EXISTS' ||
+      code === 'CUSTOMER_NAME_EXISTS' ||
+      code === 'ENTITY_NAME_EXISTS' ||
+      code === 'ACCOUNT_NAME_EXISTS'
+    ) {
+      setDuplicateNameModalPayload({
+        code,
+        duplicateName: duplicateName || '',
+        targetId,
+        targetSource: code === 'ENTITY_NAME_EXISTS' || code === 'ACCOUNT_NAME_EXISTS' ? undefined : targetSource,
+        triggeredBy: 'save',
+      });
+      setShowDuplicateNameModal(true);
+      return true;
+    }
+    return false;
+  };
+
+  const runDuplicateResolutionSave = async (
+    choice: 'replace' | 'merge' | 'keep_original',
+    payload: {
+      code: string;
+      duplicateName: string;
+      targetId?: string;
+      targetSource?: 'supplier' | 'customer';
+    },
+  ) => {
+    if (!editedReceipt || !id || !receipt) return;
+    try {
+      if (choice === 'replace') {
+        if (payload.code === 'ENTITY_NAME_EXISTS' && payload.targetId) {
+          const entityPayload = {
+            ...editedReceipt,
+            status: 'confirmed' as ReceiptStatus,
+            entityId: payload.targetId,
+            entity: { id: payload.targetId, name: payload.duplicateName, spaceId: '', isAiRecognized: false } as any,
+            supplierName: payload.duplicateName,
+            storeName: payload.duplicateName,
+          };
+          (entityPayload as any).supplierId = undefined;
+          (entityPayload as any).supplierCustomerId = undefined;
+          (entityPayload as any).supplier = undefined;
+          (entityPayload as any).supplierCustomer = undefined;
+          await updateReceipt(id, entityPayload, true);
+        } else {
+          await updateReceipt(id, { ...editedReceipt, status: 'confirmed' as ReceiptStatus }, true);
+        }
+      } else if (choice === 'merge') {
+        if (payload.code === 'ACCOUNT_NAME_EXISTS') {
+          const currentAccountId = receipt.accountId;
+          const targetId = payload.targetId;
+          if (currentAccountId && targetId && currentAccountId !== targetId) {
+            await mergeAccount([currentAccountId], targetId);
+          }
+          await updateReceipt(id, { ...editedReceipt, status: 'confirmed' as ReceiptStatus });
+        } else if (payload.code === 'ENTITY_NAME_EXISTS' && payload.targetId) {
+          const currentEntityId =
+            editedReceipt.entityId ??
+            editedReceipt.entity?.id ??
+            editedReceipt.supplierId ??
+            editedReceipt.supplierCustomerId ??
+            receipt.entityId ??
+            receipt.entity?.id ??
+            receipt.supplierId ??
+            receipt.supplierCustomerId ??
+            null;
+          if (currentEntityId && currentEntityId !== payload.targetId) {
+            await mergeEntity([currentEntityId], payload.targetId);
+          }
+          const mergedPayload: any = {
+            ...editedReceipt,
+            status: 'confirmed' as ReceiptStatus,
+            entityId: payload.targetId,
+            entity: { id: payload.targetId, name: payload.duplicateName, spaceId: '', isAiRecognized: false } as any,
+            supplierName: payload.duplicateName,
+            storeName: payload.duplicateName,
+          };
+          mergedPayload.supplierId = undefined;
+          mergedPayload.supplierCustomerId = undefined;
+          mergedPayload.supplier = undefined;
+          mergedPayload.supplierCustomer = undefined;
+          await updateReceipt(id, mergedPayload, true);
+        } else {
+          const mergeFromId =
+            receipt.entityId ??
+            receipt.entity?.id ??
+            receipt.supplierId ??
+            receipt.supplierCustomerId ??
+            null;
+          const targetId = payload.targetId;
+          if (mergeFromId && targetId && mergeFromId !== targetId) {
+            await mergeEntity([mergeFromId], targetId);
+          }
+          const mergedPayload: any = {
+            ...editedReceipt,
+            status: 'confirmed' as ReceiptStatus,
+            entityId: targetId,
+            entity: targetId
+              ? ({ id: targetId, name: payload.duplicateName, spaceId: '', isAiRecognized: false } as any)
+              : editedReceipt.entity,
+            supplierName: payload.duplicateName,
+            storeName: payload.duplicateName,
+          };
+          mergedPayload.supplierId = undefined;
+          mergedPayload.supplierCustomerId = undefined;
+          mergedPayload.supplier = undefined;
+          mergedPayload.supplierCustomer = undefined;
+          await updateReceipt(id, mergedPayload, true);
+        }
+      } else {
+        if (payload.code === 'ACCOUNT_NAME_EXISTS') {
+          const reverted = {
+            ...editedReceipt,
+            status: 'confirmed' as ReceiptStatus,
+            accountId: receipt.accountId,
+            account: receipt.account,
+          };
+          await updateReceipt(id, reverted);
+        } else if (payload.code === 'ENTITY_NAME_EXISTS') {
+          const origName = receipt.entity?.name ?? receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
+          const reverted = {
+            ...editedReceipt,
+            status: 'confirmed' as ReceiptStatus,
+            entityId: receipt.entityId ?? receipt.entity?.id,
+            entity: receipt.entity,
+            supplierName: origName,
+            storeName: origName,
+          };
+          await updateReceipt(id, reverted);
+        } else {
+          const reverted = {
+            ...editedReceipt,
+            status: 'confirmed' as ReceiptStatus,
+            supplierName: receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '',
+            storeName: receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.storeName ?? '',
+            supplierId: receipt.supplierId,
+            supplierCustomerId: receipt.supplierCustomerId,
+            supplier: receipt.supplier,
+            supplierCustomer: receipt.supplierCustomer,
+          };
+          await updateReceipt(id, reverted);
+        }
+      }
+      setEditing(false);
+      showToast('Receipt saved', 'success');
+      loadReceipt();
+    } catch (e: any) {
+      if (openDuplicateModalFromSaveError(e)) return;
+      showToast(e?.message ?? 'Failed to save', 'error');
+      console.error(e);
+    }
+  };
+
   const handleSave = async () => {
     if (!editedReceipt || !id || !receipt) return;
 
-    if (pendingDuplicateChoice && pendingDuplicatePayload) {
-      const choice = pendingDuplicateChoice;
-      const payload = pendingDuplicatePayload;
-      setPendingDuplicateChoice(null);
-      setPendingDuplicatePayload(null);
-      try {
-        if (choice === 'replace') {
-          if (payload.code === 'ENTITY_NAME_EXISTS' && payload.targetId) {
-            const entityPayload = {
-              ...editedReceipt,
-              status: 'confirmed' as ReceiptStatus,
-              entityId: payload.targetId,
-              entity: { id: payload.targetId, name: payload.duplicateName, spaceId: '', isAiRecognized: false } as any,
-              supplierName: payload.duplicateName,
-              storeName: payload.duplicateName,
-            };
-            (entityPayload as any).supplierId = undefined;
-            (entityPayload as any).supplierCustomerId = undefined;
-            (entityPayload as any).supplier = undefined;
-            (entityPayload as any).supplierCustomer = undefined;
-            await updateReceipt(id, entityPayload, true);
-          } else {
-            await updateReceipt(id, { ...editedReceipt, status: 'confirmed' as ReceiptStatus }, true);
-          }
-        } else if (choice === 'merge') {
-          if (payload.code === 'ACCOUNT_NAME_EXISTS') {
-            const currentAccountId = receipt.accountId;
-            const targetId = payload.targetId;
-            if (currentAccountId && targetId && currentAccountId !== targetId) {
-              await mergeAccount([currentAccountId], targetId);
-            }
-            await updateReceipt(id, { ...editedReceipt, status: 'confirmed' as ReceiptStatus });
-          } else if (payload.code === 'ENTITY_NAME_EXISTS' && payload.targetId) {
-            const currentEntityId =
-              editedReceipt.entityId ??
-              editedReceipt.entity?.id ??
-              editedReceipt.supplierId ??
-              editedReceipt.supplierCustomerId ??
-              receipt.entityId ??
-              receipt.entity?.id ??
-              receipt.supplierId ??
-              receipt.supplierCustomerId ??
-              null;
-            if (currentEntityId && currentEntityId !== payload.targetId) {
-              await mergeEntity([currentEntityId], payload.targetId);
-            }
-            const mergedPayload: any = {
-              ...editedReceipt,
-              status: 'confirmed' as ReceiptStatus,
-              entityId: payload.targetId,
-              entity: { id: payload.targetId, name: payload.duplicateName, spaceId: '', isAiRecognized: false } as any,
-              supplierName: payload.duplicateName,
-              storeName: payload.duplicateName,
-            };
-            mergedPayload.supplierId = undefined;
-            mergedPayload.supplierCustomerId = undefined;
-            mergedPayload.supplier = undefined;
-            mergedPayload.supplierCustomer = undefined;
-            await updateReceipt(id, mergedPayload, true);
-          } else {
-            // Dropdown「选已有 Payee」：`getSupplierOptions` 已是 entities id；旧逻辑只认 receipt.supplierId，entity-only 小票无法 merge
-            const mergeFromId =
-              receipt.entityId ??
-              receipt.entity?.id ??
-              receipt.supplierId ??
-              receipt.supplierCustomerId ??
-              null;
-            const targetId = payload.targetId;
-            if (mergeFromId && targetId && mergeFromId !== targetId) {
-              await mergeEntity([mergeFromId], targetId);
-            }
-            const mergedPayload: any = {
-              ...editedReceipt,
-              status: 'confirmed' as ReceiptStatus,
-              entityId: targetId,
-              entity: targetId
-                ? ({ id: targetId, name: payload.duplicateName, spaceId: '', isAiRecognized: false } as any)
-                : editedReceipt.entity,
-              supplierName: payload.duplicateName,
-              storeName: payload.duplicateName,
-            };
-            mergedPayload.supplierId = undefined;
-            mergedPayload.supplierCustomerId = undefined;
-            mergedPayload.supplier = undefined;
-            mergedPayload.supplierCustomer = undefined;
-            await updateReceipt(id, mergedPayload, true);
-          }
-        } else {
-          if (payload.code === 'ACCOUNT_NAME_EXISTS') {
-            const reverted = {
-              ...editedReceipt,
-              status: 'confirmed' as ReceiptStatus,
-              accountId: receipt.accountId,
-              account: receipt.account,
-            };
-            await updateReceipt(id, reverted);
-          } else if (payload.code === 'ENTITY_NAME_EXISTS') {
-            const origName = receipt.entity?.name ?? receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
-            const reverted = {
-              ...editedReceipt,
-              status: 'confirmed' as ReceiptStatus,
-              entityId: receipt.entityId ?? receipt.entity?.id,
-              entity: receipt.entity,
-              supplierName: origName,
-              storeName: origName,
-            };
-            await updateReceipt(id, reverted);
-          } else {
-            const reverted = {
-              ...editedReceipt,
-              status: 'confirmed' as ReceiptStatus,
-              supplierName: receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '',
-              storeName: receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.storeName ?? '',
-              supplierId: receipt.supplierId,
-              supplierCustomerId: receipt.supplierCustomerId,
-              supplier: receipt.supplier,
-              supplierCustomer: receipt.supplierCustomer,
-            };
-            await updateReceipt(id, reverted);
-          }
-        }
-        setEditing(false);
-        showToast('Receipt saved', 'success');
-        loadReceipt();
-      } catch (e: any) {
-        showToast(e?.message ?? 'Failed to save', 'error');
-        console.error(e);
-      }
+    const refSlot = duplicateResolutionRef.current;
+    if (refSlot) {
+      duplicateResolutionRef.current = null;
+      await runDuplicateResolutionSave(refSlot.choice, refSlot.payload);
       return;
     }
 
@@ -343,22 +381,7 @@ export default function ReceiptDetailsScreen() {
       showToast('Receipt saved', 'success');
       loadReceipt();
     } catch (error: any) {
-      const code = error?.code as string | undefined;
-      const duplicateName = (error?.duplicateName ?? '') as string;
-      const targetId = error?.targetId as string | undefined;
-      const targetSource = error?.targetSource as 'supplier' | 'customer' | undefined;
-
-      if (code === 'SUPPLIER_NAME_EXISTS' || code === 'CUSTOMER_NAME_EXISTS' || code === 'ENTITY_NAME_EXISTS') {
-        setDuplicateNameModalPayload({
-          code,
-          duplicateName: duplicateName || '',
-          targetId,
-          targetSource: code === 'ENTITY_NAME_EXISTS' ? undefined : targetSource,
-          triggeredBy: 'save',
-        });
-        setShowDuplicateNameModal(true);
-        return;
-      }
+      if (openDuplicateModalFromSaveError(error)) return;
       showToast('Failed to save', 'error');
       console.error(error);
     }
@@ -424,29 +447,37 @@ export default function ReceiptDetailsScreen() {
   const handleDuplicateNameReplace = () => {
     const payload = duplicateNameModalPayload;
     if (!payload || !editedReceipt || !id) return;
-    setPendingDuplicateChoice('replace');
-    setPendingDuplicatePayload({
+    const snapshot = {
       code: payload.code,
       duplicateName: payload.duplicateName,
       targetId: payload.targetId,
       targetSource: payload.targetSource,
-    });
+    };
+    const fromSave = payload.triggeredBy === 'save';
     setShowDuplicateNameModal(false);
     setDuplicateNameModalPayload(null);
+    duplicateResolutionRef.current = { choice: 'replace', payload: snapshot };
+    if (fromSave) {
+      void handleSave();
+    }
   };
 
   const handleDuplicateNameMerge = () => {
     const payload = duplicateNameModalPayload;
-    if (!payload || !receipt) return;
-    setPendingDuplicateChoice('merge');
-    setPendingDuplicatePayload({
+    if (!payload || !receipt || !editedReceipt || !id) return;
+    const snapshot = {
       code: payload.code,
       duplicateName: payload.duplicateName,
       targetId: payload.targetId,
       targetSource: payload.targetSource,
-    });
+    };
+    const fromSave = payload.triggeredBy === 'save';
     setShowDuplicateNameModal(false);
     setDuplicateNameModalPayload(null);
+    duplicateResolutionRef.current = { choice: 'merge', payload: snapshot };
+    if (fromSave) {
+      void handleSave();
+    }
   };
 
   const handleConfirm = async () => {
@@ -1501,15 +1532,13 @@ export default function ReceiptDetailsScreen() {
         )
       )}
       
-      {/* 确认按钮 - pending 且不在编辑模式（识别失败 needs_retake 不显示确认） */}
+      {/* 确认按钮 - pending 且不在编辑模式（needs_retake 由上方重试/删除 FAB 处理；样式保持紫底实心白勾） */}
       {!editing && currentReceipt.status === 'pending' && (
         <TouchableOpacity
           style={[styles.fab, styles.confirmFab]}
           onPress={handleConfirm}
         >
-          <View style={styles.fabRingInner}>
-            <Ionicons name="checkmark-circle-outline" size={22} color="#6C5CE7" />
-          </View>
+          <Ionicons name="checkmark-circle" size={32} color="#fff" />
         </TouchableOpacity>
       )}
 
@@ -2763,7 +2792,7 @@ const styles = StyleSheet.create({
     bottom: 20,
     backgroundColor: '#E74C3C',
   },
-  /** 外环用 fab 底色；内白圆 + 同色线形 icon（与确认按钮同一结构） */
+  /** 重试/删除 FAB：外环用 fab 底色；内白圆 + 线形 icon（确认 pending 仍为整颗紫底 + 白实心勾，不用此环） */
   fabRingInner: {
     width: 34,
     height: 34,
