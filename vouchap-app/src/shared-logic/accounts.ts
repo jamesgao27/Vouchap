@@ -171,13 +171,17 @@ export async function deleteAccount(accountId: string): Promise<void> {
   }
 }
 
-function extractCardSuffix(name: string): string | null {
+/** Masked card / receipt lines: extract last contiguous digit run used as card last-4 (or longer). */
+export function extractCardSuffix(name: string): string | null {
+  if (!name || typeof name !== 'string') return null;
   const patterns = [
     /\*{2,}(\d{4,})/,
     /\*(\d{4,})/,
     /尾号[：:\s]*(\d{4,})/i,
     /(?:last\s*4|last\s*four)[：:\s]*(\d{4,})/i,
     /(?:ending\s*in|ends\s*in)[：:\s]*(\d{4,})/i,
+    /#:\s*\*+(\d{4,})/i,
+    /#\s*\*+(\d{4,})/i,
     /#\s*(\d{4,})/,
     /\b(\d{4,})\s*(?:尾号|ending|last)/i,
     /(\d{4,})$/,
@@ -187,6 +191,73 @@ function extractCardSuffix(name: string): string | null {
     if (match?.[1]) return match[1];
   }
   return null;
+}
+
+/** Normalize model/user input to exactly 4 digits (last 4 of digit run), or undefined. */
+export function normalizeCardLastFourDigits(raw: unknown): string | undefined {
+  if (raw == null || raw === 'null') return undefined;
+  const digits = String(raw).replace(/\D/g, '');
+  if (digits.length < 4) return undefined;
+  return digits.slice(-4);
+}
+
+/**
+ * When AI gives card last-4 (or we infer it), map to an existing space account if possible.
+ * Resolves merge chains; if multiple roots share the same last-4, picks highest usage_count.
+ */
+export async function resolveAccountByCardLastFourDigits(lastFourRaw: string): Promise<Account | null> {
+  const lastFour = normalizeCardLastFourDigits(lastFourRaw);
+  if (!lastFour) return null;
+
+  const user = await getCurrentUser();
+  if (!user) return null;
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) return null;
+
+  const { data: allAccounts, error } = await supabase
+    .from('accounts')
+    .select('*')
+    .eq('space_id', spaceId);
+
+  if (error || !allAccounts?.length) return null;
+
+  const mergeMap = new Map<string, string>();
+  allAccounts.forEach((r: any) => {
+    if (r.merged_into_id) mergeMap.set(r.id, r.merged_into_id);
+  });
+  const resolveToFinal = (id: string): string => {
+    let current = id;
+    const seen = new Set<string>();
+    while (mergeMap.has(current) && !seen.has(current)) {
+      seen.add(current);
+      current = mergeMap.get(current)!;
+    }
+    return current;
+  };
+
+  const finalIds = new Set<string>();
+  for (const r of allAccounts) {
+    const suffix = extractCardSuffix(r.name);
+    if (suffix === lastFour) finalIds.add(resolveToFinal(r.id));
+  }
+
+  if (finalIds.size === 0) return null;
+
+  const pickRow = (id: string) => allAccounts.find((r: any) => r.id === id);
+  if (finalIds.size === 1) {
+    const id = [...finalIds][0];
+    const row = pickRow(id);
+    return row ? mapAccountRow(row) : null;
+  }
+
+  let best: any = null;
+  for (const id of finalIds) {
+    const row = pickRow(id);
+    if (!row) continue;
+    const uc = row.usage_count ?? 0;
+    if (!best || uc > (best.usage_count ?? 0)) best = row;
+  }
+  return best ? mapAccountRow(best) : null;
 }
 
 export function normalizeAccountName(name: string): string {

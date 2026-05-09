@@ -6450,3 +6450,42 @@
 - `vouchap-app/src/mobile-ui/app/receipts.tsx`、`invoices.tsx`
 
 ---
+
+### 2026-05-09（Vouchap：小票支付账户按卡尾号匹配已有账户 + 提示词补强）
+
+**User（提示词/原意）**  
+- 精简提示词后 receipt 账户匹配变差；举例 Canadian Tire 小票票面有 Visa 尾号 **1102**，space 中已有 **credit card \*\*\*\*1102**，应能识别后直接匹配该账户。
+
+**Assistant（实现前说明）**  
+- 原链路依赖模型输出 `paymentAccountName` 后经 `findOrCreateAccount`（规范化全等 + 卡尾号启发式）；精简提示词后模型更易输出 `null` 或仅「VISA」导致无法与已有账户对齐。  
+- 计划：① 收据/发票 JSON 增加 `paymentCardLastFour` 并在解析层规范化；② 提示词明确「尾号必须输出、列表项逐字匹配、禁止仅品牌词」；③ `resolveAccountByCardLastFourDigits` 在空间内按尾号+合并链解析唯一账户；④ `convertGeminiResultToReceipt` / `convertGeminiResultToInvoice` 优先尾号匹配再 `findOrCreateAccount`；⑤ 扩展 `extractCardSuffix` 以覆盖 `VISA #: ****…1102` 等票面格式。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `vouchap-app/src/shared-logic/accounts.ts`（`extractCardSuffix` 导出、`normalizeCardLastFourDigits`、`resolveAccountByCardLastFourDigits`、票面 `#:` 掩码模式）、`gemini.ts`（规则与 schema、`paymentCardLastFour` 贯通图片/文档/文字/音频及发票侧）、`types/index.ts`、`receipt-helpers.ts`（`resolveAccountIdFromGeminiPaymentFields`）。  
+- **验证建议**：用该 Canadian Tire 样张走识别 → 应绑定已有 `****1102` 账户；Dev 可查模型 JSON 是否含 `paymentCardLastFour` / 带尾号的 `paymentAccountName`。  
+- **残留风险**：同一 space 内多条账户同名尾号时按 `usage_count` 择优，可能非用户主观「主卡」；模型仍完全不输出尾号时仅提示词与票面 regex 无法挽救。
+
+**关联**  
+- `vouchap-app/src/shared-logic/accounts.ts`、`gemini.ts`、`receipt-helpers.ts`、`types/index.ts`
+
+---
+
+### 2026-05-09（Vouchap：对比 #4fd4618 前规则 — 修复税费进 items、tax=0 与账户「仅 Visa」）
+
+**User（提示词/原意）**  
+- `#4fd4618` 精简提示词过度，识别/匹配异常（例：GST/RST 被写入 item、**Tax 显示 0**；账户仅 **Visa** 未对齐已有 `****1102`）。要求对比该 commit 前原提示词与代码并修复。
+
+**Assistant（实现前说明）**  
+- 旧版规则明确 **items 不含税行、税由 app 侧处理**；精简后模型常把 GST/RST 当普通行，且 `tax` 仍用 `total − sum(items)` 推断 → 三者相加已等于 total → **tax 恒为 0**。  
+- 计划：① 恢复提示词关键约束（items=可售行、`tax`=销售税合计、分类/归因择项原则简述）；② 增加确定性后处理 `normalizeParsedReceiptTaxFields`：按行名/分类启发式剥离税行并汇总到 `tax`，再与 `totalAmount` 对齐；③ 全路径（图片/文档/文字/音频 + 发票同类路径）在 `convert` 前调用；④ `ensurePaymentAccountNameWithLastFour` 在仅有卡品牌但有 `paymentCardLastFour` 时补 **`Card ****{last4}`**，利于尾号匹配。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `vouchap-app/src/shared-logic/gemini.ts`（提示词、`receiptItemLooksLikeSalesTaxBreakdown` / `separateReceiptTaxLinesFromItems` / `normalizeParsedReceiptTaxFields`、`ensurePaymentAccountNameWithLastFour`；收据/发票返回处税字段与 `dataConsistency` 与剥离后 items 一致）。`receipt-processor` 无需再改（税纠正在 `recognizeReceipt` 结果上已完成）。  
+- **验证**：Canadian Tire 样张应 **Tax ≈ 3.00**、items 仅商品行；有尾号时账户应能匹配 `credit card ****1102`。  
+- **残留**：启发式可能误剥含 “tax” 字样的极少数商品名；若发生可再收紧规则或依赖模型遵守提示词。
+
+**关联**  
+- `git show 4fd4618^:vouchap-app/src/shared-logic/gemini.ts`（旧提示词对照）  
+- `vouchap-app/src/shared-logic/gemini.ts`
+
+---

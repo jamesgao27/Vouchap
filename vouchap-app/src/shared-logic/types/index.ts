@@ -446,6 +446,8 @@ export interface GeminiReceiptResult {
   totalAmount: number;
   currency?: string; // 币种，如：CNY、USD
   paymentAccountName?: string; // 支付账户，包含卡号尾号信息
+  /** Last 4 digits of the payment card when printed (e.g. "1102"); improves matching to existing accounts. */
+  paymentCardLastFour?: string;
   tax?: number; // 税费
   /** 销售税辖区：国家 ISO 3166-1 alpha-2；region 为省/州（如加拿大 ON、BC） */
   taxJurisdictionCountry?: string | null;
@@ -733,6 +735,8 @@ export interface GeminiVoucherResult {
   totalAmount: number;
   currency?: string;
   paymentAccountName?: string;
+  /** Last 4 digits when visible on deposit/card line (income). */
+  paymentCardLastFour?: string;
   tax?: number;
   items: Array<{
     name: string;

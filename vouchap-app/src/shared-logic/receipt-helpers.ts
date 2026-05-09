@@ -2,11 +2,49 @@ import { GeminiReceiptResult, GeminiVoucherResult, GeminiInboundOutboundResult, 
 import { getCurrentUser } from './auth';
 import { findCategoryByName, getCategories } from './categories';
 import { findAttributionByName, getAttributions } from './attributions';
-import { findOrCreateAccount } from './accounts';
+import {
+  extractCardSuffix,
+  findOrCreateAccount,
+  normalizeCardLastFourDigits,
+  resolveAccountByCardLastFourDigits,
+} from './accounts';
 import { findOrCreateEntity } from './entities';
 import { findOrCreateWarehouseByName, findOrCreateLocationByName } from './warehouse';
 import { findOrCreateSkuByNameAndUnit } from './skus';
 import { aliasDistinctFromLineName, pickReceiptLineItemAlias } from './receipt-item-alias';
+
+/**
+ * Prefer matching by card last-4 to existing space accounts (e.g. receipt "Visa ****1102" → account "credit card ****1102"),
+ * then fall back to findOrCreate by name. Avoids creating "VISA" when digits are present on another line.
+ */
+export async function resolveAccountIdFromGeminiPaymentFields(input: {
+  paymentAccountName?: string;
+  paymentCardLastFour?: string;
+}): Promise<string | undefined> {
+  const name = input.paymentAccountName?.trim() || undefined;
+  const lastFour =
+    normalizeCardLastFourDigits(input.paymentCardLastFour) ??
+    (name ? extractCardSuffix(name) : null) ??
+    undefined;
+
+  try {
+    if (lastFour) {
+      const bySuffix = await resolveAccountByCardLastFourDigits(lastFour);
+      if (bySuffix) return bySuffix.id;
+    }
+    if (name) {
+      const account = await findOrCreateAccount(name, true);
+      return account.id;
+    }
+    if (lastFour) {
+      const account = await findOrCreateAccount(`Card ****${lastFour}`, true);
+      return account.id;
+    }
+  } catch (error) {
+    console.warn('Failed to resolve payment account from Gemini fields:', error);
+  }
+  return undefined;
+}
 
 function fallbackExpenseItemPrice(totalAmount?: number, tax?: number): number {
   const total = Number(totalAmount ?? 0);
@@ -51,17 +89,11 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
     }
   }
 
-  // 处理支付账户
-  let accountId: string | undefined;
-  if (result.paymentAccountName) {
-    try {
-      const account = await findOrCreateAccount(result.paymentAccountName, true);
-      accountId = account.id;
-    } catch (error) {
-      console.warn('Failed to create or find account:', error);
-      // 如果账户创建失败，继续处理其他信息，不阻塞整个流程
-    }
-  }
+  // 处理支付账户（优先卡尾号对齐已有账户，再按名称 findOrCreate）
+  const accountId = await resolveAccountIdFromGeminiPaymentFields({
+    paymentAccountName: result.paymentAccountName,
+    paymentCardLastFour: result.paymentCardLastFour,
+  });
 
   // 处理商品项，匹配分类。若模型缺失明细，兜底为一条合并行，避免“识别成功但无 item”。
   if (!result.items || !Array.isArray(result.items) || result.items.length === 0) {
@@ -328,16 +360,10 @@ export async function convertGeminiResultToInvoice(result: GeminiVoucherResult):
   const categories = await getCategories('income');
   const attributions = await getAttributions('income');
 
-  let accountId: string | undefined;
-  if (result.paymentAccountName) {
-    try {
-      const account = await findOrCreateAccount(result.paymentAccountName, true);
-      accountId = account.id;
-    } catch (error) {
-      console.warn('Failed to create or find account:', error);
-      // 如果账户创建失败，继续处理其他信息，不阻塞整个流程
-    }
-  }
+  const accountId = await resolveAccountIdFromGeminiPaymentFields({
+    paymentAccountName: result.paymentAccountName,
+    paymentCardLastFour: result.paymentCardLastFour,
+  });
 
   if (!result.items || !Array.isArray(result.items)) {
     result.items = [];

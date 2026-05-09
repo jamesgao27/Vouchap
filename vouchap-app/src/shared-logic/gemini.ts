@@ -7,7 +7,7 @@ import {
   DEFAULT_INCOME_CATEGORIES,
   DEFAULT_INCOME_ATTRIBUTIONS,
 } from './category-attribution-presets';
-import { getAccountsForOptions } from './accounts';
+import { extractCardSuffix, getAccountsForOptions, normalizeCardLastFourDigits } from './accounts';
 import { getEntityOptions } from './entity-list';
 import { getWarehousesForOptions, getLocationsByWarehouseForOptions } from './warehouse';
 import { getSkusForOptions } from './skus';
@@ -81,6 +81,119 @@ function resolveReadableItemName(item: any): { name: string; itemAlias?: string 
   return { name: rawName, ...(alias ? { itemAlias: alias } : {}) };
 }
 
+/**
+ * Heuristic: printed sales-tax breakdown row (GST/HST/PST/RST/VAT…), not merchandise.
+ * Matches common NA receipts when the model wrongly puts tax in items (regression after prompt trim).
+ */
+function receiptItemLooksLikeSalesTaxBreakdown(item: any): boolean {
+  const readable = resolveReadableItemName(item);
+  const name = readable.name || '';
+  const alias = readable.itemAlias || '';
+  const category = String(item.categoryName ?? item.category ?? '');
+  const blob = `${name} ${alias} ${category}`.toLowerCase();
+
+  if (/\b(discount|coupon|markdown|promo|loyalty|points?|reward|cash\s*back)\b/i.test(blob)) return false;
+  if (/\b(subtotal|sub-total|amount\s*due|balance\s+due|grand\s+total|total\s*tend|change\s+due)\b/i.test(blob)) {
+    return false;
+  }
+
+  if (/\b\d{1,2}(?:\.\d+)?\s*%\s*(gst|hst|pst|qst|rst|vat|tax)\b/i.test(blob)) return true;
+  if (/\b(gst|hst|pst|qst|rst|vat|tvq)\b/i.test(blob) && /\b\d{1,2}(?:\.\d+)?\s*%/.test(blob)) return true;
+  if (category.toLowerCase() === 'tax' && /\b(gst|hst|pst|qst|rst|vat|sales|tax)\b/i.test(blob)) return true;
+  if (/\b(sales\s+tax|state\s+tax|use\s+tax|consumption\s+tax)\b/i.test(blob)) return true;
+
+  return false;
+}
+
+function separateReceiptTaxLinesFromItems(items: any[]): { kept: any[]; taxFromLines: number } {
+  let taxFromLines = 0;
+  const kept: any[] = [];
+  for (const item of items) {
+    if (receiptItemLooksLikeSalesTaxBreakdown(item)) {
+      taxFromLines += Number(item.price ?? item.amount ?? 0) || 0;
+    } else {
+      kept.push(item);
+    }
+  }
+  return { kept, taxFromLines: Number(taxFromLines.toFixed(2)) };
+}
+
+/**
+ * Strip tax breakdown rows into `tax`, keep merchandise items; reconcile with totalAmount.
+ * Mutates `parsed` (items, tax, optional dataConsistency).
+ */
+/** When the model returns only a card brand, coerce a ****last4 label so downstream matching works. */
+function ensurePaymentAccountNameWithLastFour(
+  name: string | undefined,
+  lastFour: string | undefined,
+): string | undefined {
+  const four = normalizeCardLastFourDigits(lastFour);
+  if (!four) return name;
+  const t = name?.trim() || '';
+  if (
+    !t ||
+    /^(visa|mastercard|master\s+card|mc|amex|american\s+express|discover|debit|credit|interac|eftpos)$/i.test(t)
+  ) {
+    return `Card ****${four}`;
+  }
+  if (!extractCardSuffix(t)) {
+    return `${t} ****${four}`.replace(/\s+/g, ' ').trim();
+  }
+  return name;
+}
+
+function normalizeParsedReceiptTaxFields(
+  parsed: Record<string, any>,
+  opts: { categoryNames: string[]; defaultAttributionName: string },
+): void {
+  const totalAmount = Number(parsed.totalAmount) || 0;
+  const defaultCategory = opts.categoryNames.length > 0 ? opts.categoryNames[0] : 'Meal';
+  const defaultAttr = opts.defaultAttributionName || 'Personal';
+
+  if (!parsed.items || !Array.isArray(parsed.items)) return;
+
+  const { kept, taxFromLines } = separateReceiptTaxLinesFromItems(parsed.items);
+  let items = kept;
+  const explicitTax = parsed.tax !== undefined ? Number(parsed.tax) : NaN;
+
+  if (items.length === 0 && (taxFromLines > 0.001 || totalAmount > 0)) {
+    const t =
+      taxFromLines > 0.001
+        ? taxFromLines
+        : Number.isFinite(explicitTax) && explicitTax > 0.001
+          ? explicitTax
+          : 0;
+    const price = Math.max(0, Number((totalAmount - t).toFixed(2)));
+    items = [
+      {
+        name: 'General Purchase',
+        categoryName: defaultCategory,
+        attributionName: defaultAttr,
+        price,
+      },
+    ];
+  }
+
+  parsed.items = items;
+
+  const merchandiseSum = items.reduce((s, it) => s + (Number(it.price ?? it.amount) || 0), 0);
+  let tax = 0;
+  if (taxFromLines > 0.001) {
+    tax = taxFromLines;
+  } else if (Number.isFinite(explicitTax) && explicitTax > 0.001) {
+    tax = Number(explicitTax.toFixed(2));
+  } else {
+    const inferred = totalAmount - merchandiseSum;
+    if (inferred > 0.001) tax = Number(inferred.toFixed(2));
+  }
+  parsed.tax = tax;
+
+  if (parsed.dataConsistency && typeof parsed.dataConsistency === 'object') {
+    parsed.dataConsistency.itemsSum = merchandiseSum;
+    parsed.dataConsistency.itemsSumMatchesTotal = Math.abs(merchandiseSum + tax - totalAmount) <= 0.01;
+  }
+}
+
 // 引用 gemini-helper 中处理好的安全判断逻辑（如果 gemini-helper 导出了 apiKey）
 // 或者直接在此处复制安全获取逻辑：
 const getSafeKey = () => {
@@ -135,9 +248,9 @@ function clearModelCacheIfUnavailable(err: unknown) {
   }
 }
 
-/** 小票识别统一 JSON 输出规范（精简版提示词，完整校验仍在下游 ensureGeminiParsedReceiptItems） */
+/** 小票识别统一 JSON 输出规范（与下游 ensureGeminiParsedReceiptItems、strip 税行后处理一致） */
 const RECEIPT_JSON_ITEMS_RULE =
-  'items: ≥1 row. Each: name, categoryName, attributionName, price; itemAlias when line is SKU/code/cryptic (plain English label, no amounts in itemAlias).';
+  'items: ≥1 merchandise/service row only—do NOT list sales-tax breakdown lines (GST, HST, PST, QST, RST, VAT, TVQ, “N% tax”, etc.) as items; put their sum in "tax" (or 0 if only pre-tax subtotal + one total tax line). Each item: name, categoryName, attributionName, price; itemAlias when line is SKU/code/cryptic (plain English label, no amounts in itemAlias).';
 const RECEIPT_JSON_ITEMS_EXAMPLE = {
   name: 'FD BRKFST 4729',
   itemAlias: 'Breakfast sandwich combo',
@@ -146,9 +259,9 @@ const RECEIPT_JSON_ITEMS_EXAMPLE = {
   price: 12.99,
 };
 
-/** 图片解析引导（短） */
+/** 图片解析引导 */
 const RECEIPT_IMAGE_PARSE_INTRO =
-  'North American retail receipt: extract purchase fields to one JSON object. Be concise in free-text comment fields.\n\n';
+  'You are a financial expert. North American retail receipt: extract one JSON object. Items = products/services only; tax totals go in "tax", not as separate item rows. Be concise in imageQuality comments.\n\n';
 
 /** 文档解析引导（短；规则与图片共用） */
 const RECEIPT_DOCUMENT_PARSE_INTRO =
@@ -175,16 +288,18 @@ function buildReceiptExtractionRules(opts: {
   } = opts;
   return `Lists (semantic match; else new values may be created). Suppliers: [${supplierListImg || 'None'}]. Categories: [${categoryList}]. Attributions: [${attributionNamesCsv}], default "${defaultAttributionName}". Payment accounts: [${paymentAccountList || 'None'}]. Currencies (hints): [${currencyList}], default "${defaultCurrency}".
 
+Category/attribution: pick the semantically best list match per line; list order is unranked (not “earlier = better”). Use line name + itemAlias + merchant context (store type, tax region hints).
+
 Single pass only: include EVERYTHING in this one JSON (line items, supplierInfo, quality, consistency)—the app does not run a second image call for merchant tax/phone/address.
 
-Rules: (1) supplierName—merchant header; not generic words. (2) supplierInfo—scan full receipt for taxNumber (US EIN / CA GST etc.), phone, address when printed (null only if absent). (3) date YYYY-MM-DD. (4) totalAmount. (5) currency ISO. (6) paymentAccountName from list or card hint. (7) tax if printed (app may reconcile); no extra tax jurisdiction fields. (8) ${RECEIPT_JSON_ITEMS_RULE} (9) imageQuality clarity/completeness 0–1 + short comments. (10) dataConsistency. (11) confidence 0–1.
+Rules: (1) supplierName—merchant header; not generic words. (2) supplierInfo—scan full receipt for taxNumber (US EIN / CA GST etc.), phone, address when printed (null only if absent). (3) date YYYY-MM-DD. (4) totalAmount (grand total). (5) currency ISO. (6) Payment: when a card/bank line shows masked digits (e.g. VISA # ************1102), set paymentCardLastFour to exactly those last 4 digits as a string (e.g. "1102"); otherwise null. For paymentAccountName: if any Payment accounts list entry matches the same card (same last-4 / same method), copy that list string verbatim; else use a short label that includes last-4 or ****last4 (e.g. "Visa ****1102"). Never use paymentAccountName that is only a brand word like "VISA" or "DEBIT" when last-4 is printed—include the digits. Only null both when no card/payment method appears. (7) Tax: set "tax" to total sales tax (sum of GST+HST+PST+RST+VAT lines) when visible; do NOT duplicate those lines in "items". Items must be sellable lines only—if the receipt shows subtotal + separate GST/RST rows, omit those tax rows from items and put their sum in "tax". No tax jurisdiction region fields. (8) ${RECEIPT_JSON_ITEMS_RULE} (9) imageQuality clarity/completeness 0–1 + short comments. (10) dataConsistency. (11) confidence 0–1.
 
 Return ONLY valid JSON (no markdown fences). Required shape:
-{"supplierName":"string","supplierInfo":{"taxNumber":null,"phone":null,"address":null},"date":"YYYY-MM-DD","totalAmount":0,"currency":"USD","paymentAccountName":null,"tax":0,"items":[{"name":"","itemAlias":"","categoryName":"","attributionName":"","price":0}],"imageQuality":{"clarity":0,"completeness":0,"clarityComment":"","completenessComment":""},"dataConsistency":{"itemsSum":0,"itemsSumMatchesTotal":false,"missingItems":false,"consistencyComment":""},"confidence":0}`;
+{"supplierName":"string","supplierInfo":{"taxNumber":null,"phone":null,"address":null},"date":"YYYY-MM-DD","totalAmount":0,"currency":"USD","paymentAccountName":null,"paymentCardLastFour":null,"tax":0,"items":[{"name":"","itemAlias":"","categoryName":"","attributionName":"","price":0}],"imageQuality":{"clarity":0,"completeness":0,"clarityComment":"","completenessComment":""},"dataConsistency":{"itemsSum":0,"itemsSumMatchesTotal":false,"missingItems":false,"consistencyComment":""},"confidence":0}`;
 }
 
 const INVOICE_JSON_ITEMS_RULE =
-  'items: ≥1 row. Each: name, categoryName, attributionName, price; itemAlias when line is SKU/code/cryptic (plain English label, no amounts in itemAlias).';
+  'items: ≥1 sellable line; do NOT list tax breakdown rows (GST/VAT/PST…) as items—sum them in "tax". Each: name, categoryName, attributionName, price; itemAlias when SKU/code/cryptic.';
 
 const INVOICE_IMAGE_PARSE_INTRO =
   "Sales invoice, payment advice, or incoming payment slip: extract fields for money received by the user's business. Identify the customer/payer (Bill To, buyer, client) and any printed tax ID, phone, and mailing address for that party.\n\n";
@@ -211,10 +326,10 @@ function buildInvoiceImageExtractionRules(opts: {
 
 Single pass only: include EVERYTHING in this one JSON (line items, supplierInfo for customer tax/phone/address, quality, consistency)—the app does not run a second image call.
 
-Rules: (1) customerName—the buyer/payer or Bill To party (not generic words). (2) supplierInfo—the CUSTOMER taxNumber (VAT/GST/EIN etc.), phone, and address as printed for that party; keep JSON key supplierInfo for app compatibility; null only when absent. (3) date YYYY-MM-DD. (4) totalAmount. (5) currency ISO. (6) paymentAccountName from list when visible. (7) tax if printed (else app may infer). (8) ${INVOICE_JSON_ITEMS_RULE} (9) imageQuality clarity/completeness 0–1 + short comments. (10) dataConsistency. (11) confidence 0–1.
+Rules: (1) customerName—the buyer/payer or Bill To party (not generic words). (2) supplierInfo—the CUSTOMER taxNumber (VAT/GST/EIN etc.), phone, and address as printed for that party; keep JSON key supplierInfo for app compatibility; null only when absent. (3) date YYYY-MM-DD. (4) totalAmount. (5) currency ISO. (6) Payment: when deposit/card lines show last-4, set paymentCardLastFour to that 4-digit string; paymentAccountName = verbatim from Deposit/receipt accounts list when it matches same last-4, else a label including ****last4—never brand-only when digits are visible. (7) Tax: put total tax in "tax"; do NOT list GST/VAT/PST breakdown rows as items—items are sellable lines only. (8) ${INVOICE_JSON_ITEMS_RULE} (9) imageQuality clarity/completeness 0–1 + short comments. (10) dataConsistency. (11) confidence 0–1.
 
 Return ONLY valid JSON (no markdown fences). Required shape:
-{"customerName":"string","supplierInfo":{"taxNumber":null,"phone":null,"address":null},"date":"YYYY-MM-DD","totalAmount":0,"currency":"USD","paymentAccountName":null,"tax":0,"items":[{"name":"","itemAlias":"","categoryName":"","attributionName":"","price":0}],"imageQuality":{"clarity":0,"completeness":0,"clarityComment":"","completenessComment":""},"dataConsistency":{"itemsSum":0,"itemsSumMatchesTotal":false,"missingItems":false,"consistencyComment":""},"confidence":0}`;
+{"customerName":"string","supplierInfo":{"taxNumber":null,"phone":null,"address":null},"date":"YYYY-MM-DD","totalAmount":0,"currency":"USD","paymentAccountName":null,"paymentCardLastFour":null,"tax":0,"items":[{"name":"","itemAlias":"","categoryName":"","attributionName":"","price":0}],"imageQuality":{"clarity":0,"completeness":0,"clarityComment":"","completenessComment":""},"dataConsistency":{"itemsSum":0,"itemsSumMatchesTotal":false,"missingItems":false,"consistencyComment":""},"confidence":0}`;
 }
 
 /** Normalize tax/phone/address from supplierInfo or customerInfo (Gemini may emit either). */
@@ -413,11 +528,28 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
         categoryNames,
         defaultAttributionName: 'Personal',
       });
+      normalizeParsedReceiptTaxFields(parsedResult as unknown as Record<string, any>, {
+        categoryNames,
+        defaultAttributionName: 'Personal',
+      });
 
       // 验证和规范化数据
       const defaultCategory = categoryNames.length > 0 ? categoryNames[0] : 'Meal';
       // 兼容处理：支持 paymentAccount 和 paymentAccountName 两种字段名
-      const paymentAccountName = parsedResult.paymentAccountName || (parsedResult as any).paymentAccount || undefined;
+      const paymentAccountNameRaw = parsedResult.paymentAccountName || (parsedResult as any).paymentAccount || undefined;
+      const paymentAccountName =
+        paymentAccountNameRaw != null && paymentAccountNameRaw !== 'null' && String(paymentAccountNameRaw).trim()
+          ? String(paymentAccountNameRaw).trim()
+          : undefined;
+      const prAny = parsedResult as Record<string, unknown>;
+      const paymentCardLastFour =
+        normalizeCardLastFourDigits(prAny.paymentCardLastFour ?? (prAny as any).cardLastFour) ??
+        (paymentAccountName ? extractCardSuffix(paymentAccountName) : null) ??
+        undefined;
+      const paymentAccountNameCoerced = ensurePaymentAccountNameWithLastFour(
+        paymentAccountName,
+        paymentCardLastFour,
+      );
 
       // 处理图片质量评价
       const imageQuality = parsedResult.imageQuality ? {
@@ -435,11 +567,10 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
         consistencyComment: parsedResult.dataConsistency.consistencyComment,
       } : undefined;
 
-      // 计算实际的明细金额总和（用于验证，统一用 price，兼容 amount）
+      // 计算实际的明细金额总和（用于验证，统一用 price，兼容 amount）；tax 已由 normalizeParsedReceiptTaxFields 汇总
       const calculatedItemsSum = parsedResult.items.reduce((sum, item) => sum + (Number((item as any).price ?? (item as any).amount) || 0), 0);
       const totalAmount = Number(parsedResult.totalAmount) || 0;
-      const inferredTax = totalAmount - calculatedItemsSum;
-      const tax = inferredTax > 0 ? Number(inferredTax.toFixed(2)) : 0;
+      const tax = Number((parsedResult as any).tax) || 0;
       const expectedTotal = calculatedItemsSum + tax;
       const actualItemsSumMatches = Math.abs(expectedTotal - totalAmount) <= 0.01;
 
@@ -453,7 +584,8 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
         date: normalizeShortDate(parsedResult.date || getLocalDateString()),
         totalAmount: totalAmount,
         currency: parsedResult.currency || 'CNY',
-        paymentAccountName: paymentAccountName,
+        paymentAccountName: paymentAccountNameCoerced,
+        paymentCardLastFour,
         tax: tax,
         taxJurisdictionCountry: null,
         taxJurisdictionRegion: null,
@@ -688,9 +820,25 @@ export async function recognizeInvoiceFromImage(imageUrl: string): Promise<Gemin
         categoryNames,
         defaultAttributionName: defaultAttribution,
       });
+      normalizeParsedReceiptTaxFields(parsedResult as Record<string, any>, {
+        categoryNames,
+        defaultAttributionName: defaultAttribution,
+      });
 
       const prAny = parsedResult as Record<string, any>;
-      const paymentAccountName = prAny.paymentAccountName || prAny.paymentAccount || undefined;
+      const paymentAccountNameRaw = prAny.paymentAccountName || prAny.paymentAccount || undefined;
+      const paymentAccountName =
+        paymentAccountNameRaw != null && paymentAccountNameRaw !== 'null' && String(paymentAccountNameRaw).trim()
+          ? String(paymentAccountNameRaw).trim()
+          : undefined;
+      const paymentCardLastFour =
+        normalizeCardLastFourDigits(prAny.paymentCardLastFour ?? prAny.cardLastFour) ??
+        (paymentAccountName ? extractCardSuffix(paymentAccountName) : null) ??
+        undefined;
+      const paymentAccountNameInv = ensurePaymentAccountNameWithLastFour(
+        paymentAccountName,
+        paymentCardLastFour,
+      );
 
       const imageQuality = prAny.imageQuality
         ? {
@@ -721,14 +869,7 @@ export async function recognizeInvoiceFromImage(imageUrl: string): Promise<Gemin
         0,
       );
       const totalAmount = Number(prAny.totalAmount) || 0;
-      const explicitTax = prAny.tax !== undefined ? Number(prAny.tax) : NaN;
-      let tax: number;
-      if (Number.isFinite(explicitTax)) {
-        tax = explicitTax;
-      } else {
-        const inferredTax = totalAmount - calculatedItemsSum;
-        tax = inferredTax > 0 ? Number(inferredTax.toFixed(2)) : 0;
-      }
+      const tax = Number(prAny.tax) || 0;
       const expectedTotal = calculatedItemsSum + tax;
       const actualItemsSumMatches = Math.abs(expectedTotal - totalAmount) <= 0.01;
 
@@ -772,7 +913,8 @@ export async function recognizeInvoiceFromImage(imageUrl: string): Promise<Gemin
         date: normalizeShortDate(prAny.date || getLocalDateString()),
         totalAmount,
         currency: prAny.currency || defaultCurrency,
-        paymentAccountName,
+        paymentAccountName: paymentAccountNameInv,
+        paymentCardLastFour,
         tax,
         items: itemsOut,
         confidence: prAny.confidence !== undefined ? Number(prAny.confidence) : 0.8,
@@ -1026,7 +1168,24 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
         categoryNames,
         defaultAttributionName: 'Personal',
       });
-      const paymentAccountName = parsedResult.paymentAccountName || (parsedResult as any).paymentAccount;
+      normalizeParsedReceiptTaxFields(parsedResult as unknown as Record<string, any>, {
+        categoryNames,
+        defaultAttributionName: 'Personal',
+      });
+      const paymentAccountNameRaw = parsedResult.paymentAccountName || (parsedResult as any).paymentAccount;
+      const paymentAccountName =
+        paymentAccountNameRaw != null && paymentAccountNameRaw !== 'null' && String(paymentAccountNameRaw).trim()
+          ? String(paymentAccountNameRaw).trim()
+          : undefined;
+      const prDoc = parsedResult as unknown as Record<string, unknown>;
+      const paymentCardLastFour =
+        normalizeCardLastFourDigits(prDoc.paymentCardLastFour ?? (prDoc as any).cardLastFour) ??
+        (paymentAccountName ? extractCardSuffix(paymentAccountName) : null) ??
+        undefined;
+      const paymentAccountNameCoercedDoc = ensurePaymentAccountNameWithLastFour(
+        paymentAccountName,
+        paymentCardLastFour,
+      );
       const imageQuality = parsedResult.imageQuality ? {
         clarity: parsedResult.imageQuality.clarity !== undefined ? Number(parsedResult.imageQuality.clarity) : undefined,
         completeness: parsedResult.imageQuality.completeness !== undefined ? Number(parsedResult.imageQuality.completeness) : undefined,
@@ -1041,8 +1200,7 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
       } : undefined;
       const calculatedItemsSum = parsedResult.items.reduce((sum, item) => sum + (Number((item as any).price ?? (item as any).amount) || 0), 0);
       const totalAmount = Number(parsedResult.totalAmount) || 0;
-      const inferredTax = totalAmount - calculatedItemsSum;
-      const tax = inferredTax > 0 ? Number(inferredTax.toFixed(2)) : 0;
+      const tax = Number((parsedResult as any).tax) || 0;
       const expectedTotal = calculatedItemsSum + tax;
       const actualItemsSumMatches = Math.abs(expectedTotal - totalAmount) <= 0.01;
       return {
@@ -1055,7 +1213,8 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
         date: normalizeShortDate(parsedResult.date || getLocalDateString()),
         totalAmount,
         currency: parsedResult.currency || 'USD',
-        paymentAccountName,
+        paymentAccountName: paymentAccountNameCoercedDoc,
+        paymentCardLastFour,
         tax,
         taxJurisdictionCountry: null,
         taxJurisdictionRegion: null,
@@ -1321,7 +1480,9 @@ Items: at least one. ${RECEIPT_JSON_ITEMS_RULE} Example item: ${JSON.stringify(R
 
 Data: today=${today}, 上周五=${lastFridayStr}. Suppliers [${supplierList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Personal".
 
-Output JSON keys: supplierName, date, totalAmount, currency, paymentAccountName (optional), items (array of { name, itemAlias (required when name is code-like), categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
+Do NOT put GST/HST/PST/QST/RST/VAT sales-tax lines in items; put total tax in "tax". Items = products/services only.
+
+Output JSON keys: supplierName, date, totalAmount, currency, tax (total sales tax), paymentAccountName (optional), paymentCardLastFour (optional, 4-digit string when card last-4 is in text; else omit or null), items (array of { name, itemAlias (required when name is code-like), categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
 
 User text:
 "${text}"`;
@@ -1439,6 +1600,11 @@ User text:
           }];
         }
 
+        normalizeParsedReceiptTaxFields(parsedResult, {
+          categoryNames,
+          defaultAttributionName: 'Personal',
+        });
+
         geminiDevLog('Parsed result items count:', parsedResult.items.length);
         geminiDevLog('Parsed result:', {
           supplierName: parsedResult.supplierName,
@@ -1489,6 +1655,20 @@ User text:
         parsedResult.taxJurisdictionRegion = null;
         delete parsedResult.tax_jurisdiction_country;
         delete parsedResult.tax_jurisdiction_region;
+
+        const nameRaw = parsedResult.paymentAccountName || parsedResult.paymentAccount;
+        parsedResult.paymentAccountName =
+          nameRaw != null && nameRaw !== 'null' && String(nameRaw).trim() ? String(nameRaw).trim() : undefined;
+        delete parsedResult.paymentAccount;
+        parsedResult.paymentCardLastFour =
+          normalizeCardLastFourDigits(parsedResult.paymentCardLastFour ?? parsedResult.cardLastFour) ??
+          (parsedResult.paymentAccountName ? extractCardSuffix(parsedResult.paymentAccountName) : null) ??
+          undefined;
+        delete parsedResult.cardLastFour;
+        parsedResult.paymentAccountName = ensurePaymentAccountNameWithLastFour(
+          parsedResult.paymentAccountName,
+          parsedResult.paymentCardLastFour,
+        );
 
         geminiDevLog('Final parsed result:', {
           supplierName: parsedResult.supplierName,
@@ -1590,7 +1770,7 @@ Items: at least one. ${RECEIPT_JSON_ITEMS_RULE} Example item: ${JSON.stringify(R
 
 Data: today=${todayStr}, yesterday=${yesterdayStr}. Suppliers [${supplierListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Personal".
 
-Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymentAccountName (optional), items (array of { name, itemAlias(optional), categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
+Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymentAccountName (optional), paymentCardLastFour (optional, 4-digit string if heard), items (array of { name, itemAlias(optional), categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
 
   try {
     // 读取音频文件
@@ -1669,6 +1849,11 @@ Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymen
           }).filter((item: any) => item.name != null && item.name !== '' && !isNaN(item.price) && item.categoryName);
         }
 
+        normalizeParsedReceiptTaxFields(parsedResult, {
+          categoryNames,
+          defaultAttributionName: 'Personal',
+        });
+
         // 计算itemsSum如果未提供
         if (parsedResult.items && parsedResult.items.length > 0) {
           if (parsedResult.dataConsistency?.itemsSum === undefined) {
@@ -1690,6 +1875,22 @@ Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymen
         if (!parsedResult.currency) {
           parsedResult.currency = defaultCurrency;
         }
+
+        const nameRawAudio = parsedResult.paymentAccountName || parsedResult.paymentAccount;
+        parsedResult.paymentAccountName =
+          nameRawAudio != null && nameRawAudio !== 'null' && String(nameRawAudio).trim()
+            ? String(nameRawAudio).trim()
+            : undefined;
+        delete parsedResult.paymentAccount;
+        parsedResult.paymentCardLastFour =
+          normalizeCardLastFourDigits(parsedResult.paymentCardLastFour ?? parsedResult.cardLastFour) ??
+          (parsedResult.paymentAccountName ? extractCardSuffix(parsedResult.paymentAccountName) : null) ??
+          undefined;
+        delete parsedResult.cardLastFour;
+        parsedResult.paymentAccountName = ensurePaymentAccountNameWithLastFour(
+          parsedResult.paymentAccountName,
+          parsedResult.paymentCardLastFour,
+        );
 
         return parsedResult as GeminiReceiptResult;
       } catch (error) {
@@ -1782,7 +1983,7 @@ Data: today=${today}. Customers [${customerList || 'None'}]. Currencies [${curre
 
 Single pass only: include supplierInfo for the customer/payer taxNumber, phone, address when mentioned (JSON key supplierInfo; null when absent)—no second parsing step.
 
-Output: customerName, supplierInfo{taxNumber,phone,address}, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[] where each item includes name, itemAlias(optional), categoryName, attributionName, price, dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
+Output: customerName, supplierInfo{taxNumber,phone,address}, date, totalAmount, currency, paymentAccountName (optional), paymentCardLastFour (optional, 4-digit string when visible), tax (default 0), items[] where each item includes name, itemAlias(optional), categoryName, attributionName, price, dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
 
 User input:
 "${text}"`;
@@ -1820,6 +2021,27 @@ User input:
       if (!parsed.currency) parsed.currency = defaultCurrency;
       if (parsed.confidence === undefined) parsed.confidence = 0.8;
       if (!parsed.dataConsistency) parsed.dataConsistency = {};
+
+      normalizeParsedReceiptTaxFields(parsed, {
+        categoryNames,
+        defaultAttributionName: attributionNames[0] || 'Employer',
+      });
+
+      const invNameRaw = parsed.paymentAccountName || parsed.paymentAccount;
+      parsed.paymentAccountName =
+        invNameRaw != null && invNameRaw !== 'null' && String(invNameRaw).trim()
+          ? String(invNameRaw).trim()
+          : undefined;
+      delete parsed.paymentAccount;
+      parsed.paymentCardLastFour =
+        normalizeCardLastFourDigits(parsed.paymentCardLastFour ?? parsed.cardLastFour) ??
+        (parsed.paymentAccountName ? extractCardSuffix(parsed.paymentAccountName) : null) ??
+        undefined;
+      delete parsed.cardLastFour;
+      parsed.paymentAccountName = ensurePaymentAccountNameWithLastFour(
+        parsed.paymentAccountName,
+        parsed.paymentCardLastFour,
+      );
 
       return parsed as GeminiVoucherResult;
     } catch (error) {
@@ -1878,7 +2100,7 @@ Data: today=${today}. Customers [${customerList}]. Currencies [${currencyList}],
 
 Single pass only: include supplierInfo for the customer/payer taxNumber, phone, address as printed (JSON key supplierInfo; null when absent).
 
-Output: customerName, supplierInfo{taxNumber,phone,address}, date, totalAmount, currency, paymentAccountName (optional), tax (default 0), items[] where each item includes name, itemAlias(optional), categoryName, attributionName, price, dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
+Output: customerName, supplierInfo{taxNumber,phone,address}, date, totalAmount, currency, paymentAccountName (optional), paymentCardLastFour (optional), tax (default 0), items[] where each item includes name, itemAlias(optional), categoryName, attributionName, price, dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
 
   const prompt = INVOICE_DOCUMENT_PARSE_INTRO + rulesAndData;
   const { base64, mimeType } = await downloadFileToBase64(fileUrl, mimeHint);
@@ -1926,6 +2148,28 @@ Output: customerName, supplierInfo{taxNumber,phone,address}, date, totalAmount, 
       if (!parsed.currency) parsed.currency = defaultCurrency;
       if (parsed.confidence === undefined) parsed.confidence = 0.8;
       if (!parsed.dataConsistency) parsed.dataConsistency = {};
+
+      normalizeParsedReceiptTaxFields(parsed, {
+        categoryNames,
+        defaultAttributionName: attributionNames[0] || 'Employer',
+      });
+
+      const invDocNameRaw = parsed.paymentAccountName || parsed.paymentAccount;
+      parsed.paymentAccountName =
+        invDocNameRaw != null && invDocNameRaw !== 'null' && String(invDocNameRaw).trim()
+          ? String(invDocNameRaw).trim()
+          : undefined;
+      delete parsed.paymentAccount;
+      parsed.paymentCardLastFour =
+        normalizeCardLastFourDigits(parsed.paymentCardLastFour ?? parsed.cardLastFour) ??
+        (parsed.paymentAccountName ? extractCardSuffix(parsed.paymentAccountName) : null) ??
+        undefined;
+      delete parsed.cardLastFour;
+      parsed.paymentAccountName = ensurePaymentAccountNameWithLastFour(
+        parsed.paymentAccountName,
+        parsed.paymentCardLastFour,
+      );
+
       return parsed as GeminiVoucherResult;
     } catch (error) {
       clearModelCacheIfUnavailable(error);
@@ -2002,7 +2246,7 @@ Data: today=${today}. Customers [${customerListAudio || 'None'}]. Currencies [${
 
 Single pass: include supplierInfo for customer taxNumber, phone, address when clearly spoken (JSON key supplierInfo).
 
-Return ONLY valid JSON: customerName, supplierInfo{taxNumber,phone,address}, date (YYYY-MM-DD), totalAmount, currency, tax, paymentAccountName, items (name, itemAlias(optional), categoryName, attributionName, price), dataConsistency (itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment), confidence(0-1).`;
+Return ONLY valid JSON: customerName, supplierInfo{taxNumber,phone,address}, date (YYYY-MM-DD), totalAmount, currency, tax, paymentAccountName, paymentCardLastFour (optional), items (name, itemAlias(optional), categoryName, attributionName, price), dataConsistency (itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment), confidence(0-1).`;
 
   const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
   let availableModel: string | null = null;
@@ -2043,6 +2287,28 @@ Return ONLY valid JSON: customerName, supplierInfo{taxNumber,phone,address}, dat
       if (!parsed.currency) parsed.currency = defaultCurrency;
       if (parsed.confidence === undefined) parsed.confidence = 0.8;
       if (!parsed.dataConsistency) parsed.dataConsistency = {};
+
+      normalizeParsedReceiptTaxFields(parsed, {
+        categoryNames,
+        defaultAttributionName: attributionNames[0] || 'Employer',
+      });
+
+      const invAudNameRaw = parsed.paymentAccountName || parsed.paymentAccount;
+      parsed.paymentAccountName =
+        invAudNameRaw != null && invAudNameRaw !== 'null' && String(invAudNameRaw).trim()
+          ? String(invAudNameRaw).trim()
+          : undefined;
+      delete parsed.paymentAccount;
+      parsed.paymentCardLastFour =
+        normalizeCardLastFourDigits(parsed.paymentCardLastFour ?? parsed.cardLastFour) ??
+        (parsed.paymentAccountName ? extractCardSuffix(parsed.paymentAccountName) : null) ??
+        undefined;
+      delete parsed.cardLastFour;
+      parsed.paymentAccountName = ensurePaymentAccountNameWithLastFour(
+        parsed.paymentAccountName,
+        parsed.paymentCardLastFour,
+      );
+
       return parsed as GeminiVoucherResult;
     } catch (error) {
       clearModelCacheIfUnavailable(error);
