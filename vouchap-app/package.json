@@ -19,9 +19,7 @@
     "deploy:web": "npx expo export -p web && npx wrangler pages deploy dist",
     "build:android:production": "cd android && ./gradlew app:bundleRelease",
     "build:android:apk": "cd android && ./gradlew app:assembleRelease",
-    "build:android:eas:local": "bash scripts/build-android-eas-local.sh",
-    "receipt-tax-worker": "npx tsx scripts/receipt-tax-queue-worker.ts",
-    "receipt-tax-worker:once": "npx tsx scripts/receipt-tax-queue-worker.ts --once"
+    "build:android:eas:local": "bash scripts/build-android-eas-local.sh"
   },
   "dependencies": {
     "@expo/ngrok": "^4.1.3",

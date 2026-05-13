@@ -24,6 +24,7 @@ import {
   confirmOrderAndCreateProjectTodos,
   type FirmProjectInfo,
 } from '@/lib/firm';
+import { preflightFirmEngagementConfirmOrAlert } from '@/lib/firm-engagement-preflight-ui';
 import { supabase, uploadProjectCover } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import EngagementConsentModal from '@/components/EngagementConsentModal';
@@ -122,6 +123,11 @@ export default function OrderInfoScreen() {
   const performAcceptOrder = useCallback(async () => {
     if (!orderId) return;
     setAccepting(true);
+    const pre = await preflightFirmEngagementConfirmOrAlert(orderId, router);
+    if (!pre) {
+      setAccepting(false);
+      return;
+    }
     const { error } = await confirmOrderAndCreateProjectTodos(orderId);
     setAccepting(false);
     if (error) {

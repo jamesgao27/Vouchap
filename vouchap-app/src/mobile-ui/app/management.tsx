@@ -625,10 +625,10 @@ export default function ManagementScreen() {
     { id: 'members', title: 'Members', icon: 'people-outline', route: '/space-members', description: 'Manage members & invitations' },
     { id: 'permissions', title: 'Permissions', icon: 'shield-checkmark-outline', route: '/firm/permissions', description: 'Roles and permission scopes settings' },
     { id: 'claim', title: 'Claim engagement', icon: 'link-outline', route: '/auth/claim', description: 'Link your space with a pending engagement from a firm' },
-    { id: 'expense-settings', title: 'Expense Settings', icon: 'card-outline', route: '/expense-settings', description: 'Categories and attributions' },
-    { id: 'income-settings', title: 'Income Settings', icon: 'cash-outline', route: '/income-settings', description: 'Categories and attributions' },
     { id: 'accounts', title: 'Accounts', icon: 'wallet-outline', route: '/accounts-manage', description: 'Manage and merge accounts' },
     { id: 'entities', title: 'Entities', icon: 'storefront-outline', route: '/entities-manage', description: 'Payee/Payer/Sender/Receiver' },
+    { id: 'expense-settings', title: 'Expense Settings', icon: 'card-outline', route: '/expense-settings', description: 'Categories and attributions' },
+    { id: 'income-settings', title: 'Income Settings', icon: 'cash-outline', route: '/income-settings', description: 'Categories and attributions' },
   ];
   // firm 管理界面隐去收支设置、账户、Entities，仅保留 Members + Permission
   const visibleMenuItems = space?.kind === 'firm'
@@ -924,21 +924,6 @@ export default function ManagementScreen() {
           </View>
         </View>
 
-        <TouchableOpacity
-          style={styles.menuItem}
-          onPress={() => router.push('/space-orders' as any)}
-          activeOpacity={0.7}
-        >
-          <View style={styles.menuItemIcon}>
-            <Ionicons name="receipt-outline" size={20} color="#6C5CE7" />
-          </View>
-          <View style={styles.menuItemContent}>
-            <Text style={styles.menuItemTitle}>Order management</Text>
-            <Text style={styles.menuItemDescription}>Subscription and billing orders for this space</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
-        </TouchableOpacity>
-
         {/* Menu Items */}
         {visibleMenuItems.map((item) => (
           <TouchableOpacity
@@ -957,6 +942,21 @@ export default function ManagementScreen() {
             <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
           </TouchableOpacity>
         ))}
+
+        <TouchableOpacity
+          style={styles.menuItem}
+          onPress={() => router.push('/space-orders' as any)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.menuItemIcon}>
+            <Ionicons name="receipt-outline" size={20} color="#6C5CE7" />
+          </View>
+          <View style={styles.menuItemContent}>
+            <Text style={styles.menuItemTitle}>Subscription and billing</Text>
+            <Text style={styles.menuItemDescription}>Plans, invoices, and payment history</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
+        </TouchableOpacity>
       </ScrollView>
 
       {/* Switch Space Button and Sign Out Button */}

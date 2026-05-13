@@ -5,12 +5,7 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { GoogleGenerativeAI } from './gemini-server-sdk';
-import {
-  getAvailableImageModel,
-  buildGeminiModelOrder,
-  mergeGeminiModelsWithAvailable,
-  inferComplexGeminiContent,
-} from './gemini-helper';
+import { resolveGeminiModelsToTryOrder } from './gemini-helper';
 import {
   buildTaxFilingRecognitionPrompt,
   type TaxFilingProjectContext,
@@ -113,17 +108,11 @@ export async function runTaxFilingRecognition(
       : '';
   const promptForGemini = useTextOnly ? `${prompt}\n\n---\n${extractedBlock}` : prompt;
   const genAI = new GoogleGenerativeAI(currentApiKey);
-  let availableModel: string | null = null;
-  try {
-    availableModel = await getAvailableImageModel();
-  } catch (_) {}
-  const modelsToTry = mergeGeminiModelsWithAvailable(availableModel, buildGeminiModelOrder({
-    preferProAfterFlash: inferComplexGeminiContent({
-      promptTextLength: promptForGemini.length,
-      inlineBase64Length: useTextOnly ? 0 : base64.length,
-      mimeType: useTextOnly ? undefined : mimeType,
-    }),
-  }));
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
+    promptTextLength: promptForGemini.length,
+    inlineBase64Length: useTextOnly ? 0 : base64.length,
+    mimeType: useTextOnly ? undefined : mimeType,
+  });
   const validTaskIds = taskList ? new Set(taskList.map((t) => t.id)) : undefined;
   let lastError: Error | null = null;
 

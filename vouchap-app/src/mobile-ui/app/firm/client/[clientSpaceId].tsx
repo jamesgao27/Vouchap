@@ -27,6 +27,7 @@ import {
   updateFirmClientGroups,
 } from '@/lib/firm';
 import { createPendingOrderForInvitee } from '@/lib/firm-clients';
+import { preflightFirmEngagementCreateOrAlert } from '@/lib/firm-engagement-preflight-ui';
 import { showToast } from '@/lib/toast';
 import type { FirmClientWithDetails, FirmOrderWithDetails, FirmPermissionGroupRow } from '@/lib/firm';
 import type { FirmClientFollowUp, FirmSku } from '@/types';
@@ -267,6 +268,11 @@ export default function FirmClientDetailScreen() {
     const space = await getCurrentSpace();
     if (!space?.id || space.kind !== 'firm') return null;
     setCreatingOrder(true);
+    const pre = await preflightFirmEngagementCreateOrAlert(space.id, router);
+    if (!pre) {
+      setCreatingOrder(false);
+      return null;
+    }
     let error: Error | null = null;
     let createdOrderId: string | null = null;
     if (client.isPendingClaim) {
@@ -298,7 +304,7 @@ export default function FirmClientDetailScreen() {
     setCreatingOrder(false);
     if (error) showToast(error.message ?? 'Failed to create engagement.', 'error');
     return error ? null : createdOrderId;
-  }, [client, selectedSkuId]);
+  }, [client, selectedSkuId, router]);
 
   const confirmCreateAndClose = useCallback(async () => {
     // Skip the extra list refresh; navigating immediately is much faster.

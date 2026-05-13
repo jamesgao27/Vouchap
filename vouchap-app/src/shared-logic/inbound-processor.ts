@@ -4,6 +4,7 @@ import { convertGeminiResultToInbound } from './receipt-helpers';
 import { saveInbound, getInboundById } from './inbound';
 import { uploadInboundImage, supabase } from './supabase';
 import { assertClientRecognitionAllowed, recordClientRecognitionSuccessIfEnforced } from './client-recognition-quota';
+import { getCurrentUser } from './auth';
 
 const STORAGE_BUCKET = 'receipts';
 
@@ -41,8 +42,11 @@ export async function processInboundInBackground(
 ): Promise<void> {
   try {
     const existing = await getInboundById(inboundId);
-    const spaceId = existing?.spaceId ?? '';
-    const gate = await assertClientRecognitionAllowed(spaceId);
+    const userFresh = await getCurrentUser(true);
+    const activeSpaceId = userFresh?.currentSpaceId || userFresh?.spaceId || '';
+    const quotaSpaceId =
+      existing?.spaceId && String(existing.spaceId).trim() !== '' ? String(existing.spaceId) : activeSpaceId;
+    const gate = await assertClientRecognitionAllowed(quotaSpaceId);
     if (!gate.allowed) {
       console.warn('[inbound-processor] recognition blocked by quota:', gate.message);
       if (existing) await saveInbound({ ...existing, status: 'pending' });
@@ -50,7 +54,8 @@ export async function processInboundInBackground(
     }
     const recognizedData = await recognizeInboundFromImage(imageUrl);
     const inbound = await convertGeminiResultToInbound(recognizedData);
-    const finalImageUrl = await uploadInboundImage(processedImageUri, inboundId, spaceId);
+    const uploadSpaceId = activeSpaceId || existing?.spaceId || '';
+    const finalImageUrl = await uploadInboundImage(processedImageUri, inboundId, uploadSpaceId);
     if (imageUrl && imageUrl !== finalImageUrl) {
       await deleteTempFile(imageUrl);
     }
@@ -61,7 +66,7 @@ export async function processInboundInBackground(
       confidence: recognizedData.confidence,
       inputType: 'image',
     });
-    await recordClientRecognitionSuccessIfEnforced(spaceId);
+    await recordClientRecognitionSuccessIfEnforced(quotaSpaceId);
   } catch (error) {
     console.error('后台处理入库单失败:', error);
     try {

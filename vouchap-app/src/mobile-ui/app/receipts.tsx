@@ -17,6 +17,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { preflightRecognitionOrAlert } from '@/lib/recognition-preflight-ui';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 // DocumentScanner 将在需要时动态导入（因为它在 Expo Go 中不可用）
@@ -25,7 +26,7 @@ import { getReceiptsForListFirstPaint, getAllReceiptsForList, getAllReceipts, de
 import { Receipt, ReceiptStatus } from '@/types';
 import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, getCurrentSpace } from '@/lib/auth';
 import { SwipeableRow } from './SwipeableRow';
 import { uploadReceiptImageTempWithSpace } from '@/lib/supabase';
 import { processReceiptInBackground } from '@/lib/receipt-processor';
@@ -156,6 +157,12 @@ export default function ReceiptsScreen() {
   const [showFabActions, setShowFabActions] = useState(false);
   const fabAnimation = useRef(new Animated.Value(0)).current;
   const router = useRouter();
+
+  const runClientRecognitionPreflight = useCallback(async (): Promise<boolean> => {
+    const space = await getCurrentSpace(true);
+    if (space?.kind !== 'client' || !space.id) return true;
+    return preflightRecognitionOrAlert(space.id, router);
+  }, [router]);
   
   // Check if running in Expo Go
   const isExpoGo = Constants.appOwnership === 'expo';
@@ -220,11 +227,14 @@ export default function ReceiptsScreen() {
       confirmThen(
         'Development Build Required',
         'Real-time edge detection and cropping requires a native development build. In Expo Go, please use the gallery picker option.',
-        pickImage,
+        () => void pickImage(),
         { confirmText: 'Pick from Gallery', cancelText: 'Cancel' }
       );
       return;
     }
+
+    const pre = await runClientRecognitionPreflight();
+    if (!pre) return;
 
     try {
       console.log('📷 [scanDocument] 动态导入 DocumentScanner 模块...');
@@ -265,7 +275,7 @@ export default function ReceiptsScreen() {
         confirmThen(
           'Development Build Required',
           'Document scanner requires a native development build. Please use a development build or use the gallery picker option.',
-          pickImage,
+          () => void pickImage(),
           { confirmText: 'Pick from Gallery', cancelText: 'Cancel' }
         );
       } else {
@@ -275,6 +285,8 @@ export default function ReceiptsScreen() {
   };
 
   const pickImage = async () => {
+    const pre = await runClientRecognitionPreflight();
+    if (!pre) return;
     console.log('🖼️ [pickImage] 开始调用相册选择器...');
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -305,6 +317,11 @@ export default function ReceiptsScreen() {
 
     (async () => {
       try {
+        const okPre = await runClientRecognitionPreflight();
+        if (!okPre) {
+          setShowSuccessModal(false);
+          return;
+        }
         const tempFileName = `temp-${Date.now()}`;
         const user = await getCurrentUser();
         const spaceId = user?.currentSpaceId || user?.spaceId || '';
@@ -387,9 +404,12 @@ export default function ReceiptsScreen() {
   };
 
   const handleChatFromFab = () => {
-    // 直接执行聊天录入入口，并收起按钮组（不再播放收回动画）
-    setShowFabActions(false);
-    router.push('/chat-to-log');
+    void (async () => {
+      setShowFabActions(false);
+      const pre = await runClientRecognitionPreflight();
+      if (!pre) return;
+      router.push('/chat-to-log');
+    })();
   };
 
   // Supabase Realtime：列表在 Web / 移动端均订阅；列宽由 DataTable 持久化，刷新不再触发表格列宽重算。
@@ -1422,7 +1442,13 @@ export default function ReceiptsScreen() {
         <View style={styles.fabContainer}>
           <TouchableOpacity
             style={styles.fabMain}
-            onPress={() => router.push('/chat-to-log')}
+            onPress={() => {
+              void (async () => {
+                const pre = await runClientRecognitionPreflight();
+                if (!pre) return;
+                router.push('/chat-to-log');
+              })();
+            }}
             disabled={isProcessing}
             activeOpacity={0.8}
             accessibilityLabel="Open chat to log"

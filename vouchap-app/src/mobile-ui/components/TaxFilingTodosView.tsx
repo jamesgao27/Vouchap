@@ -68,7 +68,9 @@ import {
 import { supabase, uploadTaxFilingFile } from '@/lib/supabase';
 import { pickTaxFilingDocument } from '@/lib/tax-filing-document-picker';
 import { FileDetailModal } from '@/components/FileDetailModal';
-import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
+import { showAlertDialog, showConfirmDestructiveDialog } from '@/lib/confirmDialog';
+import { alertClientRecognitionQuotaBlocked } from '@/lib/recognition-preflight-ui';
+import { router } from 'expo-router';
 import { runTaxFilingRecognition } from '@/lib/tax-filing-recognition-run';
 import {
   assertClientRecognitionAllowed,
@@ -3173,8 +3175,10 @@ export function TaxFilingTodosView({
         const quotaSpaceId = ctx.project.clientSpaceId ?? '';
         const gate = await assertClientRecognitionAllowed(quotaSpaceId);
         if (!gate.allowed) {
-          if (Platform.OS === 'web') window.alert(gate.message ?? 'Recognition is not available for this account.');
-          else Alert.alert('Recognition limit', gate.message ?? 'Recognition is not available for this account.');
+          alertClientRecognitionQuotaBlocked(
+            { push: (href) => void router.push(href as '/management') },
+            { allowed: false, message: gate.message },
+          );
           return;
         }
 
@@ -3527,8 +3531,7 @@ export function TaxFilingTodosView({
           isImage: taxFilingTodoUploadIsImageKind(displayName, mimeType),
         });
         if (!follow.ok) {
-          if (Platform.OS === 'web') window.alert(follow.alertMessage);
-          else Alert.alert('Recognition failed', follow.alertMessage);
+          showAlertDialog('Recognition failed', follow.alertMessage);
         }
 
         // 刷新树与文件列表：确保文件计数 / 状态行内即时更新

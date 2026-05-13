@@ -38,6 +38,7 @@ import {
   type ProjectTodoNode,
   type FirmOrderById,
 } from '@/lib/firm';
+import { preflightFirmEngagementConfirmOrAlert } from '@/lib/firm-engagement-preflight-ui';
 import type { FirmSkuItem } from '@/types';
 import { withWbsCodes, type ProjectSkuInfo, type TodoRow } from '@/components/ProjectSkuDetail';
 import { ProjectDetailView, type ProjectDetailHeader } from '@/components/ProjectDetailView';
@@ -240,6 +241,8 @@ export default function FirmEngagementDetailScreen() {
     if (!orderId) return;
     setAcceptLoading(true);
     try {
+      const pre = await preflightFirmEngagementConfirmOrAlert(orderId, router);
+      if (!pre) return;
       const { error } = await confirmOrderAndCreateProjectTodos(orderId);
       if (error) return;
       if (viewerRole === 'client') showToast('Request submitted', 'success');
@@ -247,7 +250,7 @@ export default function FirmEngagementDetailScreen() {
     } finally {
       setAcceptLoading(false);
     }
-  }, [orderId, viewerRole, loadData]);
+  }, [orderId, viewerRole, loadData, router]);
 
   const handleStart = useCallback(async () => {
     if (viewerRole === 'client') {

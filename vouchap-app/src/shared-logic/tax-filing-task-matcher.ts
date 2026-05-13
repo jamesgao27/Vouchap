@@ -5,12 +5,7 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { GoogleGenerativeAI } from './gemini-server-sdk';
-import {
-  getAvailableImageModel,
-  buildGeminiModelOrder,
-  mergeGeminiModelsWithAvailable,
-  inferComplexGeminiContent,
-} from './gemini-helper';
+import { resolveGeminiModelsToTryOrder } from './gemini-helper';
 
 export interface TaxDocumentTaskMatcherContext {
   /** 报税辖区：CANADA | USA */
@@ -146,17 +141,11 @@ export async function classifyTaxDocumentAndPickTask(
   const { base64, mimeType } = await downloadImageToBase64(imageUrl);
   const imagePart = { inlineData: { data: base64, mimeType } };
   const genAI = new GoogleGenerativeAI(currentApiKey);
-  let availableModel: string | null = null;
-  try {
-    availableModel = await getAvailableImageModel();
-  } catch (_) {}
-  const modelsToTry = mergeGeminiModelsWithAvailable(availableModel, buildGeminiModelOrder({
-    preferProAfterFlash: inferComplexGeminiContent({
-      promptTextLength: prompt.length,
-      inlineBase64Length: base64.length,
-      mimeType,
-    }),
-  }));
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
+    promptTextLength: prompt.length,
+    inlineBase64Length: base64.length,
+    mimeType,
+  });
   const validIds = new Set(tasks.map((t) => t.id));
   let lastError: Error | null = null;
 

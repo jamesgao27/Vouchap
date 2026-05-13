@@ -42,6 +42,7 @@ import CenterModal from '../../components/CenterModal';
 import SkuPreview from '../../components/SkuPreview';
 import type { FirmSku } from '@/types';
 import { createPendingOrderForInvitee } from '@/lib/firm-clients';
+import { preflightFirmEngagementCreateOrAlert } from '@/lib/firm-engagement-preflight-ui';
 import { showToast } from '@/lib/toast';
 import {
   CLASSIFICATION_DIMENSIONS,
@@ -602,6 +603,11 @@ export default function FirmEngagementsScreen() {
     if (!firmSpaceId) return null;
     if (!selectedClient || !selectedSkuId) return null;
     setCreatingEngagement(true);
+    const pre = await preflightFirmEngagementCreateOrAlert(firmSpaceId, router);
+    if (!pre) {
+      setCreatingEngagement(false);
+      return null;
+    }
     let createdId: string | null = null;
     let error: Error | null = null;
 
@@ -626,7 +632,7 @@ export default function FirmEngagementsScreen() {
       return null;
     }
     return createdId;
-  }, [firmSpaceId, selectedClient, selectedSkuId]);
+  }, [firmSpaceId, selectedClient, selectedSkuId, router]);
 
   const confirmCreateAndClose = useCallback(async () => {
     const orderId = await handleCreateEngagement();

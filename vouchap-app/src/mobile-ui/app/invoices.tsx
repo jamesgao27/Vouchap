@@ -17,7 +17,7 @@ import {
 } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, getCurrentSpace } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { getInvoicesForListFirstPaint, getAllInvoicesWithItems, deleteInvoice, saveInvoice } from '@/lib/invoices';
 import { Invoice } from '@/types';
@@ -32,6 +32,7 @@ import WebChatFab, { WEB_CHAT_FAB_BOTTOM, WEB_CHAT_FAB_RIGHT, WEB_CHAT_FAB_SIZE 
 import DataTable, { WEB_POPOVER } from '@/components/DataTable';
 import { getInvoiceColumns } from '@/components/voucher-table-columns';
 import { isMobileWebWidth } from '../lib/web-viewport';
+import { preflightRecognitionOrAlert } from '@/lib/recognition-preflight-ui';
 import { inputTypeConfirmBadgeIonicon } from '@/lib/input-type-ionicon';
 
 type GroupByType = 'none' | 'month' | 'recordDate' | 'paymentAccount' | 'createdBy' | 'customer';
@@ -103,6 +104,12 @@ export default function InvoicesScreen() {
   const [showFabActions, setShowFabActions] = useState(false);
   const fabAnimation = useRef(new Animated.Value(0)).current;
   const router = useRouter();
+
+  const runClientRecognitionPreflight = useCallback(async (): Promise<boolean> => {
+    const space = await getCurrentSpace(true);
+    if (space?.kind !== 'client' || !space.id) return true;
+    return preflightRecognitionOrAlert(space.id, router);
+  }, [router]);
 
   /** 异步后加载：汇率、merge 解析 + 明细 items（getAllInvoicesWithItems 已含 merge），不阻塞首屏 */
   const loadDetailsAsync = useCallback(() => {
@@ -225,8 +232,12 @@ export default function InvoicesScreen() {
   };
 
   const handleChatFromFab = () => {
-    setShowFabActions(false);
-    router.push('/chat-to-log?type=invoice');
+    void (async () => {
+      setShowFabActions(false);
+      const pre = await runClientRecognitionPreflight();
+      if (!pre) return;
+      router.push('/chat-to-log?type=invoice');
+    })();
   };
 
   const handleScanFromFab = () => {

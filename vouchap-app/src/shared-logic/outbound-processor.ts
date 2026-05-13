@@ -4,6 +4,7 @@ import { convertGeminiResultToOutbound } from './receipt-helpers';
 import { saveOutbound, getOutboundById } from './outbound';
 import { uploadOutboundImage, supabase } from './supabase';
 import { assertClientRecognitionAllowed, recordClientRecognitionSuccessIfEnforced } from './client-recognition-quota';
+import { getCurrentUser } from './auth';
 
 const STORAGE_BUCKET = 'receipts';
 
@@ -42,8 +43,11 @@ export async function processOutboundInBackground(
   console.log('[出库单处理] 开始处理，outboundId:', outboundId, 'imageUrl:', imageUrl);
   try {
     const existing = await getOutboundById(outboundId);
-    const spaceId = existing?.spaceId ?? '';
-    const gate = await assertClientRecognitionAllowed(spaceId);
+    const userFresh = await getCurrentUser(true);
+    const activeSpaceId = userFresh?.currentSpaceId || userFresh?.spaceId || '';
+    const quotaSpaceId =
+      existing?.spaceId && String(existing.spaceId).trim() !== '' ? String(existing.spaceId) : activeSpaceId;
+    const gate = await assertClientRecognitionAllowed(quotaSpaceId);
     if (!gate.allowed) {
       console.warn('[outbound-processor] recognition blocked by quota:', gate.message);
       return;
@@ -57,7 +61,8 @@ export async function processOutboundInBackground(
     console.log('[出库单处理] 转换完成，出库单数据:', JSON.stringify(outbound, null, 2));
     
     console.log('[出库单处理] 步骤3: 上传正式图片...');
-    const finalImageUrl = await uploadOutboundImage(processedImageUri, outboundId, spaceId);
+    const uploadSpaceId = activeSpaceId || existing?.spaceId || '';
+    const finalImageUrl = await uploadOutboundImage(processedImageUri, outboundId, uploadSpaceId);
     console.log('[出库单处理] 图片上传完成，finalImageUrl:', finalImageUrl);
     
     if (imageUrl && imageUrl !== finalImageUrl) {
@@ -73,7 +78,7 @@ export async function processOutboundInBackground(
       confidence: recognizedData.confidence,
       inputType: 'image',
     });
-    await recordClientRecognitionSuccessIfEnforced(spaceId);
+    await recordClientRecognitionSuccessIfEnforced(quotaSpaceId);
     console.log('[出库单处理] ✅ 处理完成！');
   } catch (error) {
     console.error('[出库单处理] ❌ 后台处理出库单失败:');

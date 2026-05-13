@@ -29,6 +29,7 @@ import {
   updateProjectTodo,
   type ProjectTodoNode,
 } from '@/lib/firm';
+import { preflightFirmEngagementConfirmOrAlert } from '@/lib/firm-engagement-preflight-ui';
 import { showToast } from '@/lib/toast';
 import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import { ProjectInfoTab, type ProjectInfoTabHandle } from './info';
@@ -181,6 +182,11 @@ export default function ProjectTodosScreen() {
   const performAcceptAndStart = useCallback(async () => {
     if (!orderId) return;
     setAcceptLoading(true);
+    const pre = await preflightFirmEngagementConfirmOrAlert(orderId, router);
+    if (!pre) {
+      setAcceptLoading(false);
+      return;
+    }
     const { error } = await confirmOrderAndCreateProjectTodos(orderId);
     setAcceptLoading(false);
     if (error) {

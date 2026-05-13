@@ -11,6 +11,7 @@ import { StatusBar } from 'expo-status-bar';
 import { format } from 'date-fns';
 import { getCurrentUser } from '@/lib/auth';
 import { listSpaceOrdersForMember, type SpaceOrderRow } from '@/lib/space-orders';
+import { fetchSpaceEntitlements, type SpaceEntitlements } from '@/lib/space-entitlements';
 import { showToast } from '@/lib/toast';
 
 function formatTs(iso: string | null | undefined): string {
@@ -40,16 +41,22 @@ export default function SpaceOrdersScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [orders, setOrders] = useState<SpaceOrderRow[]>([]);
+  const [entitlements, setEntitlements] = useState<SpaceEntitlements | null>(null);
 
   const load = useCallback(async () => {
-    const user = await getCurrentUser();
+    const user = await getCurrentUser(true);
     const spaceId = user?.currentSpaceId || user?.spaceId;
     if (!spaceId) {
       setOrders([]);
+      setEntitlements(null);
       return;
     }
-    const rows = await listSpaceOrdersForMember(spaceId);
+    const [rows, ent] = await Promise.all([
+      listSpaceOrdersForMember(spaceId),
+      fetchSpaceEntitlements(spaceId),
+    ]);
     setOrders(rows);
+    setEntitlements(ent);
   }, []);
 
   useEffect(() => {
@@ -99,6 +106,45 @@ export default function SpaceOrdersScreen() {
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
+        {entitlements?.ok ? (
+          <View style={styles.summaryCard}>
+            <Text style={styles.summaryTitle}>Current plan</Text>
+            {entitlements.active_subscription ? (
+              <>
+                <Text style={styles.summaryLine}>
+                  {entitlements.active_subscription.sku_code}
+                  {entitlements.active_subscription.is_trial ? ' · Trial' : ''}
+                </Text>
+                <Text style={styles.summaryMuted}>
+                  Valid through {formatTs(entitlements.active_subscription.expires_at)}
+                </Text>
+              </>
+            ) : (
+              <Text style={styles.summaryWarn}>No active subscription. Recognition and firm engagements may be blocked.</Text>
+            )}
+            {entitlements.warnings?.some((w) => w.code === 'TRIAL_ENDING') ? (
+              <Text style={styles.summaryWarn}>
+                Trial ending soon (
+                {entitlements.warnings.find((w) => w.code === 'TRIAL_ENDING')?.days_left ?? '—'} days left).
+              </Text>
+            ) : null}
+            {entitlements.space_kind === 'firm' && entitlements.firm_engagement?.has_subscription ? (
+              <Text style={styles.summaryMuted}>
+                Engagements this subscription period: {entitlements.firm_engagement.used_in_period} /{' '}
+                {entitlements.firm_engagement.max_creates}
+              </Text>
+            ) : null}
+            {entitlements.space_kind === 'client' && entitlements.client_recognition ? (
+              <Text style={styles.summaryMuted}>
+                AI recognitions this month: {entitlements.client_recognition.used_this_month}
+                {entitlements.client_recognition.monthly_cap != null
+                  ? ` / cap ${entitlements.client_recognition.monthly_cap}`
+                  : ` / ${entitlements.client_recognition.included_per_month} included`}
+                {' · '}Credits: {entitlements.client_recognition.credits_balance}
+              </Text>
+            ) : null}
+          </View>
+        ) : null}
         {orders.length === 0 ? (
           <Text style={styles.empty}>No orders for this space yet.</Text>
         ) : (
@@ -166,6 +212,37 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     paddingBottom: 32,
+  },
+  summaryCard: {
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#E9ECEF',
+  },
+  summaryTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#2D3436',
+    marginBottom: 8,
+  },
+  summaryLine: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2D3436',
+  },
+  summaryMuted: {
+    fontSize: 13,
+    color: '#636E72',
+    marginTop: 6,
+    lineHeight: 18,
+  },
+  summaryWarn: {
+    fontSize: 13,
+    color: '#C27C0E',
+    marginTop: 6,
+    lineHeight: 18,
   },
   empty: {
     fontSize: 15,

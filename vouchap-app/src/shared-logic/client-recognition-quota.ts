@@ -8,7 +8,19 @@ export type ClientRecognitionQuota = {
   usedThisMonth: number;
   creditsBalance: number;
   processingLinked: boolean;
+  activeSubscriptionSku?: string | null;
+  subscriptionExpiresAt?: string | null;
 };
+
+/** RPC / JSON may return counts as string; missing fields must not zero-out credits incorrectly. */
+function coerceNonNegativeInt(v: unknown, fallback: number): number {
+  if (typeof v === 'number' && Number.isFinite(v)) return Math.max(0, Math.floor(v));
+  if (typeof v === 'string' && v.trim() !== '') {
+    const n = Number(v);
+    if (Number.isFinite(n)) return Math.max(0, Math.floor(n));
+  }
+  return fallback;
+}
 
 function parseQuotaPayload(data: unknown): ClientRecognitionQuota | null {
   if (!data || typeof data !== 'object') return null;
@@ -23,16 +35,25 @@ function parseQuotaPayload(data: unknown): ClientRecognitionQuota | null {
       usedThisMonth: 0,
       creditsBalance: 0,
       processingLinked: false,
+      activeSubscriptionSku: null,
+      subscriptionExpiresAt: null,
     };
   }
+  const monthlyCapRaw = o.monthly_cap;
+  const monthlyCap =
+    monthlyCapRaw === null || monthlyCapRaw === undefined
+      ? null
+      : coerceNonNegativeInt(monthlyCapRaw, 0);
   return {
     enforce: true,
     spaceKind: typeof o.space_kind === 'string' ? o.space_kind : 'client',
-    includedPerMonth: typeof o.included_per_month === 'number' ? o.included_per_month : 10,
-    monthlyCap: typeof o.monthly_cap === 'number' ? o.monthly_cap : null,
-    usedThisMonth: typeof o.used_this_month === 'number' ? o.used_this_month : 0,
-    creditsBalance: typeof o.credits_balance === 'number' ? o.credits_balance : 0,
+    includedPerMonth: coerceNonNegativeInt(o.included_per_month, 10),
+    monthlyCap,
+    usedThisMonth: coerceNonNegativeInt(o.used_this_month, 0),
+    creditsBalance: coerceNonNegativeInt(o.credits_balance, 0),
     processingLinked: o.processing_linked === true,
+    activeSubscriptionSku: typeof o.active_subscription_sku === 'string' ? o.active_subscription_sku : null,
+    subscriptionExpiresAt: typeof o.subscription_expires_at === 'string' ? o.subscription_expires_at : null,
   };
 }
 
@@ -47,6 +68,17 @@ export async function fetchClientRecognitionQuota(spaceId: string): Promise<Clie
     return null;
   }
   return parseQuotaPayload(data);
+}
+
+/**
+ * English copy for `receipts.recognition_notice` when the workspace hits plan/credits limits.
+ * Clarifies this is the Vouchap workspace allowance, not the Gemini API vendor quota.
+ */
+export function formatRecognitionQuotaBlockedNotice(gateMessage?: string): string {
+  const detail =
+    gateMessage?.trim() ||
+    'Your workspace has used its included AI recognitions for this period. Add credits or wait until the next cycle to continue.';
+  return `${detail}\n\nThis limit applies to your Vouchap workspace (plan or credits). It is not the Google Gemini API usage shown in the cloud console.`;
 }
 
 /** Preflight for one recognition attempt (matches server rules; race-safe final check is record). */
@@ -65,10 +97,13 @@ export async function assertClientRecognitionAllowed(
     };
   }
   if (quota.usedThisMonth >= quota.includedPerMonth && quota.creditsBalance < 1) {
+    const noActiveSub =
+      !quota.activeSubscriptionSku && quota.includedPerMonth === 0;
     return {
       allowed: false,
-      message:
-        'Your included recognitions for this month are used up. Add credits to continue, or wait until next month.',
+      message: noActiveSub
+        ? 'No active subscription for this workspace. Open Subscription and billing or ask your administrator to assign a plan in CRM.'
+        : 'Your included recognitions for this month are used up. Add credits to continue, or wait until next month.',
       quota,
     };
   }

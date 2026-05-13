@@ -14,9 +14,15 @@ import { runWithRecognitionRetry } from './recognition-retry';
 import { getReceiptById, updateReceipt } from './database';
 import { getInvoiceById, saveInvoice } from './invoices';
 import { processReceiptInBackground } from './receipt-processor';
+import { getCurrentUser } from './auth';
 import { checkDuplicateReceipt } from './receipt-duplicate-checker';
 import { getChatLogsByReceiptId, getChatLogsByInvoiceId } from './chat-logs';
-import { assertClientRecognitionAllowed, recordClientRecognitionSuccessIfEnforced } from './client-recognition-quota';
+import {
+  assertClientRecognitionAllowed,
+  formatRecognitionQuotaBlockedNotice,
+  recordClientRecognitionSuccessIfEnforced,
+} from './client-recognition-quota';
+import { getUserFacingMessage } from './recognition-retry';
 import {
   incrementReceiptRecognitionFailCount,
   resetReceiptRecognitionFailCount,
@@ -70,13 +76,23 @@ export async function reprocessExpenseReceiptFromStoredMedia(receiptId: string):
   const receipt = await getReceiptById(receiptId);
   if (!receipt) throw new Error('Expense not found');
 
-  const quotaSpaceId = receipt.spaceId ?? '';
+  const userFresh = await getCurrentUser(true);
+  const activeSpaceId = userFresh?.currentSpaceId || userFresh?.spaceId || '';
+  const quotaSpaceId =
+    receipt.spaceId && String(receipt.spaceId).trim() !== '' ? String(receipt.spaceId) : activeSpaceId;
   const isFailedRecognitionRetry =
     receipt.status === 'needs_retake' || (receipt.recognitionFailCount ?? 0) > 0;
   if (!isFailedRecognitionRetry) {
     const gate = await assertClientRecognitionAllowed(quotaSpaceId);
     if (!gate.allowed) {
-      await updateReceipt(receiptId, { status: 'needs_retake' }, true);
+      await updateReceipt(
+        receiptId,
+        {
+          status: 'needs_retake',
+          recognitionNotice: formatRecognitionQuotaBlockedNotice(gate.message),
+        },
+        true,
+      );
       await incrementReceiptRecognitionFailCount(receiptId);
       throw new Error(gate.message || 'Recognition limit reached.');
     }
@@ -100,7 +116,18 @@ export async function reprocessExpenseReceiptFromStoredMedia(receiptId: string):
       /* ignore */
     }
     if (!ret.success) {
-      await updateReceipt(receiptId, { status: 'needs_retake' }, true);
+      const notice =
+        getUserFacingMessage(ret) ||
+        ret.error?.message ||
+        'Recognition failed.';
+      await updateReceipt(
+        receiptId,
+        {
+          status: 'needs_retake',
+          recognitionNotice: `${notice}\n\nIf recognition keeps failing, check connectivity and project AI (gemini-proxy) configuration.`,
+        },
+        true,
+      );
       await incrementReceiptRecognitionFailCount(receiptId);
       throw new Error(ret.error?.message || 'Voice recognition failed');
     }
@@ -110,6 +137,7 @@ export async function reprocessExpenseReceiptFromStoredMedia(receiptId: string):
       {
         ...converted,
         imageUrl: receipt.imageUrl,
+        recognitionNotice: null,
       },
       true
     );
@@ -134,7 +162,18 @@ export async function reprocessExpenseReceiptFromStoredMedia(receiptId: string):
       delayMs: 2000,
     });
     if (!ret.success) {
-      await updateReceipt(receiptId, { status: 'needs_retake' }, true);
+      const notice =
+        getUserFacingMessage(ret) ||
+        ret.error?.message ||
+        'Recognition failed.';
+      await updateReceipt(
+        receiptId,
+        {
+          status: 'needs_retake',
+          recognitionNotice: `${notice}\n\nIf recognition keeps failing, check connectivity and project AI (gemini-proxy) configuration.`,
+        },
+        true,
+      );
       await incrementReceiptRecognitionFailCount(receiptId);
       throw new Error(ret.error?.message || 'Document recognition failed');
     }
@@ -144,6 +183,7 @@ export async function reprocessExpenseReceiptFromStoredMedia(receiptId: string):
       {
         ...converted,
         imageUrl,
+        recognitionNotice: null,
       },
       true
     );
@@ -181,7 +221,10 @@ export async function reprocessIncomeInvoiceFromStoredMedia(invoiceId: string): 
   const invoice = await getInvoiceById(invoiceId);
   if (!invoice || !invoice.id) throw new Error('Income record not found');
 
-  const quotaSpaceId = invoice.spaceId ?? '';
+  const userFresh = await getCurrentUser(true);
+  const activeSpaceId = userFresh?.currentSpaceId || userFresh?.spaceId || '';
+  const quotaSpaceId =
+    invoice.spaceId && String(invoice.spaceId).trim() !== '' ? String(invoice.spaceId) : activeSpaceId;
   const gate = await assertClientRecognitionAllowed(quotaSpaceId);
   if (!gate.allowed) {
     await recordInvoiceRecognitionFailure(invoice.id);

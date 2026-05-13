@@ -56,6 +56,7 @@ import {
   assertClientRecognitionAllowed,
   recordClientRecognitionSuccessIfEnforced,
 } from '@/lib/client-recognition-quota';
+import { alertClientRecognitionQuotaBlocked } from '@/lib/recognition-preflight-ui';
 import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound, ExtractedClient, ClientRecognitionResult } from '@/types';
 import { convertGeminiResultToReceipt, convertGeminiResultToInvoice, convertGeminiResultToInbound, convertGeminiResultToOutbound } from '@/lib/receipt-helpers';
 import { format } from 'date-fns';
@@ -1503,6 +1504,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
 
                 const quotaGate = await assertClientRecognitionAllowed(clientSpaceId);
                 if (!quotaGate.allowed) {
+                  alertClientRecognitionQuotaBlocked(router, { allowed: false, message: quotaGate.message });
                   await updateProjectTodoAttachment(attachmentId, {
                     status: 'FAILED_ONCE',
                     recognition_fail_count: 1,
@@ -1657,6 +1659,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               }
               const voucherGate = await assertClientRecognitionAllowed(clientSpaceId);
               if (!voucherGate.allowed) {
+                alertClientRecognitionQuotaBlocked(router, { allowed: false, message: voucherGate.message });
                 const msg = voucherGate.message ?? 'Recognition limit reached.';
                 setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: `Limit: ${msg}`, isUser: false, timestamp: new Date() } : m)));
                 await saveChatLog({
@@ -1749,6 +1752,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               }
               const ioGate = await assertClientRecognitionAllowed(clientSpaceId);
               if (!ioGate.allowed) {
+                alertClientRecognitionQuotaBlocked(router, { allowed: false, message: ioGate.message });
                 const msg = ioGate.message ?? 'Recognition limit reached.';
                 setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: `Limit: ${msg}`, isUser: false, timestamp: new Date() } : m)));
                 continue;
@@ -1896,6 +1900,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     const textSpaceId = textQuotaSpace?.id ?? '';
     const textGate = await assertClientRecognitionAllowed(textSpaceId);
     if (!textGate.allowed) {
+      alertClientRecognitionQuotaBlocked(router, { allowed: false, message: textGate.message });
       const errLine = textGate.message ?? 'Recognition limit reached.';
       const errorMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -2155,6 +2160,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       const voiceSpaceId = voiceQuotaSpace?.id ?? '';
       const voiceGate = await assertClientRecognitionAllowed(voiceSpaceId);
       if (!voiceGate.allowed) {
+        alertClientRecognitionQuotaBlocked(router, { allowed: false, message: voiceGate.message });
         const errorMessage: Message = {
           id: (Date.now() + 1).toString(),
           text: `Limit: ${voiceGate.message ?? 'Recognition limit reached.'}`,

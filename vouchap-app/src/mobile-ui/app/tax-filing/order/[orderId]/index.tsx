@@ -36,6 +36,7 @@ import {
   type ProjectTodoNode,
   type ProjectTodoReceiptSummary,
 } from '@/lib/firm';
+import { preflightFirmEngagementConfirmOrAlert } from '@/lib/firm-engagement-preflight-ui';
 import { cloneProjectTodoTree, patchProjectTodoInTree } from '@/lib/project-todo-tree-patch';
 import { ProjectDetailView, ORDER_STATUS_CONFIG, type ProjectDetailHeader } from '@/components/ProjectDetailView';
 import type { FirmSkuItem } from '@/types';
@@ -46,7 +47,7 @@ import { supabase, uploadTaxFilingFile } from '@/lib/supabase';
 import { processTaxFilingAttachmentAfterCreate } from '@/lib/tax-filing-attachment-followup';
 import { resolveUploaderNameForTaxFilingAttachment } from '@/lib/tax-filing-uploader-name';
 import { showToast } from '@/lib/toast';
-import { showConfirmDestructiveDialog } from '@/lib/confirmDialog';
+import { showAlertDialog, showConfirmDestructiveDialog } from '@/lib/confirmDialog';
 import { deriveTaxSeasonYear, getTaxSeasonColor } from '@/lib/tax-season-colors';
 import { pickTaxFilingDocument } from '@/lib/tax-filing-document-picker';
 import { taxFilingTodoUploadIsImageKind } from '@/lib/tax-filing-todo-upload-helpers';
@@ -548,8 +549,7 @@ export default function OrderTodosScreen() {
           isImage: taxFilingTodoUploadIsImageKind(displayName, mimeType),
         });
         if (!follow.ok) {
-          if (isDesktopWeb) window.alert(follow.alertMessage);
-          else Alert.alert('Recognition failed', follow.alertMessage);
+          showAlertDialog('Recognition failed', follow.alertMessage);
         }
         const todosTree = await getProjectTodosTree(orderId);
         setTree(todosTree);
@@ -599,6 +599,11 @@ export default function OrderTodosScreen() {
   const performAcceptOrder = useCallback(async () => {
     if (!orderId) return;
     setAccepting(true);
+    const pre = await preflightFirmEngagementConfirmOrAlert(orderId, router);
+    if (!pre) {
+      setAccepting(false);
+      return;
+    }
     const { error } = await confirmOrderAndCreateProjectTodos(orderId);
     setAccepting(false);
     if (error) {

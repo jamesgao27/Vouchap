@@ -4,9 +4,13 @@ import { convertGeminiResultToReceipt } from './receipt-helpers';
 import { updateReceipt, getReceiptById } from './database';
 import { uploadReceiptImage, supabase } from './supabase';
 import { checkDuplicateReceipt } from './receipt-duplicate-checker';
-import { runWithRecognitionRetry } from './recognition-retry';
+import { getUserFacingMessage, runWithRecognitionRetry } from './recognition-retry';
 import { getCurrentUser } from './auth';
-import { assertClientRecognitionAllowed, recordClientRecognitionSuccessIfEnforced } from './client-recognition-quota';
+import {
+  assertClientRecognitionAllowed,
+  formatRecognitionQuotaBlockedNotice,
+  recordClientRecognitionSuccessIfEnforced,
+} from './client-recognition-quota';
 import {
   incrementReceiptRecognitionFailCount,
   resetReceiptRecognitionFailCount,
@@ -67,12 +71,39 @@ export async function processReceiptInBackground(
     console.log('使用处理后的图片进行识别，URL:', imageUrl);
     console.log('处理后的图片本地 URI:', processedImageUri);
 
-    const existingForQuota = await getReceiptById(receiptId);
-    const quotaSpaceId = existingForQuota?.spaceId ?? '';
+    // Quota is per space — must use the user's *current* workspace from DB, not a cached spaceId.
+    // Also refresh so switching space before capture applies the correct limit bucket.
+    const userForQuota = await getCurrentUser(true);
+    const activeSpaceId = userForQuota?.currentSpaceId || userForQuota?.spaceId || '';
+    const existingRow = await getReceiptById(receiptId);
+    const quotaSpaceId =
+      existingRow?.spaceId && String(existingRow.spaceId).trim() !== ''
+        ? String(existingRow.spaceId)
+        : activeSpaceId;
+    if (existingRow?.spaceId && activeSpaceId && existingRow.spaceId !== activeSpaceId) {
+      console.warn('[receipt-processor] receipt.space_id differs from active workspace (stale insert vs switch):', {
+        receiptSpaceId: existingRow.spaceId,
+        activeSpaceId,
+        quotaSpaceUsed: quotaSpaceId,
+      });
+    }
+
     const gate = await assertClientRecognitionAllowed(quotaSpaceId);
     if (!gate.allowed) {
-      console.warn('[receipt-processor] recognition blocked by quota:', gate.message);
-      await updateReceipt(receiptId, { status: 'needs_retake' }, true);
+      // Model is never called — dev prefers warn; entry preflight should usually catch first.
+      console.warn(
+        '[receipt-processor] Recognition blocked by quota/billing (model NOT invoked).',
+        gate.message ?? 'No message',
+        { quotaSpaceId: quotaSpaceId || '(empty)', activeSpaceId: activeSpaceId || '(empty)', receiptSpaceId: existingRow?.spaceId },
+      );
+      await updateReceipt(
+        receiptId,
+        {
+          status: 'needs_retake',
+          recognitionNotice: formatRecognitionQuotaBlockedNotice(gate.message),
+        },
+        true,
+      );
       await incrementReceiptRecognitionFailCount(receiptId);
       return;
     }
@@ -80,8 +111,25 @@ export async function processReceiptInBackground(
     // 1. 使用处理后的图片 URL 识别小票（失败时后台静默重试直至成功或判定为内容质量差）
     const ret = await runWithRecognitionRetry(() => recognizeReceipt(imageUrl), { maxAttempts: 5, delayMs: 2000 });
     if (!ret.success) {
-      console.warn('小票识别失败（重试后仍失败或内容质量差）:', ret.error.message);
-      await updateReceipt(receiptId, { status: 'needs_retake' }, true); // autoResolveDuplicate = true，后台处理场景
+      console.error(
+        '[receipt-processor] recognizeReceipt failed after retries (see gemini-proxy / network).',
+        ret.error?.message,
+        'isContentQuality:',
+        ret.isContentQuality,
+        { imageUrl: imageUrl?.slice(0, 80) },
+      );
+      const notice =
+        getUserFacingMessage(ret) ||
+        ret.error?.message ||
+        'Recognition failed. Please try again later.';
+      await updateReceipt(
+        receiptId,
+        {
+          status: 'needs_retake',
+          recognitionNotice: `${notice}\n\nIf recognition keeps failing, check connectivity and project AI (gemini-proxy) configuration.`,
+        },
+        true,
+      );
       await incrementReceiptRecognitionFailCount(receiptId);
       return;
     }
@@ -98,7 +146,7 @@ export async function processReceiptInBackground(
       // 使用基本识别数据创建一个小票记录
       console.error('转换小票数据失败:', error);
       console.log('使用基本识别数据创建小票记录...');
-      const user = await getCurrentUser();
+      const user = await getCurrentUser(true);
       const spaceId = user?.currentSpaceId || user?.spaceId || '';
       receipt = {
         spaceId,
@@ -110,6 +158,11 @@ export async function processReceiptInBackground(
         confidence: recognizedData.confidence || 0,
       };
     }
+
+    receipt = {
+      ...receipt,
+      spaceId: quotaSpaceId || receipt.spaceId || activeSpaceId,
+    };
 
     // 3. 使用真实ID重新上传处理后的图片（替换临时文件）
     // 注意：processedImageUri 是预处理后的图片本地 URI，不是原始图片
@@ -129,6 +182,7 @@ export async function processReceiptInBackground(
       ...receipt,
       imageUrl: finalImageUrl,
       confidence: receipt.confidence,
+      recognitionNotice: null,
     }, true); // autoResolveDuplicate = true，自动处理重复名称
 
     if (receipt.status === 'needs_retake') {
@@ -137,7 +191,7 @@ export async function processReceiptInBackground(
       await resetReceiptRecognitionFailCount(receiptId);
     }
 
-    await recordClientRecognitionSuccessIfEnforced(receipt.spaceId || quotaSpaceId);
+    await recordClientRecognitionSuccessIfEnforced(quotaSpaceId || receipt.spaceId || '');
 
     // Line taxes + reconciliation run inside updateReceipt (database.ts); avoid duplicate apply here.
     // Payee tax/phone/address：单独供应商二次识别已移除，全部由 recognizeReceipt 单次 JSON 的 supplierInfo + convertGeminiResultToReceipt 写库。

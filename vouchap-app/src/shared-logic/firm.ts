@@ -1512,11 +1512,19 @@ export async function createFirmOrder(
   });
   if (capErr) {
     const msg = capErr.message || '';
+    if (/ENGAGEMENT_NO_SUBSCRIPTION/i.test(msg)) {
+      return {
+        id: null,
+        error: new Error(
+          'No active firm subscription for this workspace. Open Subscription and billing or ask your administrator to assign a plan in CRM.',
+        ),
+      };
+    }
     if (/ENGAGEMENT_CAPACITY_EXCEEDED|P0001/i.test(msg)) {
       return {
         id: null,
         error: new Error(
-          'This firm has reached its engagement limit. Complete or cancel an engagement, or ask ops to add capacity in CRM.',
+          'This firm has used all engagements allowed for the current subscription period. Add engagement credits in CRM, wait for renewal, or open Subscription and billing for details.',
         ),
       };
     }
@@ -1595,6 +1603,23 @@ export async function confirmOrderAndCreateProjectTodos(
 
   if (skuErr || !sku) {
     return { error: skuErr ? new Error(skuErr.message) : new Error('SKU not found') };
+  }
+
+  const { error: capConfirmErr } = await supabase.schema('crm').rpc('assert_firm_can_confirm_engagement', {
+    p_order_id: orderId,
+  });
+  if (capConfirmErr) {
+    const msg = capConfirmErr.message || '';
+    if (/ENGAGEMENT_CAPACITY_EXCEEDED|ENGAGEMENT_NO_SUBSCRIPTION|P0001/i.test(msg)) {
+      return {
+        error: new Error(
+          /ENGAGEMENT_NO_SUBSCRIPTION/i.test(msg)
+            ? 'No active firm subscription for this workspace. Open Subscription and billing or ask your administrator to assign a plan in CRM.'
+            : 'This firm has used all engagements allowed for the current subscription period. Add engagement credits in CRM, wait for renewal, or open Subscription and billing for details.',
+        ),
+      };
+    }
+    return { error: capConfirmErr as Error };
   }
 
   // Classification：默认由触发器 public.projects_fill_tax_fields_from_order 从 firm.orders 复制

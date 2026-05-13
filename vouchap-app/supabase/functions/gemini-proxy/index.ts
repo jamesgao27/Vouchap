@@ -105,6 +105,20 @@ Deno.serve(async (req) => {
       if (contents.length === 0) {
         return jsonResponse(req, { success: false, error: 'contents is required' }, 400);
       }
+      console.info(
+        '[gemini-proxy] calling Gemini API',
+        JSON.stringify({
+          model,
+          parts: contents.length,
+          hasInlineImage: contents.some(
+            (p: unknown) =>
+              p &&
+              typeof p === 'object' &&
+              'inlineData' in (p as object) &&
+              !!(p as { inlineData?: { data?: string } }).inlineData?.data,
+          ),
+        }),
+      );
       const result = await genAI.getGenerativeModel({ model }).generateContent(contents);
       const text = result?.response?.text?.();
       if (!text) {

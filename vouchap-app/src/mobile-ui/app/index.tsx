@@ -31,6 +31,8 @@ import { getPendingInviteesForEmail } from '@/lib/firm-clients';
 import type { ClientDisplayStatus } from '@/types';
 import { CLIENT_DISPLAY_STATUS_LABELS } from '@/types';
 import { useWebViewportKind } from '../lib/web-viewport';
+import { fetchSpaceEntitlements } from '@/lib/space-entitlements';
+import { preflightRecognitionOrAlert } from '@/lib/recognition-preflight-ui';
 
 /** 首页是否显示「AI 进销存」入口：由 app.config.js extra.showAiInventory 控制 */
 const SHOW_AI_INVENTORY_ENTRY = Constants.expoConfig?.extra?.showAiInventory !== false;
@@ -72,6 +74,7 @@ export default function HomeScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showRefreshAfterSwitchModal, setShowRefreshAfterSwitchModal] = useState(false);
+  const [showSubscriptionExpiredModal, setShowSubscriptionExpiredModal] = useState(false);
   const [lastReceiptId, setLastReceiptId] = useState<string | null>(null);
   const [lastInvoiceId, setLastInvoiceId] = useState<string | null>(null);
   const [voucherType, setVoucherType] = useState<'receipt' | 'invoice'>('receipt');
@@ -140,6 +143,30 @@ export default function HomeScreen() {
     })();
     return () => { cancelled = true; };
   }, [currentSpace?.kind, currentSpace?.id]);
+
+  /** Subscription gate: firm requires an active subscription; client may use credits without a subscription. */
+  useEffect(() => {
+    if (!isLoggedIn || !currentSpace?.id) {
+      setShowSubscriptionExpiredModal(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      const ent = await fetchSpaceEntitlements(currentSpace.id);
+      if (cancelled || !ent?.ok) return;
+      if (currentSpace.kind === 'firm') {
+        setShowSubscriptionExpiredModal(!ent.active_subscription);
+        return;
+      }
+      const credits = ent.client_recognition?.credits_balance ?? 0;
+      const incRem = ent.client_recognition?.included_remaining ?? 0;
+      const noSub = !ent.active_subscription;
+      setShowSubscriptionExpiredModal(noSub && credits < 1 && incRem < 1);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, currentSpace?.id, currentSpace?.kind]);
 
   const checkAuth = async () => {
     let authenticated = await isAuthenticated();
@@ -532,7 +559,23 @@ export default function HomeScreen() {
         'Real-time edge detection and cropping requires a native development build. In Expo Go, please use the gallery picker option.',
         [
           { text: 'Cancel', onPress: () => {}, style: 'cancel' },
-          { text: 'Pick from Gallery', onPress: () => pickImage(type), style: 'primary' },
+          {
+            text: 'Pick from Gallery',
+            onPress: () => {
+              void (async () => {
+                if (currentSpace?.kind === 'client' && currentSpace.id) {
+                  const ok = await preflightRecognitionOrAlert(currentSpace.id, router, {
+                    onSwitchSpace: () => {
+                      void openSpaceSwitch();
+                    },
+                  });
+                  if (!ok) return;
+                }
+                pickImage(type);
+              })();
+            },
+            style: 'primary',
+          },
         ]
       );
       return;
@@ -571,7 +614,23 @@ export default function HomeScreen() {
           'Document scanner requires a native development build. Please use a development build or use the gallery picker option.',
           [
             { text: 'Cancel', onPress: () => {}, style: 'cancel' },
-            { text: 'Pick from Gallery', onPress: () => pickImage(type), style: 'primary' },
+            {
+              text: 'Pick from Gallery',
+              onPress: () => {
+                void (async () => {
+                  if (currentSpace?.kind === 'client' && currentSpace.id) {
+                    const ok = await preflightRecognitionOrAlert(currentSpace.id, router, {
+                      onSwitchSpace: () => {
+                        void openSpaceSwitch();
+                      },
+                    });
+                    if (!ok) return;
+                  }
+                  pickImage(type);
+                })();
+              },
+              style: 'primary',
+            },
           ]
         );
       } else {
@@ -581,6 +640,14 @@ export default function HomeScreen() {
   };
 
   const pickImage = async (type: 'receipt' | 'invoice' = 'receipt') => {
+    if (currentSpace?.kind === 'client' && currentSpace.id) {
+      const ok = await preflightRecognitionOrAlert(currentSpace.id, router, {
+        onSwitchSpace: () => {
+          void openSpaceSwitch();
+        },
+      });
+      if (!ok) return;
+    }
     try {
       const allowMulti = Platform.OS !== 'web';
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -624,6 +691,22 @@ export default function HomeScreen() {
     for (let i = 0; i < uris.length; i++) {
       const imageUri = uris[i];
       try {
+        const sp = await getCurrentSpace(true);
+        if (sp?.kind === 'client' && sp.id) {
+          const ok = await preflightRecognitionOrAlert(sp.id, router, {
+            onSwitchSpace: () => {
+              void openSpaceSwitch();
+            },
+          });
+          if (!ok) {
+            hadError = true;
+            if (uris.length === 1) {
+              setShowSuccessModal(false);
+            }
+            continue;
+          }
+        }
+
         console.log(`Processing captured image ${i + 1}/${uris.length} (${type}):`, imageUri, 'fromGallery:', fromGallery);
 
         let uriToUpload = imageUri;
@@ -714,18 +797,36 @@ export default function HomeScreen() {
   };
 
   const handleCameraPress = (type: 'receipt' | 'invoice' = 'receipt') => {
-    // 保存类型，用于UI显示
-    setVoucherType(type);
-    // 直接传递类型给扫描函数
-    scanDocument(type);
+    void (async () => {
+      if (currentSpace?.kind === 'client' && currentSpace.id) {
+        const ok = await preflightRecognitionOrAlert(currentSpace.id, router, {
+          onSwitchSpace: () => {
+            void openSpaceSwitch();
+          },
+        });
+        if (!ok) return;
+      }
+      setVoucherType(type);
+      scanDocument(type);
+    })();
   };
 
   const handleChatPress = (type: 'receipt' | 'invoice' = 'receipt') => {
-    if (type === 'invoice') {
-      router.push('/chat-to-log?type=invoice');
-    } else {
-      router.push('/chat-to-log');
-    }
+    void (async () => {
+      if (currentSpace?.kind === 'client' && currentSpace.id) {
+        const ok = await preflightRecognitionOrAlert(currentSpace.id, router, {
+          onSwitchSpace: () => {
+            void openSpaceSwitch();
+          },
+        });
+        if (!ok) return;
+      }
+      if (type === 'invoice') {
+        router.push('/chat-to-log?type=invoice');
+      } else {
+        router.push('/chat-to-log');
+      }
+    })();
   };
 
   // 认证 / 当前空间加载中：用占位替代全白屏（登录后曾出现 isLoggedIn 已 true 但 currentSpace 未就绪的长期空白）
@@ -753,17 +854,58 @@ export default function HomeScreen() {
 
   const isFirmPending = currentSpace?.kind === 'firm' && currentSpace?.firmStatus !== 'approved';
 
+  const subscriptionExpiredModal = (
+    <Modal
+      visible={showSubscriptionExpiredModal}
+      animationType="fade"
+      transparent
+      {...(Platform.OS === 'ios' ? { presentationStyle: 'overFullScreen' as const } : {})}
+      onRequestClose={() => {}}
+    >
+      <View style={styles.subscriptionExpiredOverlay}>
+        <View style={styles.subscriptionExpiredCard}>
+          <Text style={styles.subscriptionExpiredTitle}>Subscription inactive</Text>
+          <Text style={styles.subscriptionExpiredBody}>
+            This space has no active subscription (or no recognition allowance left). Renew in Subscription and
+            billing, or switch to another space.
+          </Text>
+          <TouchableOpacity
+            style={styles.subscriptionExpiredPrimary}
+            onPress={() => {
+              setShowSubscriptionExpiredModal(false);
+              void openSpaceSwitch();
+            }}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.subscriptionExpiredPrimaryText}>Switch space</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.subscriptionExpiredSecondary}
+            onPress={() => router.push('/management')}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.subscriptionExpiredSecondaryText}>Subscription and billing</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+
   // 桌面 Web：仅 Dashboard（侧栏在 _layout）；移动 Web 与原生共用下方壳层（顶栏 + 底栏）
   if (Platform.OS === 'web' && isDesktopWeb) {
     return (
-      <View style={styles.container}>
-        <StatusBar style="dark" />
-        {currentSpace?.kind === 'firm' ? <CrmDashboardView /> : <WebDashboardView />}
-      </View>
+      <>
+        <View style={styles.container}>
+          <StatusBar style="dark" />
+          {currentSpace?.kind === 'firm' ? <CrmDashboardView /> : <WebDashboardView />}
+        </View>
+        {subscriptionExpiredModal}
+      </>
     );
   }
 
   return (
+    <>
     <View style={styles.container}>
       <StatusBar style="dark" />
       <ScrollView
@@ -1201,10 +1343,64 @@ export default function HomeScreen() {
         </View>
       </Modal>
     </View>
+    {subscriptionExpiredModal}
+    </>
   );
 }
 
 const styles = StyleSheet.create({
+  subscriptionExpiredOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  subscriptionExpiredCard: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    maxWidth: 400,
+    width: '100%',
+  },
+  subscriptionExpiredTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#2D3436',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  subscriptionExpiredBody: {
+    fontSize: 15,
+    color: '#636E72',
+    lineHeight: 22,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  subscriptionExpiredPrimary: {
+    backgroundColor: '#6C5CE7',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  subscriptionExpiredPrimaryText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  subscriptionExpiredSecondary: {
+    backgroundColor: '#F0F4FF',
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  subscriptionExpiredSecondaryText: {
+    color: '#6C5CE7',
+    fontSize: 16,
+    fontWeight: '600',
+  },
   bootLoadingRoot: {
     flex: 1,
     backgroundColor: '#F8F9FA',

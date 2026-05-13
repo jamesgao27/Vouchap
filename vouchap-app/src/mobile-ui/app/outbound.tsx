@@ -18,7 +18,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import Constants from 'expo-constants';
 import { showAiInventory } from '@/lib/feature-flags';
-import { getCurrentUser } from '@/lib/auth';
+import { getCurrentUser, getCurrentSpace } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { getOutboundForListFirstPaint, getAllOutbound, deleteOutbound, saveOutbound } from '@/lib/outbound';
 import { Outbound } from '@/types';
@@ -34,6 +34,7 @@ import { confirmThen, confirmDestructive } from '@/lib/alertWeb';
 import DataTable, { WEB_POPOVER } from '@/components/DataTable';
 import { getOutboundColumns } from '@/components/voucher-table-columns';
 import { useWebViewportKind } from '../lib/web-viewport';
+import { preflightRecognitionOrAlert } from '@/lib/recognition-preflight-ui';
 import { inputTypeConfirmBadgeIonicon } from '@/lib/input-type-ionicon';
 
 type GroupByType = 'none' | 'month' | 'recordDate' | 'createdBy' | 'receiver';
@@ -120,6 +121,12 @@ export default function OutboundScreen() {
   const [lastOutboundId, setLastOutboundId] = useState<string | null>(null);
   const router = useRouter();
   const isExpoGo = Constants.appOwnership === 'expo';
+
+  const runClientRecognitionPreflight = useCallback(async (): Promise<boolean> => {
+    const space = await getCurrentSpace(true);
+    if (space?.kind !== 'client' || !space.id) return true;
+    return preflightRecognitionOrAlert(space.id, router);
+  }, [router]);
 
   useEffect(() => {
     if (!showAiInventory) router.replace('/');
@@ -238,11 +245,14 @@ export default function OutboundScreen() {
       confirmThen(
         'Development Build Required',
         'Real-time edge detection and cropping requires a native development build. In Expo Go, please use the gallery picker option.',
-        pickImage,
+        () => void pickImage(),
         { confirmText: 'Pick from Gallery', cancelText: 'Cancel' }
       );
       return;
     }
+
+    const pre = await runClientRecognitionPreflight();
+    if (!pre) return;
 
     try {
       // 动态导入 DocumentScanner（只在非 Expo Go 环境中导入）
@@ -276,7 +286,7 @@ export default function OutboundScreen() {
         confirmThen(
           'Development Build Required',
           'Document scanner requires a native development build. Please use a development build or use the gallery picker option.',
-          pickImage,
+          () => void pickImage(),
           { confirmText: 'Pick from Gallery', cancelText: 'Cancel' }
         );
       } else {
@@ -286,6 +296,8 @@ export default function OutboundScreen() {
   };
 
   const pickImage = async () => {
+    const pre = await runClientRecognitionPreflight();
+    if (!pre) return;
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,

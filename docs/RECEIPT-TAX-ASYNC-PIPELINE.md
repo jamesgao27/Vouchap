@@ -1,6 +1,9 @@
 # 小票拆税异步流水线（接续说明）
 
-本文说明 **保存小票** 与 **行级拆税 / 对账** 在架构上如何分开，以及运维上要做什么。后续改拆税逻辑、上 Edge/Cron 时，以本文件 + `receipt-item-tax.ts` 为准。
+> **已废弃（2026-05）**  
+> **`receipt_tax_recalc_queue`、`enqueue_receipt_tax_reconcile`、Node worker 已移除**（迁移 `20260510170000_drop_receipt_tax_recalc_queue.sql`）。税额以单次识别/保存路径中的 **`receipts.tax` + `receipts.tax_breakdown`** 为准，不再做行级异步重算。下文仅作历史归档。
+
+以下正文为 **废弃前** 的架构说明（保存与行级拆税分离、worker 运维等），仅供追溯。
 
 ---
 

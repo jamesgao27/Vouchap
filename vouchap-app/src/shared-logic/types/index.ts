@@ -100,7 +100,7 @@ export interface ReceiptItem {
   price: number;
   isAsset: boolean;
   confidence?: number; // AI识别置信度
-  /** Retailer POS line tax code (receipt_items.pos_tax_code): public.entity_pos_tax_code (via receipt merchant_entity_id) first, then crm.tax_pos_code_rule. */
+  /** Optional POS tax letter from OCR; not used for computed line taxes (receipt tax is ticket-level). */
   posTaxCode?: string | null;
 }
 
@@ -123,13 +123,24 @@ export interface ReceiptLineItemListRow {
 // 提交方式类型：camera=实时拍摄 image=上传图片 document=上传文档
 export type InputType = 'camera' | 'image' | 'text' | 'audio' | 'document';
 
-/** 行税合计 vs 票面 tax 的对账状态（见 receipt_item_taxes / receipts 列） */
-export type ReceiptTaxReconciliationStatus =
-  | 'matched'
-  | 'within_tolerance'
-  | 'variance'
-  | 'pending_recalc'
-  | 'skipped';
+/** One printed sales-tax component at receipt level (receipts.tax_breakdown jsonb). */
+export interface ReceiptTaxBreakdownEntry {
+  /**
+   * crm.tax_kind_registry.id — distinguishes same printed code across jurisdictions
+   * (e.g. BC PST vs SK PST). Filled on save via resolveTaxBreakdownTaxKindIds; DB json key `tax_kind_id`.
+   */
+  taxKindId?: string | null;
+  /** Optional: crm.tax_rate_standard.id for the dated rate row used when resolving. */
+  crmTaxRateStandardId?: string | null;
+  /** Stable key for display / legacy aggregation (e.g. GST, HST, PST, OTHER). */
+  code: string;
+  /** Human-readable label from the receipt or model. */
+  label: string;
+  /** Parsed rate text from OCR; omitted when persisting (rates come from CRM). */
+  rateLabel?: string | null;
+  amount: number;
+  source?: string | null;
+}
 
 // 小票数据（支出单：对方为 Payee 收款方）
 export interface Receipt {
@@ -139,8 +150,6 @@ export interface Receipt {
   storeName?: string;
   entityId?: string | null; // 关联方 entities 表（支出单：Payee）
   entity?: Entity | null;
-  /** Shared-catalog key for public.entity_pos_tax_code; not entities.id */
-  merchantEntityId?: string | null;
   totalAmount: number;
   date: string;
   accountId?: string;
@@ -154,24 +163,20 @@ export interface Receipt {
   processedBy?: string;
   confidence?: number; // 整体识别置信度
   currency?: string; // 币种，如：CNY、USD
+  /** From recognition: currency visibly printed on ticket — when false, do not use currency for tax jurisdiction. */
+  currencyPrintedOnReceipt?: boolean;
   tax?: number; // 税费
-  /** ISO 3166-1 alpha-2，用于行税规则（如 CA）；空则按币种推断 */
-  taxJurisdictionCountry?: string | null;
-  /** 省/州代码，如 ON、BC；可为空字符串 */
-  taxJurisdictionRegion?: string | null;
-  /** 各 receipt_item_taxes.amount 之和与 tax 的对账状态 */
-  taxReconciliationStatus?: ReceiptTaxReconciliationStatus | null;
-  taxItemsSum?: number | null;
-  /** receipts.tax − taxItemsSum（票面总税优先） */
-  taxVarianceAmount?: number | null;
-  /** True when line tax engine differs from receipt.tax beyond tolerance */
-  taxAuditRequired?: boolean | null;
-  /** English note for reviewers */
-  taxAuditComment?: string | null;
+  /** Itemized sales tax lines when present (flexible codes per receipt). */
+  taxBreakdown?: ReceiptTaxBreakdownEntry[] | null;
   createdBy?: string; // 提交者用户ID
   createdByUser?: User; // 提交者用户信息
   /** 识别失败并进入 needs_retake 的累计次数；成功识别后归零 */
   recognitionFailCount?: number;
+  /**
+   * English notice when recognition did not run or failed (workspace limits vs model API).
+   * Persisted as receipts.recognition_notice.
+   */
+  recognitionNotice?: string | null;
 }
 
 // 用户数据
@@ -445,13 +450,17 @@ export interface GeminiReceiptResult {
   date: string;
   totalAmount: number;
   currency?: string; // 币种，如：CNY、USD
+  /**
+   * True only when currency was visibly printed on the receipt (code/symbol).
+   * When false, currency may be model default only — do not use it for tax-jurisdiction matching.
+   */
+  currencyPrintedOnReceipt?: boolean;
   paymentAccountName?: string; // 支付账户，包含卡号尾号信息
   /** Last 4 digits of the payment card when printed (e.g. "1102"); improves matching to existing accounts. */
   paymentCardLastFour?: string;
   tax?: number; // 税费
-  /** 销售税辖区：国家 ISO 3166-1 alpha-2；region 为省/州（如加拿大 ON、BC） */
-  taxJurisdictionCountry?: string | null;
-  taxJurisdictionRegion?: string | null;
+  /** Optional itemized tax; same schema as Receipt.taxBreakdown after normalization. */
+  taxBreakdown?: ReceiptTaxBreakdownEntry[] | null;
   items: Array<{
     name: string;
     /** Readable alias for cryptic merchant SKU/abbreviation line names. */

@@ -29,6 +29,7 @@ import {
   unhideOrderForClientSpace,
   type FirmOrderForClient,
 } from '@/lib/firm';
+import { preflightFirmEngagementConfirmOrAlert } from '@/lib/firm-engagement-preflight-ui';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '../../../shared-logic/alertWeb';
 import { ServiceCatalogAddEntryTile } from '@/components/ServiceCatalogShared';
@@ -224,6 +225,11 @@ function TaxFilingMobileScreen() {
 
   const performConfirmOrder = async (order: FirmOrderForClient) => {
     setConfirmingId(order.id);
+    const pre = await preflightFirmEngagementConfirmOrAlert(order.id, router);
+    if (!pre) {
+      setConfirmingId(null);
+      return;
+    }
     const { error } = await confirmOrderAndCreateProjectTodos(order.id);
     setConfirmingId(null);
     if (error) return;
@@ -1020,6 +1026,11 @@ function TaxFilingWebScreen() {
 
   const performConfirmOrder = async (order: FirmOrderForClient) => {
     setConfirmingId(order.id);
+    const pre = await preflightFirmEngagementConfirmOrAlert(order.id, router);
+    if (!pre) {
+      setConfirmingId(null);
+      return;
+    }
     const { error } = await confirmOrderAndCreateProjectTodos(order.id);
     setConfirmingId(null);
     if (error) return;

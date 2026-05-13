@@ -14,13 +14,17 @@ import { getSkusForOptions } from './skus';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as FileSystemNew from 'expo-file-system';
-import { GeminiReceiptResult, GeminiVoucherResult, GeminiInboundOutboundResult, VoucherLogType, ExtractedClient, ClientRecognitionResult } from '@/types';
 import {
-  getAvailableImageModel,
-  buildGeminiModelOrder,
-  mergeGeminiModelsWithAvailable,
-  inferComplexGeminiContent,
-} from './gemini-helper';
+  GeminiReceiptResult,
+  GeminiVoucherResult,
+  GeminiInboundOutboundResult,
+  VoucherLogType,
+  ExtractedClient,
+  ClientRecognitionResult,
+  ReceiptTaxBreakdownEntry,
+} from '@/types';
+import { coerceReceiptTaxBreakdownEntries, taxBreakdownEntriesFromStrippedLineItems } from './receipt-tax-breakdown';
+import { resolveGeminiModelsToTryOrder, invalidateGeminiModelTryOrderCache, buildGeminiModelOrder } from './gemini-helper';
 import { getMostFrequentCurrency, getCurrenciesByUsage } from './database';
 import { normalizeShortDate, getLocalDateString } from './date-utils';
 import { supabase } from './supabase';
@@ -105,23 +109,95 @@ function receiptItemLooksLikeSalesTaxBreakdown(item: any): boolean {
   return false;
 }
 
-function separateReceiptTaxLinesFromItems(items: any[]): { kept: any[]; taxFromLines: number } {
+function separateReceiptTaxLinesFromItems(
+  items: any[],
+  region: string | null | undefined,
+): { kept: any[]; taxFromLines: number; breakdown: ReceiptTaxBreakdownEntry[] } {
   let taxFromLines = 0;
   const kept: any[] = [];
+  const taxItems: any[] = [];
   for (const item of items) {
     if (receiptItemLooksLikeSalesTaxBreakdown(item)) {
       taxFromLines += Number(item.price ?? item.amount ?? 0) || 0;
+      taxItems.push(item);
     } else {
       kept.push(item);
     }
   }
-  return { kept, taxFromLines: Number(taxFromLines.toFixed(2)) };
+  const breakdown = taxBreakdownEntriesFromStrippedLineItems(taxItems, region);
+  return { kept, taxFromLines: Number(taxFromLines.toFixed(2)), breakdown };
 }
 
 /**
  * Strip tax breakdown rows into `tax`, keep merchandise items; reconcile with totalAmount.
  * Mutates `parsed` (items, tax, optional dataConsistency).
  */
+
+/** Receipt lines like "VISA CREDIT" / "CHIP CARD" (account type, no digits)—not a list-ready account name. */
+function paymentAccountLabelIsCardTypeOnly(name: string): boolean {
+  const t = name.trim();
+  if (!t) return false;
+  if (extractCardSuffix(t)) return false;
+  if (/^visa(\s+credit|\s+debit|\s+purchase|\s+chk)?$/i.test(t)) return true;
+  if (/^mastercard(\s+credit|\s+debit)?$/i.test(t)) return true;
+  if (/^mc(\s+credit|\s+debit)?$/i.test(t)) return true;
+  if (/^amex$|^american\s+express$/i.test(t)) return true;
+  if (/^debit(\s+card)?$|^credit(\s+card)?$/i.test(t)) return true;
+  if (/^chip\s+card$/i.test(t)) return true;
+  if (/^visa\s+tend$/i.test(t)) return true;
+  if (/^interac\b/i.test(t)) return true;
+  if (/^(visa|mastercard|master\s+card|mc|discover|eftpos)$/i.test(t)) return true;
+  return false;
+}
+
+/** Scan full model output for masked last-4 (model sometimes omits paymentCardLastFour but echoes ****1102 in JSON). */
+function extractCardLastFourLooseFromModelResponseText(raw: string): string | undefined {
+  if (!raw || typeof raw !== 'string') return undefined;
+  const all = [...raw.matchAll(/\*{3,}(\d{4})\b/g)];
+  if (all.length) return all[all.length - 1][1];
+  return undefined;
+}
+
+function deepFindCardLastFourInParsed(obj: unknown, seen = new Set<unknown>()): string | undefined {
+  if (obj == null) return undefined;
+  if (typeof obj === 'string') {
+    const fromMask = extractCardSuffix(obj);
+    if (fromMask) return fromMask;
+    return undefined;
+  }
+  if (typeof obj !== 'object') return undefined;
+  if (seen.has(obj)) return undefined;
+  seen.add(obj);
+  if (Array.isArray(obj)) {
+    for (const x of obj) {
+      const f = deepFindCardLastFourInParsed(x, seen);
+      if (f) return f;
+    }
+    return undefined;
+  }
+  for (const k of Object.keys(obj as object)) {
+    const f = deepFindCardLastFourInParsed((obj as any)[k], seen);
+    if (f) return f;
+  }
+  return undefined;
+}
+
+/** Fill paymentCardLastFour from nested JSON / raw text; normalize type-only paymentAccountName when we have last-4. */
+function enrichParsedPaymentCardFields(parsed: Record<string, any>, rawModelText?: string): void {
+  let four =
+    normalizeCardLastFourDigits(parsed.paymentCardLastFour ?? parsed.cardLastFour) ??
+    deepFindCardLastFourInParsed(parsed) ??
+    (rawModelText ? extractCardLastFourLooseFromModelResponseText(rawModelText) : undefined) ??
+    undefined;
+  if (four) parsed.paymentCardLastFour = four;
+
+  const nameRaw = parsed.paymentAccountName ?? parsed.paymentAccount;
+  const name = nameRaw != null && String(nameRaw).trim() ? String(nameRaw).trim() : undefined;
+  if (name && four && paymentAccountLabelIsCardTypeOnly(name)) {
+    parsed.paymentAccountName = `Card ****${four}`;
+  }
+}
+
 /** When the model returns only a card brand, coerce a ****last4 label so downstream matching works. */
 function ensurePaymentAccountNameWithLastFour(
   name: string | undefined,
@@ -132,7 +208,8 @@ function ensurePaymentAccountNameWithLastFour(
   const t = name?.trim() || '';
   if (
     !t ||
-    /^(visa|mastercard|master\s+card|mc|amex|american\s+express|discover|debit|credit|interac|eftpos)$/i.test(t)
+    /^(visa|mastercard|master\s+card|mc|amex|american\s+express|discover|debit|credit|interac|eftpos)$/i.test(t) ||
+    paymentAccountLabelIsCardTypeOnly(t)
   ) {
     return `Card ****${four}`;
   }
@@ -152,7 +229,14 @@ function normalizeParsedReceiptTaxFields(
 
   if (!parsed.items || !Array.isArray(parsed.items)) return;
 
-  const { kept, taxFromLines } = separateReceiptTaxLinesFromItems(parsed.items);
+  if (parsed.taxBreakdown == null && parsed.tax_breakdown != null) {
+    parsed.taxBreakdown = parsed.tax_breakdown;
+  }
+
+  const { kept, taxFromLines, breakdown: stripBreakdown } = separateReceiptTaxLinesFromItems(
+    parsed.items,
+    null,
+  );
   let items = kept;
   const explicitTax = parsed.tax !== undefined ? Number(parsed.tax) : NaN;
 
@@ -186,12 +270,53 @@ function normalizeParsedReceiptTaxFields(
     const inferred = totalAmount - merchandiseSum;
     if (inferred > 0.001) tax = Number(inferred.toFixed(2));
   }
+
+  const aiBreakdown = coerceReceiptTaxBreakdownEntries(parsed.taxBreakdown, null);
+  let merged: ReceiptTaxBreakdownEntry[] | null = null;
+  if (stripBreakdown.length > 0) {
+    merged = stripBreakdown;
+  } else if (aiBreakdown?.length) {
+    merged = aiBreakdown;
+  }
+
+  if (merged?.length) {
+    const sumB = merged.reduce((s, e) => s + e.amount, 0);
+    const roundedB = Number(sumB.toFixed(2));
+    if (stripBreakdown.length > 0) {
+      if (Math.abs(roundedB - tax) > 0.02) tax = roundedB;
+    } else if (Math.abs(roundedB - tax) > 0.02 && roundedB > 0.001) {
+      tax = roundedB;
+    }
+  }
+
   parsed.tax = tax;
+  if (merged?.length) {
+    parsed.taxBreakdown = merged;
+  } else {
+    delete parsed.taxBreakdown;
+  }
 
   if (parsed.dataConsistency && typeof parsed.dataConsistency === 'object') {
     parsed.dataConsistency.itemsSum = merchandiseSum;
     parsed.dataConsistency.itemsSumMatchesTotal = Math.abs(merchandiseSum + tax - totalAmount) <= 0.01;
   }
+
+  delete parsed.tax_breakdown;
+}
+
+/** After normalizeParsedReceiptTaxFields; bridges parsed object to GeminiReceiptResult.taxBreakdown. */
+function taxBreakdownForReceiptResult(parsed: Record<string, unknown>): ReceiptTaxBreakdownEntry[] | undefined {
+  const raw = parsed.taxBreakdown ?? parsed.tax_breakdown;
+  const entries = coerceReceiptTaxBreakdownEntries(raw, null);
+  return entries?.length ? entries : undefined;
+}
+
+/** Model: true only when currency is visibly printed; defaults false for tax-jurisdiction matching. */
+function coerceCurrencyPrintedOnReceiptFlag(parsed: Record<string, unknown>): boolean {
+  const v = parsed.currencyPrintedOnReceipt ?? parsed.currency_printed_on_receipt;
+  if (v === true || v === 1) return true;
+  if (typeof v === 'string' && ['true', 'yes', '1'].includes(v.trim().toLowerCase())) return true;
+  return false;
 }
 
 // 引用 gemini-helper 中处理好的安全判断逻辑（如果 gemini-helper 导出了 apiKey）
@@ -222,29 +347,18 @@ const genAI = (apiKey && apiKey !== '')
   ? new GoogleGenerativeAI(apiKey)
   : null;
 
-// 默认尝试顺序：优先 gemini-1.5-flash，复杂场景 gemini-2.5-pro 紧接兜底（1.5-pro 已从 v1 移除），其余为兼容/配额回退
-const POSSIBLE_MODELS = buildGeminiModelOrder();
+/** Label for errors: static tail after API-sorted models (see resolveGeminiModelsToTryOrder). */
+const GEMINI_STATIC_MODEL_LIST_LABEL = buildGeminiModelOrder().join(', ');
 
-function geminiModelsToTry(
-  available: string | null | undefined,
-  complexity: { promptTextLength: number; inlineBase64Length?: number; mimeType?: string }
-): string[] {
-  return mergeGeminiModelsWithAvailable(
-    available,
-    buildGeminiModelOrder({
-      preferProAfterFlash: inferComplexGeminiContent(complexity),
-    })
-  );
-}
-
-// 动态获取可用模型的缓存
-let availableModelCache: string | null = null;
-
-/** 若错误为 404/模型不可用，清除缓存以便下次重新拉取可用模型列表 */
+/** On transient / routing errors, drop cached listModels ordering so the next call refetches the catalog. */
 function clearModelCacheIfUnavailable(err: unknown) {
   const msg = err != null ? String(err) : '';
-  if (/404|not found|not supported for generateContent/i.test(msg)) {
-    availableModelCache = null;
+  if (
+    /404|503|429|502|5\d\d|not found|not supported for generateContent|UNAVAILABLE|unavailable|overloaded|overload|deadline exceeded|resource_exhausted/i.test(
+      msg,
+    )
+  ) {
+    invalidateGeminiModelTryOrderCache();
   }
 }
 
@@ -292,10 +406,10 @@ Category/attribution: pick the semantically best list match per line; list order
 
 Single pass only: include EVERYTHING in this one JSON (line items, supplierInfo, quality, consistency)—the app does not run a second image call for merchant tax/phone/address.
 
-Rules: (1) supplierName—merchant header; not generic words. (2) supplierInfo—scan full receipt for taxNumber (US EIN / CA GST etc.), phone, address when printed (null only if absent). (3) date YYYY-MM-DD. (4) totalAmount (grand total). (5) currency ISO. (6) Payment: when a card/bank line shows masked digits (e.g. VISA # ************1102), set paymentCardLastFour to exactly those last 4 digits as a string (e.g. "1102"); otherwise null. For paymentAccountName: if any Payment accounts list entry matches the same card (same last-4 / same method), copy that list string verbatim; else use a short label that includes last-4 or ****last4 (e.g. "Visa ****1102"). Never use paymentAccountName that is only a brand word like "VISA" or "DEBIT" when last-4 is printed—include the digits. Only null both when no card/payment method appears. (7) Tax: set "tax" to total sales tax (sum of GST+HST+PST+RST+VAT lines) when visible; do NOT duplicate those lines in "items". Items must be sellable lines only—if the receipt shows subtotal + separate GST/RST rows, omit those tax rows from items and put their sum in "tax". No tax jurisdiction region fields. (8) ${RECEIPT_JSON_ITEMS_RULE} (9) imageQuality clarity/completeness 0–1 + short comments. (10) dataConsistency. (11) confidence 0–1.
+Rules: (1) supplierName—merchant header; not generic words. (2) supplierInfo—scan full receipt for taxNumber (US EIN / CA GST etc.), phone, address when printed (null only if absent). (3) date YYYY-MM-DD. (4) totalAmount (grand total). (5) currency ISO, and currencyPrintedOnReceipt boolean: true only if currency is visibly printed on the ticket (code, symbol, or “CAD”/“USD”/“C$”/“US$” near totals or tax lines). If you chose currency only from injected defaults or hints without seeing it on the receipt, set currencyPrintedOnReceipt false. (6) Payment: when a card/bank line shows masked digits (e.g. VISA # ************1102), set paymentCardLastFour to exactly those last 4 digits as a string (e.g. "1102"); otherwise null. For paymentAccountName: if any Payment accounts list entry matches the same card (same last-4 / same method), copy that list string verbatim; else use a short label that includes last-4 or ****last4 (e.g. "Visa ****1102"). Never use paymentAccountName that is only a brand word like "VISA" or "DEBIT", or an account-type-only line like "VISA CREDIT" / "CHIP CARD", when a masked card line exists—always set paymentCardLastFour from that line and prefer the Payment accounts list or ****last4. Only null both when no card/payment method appears. (7) Tax: set "tax" to total sales tax when visible; do NOT duplicate tax breakdown lines in "items". When the receipt prints separate tax lines (GST, HST, PST, RST, QST, VAT, city/state US tax, etc.), you MUST set "taxBreakdown" to an array of { "code": short stable key (e.g. GST, RST, HST, VAT, OTHER), "label": verbatim or readable line text, "rateLabel": optional printed rate (e.g. "5%"), "amount": number }—one object per printed component (e.g. Manitoba 5% GST + 7% RST → two rows). Use [] only when a single combined tax total is printed with no split. No tax jurisdiction region fields. (8) ${RECEIPT_JSON_ITEMS_RULE} (9) imageQuality clarity/completeness 0–1 + short comments. (10) dataConsistency. (11) confidence 0–1.
 
 Return ONLY valid JSON (no markdown fences). Required shape:
-{"supplierName":"string","supplierInfo":{"taxNumber":null,"phone":null,"address":null},"date":"YYYY-MM-DD","totalAmount":0,"currency":"USD","paymentAccountName":null,"paymentCardLastFour":null,"tax":0,"items":[{"name":"","itemAlias":"","categoryName":"","attributionName":"","price":0}],"imageQuality":{"clarity":0,"completeness":0,"clarityComment":"","completenessComment":""},"dataConsistency":{"itemsSum":0,"itemsSumMatchesTotal":false,"missingItems":false,"consistencyComment":""},"confidence":0}`;
+{"supplierName":"string","supplierInfo":{"taxNumber":null,"phone":null,"address":null},"date":"YYYY-MM-DD","totalAmount":0,"currency":"USD","currencyPrintedOnReceipt":false,"paymentAccountName":null,"paymentCardLastFour":null,"tax":0,"taxBreakdown":[],"items":[{"name":"","itemAlias":"","categoryName":"","attributionName":"","price":0}],"imageQuality":{"clarity":0,"completeness":0,"clarityComment":"","completenessComment":""},"dataConsistency":{"itemsSum":0,"itemsSumMatchesTotal":false,"missingItems":false,"consistencyComment":""},"confidence":0}`;
 }
 
 const INVOICE_JSON_ITEMS_RULE =
@@ -326,7 +440,7 @@ function buildInvoiceImageExtractionRules(opts: {
 
 Single pass only: include EVERYTHING in this one JSON (line items, supplierInfo for customer tax/phone/address, quality, consistency)—the app does not run a second image call.
 
-Rules: (1) customerName—the buyer/payer or Bill To party (not generic words). (2) supplierInfo—the CUSTOMER taxNumber (VAT/GST/EIN etc.), phone, and address as printed for that party; keep JSON key supplierInfo for app compatibility; null only when absent. (3) date YYYY-MM-DD. (4) totalAmount. (5) currency ISO. (6) Payment: when deposit/card lines show last-4, set paymentCardLastFour to that 4-digit string; paymentAccountName = verbatim from Deposit/receipt accounts list when it matches same last-4, else a label including ****last4—never brand-only when digits are visible. (7) Tax: put total tax in "tax"; do NOT list GST/VAT/PST breakdown rows as items—items are sellable lines only. (8) ${INVOICE_JSON_ITEMS_RULE} (9) imageQuality clarity/completeness 0–1 + short comments. (10) dataConsistency. (11) confidence 0–1.
+Rules: (1) customerName—the buyer/payer or Bill To party (not generic words). (2) supplierInfo—the CUSTOMER taxNumber (VAT/GST/EIN etc.), phone, and address as printed for that party; keep JSON key supplierInfo for app compatibility; null only when absent. (3) date YYYY-MM-DD. (4) totalAmount. (5) currency ISO. (6) Payment: when deposit/card lines show last-4, set paymentCardLastFour to that 4-digit string; paymentAccountName = verbatim from Deposit/receipt accounts list when it matches same last-4, else a label including ****last4—never brand-only or account-type-only labels like "VISA CREDIT" without the masked line’s last-4. (7) Tax: put total tax in "tax"; do NOT list GST/VAT/PST breakdown rows as items—items are sellable lines only. (8) ${INVOICE_JSON_ITEMS_RULE} (9) imageQuality clarity/completeness 0–1 + short comments. (10) dataConsistency. (11) confidence 0–1.
 
 Return ONLY valid JSON (no markdown fences). Required shape:
 {"customerName":"string","supplierInfo":{"taxNumber":null,"phone":null,"address":null},"date":"YYYY-MM-DD","totalAmount":0,"currency":"USD","paymentAccountName":null,"paymentCardLastFour":null,"tax":0,"items":[{"name":"","itemAlias":"","categoryName":"","attributionName":"","price":0}],"imageQuality":{"clarity":0,"completeness":0,"clarityComment":"","completenessComment":""},"dataConsistency":{"itemsSum":0,"itemsSumMatchesTotal":false,"missingItems":false,"consistencyComment":""},"confidence":0}`;
@@ -394,23 +508,6 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
   geminiDevLog('Image URL:', imageUrl);
 
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-
-  // 首先尝试从 API 获取可用模型（如果缓存为空）
-  if (!availableModelCache) {
-    geminiDevLog('Attempting to fetch available models from API...');
-    try {
-      const availableModel = await getAvailableImageModel();
-      if (availableModel) {
-        availableModelCache = availableModel;
-        geminiDevLog('✅ Found available model via API:', availableModelCache);
-      } else {
-        console.warn('⚠️  No image models found via API');
-      }
-    } catch (error) {
-      console.warn('⚠️  Could not fetch available models from API:', error);
-      console.warn('Will try default model list...');
-    }
-  }
 
   // 支出：获取支出分类与用途，分别提交模型
   let categoryNames: string[] = [];
@@ -484,7 +581,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
 
   geminiDevLog('Image downloaded, size:', base64.length, 'bytes, mime type:', mimeType);
 
-  const modelsToTry = geminiModelsToTry(availableModelCache, {
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -532,6 +629,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
         categoryNames,
         defaultAttributionName: 'Personal',
       });
+      enrichParsedPaymentCardFields(parsedResult as unknown as Record<string, any>, text);
 
       // 验证和规范化数据
       const defaultCategory = categoryNames.length > 0 ? categoryNames[0] : 'Meal';
@@ -541,7 +639,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
         paymentAccountNameRaw != null && paymentAccountNameRaw !== 'null' && String(paymentAccountNameRaw).trim()
           ? String(paymentAccountNameRaw).trim()
           : undefined;
-      const prAny = parsedResult as Record<string, unknown>;
+      const prAny = parsedResult as unknown as Record<string, unknown>;
       const paymentCardLastFour =
         normalizeCardLastFourDigits(prAny.paymentCardLastFour ?? (prAny as any).cardLastFour) ??
         (paymentAccountName ? extractCardSuffix(paymentAccountName) : null) ??
@@ -584,11 +682,13 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
         date: normalizeShortDate(parsedResult.date || getLocalDateString()),
         totalAmount: totalAmount,
         currency: parsedResult.currency || 'CNY',
+        currencyPrintedOnReceipt: coerceCurrencyPrintedOnReceiptFlag(
+          parsedResult as unknown as Record<string, unknown>,
+        ),
         paymentAccountName: paymentAccountNameCoerced,
         paymentCardLastFour,
         tax: tax,
-        taxJurisdictionCountry: null,
-        taxJurisdictionRegion: null,
+        taxBreakdown: taxBreakdownForReceiptResult(parsedResult as unknown as Record<string, unknown>),
         items: parsedResult.items.map((item: any) => ({
           ...resolveReadableItemName(item),
           categoryName: item.categoryName ?? item.category ?? defaultCategory,
@@ -667,7 +767,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
     // 模型不存在错误
     if (errorMsg.includes('not found') || errorMsg.includes('404')) {
       throwGeminiProxyUnavailable(
-        `No working Gemini model (404). Tried: ${POSSIBLE_MODELS.join(', ')}. Adjust GEMINI_MODEL_DEFAULT or GEMINI_ENFORCE_SERVER_MODEL on the server. Original: ${lastError.message}`,
+        `No working Gemini model (404). Tried API-listed models (cost-sorted) then fallbacks: ${GEMINI_STATIC_MODEL_LIST_LABEL}. Adjust GEMINI_MODEL_DEFAULT on the server if needed. Original: ${lastError.message}`,
       );
     }
 
@@ -696,22 +796,6 @@ export async function recognizeInvoiceFromImage(imageUrl: string): Promise<Gemin
   geminiDevLog('Image URL:', imageUrl);
 
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-
-  if (!availableModelCache) {
-    geminiDevLog('Attempting to fetch available models from API...');
-    try {
-      const availableModel = await getAvailableImageModel();
-      if (availableModel) {
-        availableModelCache = availableModel;
-        geminiDevLog('✅ Found available model via API:', availableModelCache);
-      } else {
-        console.warn('⚠️  No image models found via API');
-      }
-    } catch (error) {
-      console.warn('⚠️  Could not fetch available models from API:', error);
-      console.warn('Will try default model list...');
-    }
-  }
 
   let categoryNames: string[] = [];
   try {
@@ -781,7 +865,7 @@ export async function recognizeInvoiceFromImage(imageUrl: string): Promise<Gemin
 
   geminiDevLog('Invoice image downloaded, size:', base64.length, 'bytes, mime type:', mimeType);
 
-  const modelsToTry = geminiModelsToTry(availableModelCache, {
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -824,6 +908,7 @@ export async function recognizeInvoiceFromImage(imageUrl: string): Promise<Gemin
         categoryNames,
         defaultAttributionName: defaultAttribution,
       });
+      enrichParsedPaymentCardFields(parsedResult as Record<string, any>, text);
 
       const prAny = parsedResult as Record<string, any>;
       const paymentAccountNameRaw = prAny.paymentAccountName || prAny.paymentAccount || undefined;
@@ -980,7 +1065,7 @@ export async function recognizeInvoiceFromImage(imageUrl: string): Promise<Gemin
 
     if (errorMsg.includes('not found') || errorMsg.includes('404')) {
       throwGeminiProxyUnavailable(
-        `No working Gemini model (404). Tried: ${POSSIBLE_MODELS.join(', ')}. Adjust GEMINI_MODEL_DEFAULT or GEMINI_ENFORCE_SERVER_MODEL on the server. Original: ${lastError.message}`,
+        `No working Gemini model (404). Tried API-listed models (cost-sorted) then fallbacks: ${GEMINI_STATIC_MODEL_LIST_LABEL}. Adjust GEMINI_MODEL_DEFAULT on the server if needed. Original: ${lastError.message}`,
       );
     }
 
@@ -1070,12 +1155,6 @@ async function downloadFileToBase64(fileUrl: string, mimeHint?: string): Promise
 export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: string): Promise<GeminiReceiptResult> {
   const currentApiKey = getCurrentGeminiApiKey();
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  if (!availableModelCache) {
-    try {
-      availableModelCache = await getAvailableImageModel() ?? null;
-    } catch (_) {}
-  }
-
   let categoryNames: string[] = [];
   try {
     const categories = await getCategories('expense');
@@ -1143,7 +1222,7 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
   }
   const filePart = { inlineData: { data: base64, mimeType } };
 
-  const modelsToTry = geminiModelsToTry(availableModelCache, {
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -1172,6 +1251,7 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
         categoryNames,
         defaultAttributionName: 'Personal',
       });
+      enrichParsedPaymentCardFields(parsedResult as unknown as Record<string, any>, text);
       const paymentAccountNameRaw = parsedResult.paymentAccountName || (parsedResult as any).paymentAccount;
       const paymentAccountName =
         paymentAccountNameRaw != null && paymentAccountNameRaw !== 'null' && String(paymentAccountNameRaw).trim()
@@ -1213,11 +1293,13 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
         date: normalizeShortDate(parsedResult.date || getLocalDateString()),
         totalAmount,
         currency: parsedResult.currency || 'USD',
+        currencyPrintedOnReceipt: coerceCurrencyPrintedOnReceiptFlag(
+          parsedResult as unknown as Record<string, unknown>,
+        ),
         paymentAccountName: paymentAccountNameCoercedDoc,
         paymentCardLastFour,
         tax,
-        taxJurisdictionCountry: null,
-        taxJurisdictionRegion: null,
+        taxBreakdown: taxBreakdownForReceiptResult(parsedResult as unknown as Record<string, unknown>),
         items: parsedResult.items.map((item: any) => ({
           ...resolveReadableItemName(item),
           categoryName: item.categoryName ?? item.category ?? defaultCategory,
@@ -1357,7 +1439,7 @@ Return ONLY valid JSON format without any extra text:
       },
     };
 
-    const modelsToTry = geminiModelsToTry(availableModelCache, {
+    const modelsToTry = await resolveGeminiModelsToTryOrder({
       promptTextLength: prompt.length,
       inlineBase64Length: base64.length,
       mimeType,
@@ -1480,26 +1562,15 @@ Items: at least one. ${RECEIPT_JSON_ITEMS_RULE} Example item: ${JSON.stringify(R
 
 Data: today=${today}, 上周五=${lastFridayStr}. Suppliers [${supplierList || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Personal".
 
-Do NOT put GST/HST/PST/QST/RST/VAT sales-tax lines in items; put total tax in "tax". Items = products/services only.
+Do NOT put GST/HST/PST/QST/RST/VAT sales-tax lines in items; put total tax in "tax". When multiple tax components are stated, add taxBreakdown: array of { code, label, rateLabel?, amount } (omit or [] if only one total). Items = products/services only.
 
-Output JSON keys: supplierName, date, totalAmount, currency, tax (total sales tax), paymentAccountName (optional), paymentCardLastFour (optional, 4-digit string when card last-4 is in text; else omit or null), items (array of { name, itemAlias (required when name is code-like), categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
+Output JSON keys: supplierName, date, totalAmount, currency, currencyPrintedOnReceipt (boolean, see image rules), tax (total sales tax), taxBreakdown (optional array), paymentAccountName (optional), paymentCardLastFour (optional, 4-digit string when card last-4 is in text; else omit or null), items (array of { name, itemAlias (required when name is code-like), categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).
 
 User text:
 "${text}"`;
 
   try {
-    // 首先尝试从 API 获取可用模型
-    let availableModel: string | null = null;
-    try {
-      availableModel = await getAvailableImageModel();
-      if (availableModel) {
-        geminiDevLog('✅ Found available model via API:', availableModel);
-      }
-    } catch (error) {
-      console.warn('⚠️  Could not fetch available models from API:', error);
-    }
-
-    const modelsToTry = geminiModelsToTry(availableModel, { promptTextLength: prompt.length });
+    const modelsToTry = await resolveGeminiModelsToTryOrder({ promptTextLength: prompt.length });
 
     let lastError: Error | null = null;
 
@@ -1604,6 +1675,7 @@ User text:
           categoryNames,
           defaultAttributionName: 'Personal',
         });
+        enrichParsedPaymentCardFields(parsedResult, textResponse);
 
         geminiDevLog('Parsed result items count:', parsedResult.items.length);
         geminiDevLog('Parsed result:', {
@@ -1651,11 +1723,6 @@ User text:
         // 短日期归一化：取与今天最接近的合法解释（锚点今天）
         parsedResult.date = normalizeShortDate(parsedResult.date);
 
-        parsedResult.taxJurisdictionCountry = null;
-        parsedResult.taxJurisdictionRegion = null;
-        delete parsedResult.tax_jurisdiction_country;
-        delete parsedResult.tax_jurisdiction_region;
-
         const nameRaw = parsedResult.paymentAccountName || parsedResult.paymentAccount;
         parsedResult.paymentAccountName =
           nameRaw != null && nameRaw !== 'null' && String(nameRaw).trim() ? String(nameRaw).trim() : undefined;
@@ -1679,6 +1746,7 @@ User text:
           items: parsedResult.items.map((item: any) => ({ name: item.name, price: item.price })),
         });
 
+        parsedResult.currencyPrintedOnReceipt = coerceCurrencyPrintedOnReceiptFlag(parsedResult);
         return parsedResult as GeminiReceiptResult;
       } catch (error) {
         console.warn(`Model ${modelName} failed:`, error);
@@ -1770,7 +1838,7 @@ Items: at least one. ${RECEIPT_JSON_ITEMS_RULE} Example item: ${JSON.stringify(R
 
 Data: today=${todayStr}, yesterday=${yesterdayStr}. Suppliers [${supplierListAudio || 'None'}]. Currencies [${currencyList}], default ${defaultCurrency}. Accounts [${paymentAccountList || 'None'}]. Categories [${categoryList}]. Attributions [${attributionNamesCsv}], default "Personal".
 
-Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymentAccountName (optional), paymentCardLastFour (optional, 4-digit string if heard), items (array of { name, itemAlias(optional), categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
+Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, currencyPrintedOnReceipt (boolean: true only if currency heard/seen in source; else false), tax (total sales tax), taxBreakdown (optional array of { code, label, rateLabel?, amount }), paymentAccountName (optional), paymentCardLastFour (optional, 4-digit string if heard), items (array of { name, itemAlias(optional), categoryName, attributionName, price }), dataConsistency{itemsSum,itemsSumMatchesTotal,missingItems,consistencyComment}, confidence(0-1).`;
 
   try {
     // 读取音频文件
@@ -1782,18 +1850,7 @@ Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymen
     // 获取音频文件的MIME类型（假设是m4a格式，Expo录音默认格式）
     const mimeType = 'audio/m4a';
 
-    // 首先尝试从 API 获取可用模型（支持多模态的模型通常也支持音频）
-    let availableModel: string | null = null;
-    try {
-      availableModel = await getAvailableImageModel();
-      if (availableModel) {
-        geminiDevLog('✅ Found available model via API:', availableModel);
-      }
-    } catch (error) {
-      console.warn('⚠️  Could not fetch available models from API:', error);
-    }
-
-    const modelsToTry = geminiModelsToTry(availableModel, {
+    const modelsToTry = await resolveGeminiModelsToTryOrder({
       promptTextLength: prompt.length,
       inlineBase64Length: audioBase64.length,
       mimeType,
@@ -1853,6 +1910,7 @@ Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymen
           categoryNames,
           defaultAttributionName: 'Personal',
         });
+        enrichParsedPaymentCardFields(parsedResult, text);
 
         // 计算itemsSum如果未提供
         if (parsedResult.items && parsedResult.items.length > 0) {
@@ -1892,6 +1950,7 @@ Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, paymen
           parsedResult.paymentCardLastFour,
         );
 
+        parsedResult.currencyPrintedOnReceipt = coerceCurrencyPrintedOnReceiptFlag(parsedResult);
         return parsedResult as GeminiReceiptResult;
       } catch (error) {
         console.warn(`Model ${modelName} failed:`, error);
@@ -1988,11 +2047,7 @@ Output: customerName, supplierInfo{taxNumber,phone,address}, date, totalAmount, 
 User input:
 "${text}"`;
 
-  let availableModel: string | null = null;
-  try {
-    availableModel = await getAvailableImageModel();
-  } catch {}
-  const modelsToTry = geminiModelsToTry(availableModel, { promptTextLength: prompt.length });
+  const modelsToTry = await resolveGeminiModelsToTryOrder({ promptTextLength: prompt.length });
   let lastError: Error | null = null;
 
   for (const modelName of modelsToTry) {
@@ -2026,6 +2081,7 @@ User input:
         categoryNames,
         defaultAttributionName: attributionNames[0] || 'Employer',
       });
+      enrichParsedPaymentCardFields(parsed, textResponse);
 
       const invNameRaw = parsed.paymentAccountName || parsed.paymentAccount;
       parsed.paymentAccountName =
@@ -2114,11 +2170,7 @@ Output: customerName, supplierInfo{taxNumber,phone,address}, date, totalAmount, 
   }
   const filePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  let availableModel: string | null = null;
-  try {
-    availableModel = await getAvailableImageModel();
-  } catch {}
-  const modelsToTry = geminiModelsToTry(availableModel, {
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -2153,6 +2205,7 @@ Output: customerName, supplierInfo{taxNumber,phone,address}, date, totalAmount, 
         categoryNames,
         defaultAttributionName: attributionNames[0] || 'Employer',
       });
+      enrichParsedPaymentCardFields(parsed, textResponse);
 
       const invDocNameRaw = parsed.paymentAccountName || parsed.paymentAccount;
       parsed.paymentAccountName =
@@ -2249,11 +2302,7 @@ Single pass: include supplierInfo for customer taxNumber, phone, address when cl
 Return ONLY valid JSON: customerName, supplierInfo{taxNumber,phone,address}, date (YYYY-MM-DD), totalAmount, currency, tax, paymentAccountName, paymentCardLastFour (optional), items (name, itemAlias(optional), categoryName, attributionName, price), dataConsistency (itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment), confidence(0-1).`;
 
   const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
-  let availableModel: string | null = null;
-  try {
-    availableModel = await getAvailableImageModel();
-  } catch {}
-  const modelsToTry = geminiModelsToTry(availableModel, {
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: audioBase64.length,
     mimeType: 'audio/m4a',
@@ -2292,6 +2341,7 @@ Return ONLY valid JSON: customerName, supplierInfo{taxNumber,phone,address}, dat
         categoryNames,
         defaultAttributionName: attributionNames[0] || 'Employer',
       });
+      enrichParsedPaymentCardFields(parsed, text);
 
       const invAudNameRaw = parsed.paymentAccountName || parsed.paymentAccount;
       parsed.paymentAccountName =
@@ -2501,7 +2551,7 @@ User input:
 "${text}"`;
 
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = geminiModelsToTry(null, { promptTextLength: prompt.length });
+  const modelsToTry = await resolveGeminiModelsToTryOrder({ promptTextLength: prompt.length });
   let lastError: Error | null = null;
   for (const modelName of modelsToTry) {
     try {
@@ -2530,11 +2580,7 @@ Listen to the audio and output one JSON object. Unclear or noise-only audio → 
 
   const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  let availableModel: string | null = null;
-  try {
-    availableModel = await getAvailableImageModel();
-  } catch {}
-  const modelsToTry = geminiModelsToTry(availableModel, {
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: audioBase64.length,
     mimeType: 'audio/m4a',
@@ -2628,7 +2674,7 @@ User input:
 "${text}"`;
 
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = geminiModelsToTry(null, { promptTextLength: prompt.length });
+  const modelsToTry = await resolveGeminiModelsToTryOrder({ promptTextLength: prompt.length });
   let lastError: Error | null = null;
   for (const modelName of modelsToTry) {
     try {
@@ -2657,11 +2703,7 @@ Listen to the audio and output one JSON object. Unclear or noise-only audio → 
 
   const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  let availableModel: string | null = null;
-  try {
-    availableModel = await getAvailableImageModel();
-  } catch {}
-  const modelsToTry = geminiModelsToTry(availableModel, {
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: audioBase64.length,
     mimeType: 'audio/m4a',
@@ -2722,11 +2764,7 @@ ${INBOUND_JSON_EXAMPLE(today)}`;
   const { base64, mimeType } = await downloadImageToBase64(imageUrl);
   const imagePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  let availableModel: string | null = null;
-  try {
-    availableModel = await getAvailableImageModel();
-  } catch (_) {}
-  const modelsToTry = geminiModelsToTry(availableModel, {
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -2773,11 +2811,7 @@ ${OUTBOUND_JSON_EXAMPLE(today)}`;
   const { base64, mimeType } = await downloadImageToBase64(imageUrl);
   const imagePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  let availableModel: string | null = null;
-  try {
-    availableModel = await getAvailableImageModel();
-  } catch (_) {}
-  const modelsToTry = geminiModelsToTry(availableModel, {
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -2831,11 +2865,7 @@ ${INBOUND_JSON_EXAMPLE(today)}`;
   }
   const filePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  let availableModel: string | null = null;
-  try {
-    availableModel = await getAvailableImageModel();
-  } catch (_) {}
-  const modelsToTry = geminiModelsToTry(availableModel, {
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -2916,7 +2946,7 @@ export async function recognizeClientsFromText(text: string): Promise<ClientReco
   const currentApiKey = getCurrentGeminiApiKey();
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
   const prompt = `${CLIENT_EXTRACTION_PROMPT}\n\nContent to parse:\n${text}`;
-  const modelsToTry = geminiModelsToTry(null, { promptTextLength: prompt.length });
+  const modelsToTry = await resolveGeminiModelsToTryOrder({ promptTextLength: prompt.length });
   let lastError: Error | null = null;
   for (const modelName of modelsToTry) {
     try {
@@ -2950,11 +2980,7 @@ export async function recognizeClientsFromDocument(fileUrl: string, mimeHint?: s
   }
   const filePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  let availableModel: string | null = null;
-  try {
-    availableModel = await getAvailableImageModel();
-  } catch (_) {}
-  const modelsToTry = geminiModelsToTry(availableModel, {
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
     promptTextLength: CLIENT_EXTRACTION_PROMPT.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -3007,11 +3033,7 @@ ${OUTBOUND_JSON_EXAMPLE(today)}`;
   }
   const filePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  let availableModel: string | null = null;
-  try {
-    availableModel = await getAvailableImageModel();
-  } catch (_) {}
-  const modelsToTry = geminiModelsToTry(availableModel, {
+  const modelsToTry = await resolveGeminiModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,

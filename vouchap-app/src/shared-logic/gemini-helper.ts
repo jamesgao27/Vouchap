@@ -93,47 +93,148 @@ export function mergeGeminiModelsWithAvailable(
   return out;
 }
 
-// 获取支持图像/音频输入的第一个可用模型（应用内优先 1.5 Flash，与 buildGeminiModelOrder 一致）
+// ── Dynamic model list: listModels → filter generateContent → cost-sort → cache (TTL) ──
+
+type GeminiListModelRow = { name: string; supportedGenerationMethods?: string[] };
+
+let dynamicModelsSortedCache: string[] | null = null;
+let dynamicModelsSortedCacheAt = 0;
+const DYNAMIC_MODEL_CACHE_TTL_MS = 5 * 60 * 1000;
+
+/** Clear when API returns 404/503/429 etc. so next recognition run refetches listModels. */
+export function invalidateGeminiModelTryOrderCache(): void {
+  dynamicModelsSortedCache = null;
+  dynamicModelsSortedCacheAt = 0;
+}
+
+export function normalizeGeminiModelApiName(name: string): string {
+  let s = String(name || '').trim();
+  if (!s) return '';
+  if (s.startsWith('models/')) s = s.slice('models/'.length);
+  return s;
+}
+
+function modelIsGenerateContentCandidate(m: GeminiListModelRow): boolean {
+  const methods = m.supportedGenerationMethods;
+  if (!methods?.includes('generateContent')) return false;
+  const id = normalizeGeminiModelApiName(m.name).toLowerCase();
+  if (!id.startsWith('gemini')) return false;
+  if (id.includes('embedding') || id.includes('embed')) return false;
+  if (id.includes('aqa')) return false;
+  return true;
+}
+
+/**
+ * Heuristic cost / latency tier: lower = cheaper = try first.
+ * Google does not expose prices on listModels; we maintain rough ordering as catalog evolves.
+ */
+export function scoreGeminiModelCostHeuristic(modelId: string): number {
+  const id = modelId.toLowerCase();
+  const rules: Array<{ re: RegExp; score: number }> = [
+    { re: /flash.?lite|flash-lite|2\.5-flash-lite|2\.0-flash-lite/i, score: 8 },
+    { re: /gemini-1\.5-flash-8b/i, score: 14 },
+    { re: /gemini-1\.5-flash(?!-8b)/i, score: 18 },
+    { re: /gemini-2\.0-flash(?!.*lite)/i, score: 28 },
+    { re: /gemini-2\.5-flash(?!.*lite)/i, score: 32 },
+    { re: /gemini-3-flash|flash-preview/i, score: 38 },
+    { re: /gemini-1\.5-pro/i, score: 62 },
+    { re: /gemini-2\.5-pro/i, score: 68 },
+    { re: /gemini-3-pro|pro-preview/i, score: 78 },
+    { re: /gemini-pro(?!vision)/i, score: 72 },
+    { re: /flash/i, score: 45 },
+  ];
+  for (const { re, score } of rules) {
+    if (re.test(id)) return score;
+  }
+  return 900;
+}
+
+function sortGeminiModelIdsByCost(ids: string[]): string[] {
+  return [...new Set(ids)].sort((a, b) => {
+    const d = scoreGeminiModelCostHeuristic(a) - scoreGeminiModelCostHeuristic(b);
+    if (d !== 0) return d;
+    return a.localeCompare(b);
+  });
+}
+
+async function fetchDynamicGeminiModelsSortedByCost(): Promise<string[]> {
+  const models = (await listAvailableModels()) as GeminiListModelRow[];
+  const ids = models
+    .filter(modelIsGenerateContentCandidate)
+    .map((m) => normalizeGeminiModelApiName(m.name))
+    .filter(Boolean);
+  return sortGeminiModelIdsByCost(ids);
+}
+
+async function getDynamicGeminiModelsSortedCached(): Promise<string[]> {
+  const now = Date.now();
+  if (dynamicModelsSortedCache && now - dynamicModelsSortedCacheAt < DYNAMIC_MODEL_CACHE_TTL_MS) {
+    return dynamicModelsSortedCache;
+  }
+  try {
+    const sorted = await fetchDynamicGeminiModelsSortedByCost();
+    if (sorted.length > 0) {
+      dynamicModelsSortedCache = sorted;
+      dynamicModelsSortedCacheAt = Date.now();
+    }
+    return sorted;
+  } catch {
+    return [];
+  }
+}
+
+function mergeDynamicSortedWithStaticOrder(
+  dynamicSorted: string[],
+  staticOrder: string[],
+  preferProAfterFlash: boolean,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const push = (m: string) => {
+    if (!m || seen.has(m)) return;
+    seen.add(m);
+    out.push(m);
+  };
+  const pro = GEMINI_PRO_FALLBACK_MODEL;
+
+  if (preferProAfterFlash && dynamicSorted.length > 0) {
+    push(dynamicSorted[0]);
+    push(pro);
+    for (let i = 1; i < dynamicSorted.length; i += 1) push(dynamicSorted[i]);
+  } else {
+    for (const m of dynamicSorted) push(m);
+  }
+
+  for (const m of staticOrder) push(m);
+  return out;
+}
+
+/**
+ * Full try-order for generateContent: Google listModels (cost-sorted) first, then static fallbacks.
+ * Call invalidateGeminiModelTryOrderCache() on 404/503 so the next run refetches the catalog.
+ */
+export async function resolveGeminiModelsToTryOrder(complexity: {
+  promptTextLength: number;
+  inlineBase64Length?: number;
+  mimeType?: string;
+}): Promise<string[]> {
+  const preferPro = inferComplexGeminiContent(complexity);
+  const staticOrder = buildGeminiModelOrder({ preferProAfterFlash: preferPro });
+  const dynamicSorted = await getDynamicGeminiModelsSortedCached();
+  return mergeDynamicSortedWithStaticOrder(dynamicSorted, staticOrder, preferPro);
+}
+
+// 获取支持图像/音频输入的第一个可用模型（与 resolveGeminiModelsToTryOrder 同源：成本序第一个）
 export async function getAvailableImageModel(): Promise<string | null> {
   const FALLBACK_MODEL = GEMINI_PRIMARY_MODEL;
-
   try {
     if (!apiKey) return null;
-
-    const models = await listAvailableModels();
-    
-    const supportedModels = models.filter((m: any) => 
-      m.supportedGenerationMethods && 
-      m.supportedGenerationMethods.includes('generateContent')
-    );
-    
-    const preferredModels = [
-      GEMINI_PRIMARY_MODEL,
-      'gemini-2.5-flash-lite',
-      'gemini-2.0-flash-lite',
-      'gemini-2.0-flash',
-      'gemini-2.5-flash',
-      'gemini-3-flash-preview',
-      GEMINI_PRO_FALLBACK_MODEL,
-      'gemini-3-pro-preview',
-    ];
-    
-    for (const preferred of preferredModels) {
-      const found = supportedModels.find((m: any) => 
-        m.name.includes(preferred) || m.name === `models/${preferred}`
-      );
-      if (found) {
-        return found.name.replace(/^models\//, '');
-      }
-    }
-    
-    if (supportedModels.length > 0) {
-      return supportedModels[0].name.replace(/^models\//, '');
-    }
-    
+    const sorted = await getDynamicGeminiModelsSortedCached();
+    if (sorted.length > 0) return sorted[0];
     return FALLBACK_MODEL;
-  } catch (error: any) {
-    console.warn('无法动态获取模型列表，使用默认模型:', error.message);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.warn('无法动态获取模型列表，使用默认模型:', msg);
     return FALLBACK_MODEL;
   }
 }

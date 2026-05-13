@@ -12,6 +12,24 @@ import { findOrCreateEntity } from './entities';
 import { findOrCreateWarehouseByName, findOrCreateLocationByName } from './warehouse';
 import { findOrCreateSkuByNameAndUnit } from './skus';
 import { aliasDistinctFromLineName, pickReceiptLineItemAlias } from './receipt-item-alias';
+import { coerceReceiptTaxBreakdownEntries } from './receipt-tax-breakdown';
+
+/** Same idea as gemini.ts paymentAccountLabelIsCardTypeOnly — avoid creating accounts named "VISA CREDIT" with no digits. */
+function isPaymentAccountLabelCardTypeOnly(name: string): boolean {
+  const t = name.trim();
+  if (!t) return false;
+  if (extractCardSuffix(t)) return false;
+  if (/^visa(\s+credit|\s+debit|\s+purchase|\s+chk)?$/i.test(t)) return true;
+  if (/^mastercard(\s+credit|\s+debit)?$/i.test(t)) return true;
+  if (/^mc(\s+credit|\s+debit)?$/i.test(t)) return true;
+  if (/^amex$|^american\s+express$/i.test(t)) return true;
+  if (/^debit(\s+card)?$|^credit(\s+card)?$/i.test(t)) return true;
+  if (/^chip\s+card$/i.test(t)) return true;
+  if (/^visa\s+tend$/i.test(t)) return true;
+  if (/^interac\b/i.test(t)) return true;
+  if (/^(visa|mastercard|master\s+card|mc|discover|eftpos)$/i.test(t)) return true;
+  return false;
+}
 
 /**
  * Prefer matching by card last-4 to existing space accounts (e.g. receipt "Visa ****1102" → account "credit card ****1102"),
@@ -32,7 +50,7 @@ export async function resolveAccountIdFromGeminiPaymentFields(input: {
       const bySuffix = await resolveAccountByCardLastFourDigits(lastFour);
       if (bySuffix) return bySuffix.id;
     }
-    if (name) {
+    if (name && !isPaymentAccountLabelCardTypeOnly(name)) {
       const account = await findOrCreateAccount(name, true);
       return account.id;
     }
@@ -57,7 +75,7 @@ function fallbackExpenseItemPrice(totalAmount?: number, tax?: number): number {
 
 // 将 Gemini 识别结果转换为 Receipt 格式
 export async function convertGeminiResultToReceipt(result: GeminiReceiptResult): Promise<Receipt> {
-  const user = await getCurrentUser();
+  const user = await getCurrentUser(true);
   if (!user) throw new Error('Not logged in');
 
   // 支出：获取支出分类与用途
@@ -326,14 +344,8 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
     throw new Error('User must have a space selected');
   }
 
-  const raw = result as GeminiReceiptResult & {
-    tax_jurisdiction_country?: string | null;
-    tax_jurisdiction_region?: string | null;
-  };
-  const taxJurisdictionCountry =
-    result.taxJurisdictionCountry ?? raw.tax_jurisdiction_country ?? null;
-  const taxJurisdictionRegion =
-    result.taxJurisdictionRegion ?? raw.tax_jurisdiction_region ?? null;
+  const taxBreakdown =
+    coerceReceiptTaxBreakdownEntries(result.taxBreakdown, null) ?? undefined;
 
   return {
     spaceId: spaceId,
@@ -341,9 +353,9 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
     entityId: entityId,
     totalAmount: result.totalAmount,
     currency: result.currency,
+    currencyPrintedOnReceipt: result.currencyPrintedOnReceipt === true,
     tax: result.tax,
-    taxJurisdictionCountry: taxJurisdictionCountry || null,
-    taxJurisdictionRegion: taxJurisdictionRegion || null,
+    taxBreakdown,
     date: result.date,
     accountId: accountId,
     status: status,

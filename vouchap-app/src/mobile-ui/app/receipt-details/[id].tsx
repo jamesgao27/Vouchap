@@ -946,9 +946,28 @@ export default function ReceiptDetailsScreen() {
     );
   }
 
+  const recognitionNoticeParagraphs = useMemo(() => {
+    const raw = currentReceipt.recognitionNotice?.trim();
+    if (!raw) return [];
+    return raw.split(/\n+/).map((p) => p.trim()).filter(Boolean);
+  }, [currentReceipt.recognitionNotice]);
+
   return (
     <View style={styles.container}>
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        {currentReceipt.status === 'needs_retake' && recognitionNoticeParagraphs.length > 0 ? (
+          <View style={styles.recognitionNoticeBanner} accessibilityRole="alert">
+            <View style={styles.recognitionNoticeHeaderRow}>
+              <Ionicons name="alert-circle" size={22} color="#B7791F" />
+              <Text style={styles.recognitionNoticeTitle}>Recognition unavailable</Text>
+            </View>
+            {recognitionNoticeParagraphs.map((para, i) => (
+              <Text key={i} style={styles.recognitionNoticeBody}>
+                {para}
+              </Text>
+            ))}
+          </View>
+        ) : null}
         {/* 小票摘要卡片 */}
         <View style={styles.summaryCard}>
           <View style={styles.imageContainer}>
@@ -2195,6 +2214,32 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 12,
     paddingBottom: 100,
+  },
+  recognitionNoticeBanner: {
+    marginBottom: 12,
+    padding: 14,
+    borderRadius: 12,
+    backgroundColor: '#FEF9E7',
+    borderWidth: 1,
+    borderColor: '#F0D78C',
+  },
+  recognitionNoticeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  recognitionNoticeTitle: {
+    marginLeft: 8,
+    flex: 1,
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#7D5A0C',
+  },
+  recognitionNoticeBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#5D4E37',
+    marginTop: 6,
   },
   summaryCard: {
     backgroundColor: '#fff',

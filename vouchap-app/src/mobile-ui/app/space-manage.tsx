@@ -244,8 +244,8 @@ export default function SpaceManageScreen() {
         >
           <Ionicons name="receipt-outline" size={22} color="#6C5CE7" />
           <View style={styles.linkCardTextWrap}>
-            <Text style={styles.linkCardTitle}>Order management</Text>
-            <Text style={styles.linkCardHint}>View subscription and billing orders</Text>
+            <Text style={styles.linkCardTitle}>Subscription and billing</Text>
+            <Text style={styles.linkCardHint}>Plans, invoices, and payment history</Text>
           </View>
           <Ionicons name="chevron-forward" size={20} color="#95A5A6" />
         </TouchableOpacity>

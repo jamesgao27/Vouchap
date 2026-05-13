@@ -8,6 +8,76 @@
 
 ---
 
+### 2026-05-12（Vouchap：订阅/账单/权益 — CRM 订单驱动 + 试用 + Firm 年消耗）
+
+**User（提示词/原意）**  
+- 按已附计划实现：权益以 CRM `space_orders` 在服订阅 + credit 订单为准；新建 space 与存量补 30 天试用（存量自 2026-05-01）；Client 识别月包来自在服订单 SKU；Firm engagement 改为订阅窗口内消耗计数；`get_space_entitlements`；App 拦截与 Subscription 屏摘要。
+
+**Assistant（实现前说明）**  
+- 新增迁移统一：SKU `billing_kind` / `space_target`、试用与 credit 目录 SKU、重写 `get_client_recognition_quota` / `record_client_recognition_success`、`assert_firm_can_create_engagement`、`on_space_created` + `spaces` 触发器、存量 backfill、`get_space_entitlements`；识别入账触发器仅认 `recognition_credit_pack`（及空 billing_kind 兼容）。  
+- App：`@/lib/space-entitlements`、`space-orders` 展示 plan、`firm.ts` 区分无订阅与额度用尽英文文案、`client-recognition-quota` 扩展字段与无订阅提示。  
+- 文档：`vouchap-crm/sql/crm-order-design.md`、`vouchap-crm/docs/免费试用订单.md`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已添加 [`vouchap-app/supabase/migrations/20260512100000_subscription_entitlements_orders.sql`](vouchap-app/supabase/migrations/20260512100000_subscription_entitlements_orders.sql)；共享 [`vouchap-app/src/shared-logic/space-entitlements.ts`](vouchap-app/src/shared-logic/space-entitlements.ts)；改 [`space-orders.tsx`](vouchap-app/src/mobile-ui/app/space-orders.tsx)、[`firm.ts`](vouchap-app/src/shared-logic/firm.ts)、[`client-recognition-quota.ts`](vouchap-app/src/shared-logic/client-recognition-quota.ts)。  
+- **验证**：本地执行 `supabase db push`（或等价应用迁移）；新注册 space 应自动有试用 `space_orders`；Client 无在服且无 credit 时识别预检拒绝；Firm 无订阅创建 engagement 拒绝；Firm 窗口内订单数达上限拒绝。  
+- **残留**：本机 `npx` 因 cache 权限未跑通 CLI；全仓 `tsc` 仍有既有 unrelated 报错；若 `sku_edition` 无 `ON CONFLICT (code)` 需在目标库确认约束。
+
+**关联**  
+- 迁移、`space-entitlements.ts`、`crm-order-design.md`
+
+### 2026-05-12（vouchap-website：顶栏应用商店按钮缩小高度与间距）
+
+**User（提示词/原意）**  
+- 两个按钮高度减小一点，顶栏不要这么拥挤。
+
+**Assistant（实现前说明）**  
+- `StoreDownloadBadges` 的 `tone="navbar"` 原为 `h-8 sm:h-9`、纵向 `gap-1.5`，与 `h-20` 顶栏叠放后偏高。  
+- 计划：navbar 芯片改为 `h-7`、`px-2`、`text-[11px]`、`rounded-md`、`gap-1.5`；图标 `h-3 w-3`；纵向容器 `gap-1`；showcase 的 `onDark` 保持 `h-9` 等原样。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `vouchap-website/components/StoreDownloadBadges.tsx`（按 tone 拆分完整 chip 类名）。`npx tsc --noEmit` 通过。
+
+**关联**  
+- `vouchap-website/components/StoreDownloadBadges.tsx`
+
+### 2026-05-12（vouchap-website：顶栏 Login 右侧纵向应用商店入口）
+
+**User（提示词/原意）**  
+- Vouchap-website 网站顶栏右端，在 Login 按钮右侧，上下排列增加两个应用市场跳转按钮；样式与链接与 showcase 页已有实现一致。
+
+**Assistant（实现前说明）**  
+- 顶栏为 `vouchap-website/components/Navbar.tsx`；showcase 中 `ShowcaseSlides.tsx` 的 `ShowcaseStoreBadges` 含 `NEXT_PUBLIC_APP_STORE_URL` / `NEXT_PUBLIC_PLAY_STORE_URL` 与 SVG 芯片样式。  
+- 计划：抽出 `lib/storeLinks.ts` 与共享 `components/StoreDownloadBadges.tsx`（`layout: row|column`、`tone: onDark|navbar`）；showcase 改用该组件保持视觉与链接单一来源；Navbar 在 Login 外包一层 `flex items-center`，右侧 `StoreDownloadBadges` 纵向 + `navbar` 色调以适配浅色/深色顶栏。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已新增 `vouchap-website/lib/storeLinks.ts`、`vouchap-website/components/StoreDownloadBadges.tsx`；已改 `Navbar.tsx`、`ShowcaseSlides.tsx`（删除内联 `ShowcaseStoreBadges`）。  
+- **验证**：`cd vouchap-website && npx tsc --noEmit` 通过；本地 `npm run dev` 查看首页顶栏 Login 右侧为 App Store / Google Play 纵向排列，点击新开页；showcase 底部双按钮应与改前一致（`tone="onDark"` + 原 `mt-3 sm:mt-4`）。  
+- **残留**：极窄屏顶栏右侧可能略挤，若需可再加 `hidden sm:flex` 或缩小字号。
+
+**关联**  
+- `vouchap-website/components/Navbar.tsx`、`vouchap-website/components/ShowcaseSlides.tsx`、`vouchap-website/components/StoreDownloadBadges.tsx`、`vouchap-website/lib/storeLinks.ts`
+
+### 2026-05-09（Vouchap 移动端：团队管理菜单顺序与「Subscription and billing」文案）
+
+**User（提示词/原意）**  
+- 团队管理菜单入口顺序：成员、权限、账户、entities、expense、income、order。  
+- 「Order management」文案改为「Subscription and billing」。
+
+**Assistant（实现前说明）**  
+- `management.tsx` 中 `menuItems` 原顺序为 members → permissions → claim → expense → income → accounts → entities，且 space-orders 为独立块排在列表最前。  
+- 将 `menuItems` 调整为 members → permissions → claim → accounts → entities → expense → income（`visibleMenuItems` 过滤逻辑不变）；space-orders 入口移至 `visibleMenuItems.map` 之后。  
+- 同步 Stack 标题 `space-orders`、`space-manage` 链接卡与 management 副文案（英文）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `vouchap-app/src/mobile-ui/app/management.tsx` 与 `vouchap-app/app/management.tsx`（两处保持同步）、`src/mobile-ui/app/_layout.tsx`（`space-orders` 导航标题）、`src/mobile-ui/app/space-manage.tsx`。副标题为「Plans, invoices, and payment history」。  
+- **验证**：Management 屏非 firm：Members → Accounts → Entities → Expense Settings → Income Settings → Subscription and billing；firm：Members → Permissions。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/management.tsx`、`vouchap-app/app/management.tsx`、`vouchap-app/src/mobile-ui/app/_layout.tsx`、`vouchap-app/src/mobile-ui/app/space-manage.tsx`
+
+---
+
 ### 2026-05-06（Vouchap 移动端：receipt 详情保存 — 重复名弹窗后一次确认即保存）
 
 **User（提示词/原意）**  
@@ -6489,3 +6559,449 @@
 - `vouchap-app/src/shared-logic/gemini.ts`
 
 ---
+
+### 2026-05-09（Vouchap Web 再识别：税与 item 正确但账户为「VISA CREDIT」未对齐 ****1102）
+
+**User（提示词/原意）**  
+- 同一张小票 Web 再次识别：item/tax 已正确，账户仍显示 **VISA CREDIT**，未对应 space 内 **credit card \*\*\*\*1102**。
+
+**Assistant（实现前说明）**  
+- 模型常把票面 **Account type** 填进 `paymentAccountName`，而省略 `paymentCardLastFour`；`extractCardSuffix("VISA CREDIT")` 无数字，尾号匹配与 `ensurePaymentAccountNameWithLastFour` 的单品牌正则均不命中。  
+- 计划：① `enrichParsedPaymentCardFields`：从**整段模型原文**与**解析后 JSON 深搜字符串**中提取 `\*{3,}(\d{4})` / `extractCardSuffix` 补全 `paymentCardLastFour`；② `paymentAccountLabelIsCardTypeOnly` 覆盖 **VISA CREDIT / CHIP CARD** 等，有尾号时改写 `paymentAccountName`；③ `ensurePaymentAccountNameWithLastFour` 同步；④ `resolveAccountIdFromGeminiPaymentFields` 对卡类型占位名**不走** `findOrCreateAccount(name)`，仅依赖尾号或 `Card \*\*\*\*`；⑤ 提示词强调勿用 account-type-only 作 `paymentAccountName`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `vouchap-app/src/shared-logic/gemini.ts`、`receipt-helpers.ts`。**验证**：再识别 Canadian Tire 样张应得到 `paymentCardLastFour: 1102` 并匹配已有账户或 `Card \*\*\*\*1102`。  
+- **残留**：若模型全文完全不出现掩码数字串，仍无法推断尾号；需用户选手动账户。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini.ts`、`receipt-helpers.ts`
+
+---
+
+### 2026-05-09（Vouchap：receipt 级税种拆分灵活存储与分类统计）
+
+**User（提示词/原意）**  
+- 行级拆税到 item 已废弃；需在 **receipt 级**识别/存储税种拆分，并支持按税种分类统计；不同小票税种集合不固定，需灵活存储。
+
+**Assistant（实现前说明）**  
+- 库表已有 `receipts.tax_breakdown`（jsonb）；此前多为扁平 `{ GST: n, RST: m }`。  
+- 计划：① 约定并存 **对象数组** `{ code, label, rateLabel?, amount, source? }` 与 **扁平对象**（向后兼容）；② 新增 `receipt-tax-breakdown.ts`（coerce、按行剥离税项生成 breakdown、按 `code` 聚合）；③ `gemini` 提示词与 `normalizeParsedReceiptTaxFields`：模型输出 `taxBreakdown`，或与启发式剥离的税行合并（优先剥离行金额）；④ `Receipt` / `GeminiReceiptResult` 类型与 `saveReceipt` / `updateReceipt` / 列表与详情查询映射 `tax_breakdown`；⑤ `receipt-item-tax` 中单行小票 + `tax_breakdown` 逻辑改为调用统一解析（支持数组）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已新增 `vouchap-app/src/shared-logic/receipt-tax-breakdown.ts`（`coerceReceiptTaxBreakdownEntries`、`taxBreakdownEntriesFromStrippedLineItems`、`parseReceiptTaxBreakdownToKindAmounts`、`aggregateTaxBreakdownTotalsByCode`）；已改 `gemini.ts`、`types/index.ts`、`receipt-helpers.ts`、`database.ts`、`receipt-item-tax.ts`。  
+- **验证**：识别含多税种行的小票 → DB `tax_breakdown` 为数组或兼容旧扁平；`getReceiptById` / 列表接口返回 `taxBreakdown`；客户端可对 `getAllReceipts()` 结果调用 `aggregateTaxBreakdownTotalsByCode` 做汇总。  
+- **残留**：UI 详情/报表尚未强制展示 breakdown（仅数据层就绪）；税种 `code` 依赖模型或启发式，陌生税种可能落入 `OTHER`。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-tax-breakdown.ts`、`gemini.ts`、`database.ts`、`receipt-helpers.ts`、`receipt-item-tax.ts`、`types/index.ts`
+
+---
+
+### 2026-05-09（Vouchap：远程库缺 receipts.tax_breakdown — 幂等补迁移）
+
+**User（提示词/原意）**  
+- `supabase db push` 显示 Remote database is up to date，但在数据库里看不到 `tax_breakdown` 列。
+
+**Assistant（实现前说明）**  
+- 列原定于 `20260411140000_tax_pos_rule_included_tax_kinds.sql` 末尾 `ADD COLUMN IF NOT EXISTS`；若迁移历史与真实库结构不一致（已记录为 applied 但未执行到该语句、或事后手工/还原导致列缺失），`db push` 不会再重跑旧文件。  
+- 计划：新增仅含 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS tax_breakdown` + `COMMENT` 的迁移，保证下一次 `db push` 必补齐列且对已存在环境无破坏。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已添加 `vouchap-app/supabase/migrations/20260509140000_receipts_tax_breakdown_ensure.sql`。  
+- **验证**：执行 `supabase db push` 后，在 SQL Editor 运行  
+  `select column_name, data_type from information_schema.columns where table_schema='public' and table_name='receipts' and column_name='tax_breakdown';`  
+  应返回一行 `jsonb`。  
+- **注意**：确认 CLI `project ref` 与 Dashboard 查看的是同一项目。
+
+---
+
+### 2026-05-10（Vouchap：税种注册表 + tax_breakdown 支持 tax_kind_id；清理 legacy supplier/customer 外键列）
+
+**User（提示词/原意）**  
+- item 拆税已清理及部分取消功能（如客户供应商合并路径）导致表上冗余字段，要求 SQL 清理库表。  
+- 税种需继续维护数据；票面同名不同类（如不同省 PST）应区分；`tax_breakdown` 应能记录**税种 id**，而非仅票面码。
+
+**Assistant（实现前说明）**  
+- **不删除** `entities`/`accounts` 的 `merged_into_id`（应用仍在用合并链解析）。  
+- 对 pre-`entities` 时代的 `receipts.supplier_id`、`supplier_customer_id`、`invoices.customer_id` 等列：代码侧已无引用，可用 `DROP COLUMN IF EXISTS`（表存在时）清理。  
+- 新增 **`crm.tax_kind_registry`**：自然键 `(country_code, region_code, tax_class_code, tax_kind_code)` 唯一一行一 id，与 `crm.tax_rate_standard` 种子一致；`tax_rate_standard` 增加 **`tax_kind_registry_id`** 并回填。  
+- **`receipts.tax_breakdown`** 仍为 jsonb，注释约定数组元素可含 `tax_kind_id`、`crm_tax_rate_standard_id`；应用层类型与 `coerce` 已扩展。  
+- 提供 **`crm.resolve_tax_kind_registry_id(...)`** 供客户端/RPC 解析 id。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已添加迁移 `vouchap-app/supabase/migrations/20260510120000_tax_kind_registry_legacy_fk_cleanup.sql`。  
+- 已更新 `types/index.ts`（`ReceiptTaxBreakdownEntry`）、`receipt-tax-breakdown.ts`（透传 id、**`aggregateTaxBreakdownTotalsByTaxKindId`**）。  
+- **验证**：`supabase db push` 后检查 `crm.tax_kind_registry` 行数、`tax_rate_standard.tax_kind_registry_id` 非空比例；确认 legacy 列已删除。  
+- **残留**：识别流水线尚未自动写入 `tax_kind_id`（需保存前用辖区 + `code` 调 `resolve` 或查表）；模型无法直接产出 registry uuid。
+
+---
+
+### 2026-05-10（Vouchap：移除 receipts.tax_jurisdiction_country / region）
+
+**User（提示词/原意）**  
+- `receipts.tax_jurisdiction_country` 等列无实际用处，是错误 item 拆税方案遗留，应去掉。
+
+**Assistant（实现前说明）**  
+- 行税引擎 **`applyReceiptItemTaxesAndReconcile`** 已能从 **币种默认值 + entity/processed_by 文本信号** 推断辖区，不依赖库列；列仅作历史持久化。  
+- 计划：`DROP` 两列；从 **`Receipt` / `GeminiReceiptResult`**、`saveReceipt`/`updateReceipt`/列表与详情映射、**`receipt-helpers`**、**`gemini`** 归一化、**`receipt-item-tax`** 的 select/update 中移除；**`tax_breakdown` coerce** 与税行剥离改用 `region = null`（MB PST→RST 等可在 reconcile 阶段由推断的 `region` 处理 parse）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已添加 `vouchap-app/supabase/migrations/20260510150000_drop_receipts_tax_jurisdiction.sql`；已改 `database.ts`、`types/index.ts`、`receipt-helpers.ts`、`gemini.ts`、`receipt-item-tax.ts`。  
+- **验证**：`db push` 后保存/重算小票，**`receipt_item_taxes`** 仍应生成；非 USD/CAD 且无推断国别时行为与此前「空辖区」一致。
+
+---
+
+### 2026-05-10（Vouchap：receipts 行税/对账列删除后与 database 映射对齐；确认 receipt 级税额模型）
+
+**User（提示词/原意）**  
+- `supplier_name`、`tax_reconciliation_status`、`tax_items_sum`、`tax_variance_amount`、`tax_audit_required`、`tax_audit_comment`、`merchant_entity_id` 等应无用，需核查清理。  
+- 确认：**receipt 级**税额识别与库逻辑——可拆分税种并分类统计（加拿大联邦税、曼省/萨省省税、美国州税等），**不需**拆到 item。
+
+**Assistant（实现前说明）**  
+- 迁移 `20260510160000_drop_receipts_line_tax_reconcile_columns.sql` 已 DROP 上述列；`Receipt` 类型与 `saveReceipt`/`updateReceipt` 部分已删字段，但 **`getAllReceiptsForList` / `getAllReceipts` / `getReceiptById`** 仍向返回对象写入已删属性，会与 PostgREST 选列及 TS 不一致。  
+- 计划：从上述三处映射中移除对账/审计相关字段；**`receipt-tax-queue-worker` 文件头**注明 worker 现为排空队列、业务 reconciler 已 no-op。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `vouchap-app/src/shared-logic/database.ts`（三处 `Receipt` 映射不再含对账列）；已改 `vouchap-app/scripts/receipt-tax-queue-worker.ts` 注释。  
+- **产品/数据逻辑（确认）**：税额以 **`receipts.tax`（合计）+ `receipts.tax_breakdown`（jsonb，可多行：票面 code / 可选 `tax_kind_id` 等）** 为主；统计用 **`receipt-tax-breakdown.ts`** 的按 code / `tax_kind_id` 聚合；**不**依赖行级 `receipt_item_taxes` 计算或展示（`receipt-item-tax` 已为 stub）。  
+- **验证**：`supabase db push` 应用 `20260510160000_...` 后，列表/详情拉取小票无「列不存在」错误；`npx tsc --noEmit` 下 `src/shared-logic/database.ts` 无报错。  
+- **补充**：同文件内 entity/account merge 解析对嵌套 `entities`/`accounts` 的 id 读取兼容对象与数组形态；`account` 映射同时接受 join 行 snake 与 `getAccountById` camel 字段。
+
+---
+
+### 2026-05-10（Vouchap：移除 receipt 税异步队列与 worker）
+
+**User（提示词/原意）**  
+- 提示词已整合为单次提交，不需要异步队列；继续清理。
+
+**Assistant（实现前说明）**  
+- **`receipt_tax_recalc_queue`** + **`enqueue_receipt_tax_reconcile`** 仅服务已废弃的行税 worker；应用侧已无可靠业务依赖。  
+- 计划：新增迁移 `DROP FUNCTION` + `DROP TABLE`；删除 **`scripts/receipt-tax-queue-worker.ts`**、**`receipt-tax-queue-client.ts`**、**`receipt-item-tax.ts`**（已无其他引用）；从 **`package.json`** 去掉 `receipt-tax-worker` 脚本。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已添加 `vouchap-app/supabase/migrations/20260510170000_drop_receipt_tax_recalc_queue.sql`。  
+- 已删除上述 TS 文件与 npm 脚本。  
+- **验证**：`supabase db push` 后 `\df enqueue_receipt_tax_reconcile` 无结果、表不存在；客户端不再调用该 RPC；若运维仍跑旧 worker 进程可停用。  
+- **文档**：`docs/RECEIPT-TAX-ASYNC-PIPELINE.md` 顶部已标注废弃并指向上述迁移。
+
+---
+
+### 2026-05-10（Vouchap：拍小票 tax_breakdown 为空 — 识别返回漏传 + 归一化增强）
+
+**User（提示词/原意）**  
+- 库迁移已执行；dev 拍小票识别结果里 **`tax_breakdown` 为空**（例：Canadian Tire 票面 GST + RST 应写入分项）。
+
+**Assistant（实现前说明）**  
+- `normalizeParsedReceiptTaxFields` 已写入 `parsed.taxBreakdown`，但 **`recognizeReceipt`（图片）与 `recognizeReceiptFromDocument` 的 return 对象未包含 `taxBreakdown`**，下游 `convertGeminiResultToReceipt` 始终得到 `undefined`，入库即为 `null`。  
+- 计划：返回对象增加 **`taxBreakdown: taxBreakdownForReceiptResult(...)`**；归一化前合并模型可能返回的 **`tax_breakdown`**；提示词规则 (7) 明确多税种 **MUST** `taxBreakdown`；**`parseAmount`** strip **`$`/空白** 以免金额解析失败。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `vouchap-app/src/shared-logic/gemini.ts`、`receipt-tax-breakdown.ts`；`prAny`  cast 改为 `unknown` 中间层以过 `tsc`。  
+- **验证**：dev 重拍含 GST+RST 小票 → 保存后 DB **`receipts.tax_breakdown`** 为两元素数组（或至少非空，取决于模型输出）；**`npx tsc --noEmit`** 下相关文件无新增报错。
+
+---
+
+### 2026-05-10（Vouchap：tax_breakdown 匹配税种注册表 id；落库不写税率文案）
+
+**User（提示词/原意）**  
+- 已有 `tax_breakdown` 但未写入税种 id，只有票面信息；正确逻辑应 **匹配税种** 并记录 **税种 id + 税额**；税率在税种/标准税率表中，不必在小票 json 里记。
+
+**Assistant（实现前说明）**  
+- 库侧已有 **`crm.tax_kind_registry`** 与 **`crm.resolve_tax_kind_registry_id(country, region, class, kind)`**。  
+- 计划：新增 **`receipt-tax-kind-resolve.ts`**（币种推断国别、地址/城市/省名推断 region、MB 票面 PST→RST 与 US 合并税→`COMBINED_SALES_TAX`），对每行 RPC 解析 id；**`shapeTaxBreakdownForDb`** 仅保留 `tax_kind_id`、`code`、`label`、`amount`、`source`，去掉 **`rateLabel` / `crm_tax_rate_standard_id`**；在 **`saveReceipt` / `updateReceipt`** 写入前调用（并 best-effort 拉 **`entities.address`** 辅助辖区）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已添加 `vouchap-app/src/shared-logic/receipt-tax-kind-resolve.ts`；已改 `database.ts`、`types` 注释。  
+- **验证**：CAD + 地址含 Winnipeg/MB 等时，GST/RST 两行应带不同 **`tax_kind_id`**；Dashboard 须暴露 **`crm` schema**（已有 `config.toml` / 托管 API settings）。若辖区推断失败，该行可无 id（仅票面字段）。
+
+---
+
+### 2026-05-09（Vouchap：票面税率作税种特征；币种仅「票面可见」才参与辖区特征）
+
+**User（提示词/原意）**  
+- 票面的**税率信息**也可作为匹配税种的特征。  
+- **币种**：若票面有直接币种信息则可用；若仅为**推断**出来的币种，则**不宜**作为特征信息（尤其不宜单靠推断币种定辖区）。
+
+**Assistant（实现前说明）**  
+- 无新增代码需求：与既有设计对齐核对——`currencyPrintedOnReceipt === true` 时才用币种辅助国别（CAD/USD→CA/US）；否则国别依赖地址等文本推断。税率侧已有 `parsePrintedTaxRateFraction` + `crm.tax_rate_standard`（含 receipt 日期落在 effective 区间）解析 `tax_kind_registry_id`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **结论**：上述规则已在 `receipt-tax-kind-resolve.ts`、`gemini.ts`（`currencyPrintedOnReceipt` 与抽取规则）、`convertGeminiResultToReceipt` / `saveReceipt` 传参中落实；`lib/` 与 `src/shared-logic` 对应文件已一致。  
+- **验证**：票面含 `5%`/`HST` 等且标准表有匹配行时应落到正确 `tax_kind_id`；推断币种（`currencyPrintedOnReceipt: false`）不应触发「仅因币种」的 CA/US 捷径。  
+- **残留**：模型若漏标 `currencyPrintedOnReceipt`，默认 false，国别更依赖 `supplierInfo.address`。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-tax-kind-resolve.ts`、`gemini.ts`、`receipt-helpers.ts`、`database.ts`
+
+---
+
+### 2026-05-09（Vouchap：tax_breakdown 有 GST/RST 但未写入 tax_kind_id）
+
+**User（提示词/原意）**  
+- 入库的 `tax_breakdown` 仍为票面字段（如 `code`/`label`/`rateLabel`/`amount`），**没有**与税种表关联的 `tax_kind_id`。
+
+**Assistant（实现前说明）**  
+- `resolveTaxBreakdownTaxKindIds` 在 **`resolveCountry` 为 null** 时整段提前返回（无地址且 `currencyPrintedOnReceipt` 为 false 时不使用币种 → 常见 dev 场景）；另 **RST** 在 CRM 仅种子 **MB**，原逻辑在 **region 为空** 时从未对 RST 调用解析（与 GST 不同，GST 有 `CA`+空 `region` 回退）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `receipt-tax-kind-resolve.ts`：**地址/票面币种路径之后**，若票面 `code` 为 **GST/HST/PST/RST/QST** 之一则推断 **CA**（不依赖推断币种）；**CA + RST 且仍无省** 时默认 **MB** 再查 `tax_rate_standard` / RPC。  
+- **验证**：无商户地址、CAD 仅推断、`currencyPrintedOnReceipt: false` 时，GST 5% + RST 7% 两行仍应写入 **`tax_kind_id`**；已存小票可 **编辑后保存** 触发 `updateReceipt` 重算。  
+- **说明**：`shapeTaxBreakdownForDb` 有意不写 `rateLabel`；若 DB 中仍见 `rateLabel`，多为历史 JSON 或他路径写入；客户端 `coerceReceiptTaxBreakdownEntries` 读库时会原样带上已有键。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-tax-kind-resolve.ts`（`lib/` 同路径已同步）
+
+---
+
+### 2026-05-09（Vouchap：配额应按当前 space — 刷新用户缓存 + 配额用 active space）
+
+**User（提示词/原意）**  
+- 限额以 space 为单位；切换 space 应使用**另一套**限额；认为是严重 bug。
+
+**Assistant（实现前说明）**  
+- `get_current_user` 缓存可导致 **`saveReceipt` 仍写入旧 `users.current_space_id` 对应 space**。  
+- `processReceiptInBackground` 曾用 **`getReceiptById` 行的 `space_id`** 调 `assertClientRecognitionAllowed`，未对齐用户刚切换的当前工作区。  
+- CRM RPC 本身是 **`p_space_id` 维度**；偏差来自**前端选用的 space_id**。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`saveReceipt`**：`getCurrentUser(true)`，插入 `space_id` 与 DB 当前工作区一致。  
+- **`processReceiptInBackground`**：`getCurrentUser(true)` → **`activeSpaceId`**；**配额门闸与 `record_clientRecognitionSuccessIfEnforced` 均用 `activeSpaceId`**；转换后 **`receipt.spaceId` 对齐 `activeSpaceId`**；与行不一致时 **`console.warn`**。  
+- **`convertGeminiResultToReceipt`**：`getCurrentUser(true)`。  
+- **`reprocess-voucher-recognition`**（支出/收入）、**`inbound-processor` / `outbound-processor`**：配额与记账使用 **`getCurrentUser(true)` 的 active space**（上传路径 fallback 行上 space）。  
+- **验证**：切换 space → 新拍小票应记入新 space 并走该 space 的 `get_client_recognition_quota`。
+
+---
+
+### 2026-05-09（Vouchap：账户识别限额 — 明确 UI 提示；与 Gemini API 区分）
+
+**User（提示词/原意）**  
+- 不是模型 API 限额；若是当前账户限额，应有**更明确的提示**。
+
+**Assistant（实现前说明）**  
+- 配额拦截时此前仅 `needs_retake`，与识别失败无区分。  
+- 新增 **`receipts.recognition_notice`**（英文说明），写入「工作区/套餐/credits」限制，并明示**非 Google Gemini API 控制台用量**；识别成功或重新跑通后清空。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 迁移 **`20260511120000_receipts_recognition_notice.sql`**；**`Receipt.recognitionNotice`**；**`updateReceipt` / 列表与详情映射**。  
+- **`formatRecognitionQuotaBlockedNotice`**（`client-recognition-quota.ts`）；**`receipt-processor`** / **`reprocess-voucher-recognition`** 在配额或识别失败时写入 notice；成功路径 **`recognitionNotice: null`**。  
+- **`receipt-details/[id].tsx`**：`needs_retake` 且有条目时顶部 **黄色横幅**（标题 *Recognition unavailable* + 分段正文，产品文案英文）。  
+- **验证**：`supabase db push` 后超限拍照 → 详情页见横幅；加 credits 后成功识别 → notice 清除。
+
+---
+
+### 2026-05-09（Vouchap：终端确认 — 识别被配额拦截而非未提交模型）
+
+**User（提示词/原意）**  
+- 附上 Metro 日志：`Recognition blocked by quota/billing (model NOT invoked)` + included recognitions used up。
+
+**Assistant（实现前说明）**  
+- 无代码变更；将日志与 `assertClientRecognitionAllowed` / `get_client_recognition_quota` 行为对齐说明。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **结论**：**未调用模型**是因为 **client 空间月度包含次数已用尽且 credits 余额不足**，与 Gemini 提交链路无关；Google 控制台无 input 属预期。  
+- **处理**：CRM/计费侧为该 `space_id` **增加 recognition credits** 或等待次月；dev 自测需在 DB 调整额度，而非排查 proxy。
+
+---
+
+### 2026-05-09（Vouchap：大模型侧无 input — 非 2xx 时 `data` 为 null，未解析 Response JSON）
+
+**User（提示词/原意）**  
+- 大模型控制台无 **input** 记录；判断识别失败是因为**未成功提交到模型**。
+
+**Assistant（实现前说明）**  
+- `@supabase/functions-js`：HTTP **非 2xx** 时返回 **`data: null`**，仅 **`FunctionsHttpError`**；Edge 返回体常为 **`{ success:false, error:"..." }`**（如未配置 `GEMINI_API_KEY`）。此前若在 **`data`** 上读 `error`，永远为空；用户侧只见泛化失败，**Google 侧不会出现调用记录**。  
+- **DEV**：在调用 Edge 前打一条 **`invoke generateContent`** 日志（含 inline base64 长度），便于确认客户端是否发出请求。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 **`gemini-server-sdk.ts`**：`readEdgeFunctionJsonError` 从 **`FunctionsHttpError.context`（Response）** `clone().json()` 读取 **`error`**；合并进抛出文案；**`generateContent` invoke 增加 `timeout: 180_000`**；**DEV** 打印 `inlineImageBase64Chars`。  
+- 已改 **`gemini-proxy/index.ts`**：在调用 **`generateContent(contents)`** 前 **`console.info`**（便于 Supabase Functions 日志对照 Google Cloud）。需 **`supabase functions deploy gemini-proxy`** 后方生效。  
+- **结论**：无 input 多见于请求未到 Gemini（鉴权 401、缺密钥 503、配额闸拦截等）；修复后 Metro / 抛错应能看到 **服务端返回的具体 `error` 字符串**。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini-server-sdk.ts`、`vouchap-app/supabase/functions/gemini-proxy/index.ts`
+
+---
+
+### 2026-05-09（Vouchap：识别一直 needs_retake — gemini-proxy 错误信息丢失 + 日志）
+
+**User（提示词/原意）**  
+- 识别一直失败，多次拍摄均为 needs_retake，怀疑**没有提交到模型**。
+
+**Assistant（实现前说明）**  
+- `needs_retake` 常见来源：`assertClientRecognitionAllowed` **拦截（根本不会调模型）**；或 `recognizeReceipt` → `supabase.functions.invoke('gemini-proxy')` 失败。  
+- `@supabase/supabase-js` 在 Edge 返回非 2xx 时可能仍把 `{ success:false, error }` 放在 **`data`**；原 `gemini-server-sdk` **先抛 `error.message`**，丢失服务端文案（如 `GEMINI_API_KEY is missing on server.`），Metro 只见泛化失败。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `gemini-server-sdk.ts`：**优先使用响应 JSON 的 `error`**，再回退 `invoke` 的 `error.message`。  
+- 已改 `receipt-processor.ts`：**quota 拦截**与 **recognize 失败** 使用 `console.error` 并写明是否「未调模型」。  
+- **自查**：Supabase Edge `gemini-proxy` 是否部署、`GEMINI_API_KEY` 是否配置；客户端空间是否 **recognition 配额用尽**（拦截时不调模型）；若设 `GEMINI_PROXY_ALLOWED_ORIGINS`，确认 Web/模拟器 Origin 未被拒。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini-server-sdk.ts`、`receipt-processor.ts`
+
+---
+
+### 2026-05-09（Vouchap：重拍小票后 tax_breakdown 仍无 tax_kind_id；是否需重启 dev）
+
+**User（提示词/原意）**  
+- 重拍后 JSON 仍如票面（含 `rateLabel` 等），问是否 dev 需重启才生效。
+
+**Assistant（实现前说明）**  
+- 核对 `tsconfig`：`@/lib/*` → **`src/shared-logic/*`**，运行时**不**走仓库根目录 `lib/`；Expo 一般 **Reload** 即可，非必须重启整机。  
+- 若仍无 `tax_kind_id`：更常见为 **远端 PostgREST 未暴露 `crm` schema** 或 **CRM 迁移未执行**，导致 `tax_rate_standard` / `resolve_tax_kind_registry_id` 失败（原有 `console.warn` 易被忽略）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已在 `receipt-tax-kind-resolve.ts` 增加 **`__DEV__`** 下、当国别已为 CA 但仍有 GST/HST/PST/RST/QST 行缺 id 时的 **`console.warn`**，提示检查 **Exposed schemas** 与迁移。  
+- **说明**：`shapeTaxBreakdownForDb` 写入的 json **不应**含 `rateLabel`；若所见仍带 `rateLabel`，需确认数据源是否为 **Table Editor 的 `tax_breakdown` 列** 或仍为识别结果/缓存。
+
+**关联**  
+- `vouchap-app/tsconfig.json`、`vouchap-app/src/shared-logic/receipt-tax-kind-resolve.ts`、`supabase/config.toml`（`api.schemas` 含 `crm`；托管项目需在 Dashboard 同步）
+
+---
+
+### 2026-05-09（Credit 口径与订阅 / Credit 拦截 UI — 续完）
+
+**User（提示词/原意）**  
+- 按计划完成：Firm 消耗按关联 `public.projects` 成功计数、create/confirm 双预检；`get_space_entitlements` 与类型对齐；登录后订阅到期全屏拦截；Client/Firm 各入口预检与英文 UI；`crm-order-design.md` 与 PRD-SOURCE-LOG。
+
+**Assistant（实现前说明）**  
+- 迁移 `20260513100000_firm_engagement_consumption_by_project.sql` 已在先前回合落地；本回合补：`space-entitlements.ts` 的 `included_remaining` / `pending_onboarding`；`recognition-preflight-ui` 的 Web 双步 confirm + 可选 Switch space；首页 `fetchSpaceEntitlements` 订阅门（Firm 无在服订阅拦；Client 无订阅且 included 与 credits 皆无时拦）；receipts/invoices/inbound/outbound/chat-to-log 与 firm create/confirm、tax-filing 各路径接线。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已更新 `vouchap-app/src/shared-logic/space-entitlements.ts`、`recognition-preflight-ui.ts`；`index.tsx` 订阅 Modal + Client 识别预检；`receipts.tsx`、`invoices.tsx`、`inbound.tsx`、`outbound.tsx`、`chat-to-log.tsx`；`firm/engagements.tsx`、`firm/client/[clientSpaceId].tsx`、`firm/engagement/[id].tsx`；`tax-filing/index.tsx`、`tax-filing/order/[orderId]/index.tsx`、`tax-filing/order/[orderId]/info.tsx`、`tax-filing/project/[projectId]/index.tsx`；`vouchap-crm/sql/crm-order-design.md` §2.3 / §7。  
+- **验证建议**：`supabase db push` 应用 `20260513100000_*` 后，在 Client 无订阅无 credit 时首页应出现订阅 Modal；有 credit 无订阅应可进首页但 snap 走预检；Firm 满额时 create 与 confirm 均弹英文说明；`get_space_entitlements` JSON 含 `included_remaining` 与 `pending_onboarding`。  
+- **残留**：未在本环境跑全量 `tsc`；`firm_create_pending_order_for_invitee` 若未在 DB 侧调用 assert，仅依赖 App 预检与后续 confirm RPC。
+
+**关联**  
+- `vouchap-app/supabase/migrations/20260513100000_firm_engagement_consumption_by_project.sql`、`vouchap-app/src/shared-logic/firm.ts`、`firm-engagement-preflight-ui.ts`
+
+### 2026-05-09（识别配额：入口与后台一致 + RPC 数字解析）
+
+**User（提示词/原意）**  
+- dev 仍见 `receipt-processor` quota 拦截日志；期望 credit 不足在入口拦、credit 够应正常识别。
+
+**Assistant（实现前说明）**  
+- 预检仅在开相机/选图前执行，与 `processReceiptInBackground` 之间存在时间差；`get_client_recognition_quota` 若将数字以字符串返回，原 `parseQuotaPayload` 会把 `credits_balance` 置 0 导致误判。后台应优先用凭证 `space_id` 计配额。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `client-recognition-quota.ts`：`included_per_month` / `used_this_month` / `credits_balance` / `monthly_cap` 用安全数值解析。  
+- `receipt-processor`：配额用 `receipt.space_id` 回退 `activeSpaceId`；拦截日志改为 `console.warn`；入账与 `receipt.spaceId` 对齐 `quotaSpaceId`。  
+- `receipts.tsx`：`processCapturedImage` 在实际上传前再次 `runClientRecognitionPreflight`；扫描失败转相册的 `confirmThen` 改为 `() => void pickImage()`。  
+- `index.tsx`：`processCapturedImages` 每图在 client 下上传前再次 `preflightRecognitionOrAlert`。  
+- `inbound-processor` / `outbound-processor` / `reprocess-voucher-recognition`：配额与 `record_client_recognition_success` 空间与凭证 `spaceId` 对齐。
+
+**关联**  
+- `receipt-processor.ts`、`client-recognition-quota.ts`、`receipts.tsx`、`index.tsx`
+
+### 2026-05-09（vouchap-CRM：手动订单 + 权益查阅 + 订单编辑；DB 放宽 get_space_entitlements）
+
+**User（提示词/原意）**  
+- 在 vouchap-CRM 同步开发：手动为客户配置订单、查阅权益等能力（续作落地）。
+
+**Assistant（实现前说明）**  
+- 问题：`crm.get_space_entitlements` 仅允许 `public.user_spaces` 成员，运营账号通常不在客户空间内 → RPC 返回 FORBIDDEN；`crm-grant-orders-assignments.sql` 仅有 `SELECT, INSERT` on `space_orders`，无法 `UPDATE`。  
+- 计划：在 **`20260513100000` 之后**追加迁移，完整 `CREATE OR REPLACE` `get_space_entitlements`，鉴权改为「空间成员 **或** `crm.ops_users`」且先校验 `spaces` 存在；`GRANT UPDATE ON crm.space_orders TO authenticated`；同步 **`vouchap-crm/sql/crm-grant-orders-assignments.sql`**（若尚未含 UPDATE）。  
+- CRM：`SpaceOrders.tsx` 拉取 `metadata`；列展示摘要；行操作「权益」→ `supabase.schema('crm').rpc('get_space_entitlements')` 弹窗 JSON；「编辑」→ 更新 `status` / `expires_at` / `metadata`；新建订单失败展示 `error.message`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 [`vouchap-app/supabase/migrations/20260513110000_get_space_entitlements_allow_crm_ops.sql`](vouchap-app/supabase/migrations/20260513110000_get_space_entitlements_allow_crm_ops.sql)（**必须**排在 `20260513100000_*` 之后，否则会再次被旧定义覆盖）。  
+- `vouchap-crm/sql/crm-grant-orders-assignments.sql`：已为 `space_orders` 增加 **`UPDATE`** 授权说明与语句。  
+- `vouchap-crm/src/pages/SpaceOrders.tsx`：权益弹窗、编辑弹窗、metadata 列、`createError`。  
+- **验证**：`supabase db push`（或等价）应用 `20260513110000_*`；在 Supabase SQL 中以运营 JWT 上下文调用 `get_space_entitlements(客户 space_id)` 应 `ok: true`；CRM 订单页「权益」「编辑」可用；未跑通远端 DB 时以本地/托管迁移为准。  
+- **残留**：编辑订单未改 `sku_id` / `space_id`（有意收窄范围）；`get_space_entitlements` 与 `20260513100000` 体量大段重复，后续可考虑抽私有子函数减漂移。
+
+**关联**  
+- `vouchap-crm/src/pages/SpaceOrders.tsx`、`vouchap-crm/sql/crm-grant-orders-assignments.sql`、`vouchap-app/supabase/migrations/20260513110000_get_space_entitlements_allow_crm_ops.sql`
+
+### 2026-05-13（Vouchap：权益/识别拦截统一走 ConfirmModalHost，移除系统 Alert）
+
+**User（提示词/原意）**  
+- 权益拦截的样式一律用应用内规范浮窗组件，不用系统 `alert`。
+
+**Assistant（实现前说明）**  
+- 既有 `ConfirmModalHost` + `confirmDialog`（`showChoiceDialog` / `showConfirmDialog` / `showAlertDialog`）为统一浮窗来源；`recognition-preflight-ui` / `firm-engagement-preflight-ui` 仍用 `Alert.alert` 与 `window.confirm`。  
+- TaxFiling 重试识别配额分支仍用 `window.alert` / `Alert`；订单页附件跟进失败同理。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `recognition-preflight-ui.ts`：`alertClientRecognitionQuotaBlocked` 改为 `showChoiceDialog`（Close / Switch space / Subscription and billing）。  
+- `firm-engagement-preflight-ui.ts`：`engagementBlockAlert` 改为 `showConfirmDialog`（Close + Subscription and billing）。  
+- `TaxFilingTodosView.tsx`：配额不通过时调用 `alertClientRecognitionQuotaBlocked` + `expo-router` 的 `router`；`processTaxFilingAttachmentAfterCreate` 失败用 `showAlertDialog`。  
+- `tax-filing/order/[orderId]/index.tsx`：同上跟进失败用 `showAlertDialog`。  
+- **验证**：登录后触发 Client 识别拦截、Firm engagement 拦截、税季 Todo 重试识别无配额，应出现与「合并确认」等一致的居中浮窗，且无浏览器原生 `confirm`/`alert`；需已挂载 `ConfirmModalHost`（`_layout` 已有）。
+
+**关联**  
+- `recognition-preflight-ui.ts`、`firm-engagement-preflight-ui.ts`、`TaxFilingTodosView.tsx`、`tax-filing/order/[orderId]/index.tsx`、`confirmDialog.ts`
+
+### 2026-05-13（Vouchap：Gemini 识别模型动态 listModels + 成本序轮询 + 503 清缓存）
+
+**User（提示词/原意）**  
+- 2.5-flash 503、1.5-flash 404 接连出现；希望随 Google 模型变化动态从满足需求的模型里按价格低到高轮询调用。
+
+**Assistant（实现前说明）**  
+- 原逻辑：`mergeGeminiModelsWithAvailable` 把 `getAvailableImageModel()` 的**单个**模型置顶 + 静态 `buildGeminiModelOrder`，仍易死盯已下线或限流的 id。  
+- 计划：`gemini-proxy` 已有 `listModels`；在 `gemini-helper` 拉全量 `generateContent` 候选（过滤 embed 等），用**启发式 cost score**排序（低价优先），TTL 缓存；`resolveGeminiModelsToTryOrder` = 动态序 + 静态兜底去重；`clearModelCacheIfUnavailable` 遇 **503/429/502** 等同 404 调用 `invalidateGeminiModelTryOrderCache`；`gemini.ts` / 报税识别 / task-matcher 全部改 `await resolveGeminiModelsToTryOrder`；空 list 不写长 TTL 缓存。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `gemini-helper.ts`：`scoreGeminiModelCostHeuristic`、`resolveGeminiModelsToTryOrder`、`invalidateGeminiModelTryOrderCache`；`getAvailableImageModel` 改为取成本序首项。  
+- `gemini.ts`：移除 `availableModelCache` 与逐处 `getAvailableImageModel`；404 报错文案改为引用静态兜底标签。  
+- `tax-filing-recognition-run.ts`、`tax-filing-task-matcher.ts`：同上统一入口。  
+- **验证**：Dev 下触发识别，日志应依次尝试 API 返回的低价模型；人为使某一模型 503 后下一请求应可重新 listModels；`read_lints` 无新增问题。  
+- **残留**：成本序为启发式非官方价目；真正「轮询均衡」到多租户可再加全局起始偏移。
+
+**关联**  
+- `gemini-helper.ts`、`gemini.ts`、`tax-filing-recognition-run.ts`、`tax-filing-task-matcher.ts`
+
+### 2026-05-13（aim-link-website：修复深链接 404，新增 Vercel SPA 重写）
+
+**User（提示词/原意）**  
+- 在 aim.link 站内点击 `https://aim.link/guide/quick-start` 正常打开，但浏览器直接访问该 URL 报 404；需定位原因并修复。
+
+**Assistant（实现前说明）**  
+- 项目结构：`/Users/macbook/aim-link-website` 是 Vite + React (`BrowserRouter`) 的纯 SPA，路由声明在 `src/App.jsx`（含 `/guide`、`/guide/:docId`）。`dist/` 仅有单一 `index.html`。  
+- 复现：`curl -I https://aim.link/guide`、`/guide/quick-start` 均返回 `HTTP/2 404 server: Vercel`，说明请求在 Vercel CDN 层就被拒，没到 SPA。  
+- 根因：仓库无 `vercel.json`（`Glob vercel.json` 0 命中），Vercel 未配置 SPA fallback，深链接没有对应静态文件 → 404。站内跳转走客户端路由，不发请求所以不受影响。  
+- 计划：在 `aim-link-website/` 根新增 `vercel.json`，配置 `rewrites: /(.*) → /index.html`（Vercel rewrites 优先匹配真实文件，不会破坏 `dist/assets/*` 等静态资源）；同时为哈希化静态资源加 `Cache-Control: public, max-age=31536000, immutable`，`/` 与 `/index.html` 设 `max-age=0, must-revalidate` 避免发版后引用旧 chunk。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `aim-link-website/vercel.json`：含 SPA `rewrites` + 静态资源长缓存 + HTML no-cache headers。  
+- 未改任何源码与构建产物；下次 Vercel 部署应用配置后，`/guide`、`/guide/quick-start` 等深链接将命中 `index.html` 由 React Router 渲染。  
+- **验证建议**：合并部署后再次 `curl -I https://aim.link/guide/quick-start` 应得 `200`、`content-type: text/html`；浏览器直接访问与刷新都应正常渲染对应文档。  
+- **已知限制**：本次未集成 SEO 预渲染/SSR；爬虫到达深链接拿到的仍是 SPA 壳，如后续要做 SEO 需进一步评估 prerender / SSR。
+
+**关联**  
+- `aim-link-website/vercel.json`（新增）、`aim-link-website/src/App.jsx`（仅参考路由声明，未改）
+
+### 2026-05-13（aim-link-website：commit 后 Vercel 未自动部署 → CLI 强制上线 + 待接 Git 集成）
+
+**User（提示词/原意）**  
+- 已 `git push` `57c779f 修复子链接的直接访问404问题`，但线上仍 404，问为什么 Vercel 没自动部署。
+
+**Assistant（实现前说明）**  
+- 排查：`git log/status` 显示已推到 `origin/main`；`vercel ls` 显示历史 20+ 次部署 **Username 全部是 `adaven`（CLI 用户）**，没有任何一次 Git 触发，最近部署 8 天前，commit `57c779f` 之后**未触发新的 build**。结论：该 Vercel 项目从未连接 GitHub Git 集成（或之前被卸载），本地 `.vercel/project.json` 仅是 CLI 链接，`git push` 不会触发自动构建。  
+- 计划：先 `vercel --prod --yes` 把这次 fix 推上线，让 deeplink 立刻可用；接 Git 集成需在 Vercel Dashboard `Settings → Git → Connect Git Repository`（CLI 无对应命令）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 在 `/Users/macbook/aim-link-website` 执行 `vercel --prod --yes`，新部署 `aim-link-website-nhdb2nw18-...`，已 aliased 到 `https://aim.link`。  
+- 验证：`curl -I https://aim.link/guide/quick-start` 与 `/guide`、`/pricing` 均 `HTTP/2 200`；`/assets/index-CppK8k49.js` 返回 `cache-control: public, max-age=31536000, immutable`，`/guide/*` HTML 返回 `max-age=0, must-revalidate` — `vercel.json` rewrites 与 headers 均生效。  
+- **待办（用户侧操作，CLI 做不到）**：在 Vercel Dashboard 为 `james-projects-3aaa32ea/aim-link-website` 项目 `Settings → Git` 连接 GitHub 仓库 `jameszjgao/aim-link-website`、Production Branch = `main`，并确认 Vercel GitHub App 拥有该仓库权限；接入后以后 `git push` 才会自动触发部署 + PR Preview。  
+- **残留风险**：构建警告 `dist/assets/index-*.js` 单 chunk 795KB（gzip 245KB），后续可考虑 `manualChunks` 或路由级 `React.lazy` 分包，本轮未处理。
+
+**关联**  
+- 部署: `https://aim-link-website-nhdb2nw18-james-projects-3aaa32ea.vercel.app` → `https://aim.link`
+
+### 2026-05-13（vouchap-CRM：新建客户订单表单分步 + 产品/客户/SKU 联动）
+
+**User（提示词/原意）**  
+- 新建客户订单界面优化：1）先选产品（当前仅 Vouchap）；2）再选客户（范围由产品决定）；3）再选 SKU（由产品 + 客户 firm/client 决定）；4）订阅单显示到期日，增购 credit 显示数量。
+
+**Assistant（实现前说明）**  
+- `spaces` 增加 `kind` 查询；`sku_edition` 增加 `data_limits`，按 `crm-order-design.md` 的 `billing_kind` / `space_target` 过滤可下单 SKU；目录 SKU（`CLIENT_RECOGNITION_BASE`、`FIRM_CLIENT_SIGNING_BONUS`）排除。  
+- 订阅类（`space_subscription` 或兼容编码）强制 `expires_at`；`recognition_credit_pack` / `engagement_credit_pack` 强制正整数写入对应 `metadata` 键且 `expires_at` 为空。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `vouchap-crm/src/pages/space-orders-sku-helpers.ts`；重写 `SpaceOrders.tsx` 新建弹窗为 1–4 步 UI，`CRM_PRODUCTS` 暂仅 Vouchap；`spacesForProduct` 预留按产品过滤；`skusForCustomer` 按 `skuMatchesSpaceKind`。  
+- **验证**：`npx tsc --noEmit`（vouchap-crm）通过；在 CRM 选 Client 空间时不应出现 Firm-only SKU，反之亦然；选试用/年费等应必填到期日；选 RECOGNITION/ENGAGEMENT credit 包应必填数量且无到期日。
+
+**关联**  
+- `vouchap-crm/src/pages/SpaceOrders.tsx`、`vouchap-crm/src/pages/space-orders-sku-helpers.ts`
+

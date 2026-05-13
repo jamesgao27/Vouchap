@@ -1,5 +1,7 @@
 import { supabase } from './supabase';
 import { Receipt, ReceiptItem, ReceiptLineItemListRow, ReceiptStatus } from '@/types';
+import { coerceReceiptTaxBreakdownEntries } from './receipt-tax-breakdown';
+import { resolveTaxBreakdownTaxKindIds, shapeTaxBreakdownForDb } from './receipt-tax-kind-resolve';
 import { getCurrentUser } from './auth';
 import { findCategoryByName } from './categories';
 import { findOrCreateAccount, getAccountMergeMap, getAccountById } from './accounts';
@@ -39,6 +41,10 @@ function collectAttributionIdsFromReceiptItemRows(rows: any[]): string[] {
     if (id) s.add(id);
   }
   return [...s];
+}
+
+function mapRowTaxBreakdown(row: { tax_breakdown?: unknown }): Receipt['taxBreakdown'] {
+  return coerceReceiptTaxBreakdownEntries(row.tax_breakdown, null) ?? undefined;
 }
 
 /** PostgREST 未注册 attribution_id→attributions 外键时嵌套会失败；按 id 仅从 attributions 拉取。 */
@@ -101,7 +107,8 @@ function normalizeDate(dateValue: any): string {
 // 保存小票到数据库
 export async function saveReceipt(receipt: Receipt): Promise<string> {
   try {
-    const user = await getCurrentUser();
+    // Always refresh so inserts use the workspace user just switched to (avoid stale auth-cache space).
+    const user = await getCurrentUser(true);
     if (!user) {
       console.error('User not logged in when trying to save receipt');
       throw new Error('Not logged in: Please sign in before saving receipt');
@@ -138,16 +145,35 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
       accountId = account.id;
     }
 
+    let taxBreakdownForInsert: Record<string, unknown>[] | null = null;
+    if (receipt.taxBreakdown?.length) {
+      let supplierAddress = receipt.entity?.address?.trim() || undefined;
+      if (!supplierAddress && entityId) {
+        try {
+          const rid = await resolveEntityId(spaceId, entityId);
+          supplierAddress = (await getEntityById(rid))?.address?.trim() || undefined;
+        } catch {
+          /* best-effort */
+        }
+      }
+      const enriched = await resolveTaxBreakdownTaxKindIds(receipt.taxBreakdown, {
+        currency: receipt.currency,
+        currencyPrintedOnReceipt: receipt.currencyPrintedOnReceipt === true,
+        supplierName: receipt.supplierName,
+        supplierAddress,
+        receiptDate: receipt.date,
+      });
+      taxBreakdownForInsert = shapeTaxBreakdownForDb(enriched);
+    }
+
     // 先保存小票主记录（支出单 Payee 存 entity_id）
     const insertPayload: Record<string, unknown> = {
       space_id: spaceId,
       entity_id: entityId,
-      merchant_entity_id: receipt.merchantEntityId ?? null,
       total_amount: receipt.totalAmount,
       currency: receipt.currency,
       tax: receipt.tax,
-      tax_jurisdiction_country: receipt.taxJurisdictionCountry ?? null,
-      tax_jurisdiction_region: receipt.taxJurisdictionRegion ?? null,
+      tax_breakdown: taxBreakdownForInsert,
       date: receipt.date,
       account_id: accountId,
       status: receipt.status,
@@ -381,15 +407,32 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
 
     const updateData: any = {};
     if (entityId !== undefined) updateData.entity_id = entityId ?? null;
-    if (receipt.merchantEntityId !== undefined) updateData.merchant_entity_id = receipt.merchantEntityId ?? null;
     if (receipt.totalAmount !== undefined) updateData.total_amount = receipt.totalAmount;
     if (receipt.currency !== undefined) updateData.currency = receipt.currency;
     if (receipt.tax !== undefined) updateData.tax = receipt.tax;
-    if (receipt.taxJurisdictionCountry !== undefined) {
-      updateData.tax_jurisdiction_country = receipt.taxJurisdictionCountry ?? null;
-    }
-    if (receipt.taxJurisdictionRegion !== undefined) {
-      updateData.tax_jurisdiction_region = receipt.taxJurisdictionRegion ?? null;
+    if (receipt.taxBreakdown !== undefined) {
+      if (receipt.taxBreakdown?.length) {
+        let supplierAddress = receipt.entity?.address?.trim() || undefined;
+        const eidForAddr = entityId ?? receipt.entityId ?? null;
+        if (!supplierAddress && eidForAddr) {
+          try {
+            const rid = await resolveEntityId(spaceId, eidForAddr);
+            supplierAddress = (await getEntityById(rid))?.address?.trim() || undefined;
+          } catch {
+            /* best-effort */
+          }
+        }
+        const enriched = await resolveTaxBreakdownTaxKindIds(receipt.taxBreakdown, {
+          currency: receipt.currency,
+          currencyPrintedOnReceipt: receipt.currencyPrintedOnReceipt === true,
+          supplierName: receipt.supplierName,
+          supplierAddress,
+          receiptDate: receipt.date,
+        });
+        updateData.tax_breakdown = shapeTaxBreakdownForDb(enriched);
+      } else {
+        updateData.tax_breakdown = null;
+      }
     }
     if (receipt.date !== undefined) updateData.date = receipt.date;
     if (accountId !== undefined) updateData.account_id = accountId;
@@ -398,6 +441,12 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
     if (receipt.imageUrl !== undefined) updateData.image_url = receipt.imageUrl;
     if (receipt.recognitionFailCount !== undefined) {
       updateData.recognition_fail_count = receipt.recognitionFailCount;
+    }
+    if (receipt.recognitionNotice !== undefined) {
+      updateData.recognition_notice =
+        receipt.recognitionNotice != null && String(receipt.recognitionNotice).trim()
+          ? String(receipt.recognitionNotice).trim()
+          : null;
     }
 
     const { error: receiptError } = await supabase
@@ -492,7 +541,7 @@ export async function getReceiptsForListFirstPaint(): Promise<Receipt[]> {
     const { data, error } = await supabase
     .from('receipts')
     .select(`
-      id, space_id, entity_id, merchant_entity_id, total_amount, currency, tax, tax_jurisdiction_country, tax_jurisdiction_region, tax_reconciliation_status, tax_items_sum, tax_variance_amount, tax_audit_required, tax_audit_comment, date, account_id, status, image_url, input_type, confidence, processed_by, created_at, updated_at, created_by,
+      id, space_id, entity_id, total_amount, currency, tax, tax_breakdown, date, account_id, status, image_url, input_type, confidence, processed_by, recognition_notice, recognition_fail_count, created_at, updated_at, created_by,
       entities (id, name),
       created_by_user:users!created_by (id, email, name, current_space_id)
     `)
@@ -516,7 +565,9 @@ export async function getReceiptsForListFirstPaint(): Promise<Receipt[]> {
   for (const row of rows) {
     if (row.entity_id) {
       const resolvedId = resolveEntity(row.entity_id);
-      if (!row.entities || row.entities.id !== resolvedId) needResolved.add(resolvedId);
+      const ent = (row as any).entities;
+      const joinedEntId = Array.isArray(ent) ? ent[0]?.id : ent?.id;
+      if (joinedEntId !== resolvedId) needResolved.add(resolvedId);
     }
   }
   const resolvedEntityCache = new Map<string, Awaited<ReturnType<typeof getEntityById>>>();
@@ -536,18 +587,11 @@ export async function getReceiptsForListFirstPaint(): Promise<Receipt[]> {
     supplierName: payeeName,
     storeName: payeeName,
     entityId: row.entity_id ?? undefined,
-    merchantEntityId: row.merchant_entity_id ?? undefined,
     entity: entityRow ? { id: entityRow.id, spaceId: row.space_id, name: entityRow.name, isAiRecognized: false } : undefined,
     totalAmount: row.total_amount,
     currency: row.currency,
     tax: row.tax,
-    taxJurisdictionCountry: row.tax_jurisdiction_country ?? null,
-    taxJurisdictionRegion: row.tax_jurisdiction_region ?? null,
-    taxReconciliationStatus: row.tax_reconciliation_status ?? null,
-    taxItemsSum: row.tax_items_sum != null ? Number(row.tax_items_sum) : null,
-    taxVarianceAmount: row.tax_variance_amount != null ? Number(row.tax_variance_amount) : null,
-    taxAuditRequired: row.tax_audit_required ?? null,
-    taxAuditComment: row.tax_audit_comment ?? null,
+    taxBreakdown: mapRowTaxBreakdown(row),
     date: normalizeDate(row.date),
     accountId: row.account_id,
     account: row.account_id ? { id: row.account_id, spaceId, name: '', isAiRecognized: false, createdAt: '', updatedAt: '' } : undefined,
@@ -565,6 +609,12 @@ export async function getReceiptsForListFirstPaint(): Promise<Receipt[]> {
       name: row.created_by_user.name,
       spaceId: row.created_by_user.current_space_id,
     } : undefined,
+    recognitionFailCount:
+      row.recognition_fail_count != null ? Number(row.recognition_fail_count) : 0,
+    recognitionNotice:
+      row.recognition_notice != null && String(row.recognition_notice).trim()
+        ? String(row.recognition_notice).trim()
+        : undefined,
     items: [],
   };
   });
@@ -624,11 +674,15 @@ export async function getAllReceiptsForList(): Promise<Receipt[]> {
     for (const row of rows) {
       if (row.entity_id) {
         const resolvedId = resolveEntity(row.entity_id);
-        if (!row.entities || row.entities.id !== resolvedId) needResolvedEntity.add(resolvedId);
+        const ent = (row as any).entities;
+        const joinedEntId = Array.isArray(ent) ? ent[0]?.id : ent?.id;
+        if (joinedEntId !== resolvedId) needResolvedEntity.add(resolvedId);
       }
       if (row.account_id) {
         const resolvedId = resolveAccount(row.account_id);
-        if (!row.accounts || row.accounts.id !== resolvedId) needResolvedAccount.add(resolvedId);
+        const acc = (row as any).accounts;
+        const joinedAccId = Array.isArray(acc) ? acc[0]?.id : acc?.id;
+        if (joinedAccId !== resolvedId) needResolvedAccount.add(resolvedId);
       }
     }
 
@@ -663,7 +717,6 @@ export async function getAllReceiptsForList(): Promise<Receipt[]> {
         supplierName: payeeName,
         storeName: payeeName,
         entityId: row.entity_id ?? undefined,
-        merchantEntityId: row.merchant_entity_id ?? undefined,
         entity: entityRow ? {
           id: entityRow.id,
           spaceId: entityRow.spaceId,
@@ -679,22 +732,16 @@ export async function getAllReceiptsForList(): Promise<Receipt[]> {
         totalAmount: row.total_amount,
         currency: row.currency,
         tax: row.tax,
-        taxJurisdictionCountry: row.tax_jurisdiction_country ?? null,
-        taxJurisdictionRegion: row.tax_jurisdiction_region ?? null,
-        taxReconciliationStatus: row.tax_reconciliation_status ?? null,
-        taxItemsSum: row.tax_items_sum != null ? Number(row.tax_items_sum) : null,
-        taxVarianceAmount: row.tax_variance_amount != null ? Number(row.tax_variance_amount) : null,
-        taxAuditRequired: row.tax_audit_required ?? null,
-        taxAuditComment: row.tax_audit_comment ?? null,
+        taxBreakdown: mapRowTaxBreakdown(row),
         date: normalizeDate(row.date),
         accountId: row.account_id,
         account: accountRow ? {
           id: accountRow.id,
-          spaceId: accountRow.space_id,
+          spaceId: (accountRow as any).space_id ?? accountRow.spaceId,
           name: accountRow.name,
-          isAiRecognized: accountRow.is_ai_recognized,
-          createdAt: accountRow.created_at,
-          updatedAt: accountRow.updated_at,
+          isAiRecognized: (accountRow as any).is_ai_recognized ?? accountRow.isAiRecognized,
+          createdAt: (accountRow as any).created_at ?? accountRow.createdAt,
+          updatedAt: (accountRow as any).updated_at ?? accountRow.updatedAt,
         } : undefined,
         status: row.status as ReceiptStatus,
         imageUrl: row.image_url,
@@ -710,6 +757,12 @@ export async function getAllReceiptsForList(): Promise<Receipt[]> {
           name: row.created_by_user.name,
           spaceId: row.created_by_user.current_space_id,
         } : undefined,
+        recognitionFailCount:
+          row.recognition_fail_count != null ? Number(row.recognition_fail_count) : 0,
+        recognitionNotice:
+          row.recognition_notice != null && String(row.recognition_notice).trim()
+            ? String(row.recognition_notice).trim()
+            : undefined,
         items: [], // 列表页不加载 items，提升性能
       };
     });
@@ -821,11 +874,15 @@ export async function getAllReceipts(): Promise<Receipt[]> {
     for (const row of rows) {
       if (row.entity_id) {
         const resolvedId = resolveEntity(row.entity_id);
-        if (!row.entities || row.entities.id !== resolvedId) needResolvedEntity.add(resolvedId);
+        const ent = (row as any).entities;
+        const joinedEntId = Array.isArray(ent) ? ent[0]?.id : ent?.id;
+        if (joinedEntId !== resolvedId) needResolvedEntity.add(resolvedId);
       }
       if (row.account_id) {
         const resolvedId = resolveAccount(row.account_id);
-        if (!row.accounts || row.accounts.id !== resolvedId) needResolvedAccount.add(resolvedId);
+        const acc = (row as any).accounts;
+        const joinedAccId = Array.isArray(acc) ? acc[0]?.id : acc?.id;
+        if (joinedAccId !== resolvedId) needResolvedAccount.add(resolvedId);
       }
     }
     const [resolvedEntityCache, resolvedAccountCache] = await Promise.all([
@@ -859,7 +916,6 @@ export async function getAllReceipts(): Promise<Receipt[]> {
         supplierName: payeeName,
         storeName: payeeName,
         entityId: row.entity_id ?? undefined,
-        merchantEntityId: row.merchant_entity_id ?? undefined,
         entity: entityRow ? {
           id: entityRow.id,
           spaceId: entityRow.spaceId,
@@ -875,22 +931,16 @@ export async function getAllReceipts(): Promise<Receipt[]> {
         totalAmount: row.total_amount,
         currency: row.currency,
         tax: row.tax,
-        taxJurisdictionCountry: row.tax_jurisdiction_country ?? null,
-        taxJurisdictionRegion: row.tax_jurisdiction_region ?? null,
-        taxReconciliationStatus: row.tax_reconciliation_status ?? null,
-        taxItemsSum: row.tax_items_sum != null ? Number(row.tax_items_sum) : null,
-        taxVarianceAmount: row.tax_variance_amount != null ? Number(row.tax_variance_amount) : null,
-        taxAuditRequired: row.tax_audit_required ?? null,
-        taxAuditComment: row.tax_audit_comment ?? null,
+        taxBreakdown: mapRowTaxBreakdown(row),
         date: normalizeDate(row.date),
         accountId: row.account_id,
         account: accountRow ? {
           id: accountRow.id,
-          spaceId: accountRow.space_id,
+          spaceId: (accountRow as any).space_id ?? accountRow.spaceId,
           name: accountRow.name,
-          isAiRecognized: accountRow.is_ai_recognized,
-          createdAt: accountRow.created_at,
-          updatedAt: accountRow.updated_at,
+          isAiRecognized: (accountRow as any).is_ai_recognized ?? accountRow.isAiRecognized,
+          createdAt: (accountRow as any).created_at ?? accountRow.createdAt,
+          updatedAt: (accountRow as any).updated_at ?? accountRow.updatedAt,
         } : undefined,
         status: row.status as ReceiptStatus,
         imageUrl: row.image_url,
@@ -906,6 +956,12 @@ export async function getAllReceipts(): Promise<Receipt[]> {
           name: row.created_by_user.name,
           spaceId: row.created_by_user.current_space_id,
         } : undefined,
+        recognitionFailCount:
+          row.recognition_fail_count != null ? Number(row.recognition_fail_count) : 0,
+        recognitionNotice:
+          row.recognition_notice != null && String(row.recognition_notice).trim()
+            ? String(row.recognition_notice).trim()
+            : undefined,
         items: (row.receipt_items || []).map((item: any) => {
           const attrId = receiptItemAttributionRefId(item);
           const attributionRow =
@@ -1278,22 +1334,16 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
       totalAmount: data.total_amount,
       currency: data.currency,
       tax: data.tax,
-      taxJurisdictionCountry: data.tax_jurisdiction_country ?? null,
-      taxJurisdictionRegion: data.tax_jurisdiction_region ?? null,
-      taxReconciliationStatus: data.tax_reconciliation_status ?? null,
-      taxItemsSum: data.tax_items_sum != null ? Number(data.tax_items_sum) : null,
-      taxVarianceAmount: data.tax_variance_amount != null ? Number(data.tax_variance_amount) : null,
-      taxAuditRequired: data.tax_audit_required ?? null,
-      taxAuditComment: data.tax_audit_comment ?? null,
+      taxBreakdown: mapRowTaxBreakdown(data),
       date: normalizeDate(data.date),
       accountId: data.account_id,
       account: accountRow ? {
         id: accountRow.id,
-        spaceId: accountRow.space_id,
+        spaceId: (accountRow as any).space_id ?? accountRow.spaceId,
         name: accountRow.name,
-        isAiRecognized: accountRow.is_ai_recognized,
-        createdAt: accountRow.created_at,
-        updatedAt: accountRow.updated_at,
+        isAiRecognized: (accountRow as any).is_ai_recognized ?? accountRow.isAiRecognized,
+        createdAt: (accountRow as any).created_at ?? accountRow.createdAt,
+        updatedAt: (accountRow as any).updated_at ?? accountRow.updatedAt,
       } : undefined,
       status: data.status as ReceiptStatus,
       imageUrl: data.image_url,
@@ -1311,6 +1361,10 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
       } : undefined,
       recognitionFailCount:
         data.recognition_fail_count != null ? Number(data.recognition_fail_count) : 0,
+      recognitionNotice:
+        data.recognition_notice != null && String(data.recognition_notice).trim()
+          ? String(data.recognition_notice).trim()
+          : undefined,
       items: (data.receipt_items || []).map((item: any) => {
         const attrId = receiptItemAttributionRefId(item);
         const attributionRow =

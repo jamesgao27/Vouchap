@@ -500,7 +500,7 @@ textarea:focus-within {
         <Stack.Screen
           name="space-orders"
           options={{
-            title: 'Order management',
+            title: 'Subscription and billing',
             headerBackTitle: 'Back',
             headerBackButtonVisible: true,
           }}
