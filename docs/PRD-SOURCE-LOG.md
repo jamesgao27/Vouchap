@@ -7034,6 +7034,22 @@
 **关联**  
 - 同上轮 logo 脚本与路径。
 
+### 2026-05-14（Vouchap：空提交「优化logo」+ EAS production 全平台构建）
+
+**User（提示词/原意）**  
+- 再次 commit「优化logo」，并构建全平台 production。
+
+**Assistant（实现前说明）**  
+- 工作区无未提交 logo 文件变更（图标已在 `da3fbf1` 等提交中）；使用 **`git commit --allow-empty -m "优化logo"`** 满足指定提交信息并 `git push`。  
+- 在 `vouchap-app` 后台执行 `npx eas-cli build --platform all --profile production --non-interactive`（日志见本机终端 / `terminals/841180.txt` 或 `/tmp/eas-build-all.log`）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 提交 **`93933d2`**：`优化logo`（空提交），已推送 `origin/AI-Tax-filing`。  
+- EAS 双端构建已触发；完成后在 Expo 控制台查看 Android/iOS 状态与产物（若 Android 再现 worker 断连可单独重试 `--platform android`）。
+
+**关联**  
+- `eas.json` production profile
+
 ### 2026-05-13（Vouchap：Gemini 识别模型动态 listModels + 成本序轮询 + 503 清缓存）
 
 **User（提示词/原意）**  
