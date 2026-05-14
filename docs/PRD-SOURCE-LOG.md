@@ -6932,6 +6932,75 @@
 **关联**  
 - `recognition-preflight-ui.ts`、`firm-engagement-preflight-ui.ts`、`TaxFilingTodosView.tsx`、`tax-filing/order/[orderId]/index.tsx`、`confirmDialog.ts`
 
+### 2026-05-09（Vouchap：`ReceiptDetailsScreen` 修复 Hooks 顺序 — `useMemo` 不得在 early return 之后）
+
+**User（提示词/原意）**  
+- Expo 终端报：`ReceiptDetailsScreen` 中 Hooks 顺序变化 / `Rendered more hooks than during the previous render`，指向 `receipt-details/[id].tsx` 约 949 行 `useMemo`。
+
+**Assistant（实现前说明）**  
+- `recognitionNoticeParagraphs` 的 `useMemo` 写在 `if (loading && !receipt)` / `if (!receipt)` 等 **early return** 之后；首屏骨架 return 时少执行一个 hook，数据就绪后多执行 → 违反 Rules of Hooks。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 将该 `useMemo` 上移到与 `categoriesSorted` / `attributionsSorted` 同级（任意 early return 之前）；数据源与下方 `currentReceipt` 一致：`editing ? (editedReceipt ?? receipt) : receipt`；依赖 `[editing, receipt, editedReceipt]`。  
+- **验证**：从加载骨架进入详情页不应再出现 Hooks 报错；`read_lints` 通过。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipt-details/[id].tsx`
+
+### 2026-05-09（Vouchap：新建 space 避免重复 CRM 试用订单 — 客户端串行 + 触发器幂等）
+
+**User（提示词/原意）**  
+- 创建新 space 会生成两条相同订单，应只一条。
+
+**Assistant（实现前说明）**  
+- 试用单由 `public.spaces` 的 `AFTER INSERT` 触发器 `crm.on_space_created` 插入 `crm.space_orders`（`source=registration`）；重复多见于 **并发/双次 `createSpace`**（双连点等）产生两个 space 各一单，或极端情况下同一 space 路径被插入两次。  
+- 计划：`auth.createSpace` 增加模块级 `createSpaceInFlight` + `finally` 释放，重叠调用直接返回英文错误；新迁移重写 `crm.on_space_created`，在插入前 `NOT EXISTS` 同 space 已存在的 active `registration` + `space_subscription` 试用行。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `vouchap-app/src/shared-logic/auth.ts`：`createSpaceInFlight` 守卫。  
+- `vouchap-app/supabase/migrations/20260515100000_on_space_created_idempotent_trial_order.sql`：触发器幂等。  
+- **验证**：快速连点「创建空间」第二次应提示 *already being created* 且不新建 space；对已存在重复单的库，新 space 不应再叠第三条；需 `supabase db push`（或等价）应用迁移。  
+- **残留**：若历史数据已有同一 space 两条 registration 试用，本迁移不自动删重复，可运维 SQL 手工合并/取消一条。
+
+**关联**  
+- `auth.ts`、`20260515100000_on_space_created_idempotent_trial_order.sql`
+
+### 2026-05-09（Vouchap：CRM 清理冗余 SKU / sku_addon — 迁移 + 设计文档白名单）
+
+**User（提示词/原意）**  
+- CRM 上版本规格 SKU 有冗余，清理之前无用的 SKU 配置。
+
+**Assistant（实现前说明）**  
+- 现行产品以 `20260512100000_*` 与 `space-orders-sku-helpers.ts` 为准：在服试用/月订/年订 + 两类 credit 包 + 两条目录策略行；历史 `VCH_*`、`CLIENT_SUB` 及旧 `sku_addon`（ENG_PACK_* 等）易残留。  
+- 计划：新迁移删除指向遗留 SKU 的 `space_orders`、删除遗留 `sku_edition`、删除不在白名单且无订单引用的孤立 `sku_edition`、将 `sku_addon` 收敛为两条参考包；在 `vouchap-crm/sql/crm-order-design.md` 增加白名单表便于运营对照。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `vouchap-app/supabase/migrations/20260515110000_crm_prune_legacy_sku_catalog.sql`。  
+- 更新 `vouchap-crm/sql/crm-order-design.md` §2.0。  
+- **验证**：`supabase db push` 后 CRM「版本 sku_edition」列表应仅剩白名单内行（及有订单引用的自定义行）；无订单的实验 SKU 会被删。  
+- **残留**：自定义 SKU 若从未下单且不在白名单会被删；需保留时应先建一单或扩展迁移白名单。
+
+**关联**  
+- `20260515110000_crm_prune_legacy_sku_catalog.sql`、`vouchap-crm/sql/crm-order-design.md`
+
+### 2026-05-09（Vouchap：应用版本 2.6.2 / Build 52 + EAS production 全平台构建）
+
+**User（提示词/原意）**  
+- App 版本号更新为 2.6.2，构建全平台 production。
+
+**Assistant（实现前说明）**  
+- 按 `.cursorrules` 同步 `package.json`、`package-lock.json`（根与 `packages.""`）、`app.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`；并修正 `ios/.../project.pbxproj` 内仍停留在 2.6.0/50 的 `MARKETING_VERSION` / `CURRENT_PROJECT_VERSION`。构建号由 51 → 52。  
+- 提交信息：`发布版本号 2.6.2 (Build 52)`；`git push` 后执行 `npx eas-cli build --platform all --profile production --non-interactive`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已提交并推送：`a77d3c4`（分支 `AI-Tax-filing`）。  
+- EAS：`eas.json` 为 `appVersionSource: remote` + `autoIncrement`；本次 Android **remote** 自 52 递增至 **53**；iOS **remote** 自 36 递增至 **37**（与仓库内 plist 52 可能不一致，以 Expo 控制台为准）。  
+- 构建链接：Android `https://expo.dev/accounts/aimlink/projects/vouchap/builds/87ba91c9-8703-44c7-ba7a-531ce327755b`；iOS `https://expo.dev/accounts/aimlink/projects/vouchap/builds/f7a50539-c080-4e55-80d4-e8a1c224ff27`。CLI 在「等待构建完成」阶段可 Ctrl+C 退出，不影响云端排队。  
+- **Web**：未跑 `expo export`/Pages；若需生产 Web，在 `vouchap-app` 执行 `npm run deploy:web`（或等价流水线），版本来自 `package.json` 2.6.2。
+
+**关联**  
+- `vouchap-app/package.json`、`app.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`、`ios/Vouchap.xcodeproj/project.pbxproj`
+
 ### 2026-05-13（Vouchap：Gemini 识别模型动态 listModels + 成本序轮询 + 503 清缓存）
 
 **User（提示词/原意）**  
