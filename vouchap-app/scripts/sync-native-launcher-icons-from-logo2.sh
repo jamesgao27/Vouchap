@@ -10,8 +10,9 @@ if [[ ! -f "$SRC" ]]; then
 fi
 
 IOS_OUT="$ROOT/ios/Vouchap/Images.xcassets/AppIcon.appiconset/App-Icon-1024x1024@1x.png"
-magick "$SRC" -resize 1024x1024 -background none -gravity center -extent 1024x1024 "$IOS_OUT"
-echo "Wrote $IOS_OUT"
+# App Store Connect 90717: 1024 marketing icon must not have transparency / alpha channel.
+magick "$SRC" -resize 1024x1024^ -gravity center -extent 1024x1024 -background white -flatten -alpha off -define png:exclude-chunks=date,time "$IOS_OUT"
+echo "Wrote $IOS_OUT (opaque RGB, no alpha)"
 
 write_android() {
   local d="$1" fg="$2" la="$3"
