@@ -7050,6 +7050,22 @@
 **关联**  
 - `eas.json` production profile
 
+### 2026-05-14（Vouchap：修复 App Store 90717 — iOS 1024 图标去 alpha）
+
+**User（提示词/原意）**  
+- `eas submit` / Transporter 后 Apple 报错：90717，大图标不能透明或含 alpha。
+
+**Assistant（实现前说明）**  
+- `sync-native-launcher-icons-from-logo2.sh` 对 iOS 使用了 `-background none`，导出 PNG 仍带 alpha → 违反 [Human Interface Guidelines / App icons](https://developer.apple.com/design/human-interface-guidelines/app-icons)。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- iOS 行改为：白底 `-flatten` + `-alpha off`，1024 输出为 **TrueColor 无 alpha**（`identify` 显示 `channels=srgb` 三通道）。  
+- 更新 `assets/README.md` 说明；提交 **`ba96ec4`** 并已 `git push`。  
+- **验证**：重新 `eas build`（iOS）后再次 submit；90717 应消失。
+
+**关联**  
+- `scripts/sync-native-launcher-icons-from-logo2.sh`、`ios/.../App-Icon-1024x1024@1x.png`
+
 ### 2026-05-13（Vouchap：Gemini 识别模型动态 listModels + 成本序轮询 + 503 清缓存）
 
 **User（提示词/原意）**  
