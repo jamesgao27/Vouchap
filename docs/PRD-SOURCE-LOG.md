@@ -7001,6 +7001,24 @@
 **关联**  
 - `vouchap-app/package.json`、`app.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`、`ios/Vouchap.xcodeproj/project.pbxproj`
 
+### 2026-05-14（Vouchap：logo2 更新后同步 iOS/Android 启动器图标与脚本）
+
+**User（提示词/原意）**  
+- 更新过应用 logo 文件 logo2.png，对应更换素材。
+
+**Assistant（实现前说明）**  
+- `app.config.js` 的 `expo.icon` / `adaptiveIcon` 指向 `./assets/logo2.png`（链到 `src/mobile-ui/assets`）；裸工程 **App Store / 桌面图标** 实际以 `ios/.../AppIcon.appiconset` 与 `android/.../mipmap-*` 的 webp 为准，仅改图不会自动进原生包。  
+- 仓库根 `assets/logo2.png` 已较新，需拷入 `vouchap-app` 并自源图重生成 1024 App Icon 与各 density 的 `ic_launcher*`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `vouchap-app/scripts/sync-native-launcher-icons-from-logo2.sh`（ImageMagick），`package.json` 脚本 `icons:sync-from-logo2`；更新 `assets/README.md`、`app.config.js` 注释。  
+- 已执行：根 `logo2.png` → `vouchap-app/.../logo2.png`；`App-Icon-1024x1024@1x.png`；五档 `mipmap-*` 的 `ic_launcher` / `_round` / `_foreground`；备份 `icon.png` 与 `logo2` 一致。  
+- 提交 `da392ec` 并已 `git push`。  
+- **验证**：下次 EAS/本地 release 包应带新图标；可 `npm run icons:sync-from-logo2` 在仅改 `logo2.png` 后复跑。
+
+**关联**  
+- `scripts/sync-native-launcher-icons-from-logo2.sh`、`src/mobile-ui/assets/logo2.png`、`assets/logo2.png`、`ios/.../AppIcon...`、`android/.../mipmap-*`
+
 ### 2026-05-13（Vouchap：Gemini 识别模型动态 listModels + 成本序轮询 + 503 清缓存）
 
 **User（提示词/原意）**  
