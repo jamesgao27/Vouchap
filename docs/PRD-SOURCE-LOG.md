@@ -7019,6 +7019,21 @@
 **关联**  
 - `scripts/sync-native-launcher-icons-from-logo2.sh`、`src/mobile-ui/assets/logo2.png`、`assets/logo2.png`、`ios/.../AppIcon...`、`android/.../mipmap-*`
 
+### 2026-05-14（Vouchap：logo2 再次更新 — 重跑原生图标）
+
+**User（提示词/原意）**  
+- 再次更新了 logo2.png，重新处理素材。
+
+**Assistant（实现前说明）**  
+- 无代码逻辑变更；按 mtime 将较新的 `assets/logo2.png` 与 `vouchap-app/.../logo2.png` 对齐后执行 `scripts/sync-native-launcher-icons-from-logo2.sh`，并刷新 `icon.png`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 源图为 **2048×2048** PNG；已重写 iOS `App-Icon-1024x1024@1x.png` 与 Android 五档 `mipmap` webp。  
+- 提交 **`da3fbf1`**（`chore(brand): regenerate launcher icons from updated logo2.png (2048)`）并已 `git push`。
+
+**关联**  
+- 同上轮 logo 脚本与路径。
+
 ### 2026-05-13（Vouchap：Gemini 识别模型动态 listModels + 成本序轮询 + 503 清缓存）
 
 **User（提示词/原意）**  
