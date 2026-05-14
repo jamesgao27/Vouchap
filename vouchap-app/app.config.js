@@ -10,8 +10,8 @@ export default {
     owner: "aimlink",
     // 使用 default 以支持大屏/平板旋转，符合 Google Play「移除屏幕方向限制」建议
     orientation: "default",
-    // logo2: store / launcher source. expo.icon 用于 prebuild；当前仓库含裸 ios/android，App Store / 真机图标以
-    // ios/…/AppIcon.appiconset 与 android mipmap 为准，换品牌时需从 logo2 同步生成（与 assets/icon.png 一致）。
+    // logo2: store / launcher source. expo.icon 用于 prebuild；裸 ios/android 以 AppIcon + mipmap 为准。
+    // 更新 logo2.png 后运行：bash scripts/sync-native-launcher-icons-from-logo2.sh
     icon: "./assets/logo2.png",
     scheme: "vouchap", // 关键：解决邮件跳转的核心配置
     userInterfaceStyle: "light",
