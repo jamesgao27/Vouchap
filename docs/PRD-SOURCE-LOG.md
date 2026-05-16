@@ -7066,6 +7066,21 @@
 **关联**  
 - `scripts/sync-native-launcher-icons-from-logo2.sh`、`ios/.../App-Icon-1024x1024@1x.png`
 
+### 2026-05-14（Vouchap：弱网打开 expense 列表不报 Failed to load）
+
+**User（提示词/原意）**  
+- 2.6.2 弱网打开 receipt 列表 toast 报错（用户描述为 failed to load data）；不应报错，加载变慢可接受。
+
+**Assistant（实现前说明）**  
+- `receipts.tsx` 的 `loadReceipts` 在 `getReceiptsForListFirstPaint` / `getAllReceipts` 抛错时一律 `showToast('Failed to load expenses', 'error')`；弱网下 Supabase 易超时/断连，属瞬时错误。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 增加 `sleep`、`isTransientReceiptLoadError`、`isAuthOrConfigReceiptLoadError`；`loadReceipts` 对瞬时错误 **最多 4 次指数退避重试**（约 450ms 起）；仅在 **非瞬时** 或 **未登录/未选空间** 时保留 error toast；瞬时失败耗尽重试后 **静默**（仅 console），结束 loading。  
+- **验证**：弱网/飞行模式闪烁下进入列表不应再弹失败 toast；下拉刷新同理；未登录仍应有提示。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/receipts.tsx`
+
 ### 2026-05-13（Vouchap：Gemini 识别模型动态 listModels + 成本序轮询 + 503 清缓存）
 
 **User（提示词/原意）**  

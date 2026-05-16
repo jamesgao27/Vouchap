@@ -102,6 +102,50 @@ const getCurrencySymbol = (currency?: string): string => {
   return symbols[currency || 'USD'] || (currency ? `${currency} ` : '$');
 };
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Weak network / infra blips: retry instead of surfacing an error toast */
+function isTransientReceiptLoadError(error: unknown): boolean {
+  const msg = (error instanceof Error ? error.message : String(error ?? '')).toLowerCase();
+  const code = typeof (error as { code?: string })?.code === 'string' ? String((error as { code: string }).code) : '';
+  if (
+    code &&
+    ['57014', 'PGRST003'].includes(code)
+  ) {
+    return true;
+  }
+  const hints = [
+    'network',
+    'fetch',
+    'timeout',
+    'timed out',
+    'failed to fetch',
+    'connection',
+    'internet',
+    'offline',
+    'econnreset',
+    'enotfound',
+    'socket',
+    'ssl',
+    'aborted',
+    '503',
+    '502',
+    '504',
+    '429',
+    'load failed',
+    'could not connect',
+    'networkerror',
+  ];
+  return hints.some((h) => msg.includes(h));
+}
+
+function isAuthOrConfigReceiptLoadError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error ?? '');
+  return msg.includes('Not logged in') || msg.includes('No space selected');
+}
+
 // 格式化金额，根据币种显示相应符号（返回字符串，用于简单场景）
 const formatAmount = (amount: number, currency?: string): string => {
   const symbol = getCurrencySymbol(currency);
@@ -192,32 +236,53 @@ export default function ReceiptsScreen() {
   const loadReceipts = useCallback(async (options?: { full?: boolean; silentError?: boolean }) => {
     const full = options?.full ?? false;
     const silentError = options?.silentError ?? false;
-    try {
-      setFullDataLoaded(false);
-      if (full) {
-        // 刷新：一次加载完整数据，避免两阶段导致的中间态（No result 闪屏）
-        const data = await getAllReceipts();
-        setReceipts(data);
-        setFullDataLoaded(true);
-        setLoading(false);
-        setRefreshing(false);
-        getExchangeRates().then(rates => setExchangeRates(rates)).catch(() => {});
-      } else {
-        const data = await getReceiptsForListFirstPaint();
-        setReceipts(data);
-        setFullDataLoaded(false);
-        setLoading(false);
-        setRefreshing(false);
-        loadDetailsAsync();
+    const maxAttempts = 4;
+
+    setFullDataLoaded(false);
+
+    let lastError: unknown;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        if (full) {
+          const data = await getAllReceipts();
+          setReceipts(data);
+          setFullDataLoaded(true);
+          setLoading(false);
+          setRefreshing(false);
+          getExchangeRates().then((rates) => setExchangeRates(rates)).catch(() => {});
+        } else {
+          const data = await getReceiptsForListFirstPaint();
+          setReceipts(data);
+          setFullDataLoaded(false);
+          setLoading(false);
+          setRefreshing(false);
+          loadDetailsAsync();
+        }
+        return;
+      } catch (error) {
+        lastError = error;
+        console.warn(`[loadReceipts] attempt ${attempt + 1}/${maxAttempts} failed`, error);
+        if (isAuthOrConfigReceiptLoadError(error)) {
+          break;
+        }
+        if (isTransientReceiptLoadError(error) && attempt < maxAttempts - 1) {
+          await sleep(450 * 2 ** attempt);
+          continue;
+        }
+        break;
       }
-    } catch (error) {
-      console.error('❌ [loadReceipts] 加载失败:', error);
-      if (!silentError) {
+    }
+
+    console.error('❌ [loadReceipts] 加载失败:', lastError);
+    if (!silentError && lastError != null) {
+      if (isAuthOrConfigReceiptLoadError(lastError)) {
+        showToast('Failed to load expenses', 'error');
+      } else if (!isTransientReceiptLoadError(lastError)) {
         showToast('Failed to load expenses', 'error');
       }
-      setLoading(false);
-      setRefreshing(false);
     }
+    setLoading(false);
+    setRefreshing(false);
   }, [loadDetailsAsync]);
 
   const scanDocument = async () => {
