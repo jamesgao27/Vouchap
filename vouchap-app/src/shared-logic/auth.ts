@@ -5,6 +5,9 @@ import { applyPresetSkusToFirm } from './firm';
 import Constants from 'expo-constants';
 import { getCachedUser, updateCachedUser, getCachedSpace, updateCachedSpace } from './auth-cache';
 
+/** Blocks overlapping createSpace calls (double-tap / parallel handlers) so two spaces + two CRM trial rows are not created. */
+let createSpaceInFlight = false;
+
 // 获取当前用户（优先使用缓存）
 export async function getCurrentUser(forceRefresh: boolean = false): Promise<User | null> {
   // 如果强制刷新或缓存未初始化，从数据库读取
@@ -454,6 +457,13 @@ export async function createSpace(
   address?: string,
   options?: CreateSpaceOptions
 ): Promise<{ space: Space | null; error: Error | null }> {
+  if (createSpaceInFlight) {
+    return {
+      space: null,
+      error: new Error('A space is already being created. Please wait a moment and try again.'),
+    };
+  }
+  createSpaceInFlight = true;
   try {
     const kind = options?.kind ?? 'client';
     const clientProfileType = options?.clientProfileType ?? 'household';
@@ -891,6 +901,8 @@ export async function createSpace(
       space: null,
       error: error instanceof Error ? error : new Error('Failed to create space'),
     };
+  } finally {
+    createSpaceInFlight = false;
   }
 }
 

@@ -502,6 +502,14 @@ export default function ReceiptDetailsScreen() {
   const categoriesSorted = useMemo(() => sortScopeTagsForDisplay(categories), [categories]);
   const attributionsSorted = useMemo(() => sortScopeTagsForDisplay(attributions), [attributions]);
 
+  /** Must run before any early return — same source as `currentReceipt` below */
+  const recognitionNoticeParagraphs = useMemo(() => {
+    const source = editing ? (editedReceipt ?? receipt) : receipt;
+    const raw = source?.recognitionNotice?.trim();
+    if (!raw) return [];
+    return raw.split(/\n+/).map((p) => p.trim()).filter(Boolean);
+  }, [editing, receipt, editedReceipt]);
+
   // 计算商品明细金额总和
   const calculateItemsSum = useCallback((items: ReceiptItem[]) => {
     return items.reduce((sum, item) => sum + (item.price || 0), 0);
@@ -945,12 +953,6 @@ export default function ReceiptDetailsScreen() {
       </View>
     );
   }
-
-  const recognitionNoticeParagraphs = useMemo(() => {
-    const raw = currentReceipt.recognitionNotice?.trim();
-    if (!raw) return [];
-    return raw.split(/\n+/).map((p) => p.trim()).filter(Boolean);
-  }, [currentReceipt.recognitionNotice]);
 
   return (
     <View style={styles.container}>
