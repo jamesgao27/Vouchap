@@ -7081,6 +7081,41 @@
 **关联**  
 - `vouchap-app/src/mobile-ui/app/receipts.tsx`
 
+### 2026-05-16（Vouchap：移除 entity_pos_tax_code 表、RPC 与关联列）
+
+**User（提示词/原意）**  
+- 将 `entity_pos_tax_code` 相关代码与库表清理掉。
+
+**Assistant（实现前说明）**  
+- 应用层已无 `receipt-item-tax.ts` / `record_entity_pos_tax_learning` 等引用；税项改为 `receipts.tax_breakdown` + `crm.tax_kind_registry`。  
+- 遗留：`20260412100000_*` 创建的 `public.entity_pos_tax_code`、`entity_pos_tax_code_learning_events`、`record_entity_pos_tax_learning_and_maybe_promote`，以及 `receipt_item_taxes.entity_pos_tax_code_id`、`receipt_items.applicable_tax_kinds`（`receipts.merchant_entity_id` 已在 `20260510160000` 删除）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `vouchap-app/supabase/migrations/20260516120000_drop_entity_pos_tax_code.sql`：DROP RPC/触发器/两表/上述列。  
+- **验证**：`supabase db push` 后 `\d entity_pos_tax_code` 应不存在；应用识别与列表无回归。  
+- **未动**：`receipt_items.pos_tax_code`（OCR 存根）、`crm.tax_pos_code_rule`（全局 POS 规则，非 entity 目录）。
+
+**关联**  
+- `20260516120000_drop_entity_pos_tax_code.sql`
+
+### 2026-05-17（Vouchap：移除行级税额拆分，仅保留小票级税种）
+
+**User（提示词/原意）**  
+- 税额拆分到 item 的业务逻辑和库表都清理掉；后续只拆分小票级的税种，而不拆分到 item。
+
+**Assistant（实现前说明）**  
+- 应用层 `receipt-item-tax.ts` 已不存在；仍遗留 `public.receipt_item_taxes`、`receipt_items.pos_tax_code`、`crm.tax_pos_code_rule` 与 `record_pos_tax_learning_and_maybe_promote`；小票级税项保留 `receipts.tax` + `receipts.tax_breakdown`（`receipt-tax-breakdown.ts` / `receipt-tax-kind-resolve.ts`）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `vouchap-app/supabase/migrations/20260517120000_drop_receipt_line_item_tax_split.sql`：DROP `receipt_item_taxes`、行上 `pos_tax_code`、`pos_tax_code_learning_events`、学习 RPC、`crm.tax_pos_code_rule`。  
+- 调整 `20260516120000`：不再 ALTER 即将删除的 `receipt_item_taxes`。  
+- TS：`database.ts` 去掉 `pos_tax_code` 读写；`types` 去掉 `posTaxCode`；`receipt-tax-breakdown.ts` 删除仅服务行税引擎的 `parseReceiptTaxBreakdownToKindAmounts` / `serializeReceiptTaxBreakdownForDb`；`receipt-processor` 注释对齐。  
+- **验证**：`supabase db push` 后无 `receipt_item_taxes` / `pos_tax_code`；识别多税种小票仅写 `tax_breakdown`；列表/详情/保存 item 无回归。  
+- **保留**：`receipts.tax`、`receipts.tax_breakdown`、`crm.tax_kind_registry`、`crm.tax_rate_standard`。
+
+**关联**  
+- `20260517120000_drop_receipt_line_item_tax_split.sql`、`database.ts`、`receipt-tax-breakdown.ts`
+
 ### 2026-05-13（Vouchap：Gemini 识别模型动态 listModels + 成本序轮询 + 503 清缓存）
 
 **User（提示词/原意）**  

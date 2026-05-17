@@ -21,6 +21,7 @@ DROP FUNCTION IF EXISTS public.entity_pos_tax_code_learning_enforce_entity_space
 -- ---------------------------------------------------------------------------
 -- Columns that referenced the catalog
 -- ---------------------------------------------------------------------------
+-- Must drop FK before entity_pos_tax_code (table receipt_item_taxes removed in 20260517120000).
 ALTER TABLE public.receipt_item_taxes
   DROP COLUMN IF EXISTS entity_pos_tax_code_id;
 

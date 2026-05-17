@@ -193,7 +193,7 @@ export async function processReceiptInBackground(
 
     await recordClientRecognitionSuccessIfEnforced(quotaSpaceId || receipt.spaceId || '');
 
-    // Line taxes + reconciliation run inside updateReceipt (database.ts); avoid duplicate apply here.
+    // Receipt-level tax + tax_breakdown are persisted in updateReceipt (database.ts).
     // Payee tax/phone/address：单独供应商二次识别已移除，全部由 recognizeReceipt 单次 JSON 的 supplierInfo + convertGeminiResultToReceipt 写库。
 
     // 6. 检测是否与已有小票重复

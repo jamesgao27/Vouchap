@@ -2,7 +2,6 @@
  * Receipt-level sales tax components: flexible storage in receipts.tax_breakdown (jsonb).
  * Supports legacy flat objects { GST: 0.4, RST: 0.28 } and row arrays for arbitrary printed labels.
  */
-import Decimal from 'decimal.js';
 import type { ReceiptTaxBreakdownEntry } from '@/types';
 
 export type { ReceiptTaxBreakdownEntry };
@@ -131,26 +130,6 @@ export function taxBreakdownEntriesFromStrippedLineItems(
     });
   }
   return out;
-}
-
-/** For receipt_item_tax engine: same semantics as legacy parseReceiptTaxBreakdown + array support. */
-export function parseReceiptTaxBreakdownToKindAmounts(
-  raw: unknown,
-  region: string,
-): { kind: string; amount: Decimal }[] | null {
-  const entries = coerceReceiptTaxBreakdownEntries(raw, region);
-  if (!entries) return null;
-  return entries.map((e) => ({
-    kind: e.code,
-    amount: new Decimal(String(e.amount)),
-  }));
-}
-
-export function serializeReceiptTaxBreakdownForDb(
-  entries: ReceiptTaxBreakdownEntry[] | null | undefined,
-): unknown | null {
-  if (!entries?.length) return null;
-  return entries;
 }
 
 /** Sum amounts by normalized code (e.g. dashboard / reports). */

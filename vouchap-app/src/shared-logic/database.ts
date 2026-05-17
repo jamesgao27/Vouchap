@@ -298,7 +298,6 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
           price: item.price,
           is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
           confidence: item.confidence,
-          pos_tax_code: item.posTaxCode?.trim() ? item.posTaxCode.trim().toUpperCase() : null,
         });
       }
 
@@ -479,13 +478,12 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
           price: item.price,
           is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
           confidence: item.confidence,
-          pos_tax_code: item.posTaxCode?.trim() ? item.posTaxCode.trim().toUpperCase() : null,
         });
       }
 
       const { data: existingItemsSnapshot } = await supabase
         .from('receipt_items')
-        .select('receipt_id, name, item_alias, category_id, attribution_id, price, is_asset, confidence, pos_tax_code')
+        .select('receipt_id, name, item_alias, category_id, attribution_id, price, is_asset, confidence')
         .eq('receipt_id', receiptId);
 
       const { error: delErr } = await supabase
@@ -993,7 +991,6 @@ export async function getAllReceipts(): Promise<Receipt[]> {
           price: item.price,
           isAsset: item.is_asset,
           confidence: item.confidence,
-          posTaxCode: item.pos_tax_code ?? undefined,
         };
         }),
       };
@@ -1397,7 +1394,6 @@ export async function getReceiptById(receiptId: string): Promise<Receipt | null>
         price: item.price,
         isAsset: item.is_asset,
         confidence: item.confidence,
-        posTaxCode: item.pos_tax_code ?? undefined,
       };
       }),
     };

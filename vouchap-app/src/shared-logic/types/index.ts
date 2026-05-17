@@ -100,8 +100,6 @@ export interface ReceiptItem {
   price: number;
   isAsset: boolean;
   confidence?: number; // AI识别置信度
-  /** Optional POS tax letter from OCR; not used for computed line taxes (receipt tax is ticket-level). */
-  posTaxCode?: string | null;
 }
 
 /** Web 端支出「按明细行」扁平列表（receipt_items + 小票 Payee / 交易时间等） */
@@ -470,8 +468,6 @@ export interface GeminiReceiptResult {
     attributionName?: string; // 映射到 attributions.name（模型若仍返回 purposeName，解析层会兼容）
     isAsset?: boolean; // 可选
     confidence?: number; // 可选
-    /** Single-letter or short POS tax code printed on the line (e.g. D, H, N, X) when visible */
-    posTaxCode?: string | null;
   }>;
   confidence?: number; // 可选，整体识别置信度 0-1
   imageQuality?: ImageQuality; // 图片质量评价
