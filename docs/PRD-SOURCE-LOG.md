@@ -7116,6 +7116,34 @@
 **关联**  
 - `20260517120000_drop_receipt_line_item_tax_split.sql`、`database.ts`、`receipt-tax-breakdown.ts`
 
+### 2026-05-17（Vouchap：修复识别成功但 receipt_items 未写入）
+
+**User（提示词/原意）**  
+- AI log 显示识别 JSON 正确，但 `receipt_items` 表无数据；怀疑昨日清理行税导致严重 bug。
+
+**Assistant（实现前说明）**  
+- 拍照流程：`saveReceipt(items:[])` → `processReceiptInBackground` → `updateReceipt` 写行。`updateReceipt` 原逻辑**先删后插**，插入失败且原快照为空时会把行清空；`convertGeminiResultToReceipt` 失败时曾写 `items: []` 并仍调用 `updateReceipt`。`tax_breakdown` 解析抛错也可能阻断整次 update。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `database.ts`：`replaceReceiptItemsForReceipt` **先插后删**；空 `items` 不再清空已有行；`tax_breakdown` resolve 失败时降级写入 coerced 行。  
+- `receipt-helpers.ts`：新增 `buildExpenseReceiptFallbackFromGemini`，从模型 JSON 用默认分类/属性写行。  
+- `receipt-processor.ts`：转换失败时走回退，避免 `items: []` 落库。  
+- **验证**：拍一张多行小票 → `receipt_items` 行数与 JSON 一致；人为制造 insert 失败时旧行不被清空（或仅有短暂重复后清理）。
+
+**关联**  
+- `database.ts`、`receipt-helpers.ts`、`receipt-processor.ts`
+
+### 2026-05-17（Vouchap：发布 2.6.3）
+
+**User（提示词/原意）**  
+- 版本号更新为 2.6.3；commit「清理库表，构建v2.6.3」；全平台 production 构建。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 版本 2.6.3 / Build 53 已同步至 package.json、app.json、app.config.js、android、ios；与行税清理、receipt_items 写入修复一并提交；EAS production `--platform all`。
+
+**关联**  
+- 提交「清理库表，构建v2.6.3」
+
 ### 2026-05-13（Vouchap：Gemini 识别模型动态 listModels + 成本序轮询 + 503 清缓存）
 
 **User（提示词/原意）**  

@@ -9,7 +9,10 @@ import {
   recognizeInvoiceFromDocument,
   recognizeVoucherFromAudio,
 } from './gemini';
-import { convertGeminiResultToReceipt, convertGeminiResultToInvoice } from './receipt-helpers';
+import {
+  convertGeminiResultToReceiptResilient,
+  convertGeminiResultToInvoice,
+} from './receipt-helpers';
 import { runWithRecognitionRetry } from './recognition-retry';
 import { getReceiptById, updateReceipt } from './database';
 import { getInvoiceById, saveInvoice } from './invoices';
@@ -131,7 +134,7 @@ export async function reprocessExpenseReceiptFromStoredMedia(receiptId: string):
       await incrementReceiptRecognitionFailCount(receiptId);
       throw new Error(ret.error?.message || 'Voice recognition failed');
     }
-    const converted = await convertGeminiResultToReceipt(ret.result);
+    const converted = await convertGeminiResultToReceiptResilient(ret.result);
     await updateReceipt(
       receiptId,
       {
@@ -177,7 +180,7 @@ export async function reprocessExpenseReceiptFromStoredMedia(receiptId: string):
       await incrementReceiptRecognitionFailCount(receiptId);
       throw new Error(ret.error?.message || 'Document recognition failed');
     }
-    const converted = await convertGeminiResultToReceipt(ret.result);
+    const converted = await convertGeminiResultToReceiptResilient(ret.result);
     await updateReceipt(
       receiptId,
       {

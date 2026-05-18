@@ -364,6 +364,96 @@ export async function convertGeminiResultToReceipt(result: GeminiReceiptResult):
   };
 }
 
+/**
+ * When convertGeminiResultToReceipt throws (e.g. category edge case), still persist line items
+ * from the model JSON using default category/attribution so receipt_items are not left empty.
+ */
+export async function buildExpenseReceiptFallbackFromGemini(
+  result: GeminiReceiptResult,
+): Promise<Receipt> {
+  const user = await getCurrentUser(true);
+  if (!user) throw new Error('Not logged in');
+  const spaceId = user.currentSpaceId || user.spaceId;
+  if (!spaceId) throw new Error('No space selected');
+
+  const categories = await getCategories('expense');
+  const category =
+    categories.find((c) => c.isDefault) ??
+    categories.find((c) => ['Other', 'Shopping', 'Meal', 'Food', 'Grocery'].includes(c.name)) ??
+    categories[0];
+  if (!category) throw new Error('No category available for fallback receipt item');
+
+  const attributions = await getAttributions('expense');
+  const attribution = attributions.find((a) => a.isDefault) ?? attributions[0] ?? null;
+
+  const rawItems = Array.isArray(result.items) ? result.items : [];
+  const tax = Number(result.tax ?? 0) || 0;
+  const total = Number(result.totalAmount ?? 0) || 0;
+
+  const items: Receipt['items'] =
+    rawItems.length > 0
+      ? rawItems.map((item) => {
+          const name =
+            String(
+              item.name ?? (item as { description?: string }).description ?? '',
+            ).trim() || 'Receipt item';
+          const price =
+            Number((item as { price?: number; amount?: number }).price ?? (item as { amount?: number }).amount ?? 0) ||
+            0;
+          return {
+            name,
+            categoryId: category.id,
+            category,
+            attributionId: attribution?.id ?? null,
+            attribution,
+            price,
+            isAsset: Boolean(item.isAsset),
+            confidence: item.confidence ?? result.confidence,
+          };
+        })
+      : [
+          {
+            name: 'Receipt total (merged)',
+            categoryId: category.id,
+            category,
+            attributionId: attribution?.id ?? null,
+            attribution,
+            price: fallbackExpenseItemPrice(total, tax),
+            isAsset: false,
+            confidence: result.confidence,
+          },
+        ];
+
+  const taxBreakdown =
+    coerceReceiptTaxBreakdownEntries(result.taxBreakdown, null) ?? undefined;
+
+  return {
+    spaceId,
+    supplierName: result.supplierName,
+    totalAmount: total,
+    currency: result.currency,
+    currencyPrintedOnReceipt: result.currencyPrintedOnReceipt === true,
+    tax,
+    taxBreakdown,
+    date: result.date,
+    status: 'pending',
+    items,
+    confidence: result.confidence ?? 0.5,
+  };
+}
+
+/** Primary convert with fallback line items when category/entity matching throws. */
+export async function convertGeminiResultToReceiptResilient(
+  result: GeminiReceiptResult,
+): Promise<Receipt> {
+  try {
+    return await convertGeminiResultToReceipt(result);
+  } catch (error) {
+    console.warn('[receipt-helpers] convertGeminiResultToReceipt failed; using fallback:', error);
+    return buildExpenseReceiptFallbackFromGemini(result);
+  }
+}
+
 /** 将 Gemini 统一凭证结果（发票）转换为 Invoice */
 export async function convertGeminiResultToInvoice(result: GeminiVoucherResult): Promise<Invoice> {
   const user = await getCurrentUser();

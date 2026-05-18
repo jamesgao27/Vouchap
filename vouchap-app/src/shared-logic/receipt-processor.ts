@@ -1,6 +1,6 @@
 // 后台处理小票识别的模块
 import { recognizeReceipt } from './gemini';
-import { convertGeminiResultToReceipt } from './receipt-helpers';
+import { convertGeminiResultToReceiptResilient } from './receipt-helpers';
 import { updateReceipt, getReceiptById } from './database';
 import { uploadReceiptImage, supabase } from './supabase';
 import { checkDuplicateReceipt } from './receipt-duplicate-checker';
@@ -137,27 +137,8 @@ export async function processReceiptInBackground(
     console.log('识别完成，开始转换数据...');
 
     // 2. 转换为 Receipt 格式（匹配分类和支付账户）
-    let receipt;
-    try {
-      receipt = await convertGeminiResultToReceipt(recognizedData);
-      console.log('数据转换完成，开始更新小票...');
-    } catch (error: any) {
-      // 如果转换过程中出现任何错误（包括名称重复等），记录错误但不阻塞流程
-      // 使用基本识别数据创建一个小票记录
-      console.error('转换小票数据失败:', error);
-      console.log('使用基本识别数据创建小票记录...');
-      const user = await getCurrentUser(true);
-      const spaceId = user?.currentSpaceId || user?.spaceId || '';
-      receipt = {
-        spaceId,
-        supplierName: recognizedData.supplierName || '',
-        totalAmount: recognizedData.totalAmount || 0,
-        date: recognizedData.date || new Date().toISOString().split('T')[0],
-        items: [],
-        status: 'pending' as const,
-        confidence: recognizedData.confidence || 0,
-      };
-    }
+    let receipt = await convertGeminiResultToReceiptResilient(recognizedData);
+    console.log('数据转换完成，行数:', receipt.items?.length ?? 0, '，开始更新小票...');
 
     receipt = {
       ...receipt,

@@ -18,6 +18,65 @@ function normalizeReceiptItemNameForSave(name: unknown): string {
   return v.length > 0 ? v : DEFAULT_RECEIPT_ITEM_NAME;
 }
 
+/** Insert new rows first, then remove stale rows — avoids empty receipt_items after failed insert. */
+async function replaceReceiptItemsForReceipt(receiptId: string, items: ReceiptItem[]): Promise<void> {
+  const itemsToInsert: Record<string, unknown>[] = [];
+  for (const item of items) {
+    let categoryId = item.categoryId;
+    if (!categoryId && item.category) {
+      categoryId = item.category.id;
+    }
+    if (!categoryId) {
+      throw new Error(`Item "${item.name}" is missing category ID`);
+    }
+    itemsToInsert.push({
+      receipt_id: receiptId,
+      name: normalizeReceiptItemNameForSave(item.name),
+      item_alias: item.itemAlias?.trim() || null,
+      category_id: categoryId,
+      attribution_id: item.attributionId ?? null,
+      price: item.price,
+      is_asset: item.isAsset !== undefined ? item.isAsset : false,
+      confidence: item.confidence,
+    });
+  }
+
+  if (itemsToInsert.length === 0) {
+    console.warn(
+      '[database] replaceReceiptItemsForReceipt: empty items — keeping existing receipt_items',
+      { receiptId },
+    );
+    return;
+  }
+
+  const { data: inserted, error: insertError } = await supabase
+    .from('receipt_items')
+    .insert(itemsToInsert)
+    .select('id');
+
+  if (insertError) {
+    console.error('[database] receipt_items insert failed:', insertError.message, insertError);
+    throw insertError;
+  }
+
+  const keepIds = (inserted ?? []).map((row) => String(row.id));
+  let deleteQuery = supabase.from('receipt_items').delete().eq('receipt_id', receiptId);
+  if (keepIds.length > 0) {
+    deleteQuery = deleteQuery.not('id', 'in', `(${keepIds.join(',')})`);
+  }
+  const { error: delErr } = await deleteQuery;
+  if (delErr) {
+    console.error('[database] receipt_items stale-row delete failed:', delErr.message, delErr);
+    if (keepIds.length > 0) {
+      const { error: rollbackErr } = await supabase.from('receipt_items').delete().in('id', keepIds);
+      if (rollbackErr) {
+        console.warn('[database] receipt_items insert rollback failed:', rollbackErr.message);
+      }
+    }
+    throw delErr;
+  }
+}
+
 function receiptItemAttributionRefId(item: { attribution_id?: unknown }): string | null {
   const v = item.attribution_id;
   return v != null && v !== '' ? String(v) : null;
@@ -156,14 +215,24 @@ export async function saveReceipt(receipt: Receipt): Promise<string> {
           /* best-effort */
         }
       }
-      const enriched = await resolveTaxBreakdownTaxKindIds(receipt.taxBreakdown, {
-        currency: receipt.currency,
-        currencyPrintedOnReceipt: receipt.currencyPrintedOnReceipt === true,
-        supplierName: receipt.supplierName,
-        supplierAddress,
-        receiptDate: receipt.date,
-      });
-      taxBreakdownForInsert = shapeTaxBreakdownForDb(enriched);
+      try {
+        const enriched = await resolveTaxBreakdownTaxKindIds(receipt.taxBreakdown, {
+          currency: receipt.currency,
+          currencyPrintedOnReceipt: receipt.currencyPrintedOnReceipt === true,
+          supplierName: receipt.supplierName,
+          supplierAddress,
+          receiptDate: receipt.date,
+        });
+        taxBreakdownForInsert = shapeTaxBreakdownForDb(enriched);
+      } catch (taxErr) {
+        console.warn(
+          '[saveReceipt] tax_breakdown resolve failed; saving coerced lines without tax_kind_id',
+          taxErr,
+        );
+        taxBreakdownForInsert = shapeTaxBreakdownForDb(
+          coerceReceiptTaxBreakdownEntries(receipt.taxBreakdown, null) ?? receipt.taxBreakdown,
+        );
+      }
     }
 
     // 先保存小票主记录（支出单 Payee 存 entity_id）
@@ -421,14 +490,24 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
             /* best-effort */
           }
         }
-        const enriched = await resolveTaxBreakdownTaxKindIds(receipt.taxBreakdown, {
-          currency: receipt.currency,
-          currencyPrintedOnReceipt: receipt.currencyPrintedOnReceipt === true,
-          supplierName: receipt.supplierName,
-          supplierAddress,
-          receiptDate: receipt.date,
-        });
-        updateData.tax_breakdown = shapeTaxBreakdownForDb(enriched);
+        try {
+          const enriched = await resolveTaxBreakdownTaxKindIds(receipt.taxBreakdown, {
+            currency: receipt.currency,
+            currencyPrintedOnReceipt: receipt.currencyPrintedOnReceipt === true,
+            supplierName: receipt.supplierName,
+            supplierAddress,
+            receiptDate: receipt.date,
+          });
+          updateData.tax_breakdown = shapeTaxBreakdownForDb(enriched);
+        } catch (taxErr) {
+          console.warn(
+            '[updateReceipt] tax_breakdown resolve failed; saving coerced lines without tax_kind_id',
+            taxErr,
+          );
+          updateData.tax_breakdown = shapeTaxBreakdownForDb(
+            coerceReceiptTaxBreakdownEntries(receipt.taxBreakdown, null) ?? receipt.taxBreakdown,
+          );
+        }
       } else {
         updateData.tax_breakdown = null;
       }
@@ -456,62 +535,9 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
 
     if (receiptError) throw receiptError;
 
-    // 如果更新了商品项，先删除旧的再插入新的
     if (receipt.items !== undefined) {
-      const itemsToInsert: any[] = [];
-      for (const item of receipt.items) {
-        let categoryId = item.categoryId;
-        if (!categoryId && item.category) {
-          categoryId = item.category.id;
-        }
-        if (!categoryId) {
-          // Validate before delete to avoid wiping existing items on bad payload.
-          throw new Error(`Item "${item.name}" is missing category ID`);
-        }
-
-        itemsToInsert.push({
-          receipt_id: receiptId,
-          name: normalizeReceiptItemNameForSave(item.name),
-          item_alias: item.itemAlias?.trim() || null,
-          category_id: categoryId,
-          attribution_id: item.attributionId ?? null,
-          price: item.price,
-          is_asset: item.isAsset !== undefined ? item.isAsset : false, // 确保 isAsset 不为 null
-          confidence: item.confidence,
-        });
-      }
-
-      const { data: existingItemsSnapshot } = await supabase
-        .from('receipt_items')
-        .select('receipt_id, name, item_alias, category_id, attribution_id, price, is_asset, confidence')
-        .eq('receipt_id', receiptId);
-
-      const { error: delErr } = await supabase
-        .from('receipt_items')
-        .delete()
-        .eq('receipt_id', receiptId);
-      if (delErr) throw delErr;
-
-      if (itemsToInsert.length > 0) {
-        const { error: itemsError } = await supabase
-          .from('receipt_items')
-          .insert(itemsToInsert);
-
-        if (itemsError) {
-          // Best-effort rollback to avoid permanently blanking items after failed save.
-          if (existingItemsSnapshot && existingItemsSnapshot.length > 0) {
-            const { error: restoreError } = await supabase
-              .from('receipt_items')
-              .insert(existingItemsSnapshot);
-            if (restoreError) {
-              console.warn('Failed to restore previous receipt_items snapshot:', restoreError);
-            }
-          }
-          throw itemsError;
-        }
-      }
+      await replaceReceiptItemsForReceipt(receiptId, receipt.items);
     }
-
   } catch (error: any) {
     if (error?.code === 'ENTITY_NAME_EXISTS') {
       if (autoResolveDuplicate) {
