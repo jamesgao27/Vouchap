@@ -1,0 +1,11 @@
+# Install: pip install pre-commit && pre-commit install
+# Or run manually: pre-commit run --all-files
+repos:
+  - repo: local
+    hooks:
+      - id: check-staged-secrets
+        name: Block Gemini/Google API keys in commits
+        entry: scripts/check-staged-secrets.sh
+        language: script
+        pass_filenames: false
+        stages: [pre-commit]

@@ -14,3 +14,7 @@ Server-side Gemini `generateContent` / `listModels`. Real API key only in Functi
 cd vouchap-app
 supabase functions deploy gemini-proxy
 ```
+
+After code changes to this function, **redeploy** (`supabase functions deploy gemini-proxy`). No new mobile app build is required unless client SDK paths change.
+
+`listModels` calls Google with `x-goog-api-key` header (key never in URL query string).

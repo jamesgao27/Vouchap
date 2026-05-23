@@ -50,8 +50,9 @@ cp .env.example .env
 ```
 EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-GEMINI_API_KEY=your_gemini_api_key
 ```
+
+Gemini 识别由 Supabase `gemini-proxy` 处理，**不要**在客户端 `.env` 或 EAS 中配置 Gemini API Key。见 `vouchap-app/docs/GEMINI-API-SECURITY.md`。
 
 ### 3. Supabase 数据库设置
 

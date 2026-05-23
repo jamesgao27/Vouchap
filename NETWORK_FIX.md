@@ -22,10 +22,10 @@ supabaseAnonKey: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '',
 
 1. **登录 Expo Dashboard**：https://expo.dev
 2. **进入项目设置**：选择你的项目 → Settings → Secrets
-3. **添加以下 Secrets**：
+3. **添加以下 Secrets**（仅需 Supabase，**不要**配置 `EXPO_PUBLIC_GEMINI_API_KEY`）：
    - `EXPO_PUBLIC_SUPABASE_URL` - 你的 Supabase 项目 URL
    - `EXPO_PUBLIC_SUPABASE_ANON_KEY` - 你的 Supabase Anon Key
-   - `EXPO_PUBLIC_GEMINI_API_KEY` - Gemini API Key（如果需要）
+   - Gemini：在 Supabase Function secret 配置 `GEMINI_API_KEY`（见 `vouchap-app/docs/GEMINI-API-SECURITY.md`）
 
 4. **重新构建应用**：
    ```bash
@@ -54,7 +54,6 @@ cd android
 ```
 EXPO_PUBLIC_SUPABASE_URL=your_supabase_url
 EXPO_PUBLIC_SUPABASE_ANON_KEY=your_supabase_anon_key
-EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key
 ```
 
 **注意**：`.env` 文件在构建时不会被包含，只适用于开发环境。

@@ -7217,3 +7217,26 @@
 **关联**  
 - `vouchap-crm/src/pages/SpaceOrders.tsx`、`vouchap-crm/src/pages/space-orders-sku-helpers.ts`
 
+---
+
+### 2026-05-22（Vouchap：Gemini 安全加固 — 过时文档与机制）
+
+**User（提示词/原意）**  
+- 过时文档中的 key 已自行删除失效内容；要求按安全分析**直接优化**代码/机制；如需重新构建 App 须明确告知。
+
+**Assistant（实现前说明）**  
+- 删除根目录误导性 Gemini/EAS 文档；统一 `EAS_SECRETS_SETUP.md`、`NETWORK_FIX.md`、`README.md` 为「仅 Supabase + gemini-proxy」；`gemini-proxy` 的 `listModels` 改为 Header 传 key；增加 pre-commit / gitleaks 防泄漏；新增 `vouchap-app/docs/GEMINI-API-SECURITY.md`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **已删**：`DEBUG_GEMINI_API_KEY.md`、`GEMINI_API_KEY_SETUP.md`、`UPDATE_GEMINI_API_KEY.md`。  
+- **已更新**：`EAS_SECRETS_SETUP.md`（仅 Supabase 两项 EAS 变量，明确勿配 `EXPO_PUBLIC_GEMINI_API_KEY`）、`NETWORK_FIX.md`、`README.md`；新增 `vouchap-app/.env.example`、`vouchap-app/docs/GEMINI-API-SECURITY.md`。  
+- **Edge**：`gemini-proxy/index.ts` — `listModels` 使用 `x-goog-api-key`，避免 URL 带 `?key=`。  
+- **仓库机制**：`scripts/check-staged-secrets.sh`、`.pre-commit-config.yaml`、`.gitleaks.toml`（可选 `pre-commit install`）。  
+- **是否重构建 App**：**不需要**。客户端逻辑未变；仅需在 Supabase **重新部署** `gemini-proxy`（`cd vouchap-app && supabase functions deploy gemini-proxy`）。建议在 Expo Dashboard **删除**历史 `EXPO_PUBLIC_GEMINI_API_KEY`（若仍存在）。  
+- **GCP 控制台**限制/轮换仍为运维侧，非本提交范围。
+
+**关联**  
+- `vouchap-app/supabase/functions/gemini-proxy/index.ts`  
+- `vouchap-app/docs/GEMINI-API-SECURITY.md`  
+- `scripts/check-staged-secrets.sh`、`.pre-commit-config.yaml`
+

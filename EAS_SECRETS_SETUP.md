@@ -2,13 +2,13 @@
 
 ## 问题
 
-构建的应用安装在手机上后，登录和注册功能无法使用，提示"连不上网"。
+构建的应用安装在手机上后，登录和注册功能无法使用，提示「连不上网」。
 
 ## 根本原因
 
-**Supabase 环境变量在 EAS Build 时没有正确注入到应用中**。
+**Supabase 环境变量在 EAS Build 时没有正确注入到应用中。**
 
-EAS Build 不会读取本地的 `.env` 文件，必须在 Expo Dashboard 的 Secrets 中设置环境变量。
+EAS Build 不会读取本地的 `.env` 文件，必须在 Expo Dashboard 的 Secrets / Environment 中设置变量。
 
 ## 解决方案
 
@@ -18,114 +18,43 @@ EAS Build 不会读取本地的 `.env` 文件，必须在 Expo Dashboard 的 Sec
 
 ### 步骤 2：进入项目设置
 
-1. 选择你的项目（snap-receipt）
-2. 点击左侧菜单 "Settings"
-3. 点击 "Secrets"
+1. 选择你的项目（Vouchap / snap-receipt）
+2. 打开 **Settings** → **Environment variables**（或 **Secrets**）
 
-### 步骤 3：添加环境变量
+### 步骤 3：添加环境变量（仅以下两项）
 
-点击 "Create Secret" 按钮，添加以下三个环境变量：
+| Name | 说明 |
+|------|------|
+| `EXPO_PUBLIC_SUPABASE_URL` | Supabase 项目 URL（`https://xxx.supabase.co`） |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Supabase **anon** / public key（非 `service_role`） |
 
-#### 1. EXPO_PUBLIC_SUPABASE_URL
-- **Name**: `EXPO_PUBLIC_SUPABASE_URL`
-- **Value**: 你的 Supabase 项目 URL
-  - 格式：`https://xxx.supabase.co`
-  - 可以在 Supabase Dashboard > Settings > API 中找到
+**不要**在 EAS 中配置 `EXPO_PUBLIC_GEMINI_API_KEY`。Gemini API Key 仅存放在 **Supabase Edge Function Secret**（`GEMINI_API_KEY`），由 `gemini-proxy` 在服务端调用。详见 `vouchap-app/docs/GEMINI-API-SECURITY.md`。
 
-#### 2. EXPO_PUBLIC_SUPABASE_ANON_KEY
-- **Name**: `EXPO_PUBLIC_SUPABASE_ANON_KEY`
-- **Value**: 你的 Supabase Anon Key
-  - 可以在 Supabase Dashboard > Settings > API 中找到
-  - 这是 `anon` / `public` key（不是 `service_role` key）
-
-#### 3. EXPO_PUBLIC_GEMINI_API_KEY（可选）
-- **Name**: `EXPO_PUBLIC_GEMINI_API_KEY`
-- **Value**: 你的 Gemini API Key
-  - 如果未设置，AI 识别功能将无法使用
+若历史上曾在 EAS 配置过 `EXPO_PUBLIC_GEMINI_API_KEY`，可在 Dashboard 中**删除**该变量（应用已不再读取）。
 
 ### 步骤 4：重新构建应用
 
-在终端中运行：
-
 ```bash
+cd vouchap-app
 eas build --platform android --profile production
 ```
 
-### 步骤 5：验证构建
+### 步骤 5：验证
 
-构建完成后，安装应用并测试登录功能。
+安装构建产物后测试登录/注册；AI 识别需 Supabase 已部署 `gemini-proxy` 且已设置 `GEMINI_API_KEY`。
 
-## 重要提示
+## 本地开发
 
-1. **环境变量名称必须正确**：
-   - 必须使用 `EXPO_PUBLIC_` 前缀
-   - 变量名区分大小写
+在 `vouchap-app/.env`（勿提交）中配置：
 
-2. **不要将敏感信息提交到代码仓库**：
-   - `.env` 文件已在 `.gitignore` 中
-   - 不要在代码中硬编码 API Key
+```
+EXPO_PUBLIC_SUPABASE_URL=...
+EXPO_PUBLIC_SUPABASE_ANON_KEY=...
+```
 
-3. **本地开发环境**：
-   - 本地开发时可以使用 `.env` 文件
-   - 但构建时必须使用 EAS Secrets
+Gemini 密钥勿写入客户端 `.env`。可选：在 Supabase 项目配置 Function secret 后，用已登录会话通过 App 走代理测试。
 
-## 验证配置
+## 相关文档
 
-### 方法 1：查看构建日志
-
-在 EAS Build 的构建日志中，检查环境变量是否正确注入（不会显示实际值，但会显示是否设置）。
-
-### 方法 2：在应用中检查
-
-重新构建的应用中，如果配置正确，登录/注册功能应该可以正常工作。
-
-如果配置错误，会显示明确的错误信息：
-- "网络配置错误：Supabase 未正确配置"
-- 提示需要在 EAS Secrets 中设置环境变量
-
-## 常见错误
-
-### 错误 1：变量名错误
-
-**症状**：应用仍然无法连接
-
-**解决**：
-- 检查变量名是否正确（区分大小写）
-- 确保使用 `EXPO_PUBLIC_` 前缀
-
-### 错误 2：值错误
-
-**症状**：应用尝试连接但失败
-
-**解决**：
-- 验证 Supabase URL 和 Key 是否正确
-- 确保 URL 格式正确（`https://xxx.supabase.co`）
-- 确保使用的是 `anon` key，不是 `service_role` key
-
-### 错误 3：未重新构建
-
-**症状**：修改 Secrets 后应用仍然无法连接
-
-**解决**：
-- 必须重新构建应用，Secrets 只在构建时注入
-- 已安装的应用不会自动更新配置
-
-## 获取 Supabase 配置信息
-
-1. 登录 Supabase Dashboard：https://supabase.com/dashboard
-2. 选择你的项目
-3. 点击左侧 "Settings" → "API"
-4. 找到以下信息：
-   - **Project URL**: 这是 `EXPO_PUBLIC_SUPABASE_URL`
-   - **anon public** key: 这是 `EXPO_PUBLIC_SUPABASE_ANON_KEY`
-
-## 获取 Gemini API Key
-
-1. 访问 Google AI Studio：https://makersuite.google.com/app/apikey
-2. 登录 Google 账号
-3. 创建 API Key
-4. 复制 API Key 作为 `EXPO_PUBLIC_GEMINI_API_KEY` 的值
-
----
-
-*最后更新：2024年*
+- `vouchap-app/docs/GEMINI-API-SECURITY.md` — Gemini 代理与安全清单
+- `vouchap-app/supabase/functions/gemini-proxy/README.md` — 部署与 CORS
