@@ -5,7 +5,8 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { GoogleGenerativeAI } from './gemini-server-sdk';
-import { resolveGeminiModelsToTryOrder } from './gemini-helper';
+import { resolveModelsToTryOrder } from './ai-model-helper';
+import { getRecognitionApiKeyPlaceholder } from './ai-provider';
 
 export interface TaxDocumentTaskMatcherContext {
   /** 报税辖区：CANADA | USA */
@@ -135,13 +136,13 @@ export async function classifyTaxDocumentAndPickTask(
   tasks: TaxDocumentTaskOption[]
 ): Promise<{ taskId: string }> {
   if (tasks.length === 0) throw new Error('No tasks to match');
-  const currentApiKey = 'server-side-gemini-proxy';
+  const currentApiKey = getRecognitionApiKeyPlaceholder();
 
   const prompt = buildTaskMatcherPrompt(context, tasks);
   const { base64, mimeType } = await downloadImageToBase64(imageUrl);
   const imagePart = { inlineData: { data: base64, mimeType } };
   const genAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,

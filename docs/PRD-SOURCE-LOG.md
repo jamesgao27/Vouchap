@@ -7240,3 +7240,148 @@
 - `vouchap-app/docs/GEMINI-API-SECURITY.md`  
 - `scripts/check-staged-secrets.sh`、`.pre-commit-config.yaml`
 
+---
+
+### 2026-05-26（Vouchap Android：Recognition unavailable 与不限量权益）
+
+**User（提示词/原意）**  
+- Android 端 Expense Details 出现「Recognition unavailable」及 gemini-proxy 提示；当前 space 已配置不限量权益，询问原因。
+
+**Assistant（实现前说明）**  
+- 无代码变更；对照 `receipt-processor.ts`、`client-recognition-quota.ts`、`recognition-retry.ts` 与截图文案区分「配额拦截」与「AI 调用失败」。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 截图正文为 `Recognition failed. Please try again later.` + gemini-proxy 配置提示 → 来自 **`recognizeReceipt` 经 `gemini-proxy` 重试 5 次仍失败**，**非** CRM 工作区识别配额用尽（后者 `recognition_notice` 会含 *plan or credits* / *workspace* 等字样）。  
+- 不限量权益只影响 `get_client_recognition_quota` 的 `included_per_month` / `monthly_cap`（client 默认 `monthly_cap` 为 null）；**不保证** Supabase Edge `GEMINI_API_KEY`、网络或 Google API 可用。  
+- 建议排查：Supabase `gemini-proxy` 部署与密钥、Functions 日志、设备网络（截图网速极低）、收据 `space_id` 是否与当前工作区一致。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-processor.ts`  
+- `vouchap-app/src/shared-logic/client-recognition-quota.ts`
+
+---
+
+### 2026-05-26（追问：Gemini API 降为 Free Tier，当日首次识别仍失败）
+
+**User（提示词/原意）**  
+- Supabase 侧 Gemini API Key 已降为 free tier；当天在 Vouchap 内尚未成功识别过，初次识别即出现 Recognition unavailable。
+
+**Assistant（实现前说明）**  
+- 无代码变更；对照 `gemini-helper` 模型链、`recognizeReceipt` 多模型重试、`runWithRecognitionRetry` 与 Google 2026 free tier 策略说明因果。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **与 Vouchap space 不限量无关**；瓶颈在 **Google 项目级** `GEMINI_API_KEY`（RPM/RPD、Pro 模型付费化、配额按 GCP 项目而非按用户/按日首次）。  
+- **单次小票识别 ≠ 1 次 API 调用**：`listModels` + 多模型 `generateContent`（含 `gemini-2.5-pro` 等）+ 外层最多 5 轮重试，free tier 易在「第一次用户识别」即 429/403/404；UI 经 `getUserFacingMessage` 仍可能显示泛化 gemini-proxy 文案。  
+- **建议**：Supabase `gemini-proxy` 日志查 429/RESOURCE_EXHAUSTED；设 `GEMINI_MODEL_DEFAULT=gemini-2.5-flash`（或 flash-lite）+ `GEMINI_ENFORCE_SERVER_MODEL=true`；AI Studio 查看该项目实时限额；生产用启用 billing 的 Tier 1 或独立付费 key。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini-helper.ts`、`gemini.ts`、`recognition-retry.ts`  
+- `vouchap-app/supabase/functions/gemini-proxy/index.ts`
+
+---
+
+### 2026-05-26（Vouchap：识别支持 DeepSeek 模型）
+
+**User（提示词/原意）**  
+- 给 vouchap 增加采用 DeepSeek 模型的能力。
+
+**Assistant（实现前说明）**  
+- 在现有 `gemini-proxy` Edge 上增加 `provider`（gemini | deepseek），密钥仅服务端；客户端 `gemini-server-sdk` 传 provider；新增 `ai-provider` / `deepseek-helper` / `ai-model-helper` 统一模型顺序；`gemini.ts` 与报税识别改走 `resolveModelsToTryOrder`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **Edge**：`gemini-proxy/index.ts` 支持 `body.provider`、`AI_PROVIDER_DEFAULT`；DeepSeek 走 OpenAI 兼容 `chat/completions`（图片转 `image_url` data URI）；`listModels` 返回静态 DeepSeek 目录。  
+- **客户端**：`ai-provider.ts`（`EXPO_PUBLIC_AI_PROVIDER` / `extra.aiProvider`）；`resolveModelsToTryOrder` 按 provider 分支；`app.config.js` 映射 `aiProvider`。  
+- **文档**：`docs/AI-RECOGNITION-PROVIDERS.md`，更新 `gemini-proxy/README.md`、`GEMINI-API-SECURITY.md`、`.env.example`。  
+- **启用 DeepSeek**：`supabase secrets set DEEPSEEK_API_KEY=... AI_PROVIDER_DEFAULT=deepseek` 后 `supabase functions deploy gemini-proxy`；可选客户端 `EXPO_PUBLIC_AI_PROVIDER=deepseek`。  
+- **验证**：部署后 Supabase 日志应见 `[gemini-proxy] calling DeepSeek API`；识别一张小票；`listModels` 在 deepseek 下返回静态模型名。
+
+**关联**  
+- `vouchap-app/supabase/functions/gemini-proxy/`  
+- `vouchap-app/src/shared-logic/ai-provider.ts`、`ai-model-helper.ts`、`deepseek-helper.ts`、`gemini-server-sdk.ts`  
+- `vouchap-app/docs/AI-RECOGNITION-PROVIDERS.md`
+
+---
+
+### 2026-05-26（追问：已注入 DeepSeek key，旧 App 识别仍失败）
+
+**User（提示词/原意）**  
+- `supabase secrets set` 已执行并注入可用 DeepSeek key，但之前构建的 App 再次拍摄识别仍出现同样提示。
+
+**Assistant（实现前说明）**  
+- 根因：① 仅改 Secret 未 **deploy** 含 DeepSeek 分支的 `gemini-proxy`；② 旧 App 仍传 Gemini 模型名，DeepSeek API 拒收；③ 新构建若 `extra.aiProvider=gemini` 会覆盖服务端 `AI_PROVIDER_DEFAULT`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **Edge**：`AI_PROVIDER_DEFAULT=deepseek` 时忽略 body 中缺省或 `provider:gemini`；DeepSeek 路径将 `gemini*` 模型名 remap 为 `DEEPSEEK_MODEL_DEFAULT`。  
+- **客户端**：无 `EXPO_PUBLIC_AI_PROVIDER` 时不向 Edge 发送 `provider`；`app.config.js` 不再默认写入 `aiProvider: gemini`。  
+- **用户操作**：必须 `supabase functions deploy gemini-proxy`；建议 `DEEPSEEK_ENFORCE_SERVER_MODEL=true`；在 Supabase 日志确认 `calling DeepSeek API`。旧 App **无需重装**（部署 Edge 后即可）。
+
+**关联**  
+- `vouchap-app/supabase/functions/gemini-proxy/index.ts`  
+- `vouchap-app/src/shared-logic/ai-provider.ts`、`gemini-server-sdk.ts`、`app.config.js`
+
+---
+
+### 2026-05-26（DeepSeek 已调用仍失败 — 小票需视觉模型）
+
+**User（提示词/原意）**  
+- deploy 已执行，旧 App 仍同样提示；Functions 日志多次 `[gemini-proxy] calling DeepSeek API` 且 `hasInlineImage:true`。
+
+**Assistant（实现前说明）**  
+- 日志证明路由正确；根因为 DeepSeek chat API **不接受 image_url**（官方 text-only），小票识别必带图 → 400/重试后客户端仍显示 Recognition unavailable。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **Edge**：`provider=deepseek` 且含图片时，若配置 `GEMINI_API_KEY` 则自动 **Gemini vision fallback**（日志：`DeepSeek cannot accept images; Gemini vision fallback`）；无 Gemini key 时返回明确 400 文案。纯文本请求仍走 DeepSeek。  
+- **用户**：小票拍照需可用 **GEMINI_API_KEY**（或改 `AI_PROVIDER_DEFAULT=gemini`）；仅 DeepSeek 无法完成收据 OCR。需再次 `supabase functions deploy gemini-proxy`。  
+- **文档**：`AI-RECOGNITION-PROVIDERS.md` 补充 DeepSeek 与照片识别说明。
+
+**关联**  
+- `vouchap-app/supabase/functions/gemini-proxy/index.ts`
+
+---
+
+### 2026-05-26（用户问：DeepSeek 是否有可识图模型）
+
+**User（提示词/原意）**  
+- DeepSeek 是否有可选的识图模型。
+
+**Assistant（实现后 / 本轮结论）**  
+- **有视觉模型**（DeepSeek-VL2、Janus-Pro 等），但为 **开源权重 + 自建推理**，**不在** `api.deepseek.com` 的 `chat/completions` 产品线内；官方 API 仅 **deepseek-v4-flash / v4-pro / chat**（纯文本）。  
+- Vouchap 当前 `DEEPSEEK_API_KEY` 路径无法用小票照片直连 VL；照片识别需 **Gemini vision fallback** 或 `AI_PROVIDER_DEFAULT=gemini`。已在 `AI-RECOGNITION-PROVIDERS.md` 补充对照表。
+
+**关联**  
+- `vouchap-app/docs/AI-RECOGNITION-PROVIDERS.md`
+
+---
+
+### 2026-05-26（Gemini free tier 模型优先级）
+
+**User（提示词/原意）**  
+- 恢复采用 Gemini；按 free tier limit 优先 **Gemini 3.5 Flash → 3 Flash → 2.5 Flash → 3.1 Flash Lite → 2.5 Flash Lite**，避免 0 配额模型（Pro、2 Flash 等）；已 deploy gemini-proxy。
+
+**Assistant（实现前说明）**  
+- 调整 `gemini-helper` 静态顺序、动态 listModels 过滤与打分；默认/Edge `GEMINI_MODEL_DEFAULT` 改为 `gemini-3.5-flash`；复杂场景用 `gemini-3.1-flash-lite` 替代 `gemini-2.5-pro`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **`GEMINI_FREE_TIER_MODEL_ORDER`** + **`isGeminiModelBlockedOnFreeTier`** 屏蔽 Pro / 1.5 / 2.0 / 2 Flash 等。  
+- **`GEMINI_PRIMARY_MODEL`** = `gemini-3.5-flash`；**`GEMINI_COMPLEX_FALLBACK_MODEL`** = `gemini-3.1-flash-lite`（500 RPD 档）。  
+- **`gemini-proxy`** 默认 `gemini-3.5-flash`；Gemini 路径对 **非 free-tier allowlist** 的客户端模型名（如 `gemini-1.5-flash`、Pro）**remap 为 `GEMINI_MODEL_DEFAULT`**，旧 App 无需重装即可受益（需再 deploy 一次本 commit）。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini-helper.ts`  
+- `vouchap-app/supabase/functions/gemini-proxy/index.ts`
+
+---
+
+### 2026-05-26（gemini-proxy 日志 2.5-flash 却 404 gemini-1.5-flash）
+
+**User（提示词/原意）**  
+- Edge 日志显示 `calling Gemini API` model 为 `gemini-2.5-flash`，但报错 `gemini-1.5-flash` 404。
+
+**Assistant（实现后说明）**  
+- **根因**：`geminiGenerateContent` 误用 `isGeminiStyleModelId`（凡 `gemini*` 均替换为 `GEMINI_MODEL_DEFAULT`）；若 Secret 仍为 `gemini-1.5-flash`，实际请求 1.5 而日志打印客户端传入的 2.5。  
+- **修复**：`pickAllowedGeminiModel` + 实际调用与日志均用 `resolveModelForProvider`；blocked/env 无效时强制 `gemini-3.5-flash`；remap 时打 `remapped Gemini model` 日志。  
+- **运维**：`supabase secrets set GEMINI_MODEL_DEFAULT=gemini-3.5-flash` 或删除旧 secret 后 redeploy。
+
+**关联**  
+- `vouchap-app/supabase/functions/gemini-proxy/index.ts`
+

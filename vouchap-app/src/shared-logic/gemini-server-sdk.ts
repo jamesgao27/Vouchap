@@ -1,4 +1,5 @@
 import { FunctionsHttpError } from '@supabase/supabase-js';
+import { getClientAiProviderOverride, type AiProvider } from './ai-provider';
 import { supabase } from './supabase';
 
 /** When Edge returns 4xx/5xx, functions-js sets data=null and throws FunctionsHttpError; JSON body is on error.context (Response). */
@@ -32,33 +33,44 @@ type InlineDataPart = {
 type TextPart = string;
 type GeminiContent = TextPart | InlineDataPart;
 
-type GeminiProxyGenerateResponse = {
+type AiProxyGenerateResponse = {
   success: boolean;
   text?: string;
   modelUsed?: string;
+  provider?: AiProvider;
   error?: string;
 };
 
-type GeminiProxyListModelsResponse = {
+type AiProxyListModelsResponse = {
   success: boolean;
   models?: Array<{ name: string; supportedGenerationMethods?: string[] }>;
+  provider?: AiProvider;
   error?: string;
 };
 
-class ProxyGeminiModel {
-  private readonly model: string;
+function resolveInvokeProvider(override?: AiProvider): AiProvider | undefined {
+  return override ?? getClientAiProviderOverride();
+}
 
-  constructor(model: string) {
+class ProxyLlmModel {
+  private readonly model: string;
+  private readonly provider: AiProvider | undefined;
+
+  constructor(model: string, provider: AiProvider | undefined) {
     this.model = model;
+    this.provider = provider;
   }
 
   async generateContent(contents: GeminiContent | GeminiContent[]) {
     const parts = Array.isArray(contents) ? contents : [contents];
-    const body = {
+    const body: Record<string, unknown> = {
       action: 'generateContent',
       model: this.model,
       contents: parts,
     };
+    if (this.provider) {
+      body.provider = this.provider;
+    }
     if (typeof __DEV__ !== 'undefined' && __DEV__) {
       let inlineChars = 0;
       for (const p of parts) {
@@ -67,7 +79,8 @@ class ProxyGeminiModel {
           if (typeof d === 'string') inlineChars += d.length;
         }
       }
-      console.log('[gemini-proxy] invoking Edge Function generateContent', {
+      console.log('[ai-proxy] invoking Edge Function generateContent', {
+        provider: this.provider ?? '(server AI_PROVIDER_DEFAULT)',
         model: this.model,
         inlineImageBase64Chars: inlineChars,
       });
@@ -76,7 +89,7 @@ class ProxyGeminiModel {
       body,
       timeout: 180_000,
     });
-    const payload = (data ?? null) as GeminiProxyGenerateResponse | null;
+    const payload = (data ?? null) as AiProxyGenerateResponse | null;
     const serverMsg =
       typeof payload?.error === 'string' && payload.error.trim()
         ? payload.error.trim()
@@ -87,6 +100,7 @@ class ProxyGeminiModel {
           text: () => payload.text as string,
         },
         modelUsed: payload.modelUsed,
+        provider: payload.provider ?? this.provider,
       };
     }
     const httpDetail = await readEdgeFunctionJsonError(error);
@@ -94,27 +108,37 @@ class ProxyGeminiModel {
       serverMsg ||
         httpDetail ||
         (error instanceof Error ? error.message : String(error)) ||
-        'Gemini proxy returned empty result',
+        'AI proxy returned empty result',
     );
   }
 }
 
+/** Compatible shim for legacy `GoogleGenerativeAI` usage in recognition modules. */
 export class GoogleGenerativeAI {
-  constructor(_apiKey: string) {}
+  private readonly provider: AiProvider | undefined;
+
+  constructor(_apiKey: string, opts?: { provider?: AiProvider }) {
+    this.provider = resolveInvokeProvider(opts?.provider);
+  }
 
   getGenerativeModel(opts: { model: string }) {
-    return new ProxyGeminiModel(opts.model);
+    return new ProxyLlmModel(opts.model, this.provider);
   }
 }
 
-export async function listModelsViaGeminiProxy(): Promise<
+export async function listModelsViaGeminiProxy(providerOverride?: AiProvider): Promise<
   Array<{ name: string; supportedGenerationMethods?: string[] }>
 > {
+  const provider = resolveInvokeProvider(providerOverride);
+  const body: Record<string, unknown> = { action: 'listModels' };
+  if (provider) {
+    body.provider = provider;
+  }
   const { data, error } = await supabase.functions.invoke('gemini-proxy', {
-    body: { action: 'listModels' },
+    body,
     timeout: 60_000,
   });
-  const payload = (data ?? null) as GeminiProxyListModelsResponse | null;
+  const payload = (data ?? null) as AiProxyListModelsResponse | null;
   const serverMsg =
     typeof payload?.error === 'string' && payload.error.trim()
       ? payload.error.trim()
@@ -123,5 +147,5 @@ export async function listModelsViaGeminiProxy(): Promise<
     return payload.models ?? [];
   }
   const httpDetail = await readEdgeFunctionJsonError(error);
-  throw new Error(serverMsg || httpDetail || error?.message || 'Gemini proxy listModels failed');
+  throw new Error(serverMsg || httpDetail || error?.message || 'AI proxy listModels failed');
 }

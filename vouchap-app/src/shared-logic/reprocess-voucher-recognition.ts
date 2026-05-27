@@ -127,7 +127,7 @@ export async function reprocessExpenseReceiptFromStoredMedia(receiptId: string):
         receiptId,
         {
           status: 'needs_retake',
-          recognitionNotice: `${notice}\n\nIf recognition keeps failing, check connectivity and project AI (gemini-proxy) configuration.`,
+          recognitionNotice: `${notice}\n\nIf recognition keeps failing, check connectivity and project AI (gemini-proxy / DeepSeek or Gemini secrets) configuration.`,
         },
         true,
       );
@@ -173,7 +173,7 @@ export async function reprocessExpenseReceiptFromStoredMedia(receiptId: string):
         receiptId,
         {
           status: 'needs_retake',
-          recognitionNotice: `${notice}\n\nIf recognition keeps failing, check connectivity and project AI (gemini-proxy) configuration.`,
+          recognitionNotice: `${notice}\n\nIf recognition keeps failing, check connectivity and project AI (gemini-proxy / DeepSeek or Gemini secrets) configuration.`,
         },
         true,
       );

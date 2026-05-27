@@ -102,7 +102,11 @@ export default {
           ? true
           : process.env.EXPO_PUBLIC_SHOW_AI_INVENTORY === "true",
       showTaxFiling: true,
-      geminiApiKey: "server-side-gemini-proxy"
+      geminiApiKey: "server-side-gemini-proxy",
+      // Set only when forcing client-side provider; otherwise Edge uses AI_PROVIDER_DEFAULT
+      ...(process.env.EXPO_PUBLIC_AI_PROVIDER === "deepseek"
+        ? { aiProvider: "deepseek" }
+        : {})
     }
   }
 };

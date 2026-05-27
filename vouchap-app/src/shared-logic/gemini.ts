@@ -24,7 +24,13 @@ import {
   ReceiptTaxBreakdownEntry,
 } from '@/types';
 import { coerceReceiptTaxBreakdownEntries, taxBreakdownEntriesFromStrippedLineItems } from './receipt-tax-breakdown';
-import { resolveGeminiModelsToTryOrder, invalidateGeminiModelTryOrderCache, buildGeminiModelOrder } from './gemini-helper';
+import { buildGeminiModelOrder } from './gemini-helper';
+import { resolveModelsToTryOrder, invalidateModelTryOrderCache } from './ai-model-helper';
+import {
+  getRecognitionApiKeyPlaceholder,
+  getAiProxySetupHint,
+  AI_PROXY_UNAVAILABLE_CODE,
+} from './ai-provider';
 import { getMostFrequentCurrency, getCurrenciesByUsage } from './database';
 import { normalizeShortDate, getLocalDateString } from './date-utils';
 import { supabase } from './supabase';
@@ -326,18 +332,15 @@ const getSafeKey = () => {
 };
 
 function getCurrentGeminiApiKey(): string {
-  return 'server-side-gemini-proxy';
+  return getRecognitionApiKeyPlaceholder();
 }
 
-/** User-facing hint: AI runs in Supabase Edge Function `gemini-proxy`, not in the app bundle. */
-const GEMINI_PROXY_SETUP_HINT =
-  'Configure Supabase Edge Function `gemini-proxy` secrets (GEMINI_API_KEY required; optional GEMINI_MODEL_DEFAULT, GEMINI_ENFORCE_SERVER_MODEL) and redeploy the function.';
-
 function throwGeminiProxyUnavailable(detail?: string): never {
+  const hint = getAiProxySetupHint();
   const err = new Error(
-    detail ? `${detail}\n\n${GEMINI_PROXY_SETUP_HINT}` : `AI service unavailable.\n\n${GEMINI_PROXY_SETUP_HINT}`,
+    detail ? `${detail}\n\n${hint}` : `AI service unavailable.\n\n${hint}`,
   ) as Error & { code?: string };
-  err.code = 'GEMINI_PROXY_UNAVAILABLE';
+  err.code = AI_PROXY_UNAVAILABLE_CODE;
   throw err;
 }
 
@@ -347,7 +350,7 @@ const genAI = (apiKey && apiKey !== '')
   ? new GoogleGenerativeAI(apiKey)
   : null;
 
-/** Label for errors: static tail after API-sorted models (see resolveGeminiModelsToTryOrder). */
+/** Label for errors: static tail after API-sorted models (see resolveModelsToTryOrder). */
 const GEMINI_STATIC_MODEL_LIST_LABEL = buildGeminiModelOrder().join(', ');
 
 /** On transient / routing errors, drop cached listModels ordering so the next call refetches the catalog. */
@@ -358,7 +361,7 @@ function clearModelCacheIfUnavailable(err: unknown) {
       msg,
     )
   ) {
-    invalidateGeminiModelTryOrderCache();
+    invalidateModelTryOrderCache();
   }
 }
 
@@ -581,7 +584,7 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
 
   geminiDevLog('Image downloaded, size:', base64.length, 'bytes, mime type:', mimeType);
 
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -865,7 +868,7 @@ export async function recognizeInvoiceFromImage(imageUrl: string): Promise<Gemin
 
   geminiDevLog('Invoice image downloaded, size:', base64.length, 'bytes, mime type:', mimeType);
 
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -1222,7 +1225,7 @@ export async function recognizeReceiptFromDocument(fileUrl: string, mimeHint?: s
   }
   const filePart = { inlineData: { data: base64, mimeType } };
 
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -1439,7 +1442,7 @@ Return ONLY valid JSON format without any extra text:
       },
     };
 
-    const modelsToTry = await resolveGeminiModelsToTryOrder({
+    const modelsToTry = await resolveModelsToTryOrder({
       promptTextLength: prompt.length,
       inlineBase64Length: base64.length,
       mimeType,
@@ -1570,7 +1573,7 @@ User text:
 "${text}"`;
 
   try {
-    const modelsToTry = await resolveGeminiModelsToTryOrder({ promptTextLength: prompt.length });
+    const modelsToTry = await resolveModelsToTryOrder({ promptTextLength: prompt.length });
 
     let lastError: Error | null = null;
 
@@ -1850,7 +1853,7 @@ Output JSON keys: supplierName, date (YYYY-MM-DD), totalAmount, currency, curren
     // 获取音频文件的MIME类型（假设是m4a格式，Expo录音默认格式）
     const mimeType = 'audio/m4a';
 
-    const modelsToTry = await resolveGeminiModelsToTryOrder({
+    const modelsToTry = await resolveModelsToTryOrder({
       promptTextLength: prompt.length,
       inlineBase64Length: audioBase64.length,
       mimeType,
@@ -2047,7 +2050,7 @@ Output: customerName, supplierInfo{taxNumber,phone,address}, date, totalAmount, 
 User input:
 "${text}"`;
 
-  const modelsToTry = await resolveGeminiModelsToTryOrder({ promptTextLength: prompt.length });
+  const modelsToTry = await resolveModelsToTryOrder({ promptTextLength: prompt.length });
   let lastError: Error | null = null;
 
   for (const modelName of modelsToTry) {
@@ -2170,7 +2173,7 @@ Output: customerName, supplierInfo{taxNumber,phone,address}, date, totalAmount, 
   }
   const filePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -2302,7 +2305,7 @@ Single pass: include supplierInfo for customer taxNumber, phone, address when cl
 Return ONLY valid JSON: customerName, supplierInfo{taxNumber,phone,address}, date (YYYY-MM-DD), totalAmount, currency, tax, paymentAccountName, paymentCardLastFour (optional), items (name, itemAlias(optional), categoryName, attributionName, price), dataConsistency (itemsSum, itemsSumMatchesTotal, missingItems, consistencyComment), confidence(0-1).`;
 
   const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: audioBase64.length,
     mimeType: 'audio/m4a',
@@ -2551,7 +2554,7 @@ User input:
 "${text}"`;
 
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = await resolveGeminiModelsToTryOrder({ promptTextLength: prompt.length });
+  const modelsToTry = await resolveModelsToTryOrder({ promptTextLength: prompt.length });
   let lastError: Error | null = null;
   for (const modelName of modelsToTry) {
     try {
@@ -2580,7 +2583,7 @@ Listen to the audio and output one JSON object. Unclear or noise-only audio → 
 
   const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: audioBase64.length,
     mimeType: 'audio/m4a',
@@ -2674,7 +2677,7 @@ User input:
 "${text}"`;
 
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = await resolveGeminiModelsToTryOrder({ promptTextLength: prompt.length });
+  const modelsToTry = await resolveModelsToTryOrder({ promptTextLength: prompt.length });
   let lastError: Error | null = null;
   for (const modelName of modelsToTry) {
     try {
@@ -2703,7 +2706,7 @@ Listen to the audio and output one JSON object. Unclear or noise-only audio → 
 
   const audioBase64 = await FileSystem.readAsStringAsync(audioUri, { encoding: FileSystem.EncodingType.Base64 });
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: audioBase64.length,
     mimeType: 'audio/m4a',
@@ -2764,7 +2767,7 @@ ${INBOUND_JSON_EXAMPLE(today)}`;
   const { base64, mimeType } = await downloadImageToBase64(imageUrl);
   const imagePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -2811,7 +2814,7 @@ ${OUTBOUND_JSON_EXAMPLE(today)}`;
   const { base64, mimeType } = await downloadImageToBase64(imageUrl);
   const imagePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -2865,7 +2868,7 @@ ${INBOUND_JSON_EXAMPLE(today)}`;
   }
   const filePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -2946,7 +2949,7 @@ export async function recognizeClientsFromText(text: string): Promise<ClientReco
   const currentApiKey = getCurrentGeminiApiKey();
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
   const prompt = `${CLIENT_EXTRACTION_PROMPT}\n\nContent to parse:\n${text}`;
-  const modelsToTry = await resolveGeminiModelsToTryOrder({ promptTextLength: prompt.length });
+  const modelsToTry = await resolveModelsToTryOrder({ promptTextLength: prompt.length });
   let lastError: Error | null = null;
   for (const modelName of modelsToTry) {
     try {
@@ -2980,7 +2983,7 @@ export async function recognizeClientsFromDocument(fileUrl: string, mimeHint?: s
   }
   const filePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: CLIENT_EXTRACTION_PROMPT.length,
     inlineBase64Length: base64.length,
     mimeType,
@@ -3033,7 +3036,7 @@ ${OUTBOUND_JSON_EXAMPLE(today)}`;
   }
   const filePart = { inlineData: { data: base64, mimeType } };
   const currentGenAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: prompt.length,
     inlineBase64Length: base64.length,
     mimeType,

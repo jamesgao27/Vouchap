@@ -1,4 +1,5 @@
 // 辅助函数：列出所有可用的 Gemini 模型
+import { getClientAiProviderOverride } from './ai-provider';
 import { listModelsViaGeminiProxy } from './gemini-server-sdk';
 
 /**
@@ -13,32 +14,46 @@ const apiKey = getSafeApiKey();
  * 如果是在打包后的 APK (非 __DEV__) 中发现 Key 缺失，直接弹窗告知用户原因
  */
 if (!apiKey) {
-  const errorMsg = "Gemini API Key 未配置或注入失败（检测到占位符）";
+  const errorMsg = 'Gemini API Key 未配置或注入失败（检测到占位符）';
   console.error(errorMsg);
-  if (!__DEV__) {
-    // 只有在非开发环境下才弹窗，方便 APK 调试
-    // alert(errorMsg); 
-  }
 }
 
 // 列出所有可用模型
 export async function listAvailableModels() {
   try {
-    return await listModelsViaGeminiProxy();
+    return await listModelsViaGeminiProxy(getClientAiProviderOverride());
   } catch (error: any) {
     console.error('Error listing models:', error);
     throw error;
   }
 }
 
-/** 应用内默认：成本优先用 1.5 Flash；复杂场景由 gemini-2.5-pro 兜底（gemini-1.5-pro 已从 v1 generateContent 移除） */
-export const GEMINI_PRIMARY_MODEL = 'gemini-1.5-flash' as const;
-export const GEMINI_PRO_FALLBACK_MODEL = 'gemini-2.5-pro' as const;
+/**
+ * Google AI Studio free tier (May 2026): prefer models with non-zero RPM/RPD.
+ * Order: 3.5 Flash → 3 Flash → 2.5 Flash → 3.1 Flash Lite → 2.5 Flash Lite.
+ */
+export const GEMINI_FREE_TIER_MODEL_ORDER = [
+  'gemini-3.5-flash',
+  'gemini-3-flash',
+  'gemini-3-flash-preview',
+  'gemini-2.5-flash',
+  'gemini-3.1-flash-lite',
+  'gemini-2.5-flash-lite',
+] as const;
+
+/** Default for receipt recognition (matches first free-tier slot). */
+export const GEMINI_PRIMARY_MODEL = GEMINI_FREE_TIER_MODEL_ORDER[0];
+
+/** Complex prompts (long text / PDF / large image): use highest-RPD lite model, not Pro (0 quota). */
+export const GEMINI_COMPLEX_FALLBACK_MODEL = 'gemini-3.1-flash-lite' as const;
+
+/** @deprecated Use GEMINI_COMPLEX_FALLBACK_MODEL — Pro models have 0 free-tier quota. */
+export const GEMINI_PRO_FALLBACK_MODEL = GEMINI_COMPLEX_FALLBACK_MODEL;
 
 const LONG_PROMPT_CHARS = 10_000;
 const LARGE_INLINE_BASE64 = 800_000;
 
-/** 判断当前请求是否更适合先尝试 Pro（长 prompt、大附件、PDF 等） */
+/** 判断当前请求是否更适合先尝试 lite 兜底（长 prompt、大附件、PDF 等） */
 export function inferComplexGeminiContent(args: {
   promptTextLength?: number;
   inlineBase64Length?: number;
@@ -53,27 +68,35 @@ export function inferComplexGeminiContent(args: {
   return false;
 }
 
-/** 其余模型：新系列 Flash 优先；不含 GEMINI_PRO_FALLBACK_MODEL（由 buildGeminiModelOrder 单独插入） */
-const GEMINI_MODEL_TAIL = [
-  'gemini-2.5-flash-lite',
-  'gemini-2.0-flash-lite',
-  'gemini-2.0-flash',
-  'gemini-2.5-flash',
-  'gemini-3-flash-preview',
-  'gemini-3-pro-preview',
-] as const;
+/**
+ * Models with 0 RPM on free tier (AI Studio) — never call via recognition retry loops.
+ * See user quota table: 2.5 Pro, 2 Flash / 2 Flash Lite, 3.1 Pro, legacy 1.5, etc.
+ */
+export function isGeminiModelBlockedOnFreeTier(modelId: string): boolean {
+  const id = normalizeGeminiModelApiName(modelId).toLowerCase();
+  if (!id.startsWith('gemini')) return true;
+  if (/embed|embedding|aqa/.test(id)) return true;
+  if (/\bpro\b|gemini-.*-pro|pro-preview/.test(id)) return true;
+  if (/gemini-1\.5/.test(id)) return true;
+  if (/gemini-2\.0/.test(id)) return true;
+  if (/gemini-2-flash/.test(id) && !/gemini-2\.5/.test(id)) return true;
+  return !GEMINI_FREE_TIER_MODEL_ORDER.some(
+    (allowed) => id === allowed || id.startsWith(`${allowed}-`),
+  );
+}
 
 /**
- * 统一模型尝试顺序：默认 gemini-1.5-flash 优先，复杂时 gemini-2.5-pro 紧接兜底，否则 Pro 在队尾。
+ * Static try-order aligned with free-tier quotas (no Pro / zero-quota models).
  */
 export function buildGeminiModelOrder(opts?: { preferProAfterFlash?: boolean }): string[] {
-  const primary = GEMINI_PRIMARY_MODEL;
-  const pro = GEMINI_PRO_FALLBACK_MODEL;
-  const tail = [...GEMINI_MODEL_TAIL];
-  if (opts?.preferProAfterFlash) {
-    return [primary, pro, ...tail];
+  const base = [...GEMINI_FREE_TIER_MODEL_ORDER];
+  if (!opts?.preferProAfterFlash) {
+    return base;
   }
-  return [primary, ...tail, pro];
+  const primary = base[0];
+  const complex = GEMINI_COMPLEX_FALLBACK_MODEL;
+  const rest = base.filter((m) => m !== primary && m !== complex);
+  return [primary, complex, ...rest];
 }
 
 /** API 探测到的可用模型优先，再与静态顺序合并去重 */
@@ -84,7 +107,7 @@ export function mergeGeminiModelsWithAvailable(
   const seen = new Set<string>();
   const out: string[] = [];
   const push = (m: string) => {
-    if (!m || seen.has(m)) return;
+    if (!m || seen.has(m) || isGeminiModelBlockedOnFreeTier(m)) return;
     seen.add(m);
     out.push(m);
   };
@@ -121,32 +144,28 @@ function modelIsGenerateContentCandidate(m: GeminiListModelRow): boolean {
   if (!id.startsWith('gemini')) return false;
   if (id.includes('embedding') || id.includes('embed')) return false;
   if (id.includes('aqa')) return false;
+  if (isGeminiModelBlockedOnFreeTier(id)) return false;
   return true;
 }
 
 /**
- * Heuristic cost / latency tier: lower = cheaper = try first.
- * Google does not expose prices on listModels; we maintain rough ordering as catalog evolves.
+ * Lower score = try earlier. Matches GEMINI_FREE_TIER_MODEL_ORDER; blocked models → 9999.
  */
 export function scoreGeminiModelCostHeuristic(modelId: string): number {
-  const id = modelId.toLowerCase();
-  const rules: Array<{ re: RegExp; score: number }> = [
-    { re: /flash.?lite|flash-lite|2\.5-flash-lite|2\.0-flash-lite/i, score: 8 },
-    { re: /gemini-1\.5-flash-8b/i, score: 14 },
-    { re: /gemini-1\.5-flash(?!-8b)/i, score: 18 },
-    { re: /gemini-2\.0-flash(?!.*lite)/i, score: 28 },
-    { re: /gemini-2\.5-flash(?!.*lite)/i, score: 32 },
-    { re: /gemini-3-flash|flash-preview/i, score: 38 },
-    { re: /gemini-1\.5-pro/i, score: 62 },
-    { re: /gemini-2\.5-pro/i, score: 68 },
-    { re: /gemini-3-pro|pro-preview/i, score: 78 },
-    { re: /gemini-pro(?!vision)/i, score: 72 },
-    { re: /flash/i, score: 45 },
-  ];
-  for (const { re, score } of rules) {
-    if (re.test(id)) return score;
+  const id = normalizeGeminiModelApiName(modelId).toLowerCase();
+  if (isGeminiModelBlockedOnFreeTier(id)) return 9999;
+  for (let i = 0; i < GEMINI_FREE_TIER_MODEL_ORDER.length; i += 1) {
+    const prefix = GEMINI_FREE_TIER_MODEL_ORDER[i].toLowerCase();
+    if (id === prefix || id.startsWith(`${prefix}-`)) {
+      return (i + 1) * 10;
+    }
   }
-  return 900;
+  if (/3\.5-flash/.test(id)) return 10;
+  if (/3-flash/.test(id)) return 20;
+  if (/2\.5-flash(?!-lite)/.test(id)) return 30;
+  if (/3\.1-flash-lite/.test(id)) return 40;
+  if (/2\.5-flash-lite/.test(id)) return 50;
+  return 800;
 }
 
 function sortGeminiModelIdsByCost(ids: string[]): string[] {
@@ -186,20 +205,20 @@ async function getDynamicGeminiModelsSortedCached(): Promise<string[]> {
 function mergeDynamicSortedWithStaticOrder(
   dynamicSorted: string[],
   staticOrder: string[],
-  preferProAfterFlash: boolean,
+  preferComplexFallback: boolean,
 ): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   const push = (m: string) => {
-    if (!m || seen.has(m)) return;
+    if (!m || seen.has(m) || isGeminiModelBlockedOnFreeTier(m)) return;
     seen.add(m);
     out.push(m);
   };
-  const pro = GEMINI_PRO_FALLBACK_MODEL;
+  const complex = GEMINI_COMPLEX_FALLBACK_MODEL;
 
-  if (preferProAfterFlash && dynamicSorted.length > 0) {
+  if (preferComplexFallback && dynamicSorted.length > 0) {
     push(dynamicSorted[0]);
-    push(pro);
+    push(complex);
     for (let i = 1; i < dynamicSorted.length; i += 1) push(dynamicSorted[i]);
   } else {
     for (const m of dynamicSorted) push(m);
@@ -210,21 +229,21 @@ function mergeDynamicSortedWithStaticOrder(
 }
 
 /**
- * Full try-order for generateContent: Google listModels (cost-sorted) first, then static fallbacks.
+ * Full try-order for generateContent: API list (free-tier sorted) + static fallbacks.
  * Call invalidateGeminiModelTryOrderCache() on 404/503 so the next run refetches the catalog.
  */
-export async function resolveGeminiModelsToTryOrder(complexity: {
+/** Gemini-only model try-order (use `resolveModelsToTryOrder` from `ai-model-helper` for provider-aware routing). */
+export async function resolveGeminiOnlyModelsToTryOrder(complexity: {
   promptTextLength: number;
   inlineBase64Length?: number;
   mimeType?: string;
 }): Promise<string[]> {
-  const preferPro = inferComplexGeminiContent(complexity);
-  const staticOrder = buildGeminiModelOrder({ preferProAfterFlash: preferPro });
+  const preferComplex = inferComplexGeminiContent(complexity);
+  const staticOrder = buildGeminiModelOrder({ preferProAfterFlash: preferComplex });
   const dynamicSorted = await getDynamicGeminiModelsSortedCached();
-  return mergeDynamicSortedWithStaticOrder(dynamicSorted, staticOrder, preferPro);
+  return mergeDynamicSortedWithStaticOrder(dynamicSorted, staticOrder, preferComplex);
 }
 
-// 获取支持图像/音频输入的第一个可用模型（与 resolveGeminiModelsToTryOrder 同源：成本序第一个）
 export async function getAvailableImageModel(): Promise<string | null> {
   const FALLBACK_MODEL = GEMINI_PRIMARY_MODEL;
   try {

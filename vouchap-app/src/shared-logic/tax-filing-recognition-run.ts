@@ -5,7 +5,8 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import { GoogleGenerativeAI } from './gemini-server-sdk';
-import { resolveGeminiModelsToTryOrder } from './gemini-helper';
+import { resolveModelsToTryOrder } from './ai-model-helper';
+import { getRecognitionApiKeyPlaceholder } from './ai-provider';
 import {
   buildTaxFilingRecognitionPrompt,
   type TaxFilingProjectContext,
@@ -92,7 +93,7 @@ export async function runTaxFilingRecognition(
   mimeHint?: string,
   taskList?: TaxFilingTaskListItem[]
 ): Promise<TaxFilingRecognitionResult> {
-  const currentApiKey = 'server-side-gemini-proxy';
+  const currentApiKey = getRecognitionApiKeyPlaceholder();
 
   const prompt = buildTaxFilingRecognitionPrompt({ projectContext, todoContext, taskList, userInstructions });
   const { base64, mimeType } = await downloadFileToBase64(imageUrl, mimeHint);
@@ -108,7 +109,7 @@ export async function runTaxFilingRecognition(
       : '';
   const promptForGemini = useTextOnly ? `${prompt}\n\n---\n${extractedBlock}` : prompt;
   const genAI = new GoogleGenerativeAI(currentApiKey);
-  const modelsToTry = await resolveGeminiModelsToTryOrder({
+  const modelsToTry = await resolveModelsToTryOrder({
     promptTextLength: promptForGemini.length,
     inlineBase64Length: useTextOnly ? 0 : base64.length,
     mimeType: useTextOnly ? undefined : mimeType,
