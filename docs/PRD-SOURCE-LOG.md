@@ -7431,3 +7431,19 @@
 - `vouchap-app/src/mobile-ui/app/chat-to-log.tsx`  
 - `vouchap-app/src/mobile-ui/app/index.tsx`  
 - `vouchap-app/src/mobile-ui/app/receipts.tsx`
+
+---
+
+### 2026-07-14（vouchap-app：发布版本号 2.6.4 Build 54，准备 Expo 构建）
+
+**User（提示词/原意）**  
+- vouchap 更新移动 app 版本号，准备推送 expo 构建。
+
+**Assistant（实现前说明）**  
+- 当前为 2.6.3 / Build 53；按 `.cursorrules` 同步 package.json、package-lock、app.json、app.config.js、android build.gradle、iOS Info.plist，升为 2.6.4 / Build 54，并 commit + push。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已将版本统一为 **2.6.4**，构建号 **54**；提交信息：`发布版本号 2.6.4 (Build 54)` 并 push。可据此跑 EAS/Expo 构建。
+
+**关联**  
+- `vouchap-app/package.json` 等版本文件
