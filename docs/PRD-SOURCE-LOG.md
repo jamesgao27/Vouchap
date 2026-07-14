@@ -7385,3 +7385,49 @@
 **关联**  
 - `vouchap-app/supabase/functions/gemini-proxy/index.ts`
 
+---
+
+### 2026-06-03（商务：三家公司白标 + 自有 Supabase/服务器部署 Proposal 英文稿）
+
+**User（提示词/原意）**  
+- 潜在客户旗下三家公司，讨论 Vouchap 后希望定制白标版本，部署在自有服务器或自有 Supabase 云资源；需以商务专家角度编写英文 proposal。
+
+**Assistant（实现前说明）**  
+- 无代码变更；对照 PRD、官网 Features、部署文档（Supabase/Cloudflare/EAS）梳理产品能力与私有化可行项，输出英文商务 proposal（含 executive summary、方案范围、部署选项、阶段、交付物、定价框架、SLA、下一步）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已在对话中交付完整英文 proposal 正文；未新建仓库内独立 `.md` 文件（用户未要求落盘）。客户名、三家公司实体名、预算与工期为占位，需商务会前填入。
+
+**关联**  
+- `docs/PRD-Vouchap-Platform-And-Marketing-Site.md`  
+- `vouchap-app/docs/DEPLOY-CLOUDFLARE.md`  
+- `vouchap-website/components/Features.tsx`
+
+
+---
+
+### 2026-07-14（收据提交异步化：先上传建单，识别后台回写）
+
+**User（提示词/原意）**  
+- 移动端与 Web：拍照或提交文字、语音后，目前提交后只能停留界面等待。  
+- 需要异步处理：立即上传文件/图片并保存，出现 receipt 记录；识别过程可异步，后续更新记录。  
+- 一次提交多个文件需尽快先处理上传和产生记录；退出窗口不应影响记录产生与后续更新。
+
+**Assistant（实现前说明）**  
+- 现状：拍照路径已有 `processing` 占位，但首页仍 `await` 整段 OCR；Chat 文字/语音/附件为「先识别再建单」，且后台重试受 `mountedRef` 影响会跳过落库。  
+- 计划：统一「上传/建 `processing` → 释放 UI → 后台识别 `updateReceipt`」；扩展 `receipt-processor` 支持 text/audio/document；发票对齐；多文件循环内只 await 上传+建单，识别 fire-and-forget。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 扩展 [`receipt-processor.ts`](vouchap-app/src/shared-logic/receipt-processor.ts)：`createProcessingReceipt` + text/audio/document 后台识别；失败统一 `needs_retake`（不再误写 `pending`）。  
+- 新增 [`invoice-processor.ts`](vouchap-app/src/shared-logic/invoice-processor.ts) 对称异步路径。  
+- 首页 [`index.tsx`](vouchap-app/src/mobile-ui/app/index.tsx)：上传+建单后 fire-and-forget 识别，多图可连续建单。  
+- [`receipts.tsx`](vouchap-app/src/mobile-ui/app/receipts.tsx)、[`chat-to-log.tsx`](vouchap-app/src/mobile-ui/app/chat-to-log.tsx)：附件/文字/语音先建单并写 chat log，识别异步；unmount 仅停止 UI 刷新，不取消落库；Web blob 延后 revoke。  
+- **验证建议**：首页多图拍照后立即关 Success / 回列表，应看到多条 `Processing...` 并陆续变为识别结果；Chat 连发多附件、文字、语音后立刻退出，列表/详情仍应有记录并后续更新。  
+- **残留**：识别仍由客户端进程编排（杀进程后 Promise 中断）；长期可上服务端 job / 对 `processing` 孤儿补跑。inbound/outbound 文字语音路径仍为同步识别（本轮未改）。
+
+**关联**  
+- `vouchap-app/src/shared-logic/receipt-processor.ts`  
+- `vouchap-app/src/shared-logic/invoice-processor.ts`  
+- `vouchap-app/src/mobile-ui/app/chat-to-log.tsx`  
+- `vouchap-app/src/mobile-ui/app/index.tsx`  
+- `vouchap-app/src/mobile-ui/app/receipts.tsx`

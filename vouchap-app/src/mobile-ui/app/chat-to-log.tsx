@@ -22,11 +22,24 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { recognizeReceipt, recognizeReceiptFromDocument, recognizeReceiptFromText, recognizeReceiptFromAudio, recognizeVoucherFromText, recognizeVoucherFromAudio, recognizeInvoiceFromImage, recognizeInvoiceFromDocument, recognizeInboundFromText, recognizeInboundFromAudio, recognizeOutboundFromText, recognizeOutboundFromAudio, recognizeInboundFromImage, recognizeOutboundFromImage, recognizeInboundFromDocument, recognizeOutboundFromDocument, recognizeClientsFromText, recognizeClientsFromDocument, recognizeClientsFromImage } from '@/lib/gemini';
+import { recognizeInboundFromText, recognizeInboundFromAudio, recognizeOutboundFromText, recognizeOutboundFromAudio, recognizeInboundFromImage, recognizeOutboundFromImage, recognizeInboundFromDocument, recognizeOutboundFromDocument, recognizeClientsFromText, recognizeClientsFromDocument, recognizeClientsFromImage } from '@/lib/gemini';
 import { runWithRecognitionRetry, getUserFacingMessage } from '@/lib/recognition-retry';
-import { saveReceipt, updateReceipt, getReceiptById } from '@/lib/database';
-import { checkDuplicateReceipt } from '@/lib/receipt-duplicate-checker';
-import { saveInvoice, getInvoiceById } from '@/lib/invoices';
+import { getReceiptById, updateReceipt } from '@/lib/database';
+import {
+  createProcessingReceipt,
+  processReceiptInBackground,
+  processReceiptFromDocumentInBackground,
+  processReceiptFromTextInBackground,
+  processReceiptFromAudioInBackground,
+} from '@/lib/receipt-processor';
+import {
+  createProcessingInvoice,
+  processInvoiceInBackground,
+  processInvoiceFromDocumentInBackground,
+  processInvoiceFromTextInBackground,
+  processInvoiceFromAudioInBackground,
+} from '@/lib/invoice-processor';
+import { getInvoiceById, saveInvoice } from '@/lib/invoices';
 import { saveInbound, getInboundById } from '@/lib/inbound';
 import { saveOutbound, getOutboundById } from '@/lib/outbound';
 import { saveChatLog, getChatLogsPaginated, updateChatLogResponseData, VoucherLogType, type ChatLog } from '@/lib/chat-logs';
@@ -58,7 +71,7 @@ import {
 } from '@/lib/client-recognition-quota';
 import { alertClientRecognitionQuotaBlocked } from '@/lib/recognition-preflight-ui';
 import { ReceiptStatus, Receipt, Invoice, Inbound, Outbound, ExtractedClient, ClientRecognitionResult } from '@/types';
-import { convertGeminiResultToReceipt, convertGeminiResultToInvoice, convertGeminiResultToInbound, convertGeminiResultToOutbound } from '@/lib/receipt-helpers';
+import { convertGeminiResultToInbound, convertGeminiResultToOutbound } from '@/lib/receipt-helpers';
 import { format } from 'date-fns';
 import { 
   startRecording, 
@@ -1654,79 +1667,135 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 fileUrl = await uploadReceiptImageTempWithSpace(file.uri, tempFileName, clientSpaceId);
               } else {
                 fileUrl = await uploadReceiptImageTempWithSpace(file.uri, tempFileName, clientSpaceId, { fileName: file.name, mimeType: file.mimeType });
-                // 上传完成后更新用户消息，补充 documentUrl 以支持点击打开
                 setMessages((prev) => prev.map((m) => (m.id === `img-user-${file.id}` ? { ...m, documentUrl: fileUrl } : m)));
               }
-              const voucherGate = await assertClientRecognitionAllowed(clientSpaceId);
-              if (!voucherGate.allowed) {
-                alertClientRecognitionQuotaBlocked(router, { allowed: false, message: voucherGate.message });
-                const msg = voucherGate.message ?? 'Recognition limit reached.';
-                setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: `Limit: ${msg}`, isUser: false, timestamp: new Date() } : m)));
-                await saveChatLog({
-                  receiptId: undefined,
-                  voucherType,
-                  type: isImage ? 'image' : (file.mimeType ? 'document' : 'attachment'),
-                  modelName: 'gemini',
-                  prompt: name,
-                  response: msg,
-                  requestData: { imageUrl: fileUrl, mimeType: file.mimeType, rawText: text || undefined },
-                  responseData: { quota: 'blocked' },
-                  success: false,
-                  attachmentUrl: fileUrl,
-                });
-                continue;
-              }
-              const recognizeFn = voucherType === 'receipt'
-                ? () => (isImage ? recognizeReceipt(fileUrl) : recognizeReceiptFromDocument(fileUrl, file.mimeType))
-                : () => (isImage ? recognizeInvoiceFromImage(fileUrl) : recognizeInvoiceFromDocument(fileUrl, file.mimeType));
-              const first = await runWithRecognitionRetry(recognizeFn as () => Promise<Awaited<ReturnType<typeof recognizeReceipt>> | Awaited<ReturnType<typeof recognizeInvoiceFromImage>>>, { maxAttempts: 5, delayMs: 1500 });
-              if (!first.success) {
-                const errText = first.isContentQuality ? '❌ Content unclear or not recognized. Please resubmit.' : `❌ ${getUserFacingMessage(first)}`;
-                setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: errText, isUser: false, timestamp: new Date() } : m)));
-                // 识别失败也保留 chat log 记录（type=document/attachment），便于历史追溯
-                await saveChatLog({
-                  receiptId: undefined,
-                  voucherType,
-                  type: isImage ? 'image' : (file.mimeType ? 'document' : 'attachment'),
-                  modelName: 'gemini',
-                  prompt: name,
-                  response: errText,
-                  requestData: { imageUrl: fileUrl, mimeType: file.mimeType, rawText: text || undefined },
-                  responseData: { error: first },
-                  success: false,
-                  attachmentUrl: fileUrl,
-                });
-                continue;
-              }
-              if (isRecognitionResultUnrecognizable(first.result)) {
-                setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? { id: m.id, text: '❌ Content unclear or not recognized. Please resubmit.', isUser: false, timestamp: new Date() } : m)));
-                continue;
-              }
+              const inputType = (isImage ? 'image' : 'document') as 'image' | 'document';
+              // 先建 processing 记录，识别后台异步；退出窗口不影响落库与后续更新
               if (voucherType === 'invoice') {
-                const invoice = await convertGeminiResultToInvoice(first.result as any);
-                const invoiceToSave = { ...invoice, inputType: (isImage ? 'image' : 'document') as 'image' | 'document', imageUrl: fileUrl };
-                const invoiceId = await saveInvoice(invoiceToSave);
-                const previewMessage: Message = { id: `img-preview-${file.id}`, text: '', isUser: false, timestamp: new Date(), invoicePreview: { ...invoiceToSave, id: invoiceId, status: invoice.status, account: (first.result as any).paymentAccountName ? { id: invoice.accountId || '', spaceId: invoice.spaceId, name: (first.result as any).paymentAccountName!, isAiRecognized: true } : undefined } as Invoice, voucherType: 'invoice' };
-                setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMessage : m)));
-                await saveChatLog({ receiptId: undefined, voucherType: 'invoice', type: 'image', modelName: 'gemini', prompt: name, response: '', requestData: { imageUrl: fileUrl }, responseData: { invoicePreview: previewMessage.invoicePreview }, success: true });
-                await recordClientRecognitionSuccessIfEnforced(clientSpaceId);
-              } else {
-                const receipt = await convertGeminiResultToReceipt(first.result);
-                const receiptToSave = { ...receipt, inputType: (isImage ? 'image' : 'document') as 'image' | 'document', imageUrl: fileUrl };
-                const receiptId = await saveReceipt(receiptToSave);
-                let receiptStatus: ReceiptStatus = receipt.status;
-                const savedReceipt = await getReceiptById(receiptId);
-                if (savedReceipt) {
-                  const duplicateReceipt = await checkDuplicateReceipt(savedReceipt);
-                  if (duplicateReceipt) {
-                    await updateReceipt(receiptId, { status: 'duplicate' }, true);
-                    receiptStatus = 'duplicate';
+                const invoiceId = await createProcessingInvoice({ imageUrl: fileUrl, inputType });
+                await saveChatLog({
+                  invoiceId,
+                  voucherType: 'invoice',
+                  type: isImage ? 'image' : (file.mimeType ? 'document' : 'attachment'),
+                  modelName: 'gemini',
+                  prompt: name,
+                  response: '',
+                  requestData: { imageUrl: fileUrl, mimeType: file.mimeType, async: true },
+                  responseData: { invoicePreview: { id: invoiceId, status: 'processing', customerName: 'Processing...', imageUrl: fileUrl } },
+                  success: true,
+                  attachmentUrl: fileUrl,
+                });
+                void (async () => {
+                  try {
+                    const updated = isImage
+                      ? await processInvoiceInBackground(fileUrl, invoiceId)
+                      : await processInvoiceFromDocumentInBackground(fileUrl, invoiceId, file.mimeType);
+                    const invoice = updated ?? (await getInvoiceById(invoiceId));
+                    if (!invoice) {
+                      if (mountedRef.current) {
+                        setMessages((prev) =>
+                          prev.map((m) =>
+                            m.id === loadingCardId
+                              ? { id: m.id, text: '❌ Recognition failed.', isUser: false, timestamp: new Date() }
+                              : m
+                          )
+                        );
+                      }
+                      return;
+                    }
+                    if (!mountedRef.current) return;
+                    const previewMessage: Message = {
+                      id: `img-preview-${file.id}`,
+                      text: '',
+                      isUser: false,
+                      timestamp: new Date(),
+                      invoicePreview: {
+                        ...invoice,
+                        account: invoice.account,
+                      } as Invoice,
+                      voucherType: 'invoice',
+                    };
+                    setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMessage : m)));
+                  } catch (err) {
+                    console.error('Invoice attachment background recognition failed:', err);
+                    if (!mountedRef.current) return;
+                    const errText = err instanceof Error ? err.message : 'Recognition failed.';
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === loadingCardId
+                          ? { id: m.id, text: `❌ ${errText}`, isUser: false, timestamp: new Date() }
+                          : m
+                      )
+                    );
+                  } finally {
+                    if (Platform.OS === 'web' && typeof file.uri === 'string' && file.uri.startsWith('blob:')) {
+                      URL.revokeObjectURL(file.uri);
+                    }
                   }
-                }
-                const previewMessage: Message = { id: `img-preview-${file.id}`, text: '', isUser: false, timestamp: new Date(), receiptPreview: { ...receiptToSave, id: receiptId, status: receiptStatus, account: (first.result as any).paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: (first.result as any).paymentAccountName!, isAiRecognized: true } : undefined } };
-                setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMessage : m)));
-                await saveChatLog({ receiptId, voucherType: 'receipt', type: 'image', modelName: 'gemini', prompt: name, response: '', requestData: { imageUrl: fileUrl }, responseData: { receiptPreview: previewMessage.receiptPreview }, success: true });
-                await recordClientRecognitionSuccessIfEnforced(clientSpaceId);
+                })();
+              } else {
+                const receiptId = await createProcessingReceipt({ imageUrl: fileUrl, inputType });
+                await saveChatLog({
+                  receiptId,
+                  voucherType: 'receipt',
+                  type: isImage ? 'image' : (file.mimeType ? 'document' : 'attachment'),
+                  modelName: 'gemini',
+                  prompt: name,
+                  response: '',
+                  requestData: { imageUrl: fileUrl, mimeType: file.mimeType, async: true },
+                  responseData: { receiptPreview: { id: receiptId, status: 'processing', supplierName: 'Processing...', imageUrl: fileUrl } },
+                  success: true,
+                  attachmentUrl: fileUrl,
+                });
+                void (async () => {
+                  try {
+                    if (isImage) {
+                      await processReceiptInBackground(fileUrl, receiptId, file.uri);
+                    } else {
+                      await processReceiptFromDocumentInBackground(fileUrl, receiptId, file.mimeType);
+                    }
+                    const receipt = await getReceiptById(receiptId);
+                    if (!receipt) {
+                      if (mountedRef.current) {
+                        setMessages((prev) =>
+                          prev.map((m) =>
+                            m.id === loadingCardId
+                              ? { id: m.id, text: '❌ Recognition failed.', isUser: false, timestamp: new Date() }
+                              : m
+                          )
+                        );
+                      }
+                      return;
+                    }
+                    if (!mountedRef.current) return;
+                    const previewMessage: Message = {
+                      id: `img-preview-${file.id}`,
+                      text: '',
+                      isUser: false,
+                      timestamp: new Date(),
+                      receiptPreview: {
+                        ...receipt,
+                        account: receipt.account,
+                      },
+                    };
+                    setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? previewMessage : m)));
+                  } catch (err) {
+                    console.error('Receipt attachment background recognition failed:', err);
+                    if (!mountedRef.current) return;
+                    const errText = err instanceof Error ? err.message : 'Recognition failed.';
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === loadingCardId
+                          ? { id: m.id, text: `❌ ${errText}`, isUser: false, timestamp: new Date() }
+                          : m
+                      )
+                    );
+                  } finally {
+                    if (Platform.OS === 'web' && typeof file.uri === 'string' && file.uri.startsWith('blob:')) {
+                      URL.revokeObjectURL(file.uri);
+                    }
+                  }
+                })();
               }
             } else if (voucherType === 'inbound' || voucherType === 'outbound') {
               const name = file.name ?? `File ${i + 1}`;
@@ -1833,8 +1902,18 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             showToast(e instanceof Error ? e.message : 'Upload failed', 'error');
             removeFromStaged();
             appendMessages([{ id: `img-err-${file.id}`, text: `❌ ${file.name ?? 'File'} failed`, isUser: false, timestamp: new Date() }]);
-          } finally {
             if (Platform.OS === 'web' && typeof file.uri === 'string' && file.uri.startsWith('blob:')) {
+              URL.revokeObjectURL(file.uri);
+            }
+          } finally {
+            // receipt/invoice 异步识别仍可能用到本地 blob，由后台任务结束后再 revoke
+            if (
+              voucherType !== 'receipt' &&
+              voucherType !== 'invoice' &&
+              Platform.OS === 'web' &&
+              typeof file.uri === 'string' &&
+              file.uri.startsWith('blob:')
+            ) {
               URL.revokeObjectURL(file.uri);
             }
           }
@@ -1895,6 +1974,140 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       return;
     }
 
+    // receipt / invoice：先建 processing 记录，识别异步更新；退出窗口不影响落库
+    if (voucherType === 'receipt' || voucherType === 'invoice') {
+      const loadingCardId = `text-preview-loading-${Date.now()}`;
+      setMessages((prev) => [
+        { id: loadingCardId, text: '', isUser: false, timestamp: new Date(), previewCardLoading: true },
+        ...prev,
+      ]);
+      try {
+        if (voucherType === 'invoice') {
+          const invoiceId = await createProcessingInvoice({ inputType: 'text' });
+          await saveChatLog({
+            invoiceId,
+            voucherType: 'invoice',
+            type: 'text',
+            modelName: 'gemini',
+            prompt: text,
+            response: '',
+            requestData: { rawText: text, async: true },
+            responseData: { invoicePreview: { id: invoiceId, status: 'processing', customerName: 'Processing...' } },
+            success: true,
+          });
+          setIsProcessing(false);
+          void (async () => {
+            try {
+              const updated = await processInvoiceFromTextInBackground(text, invoiceId);
+              const invoice = updated ?? (await getInvoiceById(invoiceId));
+              if (!mountedRef.current) return;
+              if (!invoice) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === loadingCardId
+                      ? { id: m.id, text: '❌ Recognition failed.', isUser: false, timestamp: new Date() }
+                      : m
+                  )
+                );
+                return;
+              }
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === loadingCardId
+                    ? {
+                        id: `text-preview-${invoiceId}`,
+                        text: '',
+                        isUser: false,
+                        timestamp: new Date(),
+                        invoicePreview: invoice as Invoice,
+                        voucherType: 'invoice',
+                      }
+                    : m
+                )
+              );
+            } catch (err) {
+              console.error('Invoice text background recognition failed:', err);
+              if (!mountedRef.current) return;
+              const errText = err instanceof Error ? err.message : 'Recognition failed.';
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === loadingCardId
+                    ? { id: m.id, text: `❌ ${errText}`, isUser: false, timestamp: new Date() }
+                    : m
+                )
+              );
+            }
+          })();
+        } else {
+          const receiptId = await createProcessingReceipt({ inputType: 'text' });
+          await saveChatLog({
+            receiptId,
+            voucherType: 'receipt',
+            type: 'text',
+            modelName: 'gemini',
+            prompt: text,
+            response: '',
+            requestData: { rawText: text, async: true },
+            responseData: { receiptPreview: { id: receiptId, status: 'processing', supplierName: 'Processing...' } },
+            success: true,
+          });
+          setIsProcessing(false);
+          void (async () => {
+            try {
+              await processReceiptFromTextInBackground(text, receiptId);
+              const receipt = await getReceiptById(receiptId);
+              if (!mountedRef.current) return;
+              if (!receipt) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === loadingCardId
+                      ? { id: m.id, text: '❌ Recognition failed.', isUser: false, timestamp: new Date() }
+                      : m
+                  )
+                );
+                return;
+              }
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === loadingCardId
+                    ? {
+                        id: `text-preview-${receiptId}`,
+                        text: '',
+                        isUser: false,
+                        timestamp: new Date(),
+                        receiptPreview: receipt,
+                      }
+                    : m
+                )
+              );
+            } catch (err) {
+              console.error('Receipt text background recognition failed:', err);
+              if (!mountedRef.current) return;
+              const errText = err instanceof Error ? err.message : 'Recognition failed.';
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === loadingCardId
+                    ? { id: m.id, text: `❌ ${errText}`, isUser: false, timestamp: new Date() }
+                    : m
+                )
+              );
+            }
+          })();
+        }
+      } catch (error) {
+        console.error('Error creating processing voucher from text:', error);
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: `❌ ${error instanceof Error ? error.message : 'Failed to save'}`,
+          isUser: false,
+          timestamp: new Date(),
+        };
+        setMessages((prev) => prev.map((m) => (m.id === loadingCardId ? errorMessage : m)));
+        setIsProcessing(false);
+      }
+      return;
+    }
+
     let textQuotaSpace = await getCurrentSpace(false);
     if (!textQuotaSpace?.id) textQuotaSpace = await getCurrentSpace(true);
     const textSpaceId = textQuotaSpace?.id ?? '';
@@ -1914,34 +2127,14 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     }
 
     const recognizeFn = () => {
-      if (voucherType === 'invoice') return recognizeVoucherFromText(text, 'invoice');
       if (voucherType === 'inbound') return recognizeInboundFromText(text);
       if (voucherType === 'outbound') return recognizeOutboundFromText(text);
-      return recognizeReceiptFromText(text);
+      return recognizeInboundFromText(text);
     };
 
     const addTextSuccess = async (result: Awaited<ReturnType<typeof recognizeFn>>) => {
       const scrollToBottom = () => setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
-      if (voucherType === 'invoice') {
-        const invoice = await convertGeminiResultToInvoice(result as Awaited<ReturnType<typeof recognizeVoucherFromText>>);
-        const invoiceToSave = { ...invoice, status: 'pending' as const, inputType: 'text' as const };
-        const invoiceId = await saveInvoice(invoiceToSave);
-        const previewMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: '',
-          isUser: false,
-          timestamp: new Date(),
-          invoicePreview: {
-            ...invoiceToSave,
-            id: invoiceId,
-            status: 'pending',
-            account: (result as Awaited<ReturnType<typeof recognizeVoucherFromText>>).paymentAccountName ? { id: invoice.accountId || '', spaceId: invoice.spaceId, name: (result as Awaited<ReturnType<typeof recognizeVoucherFromText>>).paymentAccountName!, isAiRecognized: true } : undefined,
-          } as Invoice,
-          voucherType: 'invoice',
-        };
-        setMessages(prev => [previewMessage, ...prev]);
-        await saveChatLog({ receiptId: undefined, voucherType: 'invoice', type: 'text', modelName: 'gemini', prompt: text, response: '', requestData: { rawText: text }, responseData: { invoicePreview: previewMessage.invoicePreview }, success: true });
-      } else if (voucherType === 'inbound') {
+      if (voucherType === 'inbound') {
         const inbound = await convertGeminiResultToInbound(result as Awaited<ReturnType<typeof recognizeInboundFromText>>);
         const inboundToSave = { ...inbound, status: 'pending' as const, inputType: 'text' as const };
         const inboundId = await saveInbound(inboundToSave);
@@ -1955,24 +2148,6 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         const previewMessage: Message = { id: (Date.now() + 1).toString(), text: '', isUser: false, timestamp: new Date(), outboundPreview: { ...outboundToSave, id: outboundId, status: 'pending' }, voucherType: 'outbound' };
         setMessages(prev => [previewMessage, ...prev]);
         await saveChatLog({ receiptId: undefined, voucherType: 'outbound', type: 'text', modelName: 'gemini', prompt: text, response: '', requestData: { rawText: text }, responseData: { outboundPreview: previewMessage.outboundPreview }, success: true });
-      } else {
-        const receipt = await convertGeminiResultToReceipt(result as Awaited<ReturnType<typeof recognizeReceiptFromText>>);
-        const receiptToSave = { ...receipt, status: 'pending' as ReceiptStatus, inputType: 'text' as const };
-        const receiptId = await saveReceipt(receiptToSave);
-        const previewMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: '',
-          isUser: false,
-          timestamp: new Date(),
-          receiptPreview: {
-            ...receiptToSave,
-            id: receiptId,
-            status: 'pending' as ReceiptStatus,
-            account: (result as Awaited<ReturnType<typeof recognizeReceiptFromText>>).paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: (result as Awaited<ReturnType<typeof recognizeReceiptFromText>>).paymentAccountName!, isAiRecognized: true } : undefined,
-          },
-        };
-        setMessages(prev => [previewMessage, ...prev]);
-        await saveChatLog({ receiptId, voucherType: 'receipt', type: 'text', modelName: 'gemini', prompt: text, response: previewMessage.text, requestData: { rawText: text }, responseData: { receiptPreview: previewMessage.receiptPreview }, success: true });
       }
       let qs = await getCurrentSpace(false);
       if (!qs?.id) qs = await getCurrentSpace(true);
@@ -1998,19 +2173,19 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
         return;
       }
-      // 可重试错误：先解除 loading，后台静默重试直至成功
       setIsProcessing(false);
+      // 落库与 UI 解耦：即使退出页面也继续识别并写库；仅 UI 更新受 mounted 约束
       runWithRecognitionRetry(recognizeFn as () => Promise<Awaited<ReturnType<typeof recognizeFn>>>, { maxAttempts: 4, delayMs: 2000 }).then(async (r) => {
-        if (!mountedRef.current) return;
         if (r.success) {
           if (isRecognitionResultUnrecognizable(r.result)) {
+            if (!mountedRef.current) return;
             const errorMessage: Message = { id: (Date.now() + 1).toString(), text: '❌ Content unclear or not recognized. Please resubmit.', isUser: false, timestamp: new Date() };
             setMessages(prev => [errorMessage, ...prev]);
             setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
             return;
           }
           await addTextSuccess(r.result);
-        } else {
+        } else if (mountedRef.current) {
           const errorMessage: Message = { id: (Date.now() + 1).toString(), text: `❌ ${getUserFacingMessage(r)}`, isUser: false, timestamp: new Date() };
           setMessages(prev => [errorMessage, ...prev]);
           setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
@@ -2155,6 +2330,134 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         msg.id === userMessageId ? { ...msg, audioUrl } : msg
       ));
 
+      // receipt / invoice：上传后立即建 processing 记录，识别异步；退出不影响落库
+      if (voucherType === 'receipt' || voucherType === 'invoice') {
+        const loadingCardId = `voice-preview-loading-${Date.now()}`;
+        setMessages((prev) => [
+          { id: loadingCardId, text: '', isUser: false, timestamp: new Date(), previewCardLoading: true },
+          ...prev,
+        ]);
+        if (voucherType === 'invoice') {
+          const invoiceId = await createProcessingInvoice({ inputType: 'audio' });
+          await saveChatLog({
+            invoiceId,
+            voucherType: 'invoice',
+            type: 'audio',
+            modelName: 'gemini',
+            prompt: `Voice input (${duration}s)`,
+            response: '',
+            requestData: { audioDurationSeconds: duration, async: true },
+            responseData: { invoicePreview: { id: invoiceId, status: 'processing', customerName: 'Processing...' } },
+            success: true,
+            attachmentUrl: audioUrl,
+          });
+          setIsProcessing(false);
+          setRecordingDuration(0);
+          recordingDurationRef.current = 0;
+          void (async () => {
+            try {
+              const updated = await processInvoiceFromAudioInBackground(localUri, invoiceId);
+              const invoice = updated ?? (await getInvoiceById(invoiceId));
+              if (!mountedRef.current) return;
+              if (!invoice) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === loadingCardId
+                      ? { id: m.id, text: '❌ Recognition failed.', isUser: false, timestamp: new Date() }
+                      : m
+                  )
+                );
+                return;
+              }
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === loadingCardId
+                    ? {
+                        id: `voice-preview-${invoiceId}`,
+                        text: '',
+                        isUser: false,
+                        timestamp: new Date(),
+                        invoicePreview: invoice as Invoice,
+                        voucherType: 'invoice',
+                      }
+                    : m
+                )
+              );
+            } catch (err) {
+              console.error('Invoice voice background recognition failed:', err);
+              if (!mountedRef.current) return;
+              const errText = err instanceof Error ? err.message : 'Recognition failed.';
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === loadingCardId
+                    ? { id: m.id, text: `❌ ${errText}`, isUser: false, timestamp: new Date() }
+                    : m
+                )
+              );
+            }
+          })();
+        } else {
+          const receiptId = await createProcessingReceipt({ inputType: 'audio' });
+          await saveChatLog({
+            receiptId,
+            voucherType: 'receipt',
+            type: 'audio',
+            modelName: 'gemini',
+            prompt: `Voice input (${duration}s)`,
+            response: '',
+            requestData: { audioDurationSeconds: duration, async: true },
+            responseData: { receiptPreview: { id: receiptId, status: 'processing', supplierName: 'Processing...' } },
+            success: true,
+            attachmentUrl: audioUrl,
+          });
+          setIsProcessing(false);
+          setRecordingDuration(0);
+          recordingDurationRef.current = 0;
+          void (async () => {
+            try {
+              await processReceiptFromAudioInBackground(localUri, receiptId);
+              const receipt = await getReceiptById(receiptId);
+              if (!mountedRef.current) return;
+              if (!receipt) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === loadingCardId
+                      ? { id: m.id, text: '❌ Recognition failed.', isUser: false, timestamp: new Date() }
+                      : m
+                  )
+                );
+                return;
+              }
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === loadingCardId
+                    ? {
+                        id: `voice-preview-${receiptId}`,
+                        text: '',
+                        isUser: false,
+                        timestamp: new Date(),
+                        receiptPreview: receipt,
+                      }
+                    : m
+                )
+              );
+            } catch (err) {
+              console.error('Receipt voice background recognition failed:', err);
+              if (!mountedRef.current) return;
+              const errText = err instanceof Error ? err.message : 'Recognition failed.';
+              setMessages((prev) =>
+                prev.map((m) =>
+                  m.id === loadingCardId
+                    ? { id: m.id, text: `❌ ${errText}`, isUser: false, timestamp: new Date() }
+                    : m
+                )
+              );
+            }
+          })();
+        }
+        return;
+      }
+
       let voiceQuotaSpace = await getCurrentSpace(false);
       if (!voiceQuotaSpace?.id) voiceQuotaSpace = await getCurrentSpace(true);
       const voiceSpaceId = voiceQuotaSpace?.id ?? '';
@@ -2172,72 +2475,33 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         return;
       }
 
-      // 识别：先试一次，可重试错误则后台静默重试直至成功；内容质量差则直接提示重新提交
       const recognizeFn = () => {
-        if (voucherType === 'invoice') return recognizeVoucherFromAudio(localUri, 'invoice');
         if (voucherType === 'inbound') return recognizeInboundFromAudio(localUri);
         if (voucherType === 'outbound') return recognizeOutboundFromAudio(localUri);
-        return recognizeReceiptFromAudio(localUri);
+        return recognizeInboundFromAudio(localUri);
       };
 
       const addVoiceSuccess = async (result: Awaited<ReturnType<typeof recognizeFn>>) => {
         const scrollToBottom = () => setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
-        if (voucherType === 'invoice') {
-          const invoice = await convertGeminiResultToInvoice(result as Awaited<ReturnType<typeof recognizeVoucherFromAudio>>);
-          const invoiceToSave = { ...invoice, status: 'pending' as const, inputType: 'audio' as const };
-          const invoiceId = await saveInvoice(invoiceToSave);
-          const previewMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            text: '',
-            isUser: false,
-            timestamp: new Date(),
-            invoicePreview: {
-              ...invoiceToSave,
-              id: invoiceId,
-              status: 'pending',
-              account: (result as Awaited<ReturnType<typeof recognizeVoucherFromAudio>>).paymentAccountName ? { id: invoice.accountId || '', spaceId: invoice.spaceId, name: (result as Awaited<ReturnType<typeof recognizeVoucherFromAudio>>).paymentAccountName!, isAiRecognized: true } : undefined,
-            } as Invoice,
-            voucherType: 'invoice',
-          };
-          setMessages(prev => [previewMessage, ...prev]);
-          await saveChatLog({ receiptId: undefined, voucherType: 'invoice', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: '', requestData: { audioDurationSeconds: duration }, responseData: { invoicePreview: previewMessage.invoicePreview }, success: true, attachmentUrl: audioUrl });
-        } else if (voucherType === 'inbound') {
+        if (voucherType === 'inbound') {
           const inbound = await convertGeminiResultToInbound(result as Awaited<ReturnType<typeof recognizeInboundFromAudio>>);
           const inboundToSave = { ...inbound, status: 'pending' as const, inputType: 'audio' as const };
           const inboundId = await saveInbound(inboundToSave);
           const previewMessage: Message = { id: (Date.now() + 1).toString(), text: '', isUser: false, timestamp: new Date(), inboundPreview: { ...inboundToSave, id: inboundId, status: 'pending' }, voucherType: 'inbound' };
-          setMessages(prev => [previewMessage, ...prev]);
+          if (mountedRef.current) setMessages(prev => [previewMessage, ...prev]);
           await saveChatLog({ receiptId: undefined, voucherType: 'inbound', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: '', requestData: { audioDurationSeconds: duration }, responseData: { inboundPreview: previewMessage.inboundPreview }, success: true, attachmentUrl: audioUrl });
         } else if (voucherType === 'outbound') {
           const outbound = await convertGeminiResultToOutbound(result as Awaited<ReturnType<typeof recognizeOutboundFromAudio>>);
           const outboundToSave = { ...outbound, status: 'pending' as const, inputType: 'audio' as const };
           const outboundId = await saveOutbound(outboundToSave);
           const previewMessage: Message = { id: (Date.now() + 1).toString(), text: '', isUser: false, timestamp: new Date(), outboundPreview: { ...outboundToSave, id: outboundId, status: 'pending' }, voucherType: 'outbound' };
-          setMessages(prev => [previewMessage, ...prev]);
+          if (mountedRef.current) setMessages(prev => [previewMessage, ...prev]);
           await saveChatLog({ receiptId: undefined, voucherType: 'outbound', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: '', requestData: { audioDurationSeconds: duration }, responseData: { outboundPreview: previewMessage.outboundPreview }, success: true, attachmentUrl: audioUrl });
-        } else {
-          const receipt = await convertGeminiResultToReceipt(result as Awaited<ReturnType<typeof recognizeReceiptFromAudio>>);
-          const receiptToSave = { ...receipt, status: 'pending' as ReceiptStatus, inputType: 'audio' as const };
-          const receiptId = await saveReceipt(receiptToSave);
-          const previewMessage: Message = {
-            id: (Date.now() + 1).toString(),
-            text: '',
-            isUser: false,
-            timestamp: new Date(),
-            receiptPreview: {
-              ...receiptToSave,
-              id: receiptId,
-              status: 'pending' as ReceiptStatus,
-              account: (result as Awaited<ReturnType<typeof recognizeReceiptFromAudio>>).paymentAccountName ? { id: receipt.accountId || '', spaceId: receipt.spaceId, name: (result as Awaited<ReturnType<typeof recognizeReceiptFromAudio>>).paymentAccountName!, isAiRecognized: true } : undefined,
-            },
-          };
-          setMessages(prev => [previewMessage, ...prev]);
-          await saveChatLog({ receiptId, voucherType: 'receipt', type: 'audio', modelName: 'gemini', prompt: `Voice input (${duration}s)`, response: previewMessage.text, requestData: { audioDurationSeconds: duration }, responseData: { receiptPreview: previewMessage.receiptPreview }, success: true, attachmentUrl: audioUrl });
         }
         let vqs = await getCurrentSpace(false);
         if (!vqs?.id) vqs = await getCurrentSpace(true);
         if (vqs?.id) await recordClientRecognitionSuccessIfEnforced(vqs.id);
-        scrollToBottom();
+        if (mountedRef.current) scrollToBottom();
       };
 
       const first = await runWithRecognitionRetry(recognizeFn as () => Promise<Awaited<ReturnType<typeof recognizeFn>>>, { maxAttempts: 1 });
@@ -2257,21 +2521,20 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
         return;
       }
-      // 可重试错误：先解除 loading，后台静默重试直至成功
       setIsProcessing(false);
       setRecordingDuration(0);
       recordingDurationRef.current = 0;
       runWithRecognitionRetry(recognizeFn as () => Promise<Awaited<ReturnType<typeof recognizeFn>>>, { maxAttempts: 4, delayMs: 2000 }).then(async (r) => {
-        if (!mountedRef.current) return;
         if (r.success) {
           if (isRecognitionResultUnrecognizable(r.result)) {
+            if (!mountedRef.current) return;
             const errorMessage: Message = { id: (Date.now() + 1).toString(), text: '❌ Content unclear or not recognized. Please resubmit.', isUser: false, timestamp: new Date() };
             setMessages(prev => [errorMessage, ...prev]);
             setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);
             return;
           }
           await addVoiceSuccess(r.result);
-        } else {
+        } else if (mountedRef.current) {
           const errorMessage: Message = { id: (Date.now() + 1).toString(), text: `❌ ${getUserFacingMessage(r)}`, isUser: false, timestamp: new Date() };
           setMessages(prev => [errorMessage, ...prev]);
           setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100);

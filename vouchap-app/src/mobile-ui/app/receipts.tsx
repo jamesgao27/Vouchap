@@ -22,17 +22,16 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 // DocumentScanner 将在需要时动态导入（因为它在 Expo Go 中不可用）
 import Constants from 'expo-constants';
-import { getReceiptsForListFirstPaint, getAllReceiptsForList, getAllReceipts, deleteReceipt, saveReceipt } from '@/lib/database';
+import { getReceiptsForListFirstPaint, getAllReceiptsForList, getAllReceipts, deleteReceipt } from '@/lib/database';
 import { Receipt, ReceiptStatus } from '@/types';
 import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
 import { getCurrentUser, getCurrentSpace } from '@/lib/auth';
 import { SwipeableRow } from './SwipeableRow';
 import { uploadReceiptImageTempWithSpace } from '@/lib/supabase';
-import { processReceiptInBackground } from '@/lib/receipt-processor';
+import { createProcessingReceipt, processReceiptInBackground } from '@/lib/receipt-processor';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getExchangeRates, sumAmountsInCurrency } from '@/lib/exchange-rates';
-import { getLocalDateString } from '@/lib/date-utils';
 import { showToast } from '@/lib/toast';
 import { confirmThen, confirmDestructive } from '@/lib/alertWeb';
 import WebChatFab, { WEB_CHAT_FAB_BOTTOM, WEB_CHAT_FAB_RIGHT, WEB_CHAT_FAB_SIZE } from '@/components/WebChatFab';
@@ -405,15 +404,8 @@ export default function ReceiptsScreen() {
         console.log('✅ [processCapturedImage] 图片上传完成:', imageUrl);
 
         console.log('🔄 [processCapturedImage] 创建小票记录...');
-        const today = getLocalDateString();
-        const receiptId = await saveReceipt({
-          spaceId: '',
-          supplierName: 'Processing...',
-          totalAmount: 0,
-          date: today,
-          status: 'processing',
-          items: [],
-          imageUrl: imageUrl,
+        const receiptId = await createProcessingReceipt({
+          imageUrl,
           inputType: fromGallery ? 'image' : 'camera',
         });
         console.log('✅ [processCapturedImage] 小票记录创建完成:', receiptId);

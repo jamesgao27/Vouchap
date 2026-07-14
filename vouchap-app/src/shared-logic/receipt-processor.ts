@@ -1,7 +1,12 @@
-// 后台处理小票识别的模块
-import { recognizeReceipt } from './gemini';
+// 后台处理小票识别的模块（先落库 processing，再异步识别并 update）
+import {
+  recognizeReceipt,
+  recognizeReceiptFromText,
+  recognizeReceiptFromAudio,
+  recognizeReceiptFromDocument,
+} from './gemini';
 import { convertGeminiResultToReceiptResilient } from './receipt-helpers';
-import { updateReceipt, getReceiptById } from './database';
+import { updateReceipt, getReceiptById, saveReceipt } from './database';
 import { uploadReceiptImage, supabase } from './supabase';
 import { checkDuplicateReceipt } from './receipt-duplicate-checker';
 import { getUserFacingMessage, runWithRecognitionRetry } from './recognition-retry';
@@ -15,6 +20,8 @@ import {
   incrementReceiptRecognitionFailCount,
   resetReceiptRecognitionFailCount,
 } from './recognition-fail-count';
+import { getLocalDateString } from './date-utils';
+import type { InputType, Receipt } from './types';
 
 // 从公共 URL 提取 bucket 与对象路径。URL 格式: .../storage/v1/object/public/{bucket_id}/{path}
 function extractBucketAndPathFromUrl(url: string): { bucket: string; filePath: string } | null {
@@ -43,128 +50,171 @@ async function deleteTempFile(imageUrl: string): Promise<void> {
     const { bucket, filePath } = parsed;
 
     console.log(`Deleting temp file from bucket: ${bucket}, path: ${filePath}`);
-    const { error } = await supabase.storage
-      .from(bucket)
-      .remove([filePath]);
+    const { error } = await supabase.storage.from(bucket).remove([filePath]);
 
     if (error) {
       console.error('Error deleting temp file:', error);
-      // 不抛出错误，因为删除失败不应该影响主流程
     } else {
       console.log('Temp file deleted successfully:', filePath);
     }
   } catch (error) {
     console.error('Error deleting temp file:', error);
-    // 不抛出错误，因为删除失败不应该影响主流程
   }
 }
 
-// 后台处理小票识别（不阻塞用户界面）
-export async function processReceiptInBackground(
-  imageUrl: string,
-  receiptId: string,
-  processedImageUri: string,
-  options?: { skipDeleteSourceUrl?: boolean }
-): Promise<void> {
-  try {
-    console.log('开始后台处理小票识别...', receiptId);
-    console.log('使用处理后的图片进行识别，URL:', imageUrl);
-    console.log('处理后的图片本地 URI:', processedImageUri);
+async function resolveQuotaSpaceForReceipt(receiptId: string): Promise<{
+  quotaSpaceId: string;
+  activeSpaceId: string;
+  existingRow: Receipt | null;
+}> {
+  const userForQuota = await getCurrentUser(true);
+  const activeSpaceId = userForQuota?.currentSpaceId || userForQuota?.spaceId || '';
+  const existingRow = await getReceiptById(receiptId);
+  const quotaSpaceId =
+    existingRow?.spaceId && String(existingRow.spaceId).trim() !== ''
+      ? String(existingRow.spaceId)
+      : activeSpaceId;
+  if (existingRow?.spaceId && activeSpaceId && existingRow.spaceId !== activeSpaceId) {
+    console.warn('[receipt-processor] receipt.space_id differs from active workspace:', {
+      receiptSpaceId: existingRow.spaceId,
+      activeSpaceId,
+      quotaSpaceUsed: quotaSpaceId,
+    });
+  }
+  return { quotaSpaceId, activeSpaceId, existingRow };
+}
 
-    // Quota is per space — must use the user's *current* workspace from DB, not a cached spaceId.
-    // Also refresh so switching space before capture applies the correct limit bucket.
-    const userForQuota = await getCurrentUser(true);
-    const activeSpaceId = userForQuota?.currentSpaceId || userForQuota?.spaceId || '';
-    const existingRow = await getReceiptById(receiptId);
-    const quotaSpaceId =
-      existingRow?.spaceId && String(existingRow.spaceId).trim() !== ''
-        ? String(existingRow.spaceId)
-        : activeSpaceId;
-    if (existingRow?.spaceId && activeSpaceId && existingRow.spaceId !== activeSpaceId) {
-      console.warn('[receipt-processor] receipt.space_id differs from active workspace (stale insert vs switch):', {
-        receiptSpaceId: existingRow.spaceId,
-        activeSpaceId,
-        quotaSpaceUsed: quotaSpaceId,
-      });
-    }
+async function markReceiptRecognitionFailed(receiptId: string, notice: string): Promise<void> {
+  await updateReceipt(
+    receiptId,
+    {
+      status: 'needs_retake',
+      recognitionNotice: notice,
+    },
+    true
+  );
+  await incrementReceiptRecognitionFailCount(receiptId);
+}
+
+async function finalizeDuplicateCheck(receiptId: string): Promise<void> {
+  const updatedReceipt = await getReceiptById(receiptId);
+  if (!updatedReceipt) return;
+  const duplicateReceipt = await checkDuplicateReceipt(updatedReceipt);
+  if (duplicateReceipt) {
+    await updateReceipt(receiptId, { status: 'duplicate' }, true);
+    await resetReceiptRecognitionFailCount(receiptId);
+    console.log(
+      `小票数据已更新，发现重复小票，状态：duplicate，重复的小票ID：${duplicateReceipt.id}`
+    );
+  }
+}
+
+/** 立即创建 processing 占位收据（识别前落库，退出 UI 不影响后续更新） */
+export async function createProcessingReceipt(opts: {
+  imageUrl?: string;
+  inputType: InputType;
+}): Promise<string> {
+  const today = getLocalDateString();
+  return saveReceipt({
+    spaceId: '',
+    supplierName: 'Processing...',
+    totalAmount: 0,
+    date: today,
+    status: 'processing',
+    items: [],
+    imageUrl: opts.imageUrl,
+    inputType: opts.inputType,
+  });
+}
+
+type RecognizeSource =
+  | { kind: 'image'; imageUrl: string; localUri: string; skipDeleteSourceUrl?: boolean }
+  | { kind: 'document'; fileUrl: string; mimeHint?: string }
+  | { kind: 'text'; text: string }
+  | { kind: 'audio'; audioUri: string };
+
+async function processReceiptRecognition(
+  receiptId: string,
+  source: RecognizeSource
+): Promise<Receipt | null> {
+  try {
+    console.log('[receipt-processor] start', source.kind, receiptId);
+
+    const { quotaSpaceId, activeSpaceId, existingRow } = await resolveQuotaSpaceForReceipt(receiptId);
 
     const gate = await assertClientRecognitionAllowed(quotaSpaceId);
     if (!gate.allowed) {
-      // Model is never called — dev prefers warn; entry preflight should usually catch first.
       console.warn(
         '[receipt-processor] Recognition blocked by quota/billing (model NOT invoked).',
         gate.message ?? 'No message',
-        { quotaSpaceId: quotaSpaceId || '(empty)', activeSpaceId: activeSpaceId || '(empty)', receiptSpaceId: existingRow?.spaceId },
-      );
-      await updateReceipt(
-        receiptId,
         {
-          status: 'needs_retake',
-          recognitionNotice: formatRecognitionQuotaBlockedNotice(gate.message),
-        },
-        true,
+          quotaSpaceId: quotaSpaceId || '(empty)',
+          activeSpaceId: activeSpaceId || '(empty)',
+          receiptSpaceId: existingRow?.spaceId,
+        }
       );
-      await incrementReceiptRecognitionFailCount(receiptId);
-      return;
+      await markReceiptRecognitionFailed(receiptId, formatRecognitionQuotaBlockedNotice(gate.message));
+      return null;
     }
 
-    // 1. 使用处理后的图片 URL 识别小票（失败时后台静默重试直至成功或判定为内容质量差）
-    const ret = await runWithRecognitionRetry(() => recognizeReceipt(imageUrl), { maxAttempts: 5, delayMs: 2000 });
+    const recognizeFn = () => {
+      if (source.kind === 'image') return recognizeReceipt(source.imageUrl);
+      if (source.kind === 'document') return recognizeReceiptFromDocument(source.fileUrl, source.mimeHint);
+      if (source.kind === 'text') return recognizeReceiptFromText(source.text);
+      return recognizeReceiptFromAudio(source.audioUri);
+    };
+
+    const ret = await runWithRecognitionRetry(recognizeFn, { maxAttempts: 5, delayMs: 2000 });
     if (!ret.success) {
       console.error(
-        '[receipt-processor] recognizeReceipt failed after retries (see gemini-proxy / network).',
+        '[receipt-processor] recognition failed after retries',
+        source.kind,
         ret.error?.message,
         'isContentQuality:',
-        ret.isContentQuality,
-        { imageUrl: imageUrl?.slice(0, 80) },
+        ret.isContentQuality
       );
       const notice =
         getUserFacingMessage(ret) ||
         ret.error?.message ||
         'Recognition failed. Please try again later.';
-      await updateReceipt(
+      await markReceiptRecognitionFailed(
         receiptId,
-        {
-          status: 'needs_retake',
-          recognitionNotice: `${notice}\n\nIf recognition keeps failing, check connectivity and project AI (gemini-proxy / DeepSeek or Gemini secrets) configuration.`,
-        },
-        true,
+        `${notice}\n\nIf recognition keeps failing, check connectivity and project AI (gemini-proxy / DeepSeek or Gemini secrets) configuration.`
       );
-      await incrementReceiptRecognitionFailCount(receiptId);
-      return;
+      return null;
     }
+
     const recognizedData = ret.result;
-    console.log('识别完成，开始转换数据...');
-
-    // 2. 转换为 Receipt 格式（匹配分类和支付账户）
     let receipt = await convertGeminiResultToReceiptResilient(recognizedData);
-    console.log('数据转换完成，行数:', receipt.items?.length ?? 0, '，开始更新小票...');
-
     receipt = {
       ...receipt,
       spaceId: quotaSpaceId || receipt.spaceId || activeSpaceId,
     };
 
-    // 3. 使用真实ID重新上传处理后的图片（替换临时文件）
-    // 注意：processedImageUri 是预处理后的图片本地 URI，不是原始图片
-    const finalImageUrl = await uploadReceiptImage(processedImageUri, receiptId, receipt.spaceId || '');
-    console.log('最终处理后的图片已上传，URL:', finalImageUrl);
-
-    // 4. 删除临时文件（如果存在）- 使用 try-catch 确保失败不影响主流程
-    if (imageUrl && imageUrl !== finalImageUrl && !options?.skipDeleteSourceUrl) {
-      console.log('删除临时文件:', imageUrl);
-      await deleteTempFile(imageUrl);
+    let finalImageUrl = existingRow?.imageUrl;
+    if (source.kind === 'image') {
+      finalImageUrl = await uploadReceiptImage(source.localUri, receiptId, receipt.spaceId || '');
+      if (
+        source.imageUrl &&
+        source.imageUrl !== finalImageUrl &&
+        !source.skipDeleteSourceUrl
+      ) {
+        await deleteTempFile(source.imageUrl);
+      }
+    } else if (source.kind === 'document') {
+      finalImageUrl = source.fileUrl;
     }
 
-    // 5. 更新小票数据（使用已存在的 receiptId）
-    // 状态与置信度均在 convertGeminiResultToReceipt 中根据 0.85 规则设置，使用 receipt 的调整后置信度
-    // 注意：传入 autoResolveDuplicate: true，让 updateReceipt 自动处理"供应商名称已存在"的情况（后台处理场景）
-    await updateReceipt(receiptId, {
-      ...receipt,
-      imageUrl: finalImageUrl,
-      confidence: receipt.confidence,
-      recognitionNotice: null,
-    }, true); // autoResolveDuplicate = true，自动处理重复名称
+    await updateReceipt(
+      receiptId,
+      {
+        ...receipt,
+        ...(finalImageUrl ? { imageUrl: finalImageUrl } : {}),
+        confidence: receipt.confidence,
+        recognitionNotice: null,
+      },
+      true
+    );
 
     if (receipt.status === 'needs_retake') {
       await incrementReceiptRecognitionFailCount(receiptId);
@@ -173,35 +223,65 @@ export async function processReceiptInBackground(
     }
 
     await recordClientRecognitionSuccessIfEnforced(quotaSpaceId || receipt.spaceId || '');
+    await finalizeDuplicateCheck(receiptId);
 
-    // Receipt-level tax + tax_breakdown are persisted in updateReceipt (database.ts).
-    // Payee tax/phone/address：单独供应商二次识别已移除，全部由 recognizeReceipt 单次 JSON 的 supplierInfo + convertGeminiResultToReceipt 写库。
-
-    // 6. 检测是否与已有小票重复
-    const updatedReceipt = await getReceiptById(receiptId);
-    if (updatedReceipt) {
-      const duplicateReceipt = await checkDuplicateReceipt(updatedReceipt);
-      if (duplicateReceipt) {
-        // 如果发现重复，更新状态为 duplicate
-        await updateReceipt(receiptId, {
-          status: 'duplicate',
-        }, true); // autoResolveDuplicate = true，后台处理场景
-        await resetReceiptRecognitionFailCount(receiptId);
-        console.log(`小票数据已更新，发现重复小票，状态：duplicate，重复的小票ID：${duplicateReceipt.id}`);
-      } else {
-        console.log(`小票数据已更新，后台处理完成，状态：${receipt.status}，置信度：${recognizedData.confidence}`);
-      }
-    }
+    const updated = await getReceiptById(receiptId);
+    console.log(
+      `[receipt-processor] done ${source.kind}`,
+      receiptId,
+      'status:',
+      updated?.status ?? receipt.status
+    );
+    return updated;
   } catch (error) {
-    console.error('后台处理小票失败:', error);
-    // 更新小票状态为错误，让用户可以稍后查看
+    console.error('[receipt-processor] background failed:', error);
     try {
-      await updateReceipt(receiptId, {
-        status: 'pending',
-      }, true); // autoResolveDuplicate = true，后台处理场景
+      const notice =
+        error instanceof Error ? error.message : 'Recognition failed. Please try again later.';
+      await markReceiptRecognitionFailed(receiptId, notice);
     } catch (updateError) {
-      console.error('更新小票状态失败:', updateError);
+      console.error('[receipt-processor] failed to mark needs_retake:', updateError);
     }
     throw error;
   }
+}
+
+/** 图片：后台识别（不阻塞 UI） */
+export async function processReceiptInBackground(
+  imageUrl: string,
+  receiptId: string,
+  processedImageUri: string,
+  options?: { skipDeleteSourceUrl?: boolean }
+): Promise<void> {
+  await processReceiptRecognition(receiptId, {
+    kind: 'image',
+    imageUrl,
+    localUri: processedImageUri,
+    skipDeleteSourceUrl: options?.skipDeleteSourceUrl,
+  });
+}
+
+/** 文档（PDF 等）：后台识别 */
+export async function processReceiptFromDocumentInBackground(
+  fileUrl: string,
+  receiptId: string,
+  mimeHint?: string
+): Promise<Receipt | null> {
+  return processReceiptRecognition(receiptId, { kind: 'document', fileUrl, mimeHint });
+}
+
+/** 文字：后台识别 */
+export async function processReceiptFromTextInBackground(
+  text: string,
+  receiptId: string
+): Promise<Receipt | null> {
+  return processReceiptRecognition(receiptId, { kind: 'text', text });
+}
+
+/** 语音：后台识别（传入本地或可下载的 audio URI） */
+export async function processReceiptFromAudioInBackground(
+  audioUri: string,
+  receiptId: string
+): Promise<Receipt | null> {
+  return processReceiptRecognition(receiptId, { kind: 'audio', audioUri });
 }

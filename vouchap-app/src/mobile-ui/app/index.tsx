@@ -10,15 +10,9 @@ import { initializeAuthCache, isCacheInitialized, getCachedSpace } from '@/lib/a
 import { Space, UserSpace, User } from '@/types';
 import { getPendingInvitationsForUser } from '@/lib/space-invitations';
 import { uploadReceiptImageTempWithSpace } from '@/lib/supabase';
-import { saveReceipt } from '@/lib/database';
-import { saveInvoice } from '@/lib/invoices';
-import { processReceiptInBackground } from '@/lib/receipt-processor';
+import { createProcessingReceipt, processReceiptInBackground } from '@/lib/receipt-processor';
+import { createProcessingInvoice, processInvoiceInBackground } from '@/lib/invoice-processor';
 import { processImageForUpload } from '@/lib/image-processor';
-import { getLocalDateString } from '@/lib/date-utils';
-import { recognizeInvoiceFromImage } from '@/lib/gemini';
-import { convertGeminiResultToInvoice } from '@/lib/receipt-helpers';
-import { recordInvoiceRecognitionFailure, resetInvoiceRecognitionFailCount } from '@/lib/recognition-fail-count';
-import { runWithRecognitionRetry } from '@/lib/recognition-retry';
 import { showToast } from '@/lib/toast';
 import { showChoiceDialog } from '@/lib/confirmDialog';
 import Svg, { Path, Rect, G, Circle, Text as SvgText } from 'react-native-svg';
@@ -719,53 +713,24 @@ export default function HomeScreen() {
         const imageUrl = await uploadReceiptImageTempWithSpace(uriToUpload, tempFileName, spaceId);
 
         if (type === 'invoice') {
-          const today = getLocalDateString();
-          const invoiceId = await saveInvoice(
-            {
-              spaceId: '',
-              customerName: 'Processing...',
-              totalAmount: 0,
-              date: today,
-              status: 'pending',
-              items: [],
-              imageUrl,
-              inputType: fromGallery ? 'image' : 'camera',
-            },
-            true
-          );
+          const invoiceId = await createProcessingInvoice({
+            imageUrl,
+            inputType: fromGallery ? 'image' : 'camera',
+          });
           setLastInvoiceId(invoiceId);
-
-          const ret = await runWithRecognitionRetry(() => recognizeInvoiceFromImage(imageUrl), { maxAttempts: 5, delayMs: 2000 });
-          if (ret.success) {
-            const invoice = await convertGeminiResultToInvoice(ret.result);
-            await saveInvoice(
-              {
-                ...invoice,
-                id: invoiceId,
-                imageUrl,
-                confidence: ret.result.confidence,
-              },
-              true
-            );
-            await resetInvoiceRecognitionFailCount(invoiceId);
-          } else {
-            console.warn('Invoice recognition failed:', ret.error.message);
-            await recordInvoiceRecognitionFailure(invoiceId);
-          }
+          // 识别异步进行：上传+建单完成后即可继续下一张 / 退出界面
+          void processInvoiceInBackground(imageUrl, invoiceId).catch((err) => {
+            console.error('Invoice background recognition failed:', err);
+          });
         } else {
-          const today = getLocalDateString();
-          const receiptId = await saveReceipt({
-            spaceId: '',
-            supplierName: 'Processing...',
-            totalAmount: 0,
-            date: today,
-            status: 'processing',
-            items: [],
+          const receiptId = await createProcessingReceipt({
             imageUrl,
             inputType: fromGallery ? 'image' : 'camera',
           });
           setLastReceiptId(receiptId);
-          await processReceiptInBackground(imageUrl, receiptId, uriToUpload);
+          void processReceiptInBackground(imageUrl, receiptId, uriToUpload).catch((err) => {
+            console.error('Receipt background recognition failed:', err);
+          });
         }
       } catch (error) {
         console.error('Processing error:', error);
