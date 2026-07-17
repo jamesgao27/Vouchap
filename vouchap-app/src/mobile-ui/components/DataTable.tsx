@@ -3,7 +3,9 @@
  * Web 列宽规则：
  * - 自动列宽总和尽量占满容器（齿轮列 40px + 数据列）。各列先取有效最小宽；若最小宽之和 ≤ 可用宽，则按最小宽权重分配剩余空间填满；若最小宽之和 > 可用宽，则各列取最小宽并允许横向溢出。
  * - 有效最小宽：`minChars`（如商户 30 / 账户 20）或 `contentMinSamples`+表头测宽；否则回退 `minWidth`。
- * - 全页刷新、换表、改可见列、**容器宽度变化（含右侧 chat 栏开关）** 时重算；**Realtime / 数据更新不重算**。
+ * - 全页刷新、换表、**容器宽度变化（含右侧 chat 栏开关）** 时整表重算；**Realtime / 数据更新不重算**。
+ * - **手动拖单列宽、改可见列 / 列顺序**：不整表重算；其他列宽保持不变；仅新显示且尚无宽度的列取有效最小宽；列宽总和可溢出或不足容器。
+ * - 拖拽过程：先冻结各列像素宽，并同步增减 `table` 总宽，使右侧各列平移、不被 `table-layout:fixed` 吸走空隙。
  * - 用户手动拖拽写入 columnWidths；单列 1px～视口 80%；表宽=列宽之和（可小于容器留白或大于容器滚动）。
  * - storageKey 区分表格实例；列宽不写 localStorage。
  * 仅 Web 使用；移动端由各页 SectionList 展示。
@@ -348,22 +350,25 @@ export default function DataTable<T>({
 
   /** 用户拖拽覆盖的列宽（会话内）；进入新表或 storageKey 变化时清空 */
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
-  /** 自动分配后冻结的列宽；layoutCaptureKey / 容器宽度变化时重算，Realtime 不重算 */
+  /** 自动分配后冻结的列宽；仅换表 / 容器宽度变化时整表重算；改可见列与手动拖宽不重算 */
   const [intrinsicWidths, setIntrinsicWidths] = useState<Record<string, number>>({});
+  const intrinsicWidthsRef = useRef(intrinsicWidths);
+  intrinsicWidthsRef.current = intrinsicWidths;
   const intrinsicCapturedKeyRef = useRef<string | null>(null);
   const columnWidthsRef = useRef(columnWidths);
   columnWidthsRef.current = columnWidths;
-  /** 容器宽度世代：ResizeObserver 检测到侧栏开关等宽度变化时递增，触发重算 */
+  /** 容器宽度世代：ResizeObserver 检测到侧栏开关等宽度变化时递增，触发整表重算 */
   const [containerWidthEpoch, setContainerWidthEpoch] = useState(0);
   const lastObservedWrapperWidthRef = useRef(0);
 
+  /** 不含 visibleIds / orderIds：改可见列或列序不触发整表重分配 */
   const layoutCaptureKey = useMemo(() => {
-    const vis = [...visibleIds].sort().join(',');
-    return `${storageKey ?? ''}|${columnIdsFingerprint}|${orderIds.join(',')}|${vis}|e${containerWidthEpoch}`;
-  }, [storageKey, columnIdsFingerprint, orderIds, visibleIds, containerWidthEpoch]);
+    return `${storageKey ?? ''}|${columnIdsFingerprint}|e${containerWidthEpoch}`;
+  }, [storageKey, columnIdsFingerprint, containerWidthEpoch]);
 
   const commitColumnWidth = useCallback((colId: string, widthPx: number) => {
     const w = clampManualColumnWidth(widthPx);
+    // 仅覆盖本列；不触发布局重算，其他列保持原宽
     setColumnWidths(prev => ({ ...prev, [colId]: w }));
   }, []);
 
@@ -378,7 +383,8 @@ export default function DataTable<T>({
     intrinsicCapturedKeyRef.current = null;
     setIntrinsicWidths({});
     lastObservedWrapperWidthRef.current = 0;
-    setContainerWidthEpoch(0);
+    // 递增 epoch，确保换表后在 visibleIds 重置的下一帧触发整表分配（避免与旧可见列竞态）
+    setContainerWidthEpoch(e => e + 1);
     const cols = columnsRef.current;
     setOrderIds(cols.map(c => c.id));
     setVisibleIds(new Set(cols.filter(c => c.visible !== false).map(c => c.id)));
@@ -427,8 +433,10 @@ export default function DataTable<T>({
     });
     return result;
   }, [orderIds, visibleIds, idToColumn]);
+  const orderedVisibleColumnsRef = useRef(orderedVisibleColumns);
+  orderedVisibleColumnsRef.current = orderedVisibleColumns;
 
-  // 容器宽度变化（右侧栏开关、窗口缩放等）→ 递增 epoch 触发重算；数据更新不改宽度故不触发
+  // 容器宽度变化（右侧栏开关、窗口缩放等）→ 递增 epoch 触发整表重算；数据更新不改宽度故不触发
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof ResizeObserver === 'undefined') return;
     const node =
@@ -452,16 +460,17 @@ export default function DataTable<T>({
     return () => ro.disconnect();
   }, [storageKey, columnIdsFingerprint, wrapperDomNode]);
 
-  // 按「表格窗口」宽度分配列宽；尊重最小宽（可溢出）；每个 layoutCaptureKey 只算一次；不依赖 data/sections
+  // 整表按「表格窗口」宽度分配列宽（仅 layoutCaptureKey：换表 / 容器宽变化）；不因改可见列重入
   useLayoutEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
     if (intrinsicCapturedKeyRef.current === layoutCaptureKey) return;
 
     let cancelled = false;
     let attempts = 0;
+    const captureKey = layoutCaptureKey;
     const run = () => {
       if (cancelled) return;
-      if (intrinsicCapturedKeyRef.current === layoutCaptureKey) return;
+      if (intrinsicCapturedKeyRef.current === captureKey) return;
       attempts += 1;
       const w = readWebDataTableWrapperWidthPx(dataTableWrapperRef.current as unknown);
       if (w < 24 && attempts < 40) {
@@ -470,13 +479,13 @@ export default function DataTable<T>({
       }
       if (w >= 24) lastObservedWrapperWidthRef.current = w;
       const user = columnWidthsRef.current;
-      const visible = orderedVisibleColumns;
+      const visible = orderedVisibleColumnsRef.current;
       if (visible.length === 0 && columns.length > 0 && attempts < 40) {
         requestAnimationFrame(run);
         return;
       }
       if (visible.length === 0) {
-        intrinsicCapturedKeyRef.current = layoutCaptureKey;
+        intrinsicCapturedKeyRef.current = captureKey;
         return;
       }
       let reserved = 0;
@@ -489,13 +498,14 @@ export default function DataTable<T>({
       const available = Math.max(0, w - GEAR_COLUMN_PX - reserved);
       const next =
         flexCols.length > 0 ? distributeFlexColumnWidths(flexCols, available) : {};
-      intrinsicCapturedKeyRef.current = layoutCaptureKey;
-      setIntrinsicWidths(prev => {
-        const merged = { ...prev };
-        visible.forEach(col => {
-          if (user[col.id] != null) delete merged[col.id];
+      intrinsicCapturedKeyRef.current = captureKey;
+      setIntrinsicWidths(() => {
+        const merged: Record<string, number> = { ...next };
+        // 保留当前不可见列的历史宽，便于再次显示时复用且不牵动其他列
+        const prev = intrinsicWidthsRef.current;
+        Object.keys(prev).forEach(id => {
+          if (merged[id] == null && user[id] == null) merged[id] = prev[id];
         });
-        Object.assign(merged, next);
         return merged;
       });
     };
@@ -503,7 +513,23 @@ export default function DataTable<T>({
     return () => {
       cancelled = true;
     };
-  }, [layoutCaptureKey, orderedVisibleColumns, columns.length]);
+  }, [layoutCaptureKey, columns.length]);
+
+  // 改可见列：不重分配已有列；仅为新显示且尚无宽度的列写入有效最小宽（总和可溢出/不足容器）
+  useLayoutEffect(() => {
+    if (Platform.OS !== 'web') return;
+    if (intrinsicCapturedKeyRef.current == null) return; // 等整表首次分配完成
+    const user = columnWidthsRef.current;
+    const prev = intrinsicWidthsRef.current;
+    const patch: Record<string, number> = {};
+    orderedVisibleColumns.forEach(col => {
+      if (user[col.id] != null) return;
+      if (prev[col.id] != null) return;
+      patch[col.id] = resolveColumnMinWidthPx(col);
+    });
+    if (Object.keys(patch).length === 0) return;
+    setIntrinsicWidths(p => ({ ...p, ...patch }));
+  }, [orderedVisibleColumns]);
 
   const columnSizeStyle = useCallback((col: DataTableColumn<T>): { minWidth: number; width: number } => {
     const userW = columnWidths[col.id];
@@ -1099,30 +1125,53 @@ export default function DataTable<T>({
                           columnResizingRef.current = true;
                           const th = e.currentTarget.parentElement as HTMLElement;
                           if (!th) return;
+                          const table = th.closest('table') as HTMLTableElement | null;
+                          if (!table) return;
                           const startX = e.clientX;
                           const startWidth = th.offsetWidth;
                           const colId = col.id;
+                          const colNodes = table.querySelectorAll('colgroup col');
+                          const headerCells = table.querySelectorAll('thead tr:first-child th');
+                          // 冻结当前各列像素宽，避免 table-layout:fixed 在改单列时把空隙分给其他列
+                          let startTableWidth = 0;
+                          headerCells.forEach((cell, i) => {
+                            const el = cell as HTMLElement;
+                            const w = Math.max(1, Math.round(el.offsetWidth));
+                            startTableWidth += w;
+                            el.style.width = `${w}px`;
+                            el.style.minWidth = `${w}px`;
+                            el.style.maxWidth = '';
+                            const colNode = colNodes.item(i) as HTMLElement | null;
+                            if (colNode) {
+                              colNode.style.width = `${w}px`;
+                              colNode.style.minWidth = `${w}px`;
+                            }
+                          });
+                          table.style.width = `${startTableWidth}px`;
+                          table.style.minWidth = `${startTableWidth}px`;
+
                           const applyWidthPx = (rawPx: number) => {
                             const newWidth = clampManualColumnWidth(rawPx);
+                            const delta = newWidth - startWidth;
+                            const nextTableWidth = Math.max(GEAR_COLUMN_PX + 1, startTableWidth + delta);
                             th.style.width = `${newWidth}px`;
                             th.style.minWidth = `${newWidth}px`;
                             th.style.maxWidth = '';
-                            const table = th.closest('table');
-                            if (table) {
-                              const colNodes = table.querySelectorAll('colgroup col');
-                              const colNode = colNodes.item(colIdx + 1) as HTMLElement | null;
-                              if (colNode) {
-                                colNode.style.width = `${newWidth}px`;
-                                colNode.style.minWidth = `${newWidth}px`;
-                              }
-                              const tds = table.querySelectorAll(`td:nth-child(${colIdx + 2})`);
-                              tds.forEach((td: Element) => {
-                                const el = td as HTMLElement;
-                                el.style.width = `${newWidth}px`;
-                                el.style.minWidth = `${newWidth}px`;
-                                el.style.maxWidth = '';
-                              });
+                            const colNode = colNodes.item(colIdx + 1) as HTMLElement | null;
+                            if (colNode) {
+                              colNode.style.width = `${newWidth}px`;
+                              colNode.style.minWidth = `${newWidth}px`;
                             }
+                            const tds = table.querySelectorAll(`td:nth-child(${colIdx + 2})`);
+                            tds.forEach((td: Element) => {
+                              const el = td as HTMLElement;
+                              el.style.width = `${newWidth}px`;
+                              el.style.minWidth = `${newWidth}px`;
+                              el.style.maxWidth = '';
+                            });
+                            // 同步缩/扩表宽，右侧各列随拖动平移，宽度不变
+                            table.style.width = `${nextTableWidth}px`;
+                            table.style.minWidth = `${nextTableWidth}px`;
                           };
                           const handleMouseMove = (moveE: MouseEvent) => {
                             const diff = moveE.clientX - startX;

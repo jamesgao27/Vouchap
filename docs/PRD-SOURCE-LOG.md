@@ -7607,3 +7607,37 @@
 **关联**  
 - `vouchap-app/src/mobile-ui/components/DataTable.tsx`  
 - `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`
+
+---
+
+### 2026-07-16（Web：手动拖列宽 / 改可见列不整表重算）
+
+**User（提示词/原意）**  
+- 手动调整单列列宽（改可见列）时不重算，其他列宽不变，列宽总和可以溢出或不足容器宽度。
+
+**Assistant（实现前说明）**  
+- `layoutCaptureKey` 含 `visibleIds`/`orderIds`，改可见列会触发 `distributeFlexColumnWidths` 填满容器；需改为仅换表/容器宽变化时整表重算。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `layoutCaptureKey` 去掉可见列与列序；手动 `commitColumnWidth` 只改本列；改可见列时仅给尚无宽度的新列写有效最小宽，已有列宽保留；总和可溢出或留白。  
+- **验证**：拖某一列后其他列宽不变；隐藏/显示列后其余列宽不变；开右侧栏仍整表重算占满。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/DataTable.tsx`
+
+---
+
+### 2026-07-16（Web：拖列宽时右侧列仅平移）
+
+**User（提示词/原意）**  
+- 手动减小可见列宽度时，拖动过程中仍会影响其他列宽；应拖动也不影响，其右侧各列随拖动平移。
+
+**Assistant（实现前说明）**  
+- 根因：`table-layout:fixed` 下只改当前列 DOM 宽、表总宽不变，浏览器会把空出宽度分给其他列。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 拖拽开始时冻结表头各列像素宽；拖动中同步增减 `table` 总宽与当前列宽，其他列宽不变、仅平移。  
+- **验证**：缩小/拉大某一列时，相邻右侧列宽度目视不变，位置随边界移动。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/DataTable.tsx`
