@@ -139,7 +139,7 @@ export default function FirmInviteNewClientsScreen() {
     if (!inviteLink || !qrRef.current) return;
     if (Platform.OS !== 'web') {
       if (typeof window !== 'undefined') {
-        window.alert('请在桌面浏览器中下载二维码，或在移动端通过截图保存。');
+        window.alert('Download the QR code on desktop, or take a screenshot on mobile.');
       }
       return;
     }

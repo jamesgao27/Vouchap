@@ -491,7 +491,7 @@ export default function FirmClientsScreen() {
     // 目前仅在 Web 提供下载，移动端建议截图保存
     if (Platform.OS !== 'web') {
       if (typeof window !== 'undefined') {
-        window.alert('请在桌面浏览器中下载二维码，或在移动端通过截图保存。');
+        window.alert('Download the QR code on desktop, or take a screenshot on mobile.');
       }
       return;
     }

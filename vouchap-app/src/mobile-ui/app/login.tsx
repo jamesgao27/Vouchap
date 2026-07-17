@@ -60,12 +60,40 @@ export default function LoginScreen() {
       if (params.redirect === '/auth/setup') {
         const t = (params.token ?? '').trim();
         const f = (params.firmClientId ?? '').trim();
-        if (t) router.replace({ pathname: '/auth/setup', params: { token: t } });
-        else if (f) router.replace({ pathname: '/auth/setup', params: { firmClientId: f } });
-        else router.replace('/');
-      } else {
-        router.replace('/');
+        if (t) {
+          router.replace({ pathname: '/auth/setup', params: { token: t } });
+          return;
+        }
+        if (f) {
+          router.replace({ pathname: '/auth/setup', params: { firmClientId: f } });
+          return;
+        }
       }
+      // 已登录且带邀请：进接受队列，勿直接踢回首页
+      if ((params.inviteId ?? '').trim()) {
+        router.replace('/handle-invitations');
+        return;
+      }
+      try {
+        const { getPendingInvitationsForUser } = await import('@/lib/space-invitations');
+        if ((await getPendingInvitationsForUser()).length > 0) {
+          router.replace('/handle-invitations');
+          return;
+        }
+      } catch (_) {}
+      try {
+        const { getCurrentUser } = await import('@/lib/auth');
+        const { getPendingInviteesForEmail } = await import('@/lib/firm-clients');
+        const user = await getCurrentUser();
+        if (user?.email) {
+          const { list } = await getPendingInviteesForEmail(user.email);
+          if (list.length > 0) {
+            router.replace('/auth/claim');
+            return;
+          }
+        }
+      } catch (_) {}
+      router.replace('/');
     } catch (_) {}
   };
 
@@ -102,7 +130,11 @@ export default function LoginScreen() {
         return;
       }
     }
-    // 顺序：先查 member 邀请，再查 firm 邀请，最后进入首页（首页会进入当前/最新空间或新建空间）
+    // 顺序：inviteId / member 邀请 → firm 邀请 → 首页
+    if ((params.inviteId ?? '').trim()) {
+      router.replace('/handle-invitations');
+      return;
+    }
     try {
       const { getPendingInvitationsForUser } = await import('@/lib/space-invitations');
       if ((await getPendingInvitationsForUser()).length > 0) {

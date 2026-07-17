@@ -182,6 +182,8 @@ export default function RegisterScreen() {
           if (params.redirect) lp.redirect = params.redirect;
           if (t) lp.token = t;
           if (f) lp.firmClientId = f;
+          if ((params.inviteId ?? '').trim()) lp.inviteId = String(params.inviteId).trim();
+          if (email.trim()) lp.email = email.trim();
           router.replace({ pathname: '/login', params: lp });
         }
       }
@@ -209,6 +211,8 @@ export default function RegisterScreen() {
             if (params.redirect) lp.redirect = params.redirect;
             if (t) lp.token = t;
             if (f) lp.firmClientId = f;
+            if ((params.inviteId ?? '').trim()) lp.inviteId = String(params.inviteId).trim();
+            if (email.trim()) lp.email = email.trim();
             router.replace({ pathname: '/login', params: lp });
           }
         }
@@ -241,6 +245,8 @@ export default function RegisterScreen() {
                 if (params.redirect) lp.redirect = params.redirect;
                 if (t) lp.token = t;
                 if (f) lp.firmClientId = f;
+                if ((params.inviteId ?? '').trim()) lp.inviteId = String(params.inviteId).trim();
+                if (email.trim()) lp.email = email.trim();
                 router.replace({ pathname: '/login', params: lp });
               }
             }}

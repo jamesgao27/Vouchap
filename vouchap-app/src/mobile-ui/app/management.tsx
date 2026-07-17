@@ -544,17 +544,20 @@ export default function ManagementScreen() {
 
       setShowSpaceSwitch(false);
 
-      if (Platform.OS === 'web' && isDesktopWeb) {
-        setShowRefreshAfterSwitchModal(true);
-        return;
-      }
-
       if (updatedSpace) {
         setSpace(updatedSpace);
         setSpaceName(updatedSpace.name);
         setSpaceAddress(updatedSpace.address || '');
       }
+      if (Platform.OS === 'web' && typeof window !== 'undefined') {
+        window.dispatchEvent(new Event('vouchap_space_updated'));
+      }
       await loadData();
+
+      if (Platform.OS === 'web' && isDesktopWeb) {
+        setShowRefreshAfterSwitchModal(true);
+        return;
+      }
     } catch (error) {
       console.error('Error switching space:', error);
       showToast('Failed to switch space', 'error');

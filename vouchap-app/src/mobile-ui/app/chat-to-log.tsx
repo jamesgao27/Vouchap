@@ -3177,7 +3177,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                         <View key={index} style={styles.receiptPreviewItemRow}>
                           <Text style={styles.receiptPreviewItemName}>{item.productName ?? ''}</Text>
                           <Text style={styles.receiptPreviewItemPrice}>
-                            {item.quantity} {item.unit ?? '件'}{item.unitPrice != null ? ` @ ${item.unitPrice.toFixed(2)}` : ''}
+                            {item.quantity} {item.unit ?? 'pcs'}{Number.isFinite(Number(item.unitPrice)) ? ` @ ${Number(item.unitPrice).toFixed(2)}` : ''}
                           </Text>
                         </View>
                       ))}
@@ -3268,7 +3268,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                         <View key={index} style={styles.receiptPreviewItemRow}>
                           <Text style={styles.receiptPreviewItemName}>{item.productName ?? ''}</Text>
                           <Text style={[styles.receiptPreviewItemPrice, { color: '#D35400' }]}>
-                            {item.quantity} {item.unit ?? '件'}{item.unitPrice != null ? ` @ ${item.unitPrice.toFixed(2)}` : ''}
+                            {item.quantity} {item.unit ?? 'pcs'}{Number.isFinite(Number(item.unitPrice)) ? ` @ ${Number(item.unitPrice).toFixed(2)}` : ''}
                           </Text>
                         </View>
                       ))}

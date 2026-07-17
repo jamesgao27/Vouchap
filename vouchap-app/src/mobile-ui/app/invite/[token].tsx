@@ -59,15 +59,15 @@ export default function InviteByTokenScreen() {
         if (userData && userData.email.toLowerCase() === invitation.inviteeEmail.toLowerCase()) {
           setStatus('ready');
           setMessage('This invitation is for you. Continue to accept it.');
-          setNextAction({ pathname: '/login', params: { inviteId: invitationId } });
+          setNextAction({ pathname: '/handle-invitations' });
           setButtonLabel('Continue');
           return;
         }
 
         setStatus('error');
-        setMessage('This invitation is for a different email address. Please log out and use the correct account.');
-        setNextAction({ pathname: '/' });
-        setButtonLabel('Go to Home');
+        setMessage('This invitation is for a different email address. Please log out and sign in with the correct account.');
+        setNextAction({ pathname: '/login', params: { email: invitation.inviteeEmail } });
+        setButtonLabel('Go to Login');
         return;
       }
 

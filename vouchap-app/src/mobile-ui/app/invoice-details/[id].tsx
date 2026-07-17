@@ -115,7 +115,7 @@ export default function InvoiceDetailsScreen() {
         setTaxInputText((data?.tax || 0).toString());
         const priceTexts: { [index: number]: string } = {};
         (data?.items || []).forEach((item, index) => {
-          priceTexts[index] = item.price.toString();
+          priceTexts[index] = String(item.price ?? 0);
         });
         setPriceInputTexts(priceTexts);
       }
@@ -980,7 +980,9 @@ export default function InvoiceDetailsScreen() {
                             const total = itemsSum + tax;
                             return (total < 0 ? '-' : '') + Math.abs(total).toFixed(2);
                           })()
-                        : (currentInvoice.totalAmount < 0 ? '-' : '') + Math.abs(currentInvoice.totalAmount).toFixed(2)}
+                        : (Number.isFinite(Number(currentInvoice.totalAmount))
+                            ? (Number(currentInvoice.totalAmount) < 0 ? '-' : '') + Math.abs(Number(currentInvoice.totalAmount)).toFixed(2)
+                            : '—')}
                     </Text>
                     {editing ? (
                       <View style={styles.taxInputContainer}>
@@ -1024,7 +1026,7 @@ export default function InvoiceDetailsScreen() {
                   {editing ? (
                     <TouchableOpacity style={styles.dateTouchable} onPress={() => setShowDatePicker(true)} activeOpacity={0.7}>
                       <View style={styles.dateTag}>
-                        <Text style={styles.dateText}>{editedInvoice?.date ? formatDate(editedInvoice.date) : '选择日期'}</Text>
+                        <Text style={styles.dateText}>{editedInvoice?.date ? formatDate(editedInvoice.date) : 'Select date'}</Text>
                         <Ionicons name="chevron-down" size={14} color="#6C5CE7" style={styles.tagIcon} />
                       </View>
                     </TouchableOpacity>
@@ -1057,7 +1059,7 @@ export default function InvoiceDetailsScreen() {
                   setTaxInputText((editedInvoice || invoice)?.tax?.toString() ?? '0');
                   const priceTexts: { [index: number]: string } = {};
                   ((editedInvoice || invoice)?.items || []).forEach((item, index) => {
-                    priceTexts[index] = item.price.toString();
+                    priceTexts[index] = String(item.price ?? 0);
                   });
                   setPriceInputTexts(priceTexts);
                 }
@@ -1104,7 +1106,7 @@ export default function InvoiceDetailsScreen() {
                 {editing ? (
                   <TextInput
                     style={styles.priceInput}
-                    value={priceInputTexts[index] !== undefined ? priceInputTexts[index] : item.price.toString()}
+                    value={priceInputTexts[index] !== undefined ? priceInputTexts[index] : String(item.price ?? 0)}
                     onChangeText={(text) => {
                       const validPattern = /^-?\d*\.?\d*$/;
                       if (text === '' || text === '-' || validPattern.test(text)) {
@@ -1116,7 +1118,7 @@ export default function InvoiceDetailsScreen() {
                       }
                     }}
                     onBlur={() => {
-                      const text = priceInputTexts[index] !== undefined ? priceInputTexts[index] : item.price.toString();
+                      const text = priceInputTexts[index] !== undefined ? priceInputTexts[index] : String(item.price ?? 0);
                       const price = parseFloat(text);
                       if (isNaN(price)) {
                         setPriceInputTexts(prev => ({ ...prev, [index]: '0' }));
@@ -1130,7 +1132,7 @@ export default function InvoiceDetailsScreen() {
                     placeholder="Price"
                   />
                 ) : (
-                  <Text style={styles.itemPrice}>{(item.price < 0 ? '-' : '') + Math.abs(item.price).toFixed(2)}</Text>
+                  <Text style={styles.itemPrice}>{(item.price < 0 ? '-' : '') + (Number.isFinite(Number(item.price)) ? Math.abs(Number(item.price)).toFixed(2) : '0.00')}</Text>
                 )}
               </View>
               <View style={styles.itemTags}>
@@ -1232,7 +1234,7 @@ export default function InvoiceDetailsScreen() {
               setTaxInputText((editedInvoice || invoice)?.tax?.toString() ?? '0');
               const priceTexts: { [index: number]: string } = {};
               ((editedInvoice || invoice)?.items || []).forEach((item, index) => {
-                priceTexts[index] = item.price.toString();
+                priceTexts[index] = String(item.price ?? 0);
               });
               setPriceInputTexts(priceTexts);
             }}
@@ -1476,7 +1478,7 @@ export default function InvoiceDetailsScreen() {
             <View style={styles.pickerHeader}>
               <Text style={styles.pickerTitle}>Select Payer</Text>
               <TouchableOpacity onPress={() => setShowCustomerPicker(false)} style={styles.pickerCloseButton}>
-                <Text style={styles.pickerCloseText}>取消</Text>
+                <Text style={styles.pickerCloseText}>Cancel</Text>
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
@@ -1494,7 +1496,7 @@ export default function InvoiceDetailsScreen() {
                   >
                     <View style={[styles.pickerColorIndicator, { backgroundColor: '#6C5CE7' }]} />
                     <Text style={[styles.pickerOptionText, isSelected && styles.pickerOptionTextSelected]} numberOfLines={1}>{opt.name}</Text>
-                    {opt.source === 'supplier' && <Text style={styles.pickerOptionSubtext}>供应商</Text>}
+                    {opt.source === 'supplier' && <Text style={styles.pickerOptionSubtext}>Supplier</Text>}
                     {isSelected && <Ionicons name="checkmark" size={20} color="#6C5CE7" />}
                   </TouchableOpacity>
                 );
@@ -1542,9 +1544,9 @@ export default function InvoiceDetailsScreen() {
                 <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
                   <View style={styles.pickerHandle} />
                   <View style={styles.pickerHeader}>
-                    <Text style={styles.pickerTitle}>选择日期</Text>
+                    <Text style={styles.pickerTitle}>Select date</Text>
                     <TouchableOpacity onPress={() => setShowDatePicker(false)} style={styles.pickerCloseButton}>
-                      <Text style={styles.pickerCloseText}>完成</Text>
+                      <Text style={styles.pickerCloseText}>Done</Text>
                     </TouchableOpacity>
                   </View>
                   <DateTimePicker

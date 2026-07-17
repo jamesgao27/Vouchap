@@ -266,7 +266,9 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
 };
 function formatSectionAmount(amount: number, currency?: string): string {
   const symbol = CURRENCY_SYMBOLS[currency || 'USD'] || (currency ? `${currency} ` : '$');
-  return `${symbol}${amount.toFixed(2)}`;
+  const n = Number(amount);
+  if (!Number.isFinite(n)) return `${symbol}—`;
+  return `${symbol}${n.toFixed(2)}`;
 }
 
 function TableGlobalStyles() {
@@ -452,7 +454,9 @@ export default function DataTable<T>({
       if (prev > 0 && Math.abs(w - prev) < CONTAINER_RESIZE_EPSILON_PX) return;
       lastObservedWrapperWidthRef.current = w;
       if (prev === 0) return; // 首次观察只记录，交给下方 layout effect 做首次分配
+      // 容器变化 = 整表重算：清除手动列宽与 intrinsic，按新容器重新填满/溢出
       intrinsicCapturedKeyRef.current = null;
+      setColumnWidths({});
       setIntrinsicWidths({});
       setContainerWidthEpoch((e) => e + 1);
     });

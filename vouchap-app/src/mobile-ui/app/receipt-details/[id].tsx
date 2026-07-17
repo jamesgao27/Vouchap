@@ -124,7 +124,7 @@ export default function ReceiptDetailsScreen() {
         setTaxInputText((data?.tax || 0).toString());
         const priceTexts: { [index: number]: string } = {};
         (data?.items || []).forEach((item, index) => {
-          priceTexts[index] = item.price.toString();
+          priceTexts[index] = String(item.price ?? 0);
         });
         setPriceInputTexts(priceTexts);
       }
@@ -393,54 +393,68 @@ export default function ReceiptDetailsScreen() {
     setDuplicateNameModalPayload(null);
   };
 
-  const handleDuplicateNameDontChange = () => {
+  /** dropdown：仅恢复编辑态；save：恢复并用原值立即保存（keep_original）。 */
+  const handleDuplicateNameDontChange = async () => {
     const payload = duplicateNameModalPayload;
     setShowDuplicateNameModal(false);
     setDuplicateNameModalPayload(null);
     if (!receipt) return;
-    if (payload?.code === 'ACCOUNT_NAME_EXISTS') {
-      const origAccount = receipt.account ?? (receipt.accountId ? accounts.find((a) => a.id === receipt.accountId) : undefined);
-      setEditedReceipt((prev) => prev ? { ...prev, accountId: receipt.accountId, account: origAccount } : prev);
-    } else if (payload?.code === 'ENTITY_NAME_EXISTS') {
-      const origName = receipt.entity?.name ?? receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
-      setEditedReceipt((prev) =>
-        prev
-          ? {
-              ...prev,
-              entityId: receipt.entityId ?? receipt.entity?.id,
-              entity: receipt.entity,
-              supplierName: origName,
-              storeName: origName,
-              supplierId: undefined,
-              supplierCustomerId: undefined,
-              supplier: undefined,
-              supplierCustomer: undefined,
-            }
-          : prev
-      );
-    } else {
-      const origName =
-        receipt.entity?.name ??
-        receipt.supplier?.name ??
-        receipt.supplierCustomer?.name ??
-        receipt.supplierName ??
-        receipt.storeName ??
-        '';
-      setEditedReceipt((prev) =>
-        prev
-          ? {
-              ...prev,
-              supplierName: origName,
-              storeName: origName,
-              entityId: receipt.entityId ?? receipt.entity?.id,
-              entity: receipt.entity,
-              supplierId: receipt.supplierId,
-              supplierCustomerId: receipt.supplierCustomerId,
-              supplier: receipt.supplier,
-              supplierCustomer: receipt.supplierCustomer,
-            }
-          : prev
-      );
+
+    const revertEditedToOriginal = () => {
+      if (payload?.code === 'ACCOUNT_NAME_EXISTS') {
+        const origAccount = receipt.account ?? (receipt.accountId ? accounts.find((a) => a.id === receipt.accountId) : undefined);
+        setEditedReceipt((prev) => (prev ? { ...prev, accountId: receipt.accountId, account: origAccount } : prev));
+      } else if (payload?.code === 'ENTITY_NAME_EXISTS') {
+        const origName = receipt.entity?.name ?? receipt.supplier?.name ?? receipt.supplierCustomer?.name ?? receipt.supplierName ?? receipt.storeName ?? '';
+        setEditedReceipt((prev) =>
+          prev
+            ? {
+                ...prev,
+                entityId: receipt.entityId ?? receipt.entity?.id,
+                entity: receipt.entity,
+                supplierName: origName,
+                storeName: origName,
+                supplierId: undefined,
+                supplierCustomerId: undefined,
+                supplier: undefined,
+                supplierCustomer: undefined,
+              }
+            : prev
+        );
+      } else {
+        const origName =
+          receipt.entity?.name ??
+          receipt.supplier?.name ??
+          receipt.supplierCustomer?.name ??
+          receipt.supplierName ??
+          receipt.storeName ??
+          '';
+        setEditedReceipt((prev) =>
+          prev
+            ? {
+                ...prev,
+                supplierName: origName,
+                storeName: origName,
+                entityId: receipt.entityId ?? receipt.entity?.id,
+                entity: receipt.entity,
+                supplierId: receipt.supplierId,
+                supplierCustomerId: receipt.supplierCustomerId,
+                supplier: receipt.supplier,
+                supplierCustomer: receipt.supplierCustomer,
+              }
+            : prev
+        );
+      }
+    };
+
+    revertEditedToOriginal();
+    if (payload?.triggeredBy === 'save') {
+      await runDuplicateResolutionSave('keep_original', {
+        code: payload.code,
+        duplicateName: payload.duplicateName,
+        targetId: payload.targetId,
+        targetSource: payload.targetSource,
+      });
     }
   };
 
@@ -1087,7 +1101,7 @@ export default function ReceiptDetailsScreen() {
                       </Text>
                     ) : (
                       <Text style={styles.totalAmount}>
-                        {(currentReceipt.totalAmount < 0 ? '-' : '') + Math.abs(currentReceipt.totalAmount).toFixed(2)}
+                        {(Number.isFinite(Number(currentReceipt.totalAmount)) ? ((Number(currentReceipt.totalAmount) < 0 ? '-' : '') + Math.abs(Number(currentReceipt.totalAmount)).toFixed(2)) : '—')}
                       </Text>
                     )}
                     {editing ? (
@@ -1222,7 +1236,7 @@ export default function ReceiptDetailsScreen() {
         setTaxInputText((currentReceiptForInit?.tax || 0).toString());
         const priceTexts: { [index: number]: string } = {};
         (currentReceiptForInit?.items || []).forEach((item, index) => {
-          priceTexts[index] = item.price.toString();
+          priceTexts[index] = String(item.price ?? 0);
         });
         setPriceInputTexts(priceTexts);
                 }
@@ -1298,7 +1312,7 @@ export default function ReceiptDetailsScreen() {
                 {editing ? (
                   <TextInput
                     style={styles.priceInput}
-                    value={priceInputTexts[index] !== undefined ? priceInputTexts[index] : item.price.toString()}
+                    value={priceInputTexts[index] !== undefined ? priceInputTexts[index] : String(item.price ?? 0)}
                     onChangeText={(text) => {
                       // 验证输入：只允许数字、负号和小数点
                       const validPattern = /^-?\d*\.?\d*$/;
@@ -1317,7 +1331,7 @@ export default function ReceiptDetailsScreen() {
                     }}
                     onBlur={() => {
                       // 失去焦点时，确保值是有效的数字
-                      const text = priceInputTexts[index] !== undefined ? priceInputTexts[index] : item.price.toString();
+                      const text = priceInputTexts[index] !== undefined ? priceInputTexts[index] : String(item.price ?? 0);
                       const price = parseFloat(text);
                       if (isNaN(price)) {
                         setPriceInputTexts(prev => ({ ...prev, [index]: '0' }));
@@ -1543,7 +1557,7 @@ export default function ReceiptDetailsScreen() {
           setTaxInputText((currentReceiptForInit?.tax || 0).toString());
           const priceTexts: { [index: number]: string } = {};
           (currentReceiptForInit?.items || []).forEach((item, index) => {
-            priceTexts[index] = item.price.toString();
+            priceTexts[index] = String(item.price ?? 0);
           });
           setPriceInputTexts(priceTexts);
             }}
@@ -1889,7 +1903,7 @@ export default function ReceiptDetailsScreen() {
         setTaxInputText((currentReceiptForInit?.tax || 0).toString());
         const priceTexts: { [index: number]: string } = {};
         (currentReceiptForInit?.items || []).forEach((item, index) => {
-          priceTexts[index] = item.price.toString();
+          priceTexts[index] = String(item.price ?? 0);
         });
         setPriceInputTexts(priceTexts);
                     }
@@ -1947,7 +1961,7 @@ export default function ReceiptDetailsScreen() {
         setTaxInputText((currentReceiptForInit?.tax || 0).toString());
         const priceTexts: { [index: number]: string } = {};
         (currentReceiptForInit?.items || []).forEach((item, index) => {
-          priceTexts[index] = item.price.toString();
+          priceTexts[index] = String(item.price ?? 0);
         });
         setPriceInputTexts(priceTexts);
                       }

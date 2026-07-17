@@ -15,7 +15,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import { updatePassword, isAuthenticated } from '@/lib/auth';
+import { updatePassword, isAuthenticated, signOut } from '@/lib/auth';
 import { showToast } from '@/lib/toast';
 import { showChoiceDialog } from '@/lib/confirmDialog';
 
@@ -85,6 +85,9 @@ export default function SetPasswordScreen() {
       showToast(error.message, 'error');
     } else {
       showToast('Your password has been set successfully. Please sign in with your new password.', 'success');
+      try {
+        await signOut();
+      } catch (_) {}
       router.replace('/login');
     }
   };

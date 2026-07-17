@@ -7641,3 +7641,95 @@
 
 **关联**  
 - `vouchap-app/src/mobile-ui/components/DataTable.tsx`
+
+---
+
+### 2026-07-16（Web：列宽设计流程完整审查与仿真测试）
+
+**User（提示词/原意）**  
+- 按所有设计使用的流程完整测试；review 代码测试响应是否符合设计意图。
+
+**Assistant（实现前说明）**  
+- 无浏览器 E2E 环境时：对照 F1–F11 设计矩阵做静态审查 + Node 仿真（填满/溢出/拖动/可见列/key）；查侧栏与手动宽交互。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 仿真 24/24 通过；流程对照见 Canvas `datatable-column-width-review`。  
+- **缺口已修**：容器 ResizeObserver（侧栏）原先保留 `columnWidths`，不符合「开关右侧栏整表重算」→ 现同时清空手动列宽与 intrinsic。  
+- **需手测**：实机拖拽、侧栏动画、粘性表头（本环境无运行中 Web）。  
+- 低风险：StatusBadge padding 未计入 samples；line-items Item 的 `maxWidth:40ch`。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/DataTable.tsx`  
+- Canvas: `datatable-column-width-review.canvas.tsx`
+
+---
+
+### 2026-07-16（全产品工作流清单 + 开始逐域审查）
+
+**User（提示词/原意）**  
+- 不仅表格列宽：App 与 Web 全功能流程；先列出所有工作流程，再依次测试与 review。
+
+**Assistant（实现前说明）**  
+- 从 Expo Router `app/` 全量路由 + feature flags + PRD/TESTING_GUIDE 建域级清单；静态审查优先（无登录 E2E）；先审 Auth/Space/Expenses。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已建 10 域 / ~24 条主工作流清单与进度 Canvas `full-product-workflow-review`。  
+- D1–D3 已审：P0 邀请深链（已登录 Continue→login 丢 invite；login 不读 inviteId）；P1 Replace Do not replace(save)、price/unitPrice 防护。  
+- 下一轮 D4→D10；Inventory 默认 flag 关列为阻塞。未改业务代码（待用户指示是否先修 P0）。
+
+**关联**  
+- Canvas: `full-product-workflow-review.canvas.tsx`  
+- 审查范围：`login`/`invite`/`receipt-details`/`chat-to-log`/`management` 等
+
+---
+
+### 2026-07-16（修复 D1–D3 P0/P1 + 继续 D4–D10）
+
+**User（提示词/原意）**  
+- 修复，然后继续。
+
+**Assistant（实现前说明）**  
+- 先修邀请流、receipt Do not replace(save)、price/unitPrice、设密 signOut、register 透传 inviteId；再审 Income/Settings/Tax/Firm/Chat/Web 并修清晰 P1。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- **已修**：`invite/[id|token]`→`/handle-invitations`；`login` 消费 `inviteId`/pending；`receipt-details` Do not replace(save)=keep_original；price/unitPrice/`pcs`；`set-password` signOut；`register` 透传 inviteId；`invoice-details` price+英文 UI；`management` 切空间同步+事件；`_layout` details type 映射与 settings FAB；Firm QR 英文；`DataTable` section amount 防护。  
+- **已审无阻断**：D6 Tax、D10 Web 壳。  
+- **残留 P2**：invoices random key、order 遗留路由、详情默认关栏等。  
+- **验证建议**：已登录点邀请 Continue；费用 Confirm 撞名后 Do not replace；桌面切空间侧栏刷新。
+
+**关联**  
+- `login.tsx`、`invite/*`、`receipt-details`、`invoice-details`、`chat-to-log`、`management`、`_layout`、`DataTable`、`firm/clients*`  
+- Canvas: `full-product-workflow-review.canvas.tsx`
+
+
+### 2026-07-16（D4–D8/D10 静态代码审查）
+
+**User（提示词/原意）**  
+- 审查 vouchap-app：D4 Income、D5 Settings、D6 Tax、D7 Firm、D8 Chat shell、D10 Web shell；找 P0/P1/P2、中文 UI、null toFixed、导航、replace-modal；跳过 Inventory；最多 20 条发现。
+
+**Assistant（实现前说明）**  
+- 无代码变更；静态 grep/读关键路径：invoice-details、invoices、chat-to-log、management、tax-filing/**、firm/**、_layout、WebSidebar、FirmPendingOverlay。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 产出最多 20 条中文 findings（见本轮对话）；无 P0；P1：invoice-details 空 price.toString/中文 UI、management 桌面切空间可关掉刷新弹窗导致侧栏/壳状态陈旧。  
+- Looks OK：invoice Replace Do not replace(save)、invoices AmountText、chat-to-log invoice 金额防护、client→firm/engagement+viewerRole、FirmPendingOverlay 英文、WebSidebar firm/client 分支、tax iOS setOptions 已避让。  
+- Inventory 按要求跳过。
+
+**关联**  
+- `invoice-details/[id].tsx`、`management.tsx`、`_layout.tsx`、`firm/clients.tsx`
+
+---
+
+### 2026-07-16（版本 2.6.5 + EAS production 全平台构建）
+
+**User（提示词/原意）**  
+- 更新版本号，然后 commit 和推送 expo 构建全平台 production。
+
+**Assistant（实现前说明）**  
+- 自 2.6.4 / Build 54 升至 2.6.5 / Build 55；同步 package.json、package-lock、app.json、app.config.js、android build.gradle、ios Info.plist；提交信息按准则；push 后 `eas build --platform all --profile production`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 版本文件已同步为 2.6.5 (Build 55)；与近期工作流修复一并 commit/push；启动 EAS iOS+Android production 构建。
+
+**关联**  
+- `vouchap-app/package.json`、`app.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`

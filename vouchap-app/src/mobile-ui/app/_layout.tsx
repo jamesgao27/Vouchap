@@ -18,7 +18,20 @@ import { useWebViewportKind } from '../lib/web-viewport';
 /** 基础数据设置页：这些页不显示 chat-to-log 气泡（已打开的右栏保留） */
 function isSettingsPage(pathname: string): boolean {
   const base = pathname?.replace(/^\//, '').split('/')[0] || '';
-  return ['entities-manage', 'accounts-manage', 'categories-manage', 'purposes-manage', 'attributions-manage', 'skus-manage', 'warehouse-manage', 'management', 'space-manage', 'space-orders'].includes(base);
+  return [
+    'entities-manage',
+    'accounts-manage',
+    'categories-manage',
+    'purposes-manage',
+    'attributions-manage',
+    'skus-manage',
+    'warehouse-manage',
+    'management',
+    'space-manage',
+    'space-orders',
+    'expense-settings',
+    'income-settings',
+  ].includes(base) || pathname?.startsWith('/firm/permissions') === true;
 }
 
 /** 某些页面完全不显示 chat-to-log（右栏 + 气泡都关掉） */
@@ -39,11 +52,11 @@ function chatTypeFromPathname(pathname: string | null): ChatPanelType | null {
   if (pathname.startsWith('/tax-filing')) return 'tax-filing';
   // Clients 模块：Cody (Client Assistant)
   if (pathname === '/firm/clients' || pathname.startsWith('/firm/clients/') || pathname.startsWith('/firm/client/')) return 'client';
-  if (pathname === '/receipts' || pathname.startsWith('/receipts/')) return 'receipt';
+  if (pathname === '/receipts' || pathname.startsWith('/receipts/') || pathname.startsWith('/receipt-details/')) return 'receipt';
   if (pathname === '/receipt-items' || pathname.startsWith('/receipt-items/')) return 'receipt';
-  if (pathname === '/invoices' || pathname.startsWith('/invoices/')) return 'invoice';
-  if (pathname === '/inbound' || pathname.startsWith('/inbound/')) return 'inbound';
-  if (pathname === '/outbound' || pathname.startsWith('/outbound/')) return 'outbound';
+  if (pathname === '/invoices' || pathname.startsWith('/invoices/') || pathname.startsWith('/invoice-details/')) return 'invoice';
+  if (pathname === '/inbound' || pathname.startsWith('/inbound/') || pathname.startsWith('/inbound-details/')) return 'inbound';
+  if (pathname === '/outbound' || pathname.startsWith('/outbound/') || pathname.startsWith('/outbound-details/')) return 'outbound';
   return null;
 }
 
