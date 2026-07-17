@@ -7729,7 +7729,11 @@
 - 自 2.6.4 / Build 54 升至 2.6.5 / Build 55；同步 package.json、package-lock、app.json、app.config.js、android build.gradle、ios Info.plist；提交信息按准则；push 后 `eas build --platform all --profile production`。
 
 **Assistant（实现后说明 / 本轮结论）**  
-- 版本文件已同步为 2.6.5 (Build 55)；与近期工作流修复一并 commit/push；启动 EAS iOS+Android production 构建。
+- 本地先 bump 为 2.6.5 / Build 55 并 commit/push（`1e8ec5a`）。  
+- EAS `production` + `appVersionSource: remote` + `autoIncrement` 实际远程递增为 **Android versionCode 59**、**iOS buildNumber 42**；本地已再同步这两值。  
+- 构建已提交并排队：  
+  - Android: https://expo.dev/accounts/aimlink/projects/vouchap/builds/175b38c1-2596-4333-b3f2-0037fbddc6f5  
+  - iOS: https://expo.dev/accounts/aimlink/projects/vouchap/builds/93517ba7-e39c-49e9-b491-b8a007d66235  
 
 **关联**  
 - `vouchap-app/package.json`、`app.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`
