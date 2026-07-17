@@ -7737,3 +7737,21 @@
 
 **关联**  
 - `vouchap-app/package.json`、`app.json`、`app.config.js`、`android/app/build.gradle`、`ios/Vouchap/Info.plist`
+
+---
+
+### 2026-07-17（App 内 PDF 预览 + 误显音频按钮）
+
+**User（提示词/原意）**  
+- App 上 PDF 附件的 receipt 不能应用内预览，点占位区会下载且下载后仍无预览；部分文档附件详情出现播放音频按钮。Web 预览正常，但也有部分 PDF 记录误显音频按钮。要求实现 PDF 在 app 内直接预览。
+
+**Assistant（实现前说明）**  
+- 根因：`getChatLogsByReceiptId` / `ByInvoiceId` 把任意 `attachment_url` 映射为 `audioUrl`；原生 `FileDetailModal` 用 WebView 直接加载远程 PDF，Android/部分 iOS 会走系统下载而非内嵌预览。  
+- 拟改：chat-logs 仅 `type==='audio'` 才填 `audioUrl`；详情页按 type 过滤；原生先下载再 iOS 本地 WebView / Android PDF.js 内嵌。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已修 `chat-logs` 映射与 receipt/invoice/inbound 音频按钮条件；`FileDetailModal` 原生 PDF 下载后应用内预览；详情缩略图对 PDF/document 显示文档占位而非坏图。  
+- **验证**：真机打开 PDF expense → 点缩略图应见 Loading 后内嵌预览；PDF 记录不应再出现 play 按钮（除非确为语音录入）。Web 仍走原有 object/blob 预览，且误显音频应消失。
+
+**关联**  
+- `src/shared-logic/chat-logs.ts`、`FileDetailModal.tsx`、`receipt-details/[id].tsx`、`invoice-details/[id].tsx`

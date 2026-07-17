@@ -74,7 +74,10 @@ export default function InboundDetailsScreen() {
       try {
         const chatLogs = await getChatLogsByReceiptId(id);
         const audioLog = chatLogs.find(
-          (log) => log.audioUrl && (log.voucherType === 'inbound' || log.voucherType == null)
+          (log) =>
+            log.type === 'audio' &&
+            log.audioUrl &&
+            (log.voucherType === 'inbound' || log.voucherType == null)
         );
         if (audioLog?.audioUrl) {
           setAudioUrl(audioLog.audioUrl);

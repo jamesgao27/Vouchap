@@ -410,7 +410,7 @@ export async function getChatLogsByReceiptId(receiptId: string): Promise<ChatLog
       confidence: row.confidence,
       processingTimeMs: row.processing_time_ms,
       attachmentUrl: row.attachment_url ?? null,
-      audioUrl: row.attachment_url ?? null,
+      audioUrl: row.type === 'audio' ? (row.attachment_url ?? null) : null,
       createdAt: row.created_at,
     }));
   } catch (error) {
@@ -467,7 +467,7 @@ export async function getChatLogsByInvoiceId(invoiceId: string): Promise<ChatLog
       confidence: row.confidence,
       processingTimeMs: row.processing_time_ms,
       attachmentUrl: row.attachment_url ?? null,
-      audioUrl: row.attachment_url ?? null,
+      audioUrl: row.type === 'audio' ? (row.attachment_url ?? null) : null,
       createdAt: row.created_at,
     }));
   } catch (error) {

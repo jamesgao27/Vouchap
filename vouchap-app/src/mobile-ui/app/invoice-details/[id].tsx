@@ -35,7 +35,12 @@ import { format } from 'date-fns';
 import { getLocalDateString } from '@/lib/date-utils';
 import { showToast } from '@/lib/toast';
 import { showChoiceDialog, showConfirmDestructiveDialog } from '@/lib/confirmDialog';
-import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
+import {
+  FileDetailModal,
+  looksLikeDocumentAttachmentUrl,
+  looksLikePdfUrl,
+  type FileDetailModalFile,
+} from '@/components/FileDetailModal';
 
 export default function InvoiceDetailsScreen() {
   const { id, new: isNew } = useLocalSearchParams<{ id: string; new?: string }>();
@@ -98,15 +103,12 @@ export default function InvoiceDetailsScreen() {
         const targetId = String(data.id);
         const audioLog = chatLogs.find(
           (log) =>
+            log.type === 'audio' &&
             log.audioUrl &&
             log.responseData?.invoicePreview &&
             String(log.responseData.invoicePreview.id) === targetId
         );
-        if (audioLog?.audioUrl) {
-          setAudioUrl(audioLog.audioUrl);
-        } else {
-          setAudioUrl(null);
-        }
+        setAudioUrl(audioLog?.audioUrl ?? null);
       } catch (chatError) {
         console.log('Failed to get chat logs for invoice audio:', chatError);
       }
@@ -889,8 +891,10 @@ export default function InvoiceDetailsScreen() {
             <TouchableOpacity
               onPress={() => {
                 if (currentInvoice.imageUrl) {
-                  const isPdf = currentInvoice.imageUrl.toLowerCase().endsWith('.pdf');
-                  if (isPdf) {
+                  const isDoc =
+                    looksLikeDocumentAttachmentUrl(currentInvoice.imageUrl) ||
+                    currentInvoice.inputType === 'document';
+                  if (isDoc) {
                     const file: FileDetailModalFile = {
                       id: `invoice-doc-${currentInvoice.id}`,
                       name: currentInvoice.customerName || currentInvoice.customer?.name || 'Income document',
@@ -909,7 +913,16 @@ export default function InvoiceDetailsScreen() {
               disabled={isUploadingImage}
             >
               {currentInvoice.imageUrl ? (
-                <Image source={{ uri: currentInvoice.imageUrl }} style={[styles.receiptImage, styles.thumbAlignTopLeft]} resizeMode="cover" />
+                looksLikePdfUrl(currentInvoice.imageUrl) || currentInvoice.inputType === 'document' ? (
+                  <View style={[styles.receiptImage, styles.thumbAlignTopLeft, styles.docThumbPlaceholder]}>
+                    <Ionicons name="document-text" size={36} color="#6C5CE7" />
+                    <Text style={styles.docThumbLabel} numberOfLines={1}>
+                      {looksLikePdfUrl(currentInvoice.imageUrl) ? 'PDF' : 'Document'}
+                    </Text>
+                  </View>
+                ) : (
+                  <Image source={{ uri: currentInvoice.imageUrl }} style={[styles.receiptImage, styles.thumbAlignTopLeft]} resizeMode="cover" />
+                )
               ) : (
                 <View style={styles.imagePlaceholderContent}>
                   {isUploadingImage ? <ActivityIndicator size="small" color="#6C5CE7" /> : <Ionicons name="document-text" size={32} color="#95A5A6" />}
@@ -1604,6 +1617,13 @@ const styles = StyleSheet.create({
   },
   imagePlaceholderContent: { width: '100%', height: '100%', justifyContent: 'center', alignItems: 'center' },
   receiptImage: { width: '100%', height: '100%' },
+  docThumbPlaceholder: {
+    backgroundColor: '#F0EEFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+  },
+  docThumbLabel: { fontSize: 11, fontWeight: '700', color: '#6C5CE7' },
   thumbAlignTopLeft: Platform.select({ web: { objectFit: 'cover' as const, objectPosition: 'top left' as const }, default: {} }),
   summaryContent: { flex: 1, justifyContent: 'space-between' },
   summaryContentTop: { flex: 1, justifyContent: 'space-between' },

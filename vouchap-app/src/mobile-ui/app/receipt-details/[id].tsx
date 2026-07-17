@@ -35,7 +35,12 @@ import { Receipt, ReceiptItem, Category, Attribution, ReceiptStatus, Account } f
 import { format } from 'date-fns';
 import { showToast } from '@/lib/toast';
 import { showChoiceDialog, showConfirmDestructiveDialog } from '@/lib/confirmDialog';
-import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
+import {
+  FileDetailModal,
+  looksLikeDocumentAttachmentUrl,
+  looksLikePdfUrl,
+  type FileDetailModalFile,
+} from '@/components/FileDetailModal';
 import {
   LineItemPillAnchorDropdownWeb,
   LineItemAttributionAnchorDropdownWeb,
@@ -107,15 +112,14 @@ export default function ReceiptDetailsScreen() {
         setEditedReceipt(data);
       }
       
-      // 获取该小票对应的聊天记录，查找 audioUrl
+      // 仅语音录入才显示回放按钮（document 的 attachment_url 不得当作 audio）
       try {
         const chatLogs = await getChatLogsByReceiptId(id);
-        const audioLog = chatLogs.find(log => log.audioUrl);
-        if (audioLog?.audioUrl) {
-          setAudioUrl(audioLog.audioUrl);
-        }
+        const audioLog = chatLogs.find((log) => log.type === 'audio' && log.audioUrl);
+        setAudioUrl(audioLog?.audioUrl ?? null);
       } catch (chatError) {
         console.log('Failed to get chat logs for audio:', chatError);
+        setAudioUrl(null);
       }
       
       // 如果是新创建的小票，自动进入编辑模式（仅首轮初始化时执行）
@@ -990,8 +994,10 @@ export default function ReceiptDetailsScreen() {
             <TouchableOpacity
               onPress={() => {
                 if (currentReceipt.imageUrl) {
-                  const isPdf = currentReceipt.imageUrl.toLowerCase().endsWith('.pdf');
-                  if (isPdf) {
+                  const isDoc =
+                    looksLikeDocumentAttachmentUrl(currentReceipt.imageUrl) ||
+                    currentReceipt.inputType === 'document';
+                  if (isDoc) {
                     const file: FileDetailModalFile = {
                       id: `receipt-doc-${currentReceipt.id}`,
                       name: currentReceipt.storeName || currentReceipt.supplierName || 'Expense document',
@@ -1010,11 +1016,20 @@ export default function ReceiptDetailsScreen() {
               disabled={isUploadingImage}
             >
               {currentReceipt.imageUrl ? (
-                <Image
-                  source={{ uri: currentReceipt.imageUrl }}
-                  style={[styles.receiptImage, styles.thumbAlignTopLeft]}
-                  resizeMode="cover"
-                />
+                looksLikePdfUrl(currentReceipt.imageUrl) || currentReceipt.inputType === 'document' ? (
+                  <View style={[styles.receiptImage, styles.thumbAlignTopLeft, styles.docThumbPlaceholder]}>
+                    <Ionicons name="document-text" size={36} color="#6C5CE7" />
+                    <Text style={styles.docThumbLabel} numberOfLines={1}>
+                      {looksLikePdfUrl(currentReceipt.imageUrl) ? 'PDF' : 'Document'}
+                    </Text>
+                  </View>
+                ) : (
+                  <Image
+                    source={{ uri: currentReceipt.imageUrl }}
+                    style={[styles.receiptImage, styles.thumbAlignTopLeft]}
+                    resizeMode="cover"
+                  />
+                )
               ) : (
                 <View style={styles.imagePlaceholderContent}>
                   {isUploadingImage ? (
@@ -2311,6 +2326,17 @@ const styles = StyleSheet.create({
   receiptImage: {
     width: '100%',
     height: '100%',
+  },
+  docThumbPlaceholder: {
+    backgroundColor: '#F0EEFF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 4,
+  },
+  docThumbLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#6C5CE7',
   },
   /** 非正方形缩略图取靠上/靠左部分，不居中 */
   thumbAlignTopLeft: Platform.select({ web: { objectFit: 'cover' as const, objectPosition: 'top left' as const }, default: {} }),

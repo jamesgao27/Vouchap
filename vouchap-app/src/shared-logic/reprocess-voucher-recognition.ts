@@ -49,8 +49,11 @@ async function downloadRemoteToTempFile(url: string, ext: string): Promise<strin
   return res.uri;
 }
 
-function pickAudioUrlFromLogs(logs: { audioUrl?: string | null; attachmentUrl?: string | null }[]): string | null {
+function pickAudioUrlFromLogs(
+  logs: { type?: string | null; audioUrl?: string | null; attachmentUrl?: string | null }[],
+): string | null {
   for (const log of logs) {
+    if (log.type && log.type !== 'audio') continue;
     const u = (log.audioUrl || log.attachmentUrl || '').trim();
     if (u) return u;
   }
