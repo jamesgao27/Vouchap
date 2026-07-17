@@ -522,18 +522,35 @@ export interface ReceiptColumnOptions {
   statusColors: Record<ReceiptStatus, string>;
 }
 
+/** 不定长商户/客户列最小宽（字符） */
+const MERCHANT_MIN_CHARS = 30;
+/** 账户列最小宽（字符） */
+const ACCOUNT_MIN_CHARS = 20;
+/** 金额列内容样例（含较长币种符号） */
+const AMOUNT_CONTENT_SAMPLES = ['C$99,999.99', 'HK$99,999.99'];
+/** 日期列内容样例（与 formatDate MMM dd, yyyy 对齐） */
+const DATE_CONTENT_SAMPLES = ['Sep 30, 2026'];
+/** 状态标签内容样例（取较长英文标签） */
+const STATUS_CONTENT_SAMPLES = ['Needs Retake', 'Processing', 'Confirmed'];
+/** 记录时间列内容样例 */
+const RECORD_DATE_CONTENT_SAMPLES = ['99 hours ago', 'Sep 30, 2026'];
+/** Method 列（图标） */
+const METHOD_CONTENT_SAMPLES = ['Method'];
+/** Recorder 较短名 */
+const RECORDER_CONTENT_SAMPLES = ['RecorderName'];
+
 /** 支出单：关联方列表头为 Payee */
 export function getReceiptColumns(opts: ReceiptColumnOptions): DataTableColumn<Receipt>[] {
   const { formatDate, formatTimeAgo, statusLabels, statusColors } = opts;
   return [
-    { id: 'supplier', label: 'Payee', minWidth: 140, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.entity?.name || r.supplierName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.supplierName || '').toLowerCase() },
-    { id: 'amount', label: 'Amount', minWidth: 100, getValue: r => <AmountCell amount={r.totalAmount} currency={r.currency} amountColor={AMOUNT_COLOR_EXPENSE} />, getSortValue: r => r.totalAmount ?? -Infinity },
-    { id: 'account', label: 'Account', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.account?.name || '—'}</Text>, getSortValue: r => (r.account?.name || '').toLowerCase() },
-    { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
-    { id: 'status', label: 'Status', minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
-    { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '—'}</Text>, getSortValue: r => (r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '').toLowerCase() },
-    { id: 'inputType', label: 'Method', minWidth: 90, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
-    { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }} numberOfLines={1} ellipsizeMode="tail">{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
+    { id: 'supplier', label: 'Payee', minChars: MERCHANT_MIN_CHARS, minWidth: 140, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.entity?.name || r.supplierName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.supplierName || '').toLowerCase() },
+    { id: 'amount', label: 'Amount', contentMinSamples: AMOUNT_CONTENT_SAMPLES, minWidth: 100, getValue: r => <AmountCell amount={r.totalAmount} currency={r.currency} amountColor={AMOUNT_COLOR_EXPENSE} />, getSortValue: r => r.totalAmount ?? -Infinity },
+    { id: 'account', label: 'Account', minChars: ACCOUNT_MIN_CHARS, minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.account?.name || '—'}</Text>, getSortValue: r => (r.account?.name || '').toLowerCase() },
+    { id: 'date', label: 'Date', contentMinSamples: DATE_CONTENT_SAMPLES, minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
+    { id: 'status', label: 'Status', contentMinSamples: STATUS_CONTENT_SAMPLES, minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
+    { id: 'createdBy', label: 'Recorder', contentMinSamples: RECORDER_CONTENT_SAMPLES, minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '—'}</Text>, getSortValue: r => (r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '').toLowerCase() },
+    { id: 'inputType', label: 'Method', contentMinSamples: METHOD_CONTENT_SAMPLES, minWidth: 72, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
+    { id: 'createdAt', label: 'Record date', contentMinSamples: RECORD_DATE_CONTENT_SAMPLES, minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }} numberOfLines={1} ellipsizeMode="tail">{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
   ];
 }
 
@@ -584,6 +601,7 @@ export function getReceiptLineItemColumns(opts: ReceiptLineItemColumnOptions): D
     {
       id: 'amount',
       label: 'Amount',
+      contentMinSamples: AMOUNT_CONTENT_SAMPLES,
       minWidth: 100,
       getValue: r => <AmountCell amount={r.price} currency={r.currency} amountColor={AMOUNT_COLOR_EXPENSE} />,
       getSortValue: r => r.price ?? -Infinity,
@@ -680,6 +698,7 @@ export function getReceiptLineItemColumns(opts: ReceiptLineItemColumnOptions): D
     {
       id: 'payee',
       label: 'Payee',
+      minChars: MERCHANT_MIN_CHARS,
       minWidth: 130,
       getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.payeeName || '—'}</Text>,
       getSortValue: r => (r.payeeName || '').toLowerCase(),
@@ -687,6 +706,7 @@ export function getReceiptLineItemColumns(opts: ReceiptLineItemColumnOptions): D
     {
       id: 'receiptDate',
       label: 'Transaction date',
+      contentMinSamples: DATE_CONTENT_SAMPLES,
       minWidth: 120,
       getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.receiptDate)}</Text>,
       getSortValue: r => r.receiptDate || '',
@@ -705,14 +725,14 @@ export interface InvoiceColumnOptions {
 export function getInvoiceColumns(opts: InvoiceColumnOptions): DataTableColumn<Invoice>[] {
   const { formatDate, formatTimeAgo, statusLabels, statusColors } = opts;
   return [
-    { id: 'customer', label: 'Payer', minWidth: 140, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.entity?.name || r.customerName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.customerName || '').toLowerCase() },
-    { id: 'amount', label: 'Amount', minWidth: 100, getValue: r => <AmountCell amount={r.totalAmount} currency={r.currency} amountColor={AMOUNT_COLOR_INCOME} />, getSortValue: r => r.totalAmount ?? -Infinity },
-    { id: 'account', label: 'Account', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.account?.name || '—'}</Text>, getSortValue: r => (r.account?.name || '').toLowerCase() },
-    { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
-    { id: 'status', label: 'Status', minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
-    { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '—'}</Text>, getSortValue: r => (r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '').toLowerCase() },
-    { id: 'inputType', label: 'Method', minWidth: 90, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
-    { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }} numberOfLines={1} ellipsizeMode="tail">{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
+    { id: 'customer', label: 'Payer', minChars: MERCHANT_MIN_CHARS, minWidth: 140, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.entity?.name || r.customerName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.customerName || '').toLowerCase() },
+    { id: 'amount', label: 'Amount', contentMinSamples: AMOUNT_CONTENT_SAMPLES, minWidth: 100, getValue: r => <AmountCell amount={r.totalAmount} currency={r.currency} amountColor={AMOUNT_COLOR_INCOME} />, getSortValue: r => r.totalAmount ?? -Infinity },
+    { id: 'account', label: 'Account', minChars: ACCOUNT_MIN_CHARS, minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.account?.name || '—'}</Text>, getSortValue: r => (r.account?.name || '').toLowerCase() },
+    { id: 'date', label: 'Date', contentMinSamples: DATE_CONTENT_SAMPLES, minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
+    { id: 'status', label: 'Status', contentMinSamples: STATUS_CONTENT_SAMPLES, minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
+    { id: 'createdBy', label: 'Recorder', contentMinSamples: RECORDER_CONTENT_SAMPLES, minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '—'}</Text>, getSortValue: r => (r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || '').toLowerCase() },
+    { id: 'inputType', label: 'Method', contentMinSamples: METHOD_CONTENT_SAMPLES, minWidth: 72, getValue: r => <InputTypeCell type={r.inputType} />, getSortValue: r => r.inputType || '' },
+    { id: 'createdAt', label: 'Record date', contentMinSamples: RECORD_DATE_CONTENT_SAMPLES, minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }} numberOfLines={1} ellipsizeMode="tail">{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
   ];
 }
 
@@ -727,19 +747,19 @@ export interface InboundColumnOptions {
 export function getInboundColumns(opts: InboundColumnOptions): DataTableColumn<Inbound>[] {
   const { formatDate, formatTimeAgo, statusLabels, statusColors } = opts;
   return [
-    { id: 'supplier', label: 'Sender', minWidth: 120, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.entity?.name || r.supplierName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.supplierName || '').toLowerCase() },
-    { id: 'amount', label: 'Amount', minWidth: 100, getValue: r => (
+    { id: 'supplier', label: 'Sender', minChars: MERCHANT_MIN_CHARS, minWidth: 120, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.entity?.name || r.supplierName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.supplierName || '').toLowerCase() },
+    { id: 'amount', label: 'Amount', contentMinSamples: AMOUNT_CONTENT_SAMPLES, minWidth: 100, getValue: r => (
       r.totalAmount != null
         ? <AmountCell amount={Number(r.totalAmount)} currency={r.currency} />
         : <Text style={{ fontSize: 14, color: '#95A5A6' }} numberOfLines={1}>—</Text>
     ), getSortValue: r => r.totalAmount != null ? Number(r.totalAmount) : -Infinity },
-    { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
-    { id: 'status', label: 'Status', minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
-    { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{(r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? (r.createdBy ? '…' : '—')}</Text>, getSortValue: r => ((r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? '').toLowerCase() },
-    { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }} numberOfLines={1} ellipsizeMode="tail">{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
-    { id: 'documentNo', label: 'Doc No', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.documentNo || '—'}</Text>, getSortValue: r => (r.documentNo || '').toLowerCase() },
-    { id: 'handler', label: 'Handler', minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.handlerName || '—'}</Text>, getSortValue: r => (r.handlerName || '').toLowerCase() },
-    { id: 'warehouseKeeper', label: 'Keeper', minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.warehouseKeeperName || '—'}</Text>, getSortValue: r => (r.warehouseKeeperName || '').toLowerCase() },
+    { id: 'date', label: 'Date', contentMinSamples: DATE_CONTENT_SAMPLES, minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
+    { id: 'status', label: 'Status', contentMinSamples: STATUS_CONTENT_SAMPLES, minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
+    { id: 'createdBy', label: 'Recorder', contentMinSamples: RECORDER_CONTENT_SAMPLES, minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{(r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? (r.createdBy ? '…' : '—')}</Text>, getSortValue: r => ((r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? '').toLowerCase() },
+    { id: 'createdAt', label: 'Record date', contentMinSamples: RECORD_DATE_CONTENT_SAMPLES, minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }} numberOfLines={1} ellipsizeMode="tail">{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
+    { id: 'documentNo', label: 'Doc No', contentMinSamples: ['DOC-12345'], minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.documentNo || '—'}</Text>, getSortValue: r => (r.documentNo || '').toLowerCase() },
+    { id: 'handler', label: 'Handler', contentMinSamples: ['Handler'], minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.handlerName || '—'}</Text>, getSortValue: r => (r.handlerName || '').toLowerCase() },
+    { id: 'warehouseKeeper', label: 'Keeper', contentMinSamples: ['Keeper'], minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.warehouseKeeperName || '—'}</Text>, getSortValue: r => (r.warehouseKeeperName || '').toLowerCase() },
   ];
 }
 
@@ -754,18 +774,18 @@ export interface OutboundColumnOptions {
 export function getOutboundColumns(opts: OutboundColumnOptions): DataTableColumn<Outbound>[] {
   const { formatDate, formatTimeAgo, statusLabels, statusColors } = opts;
   return [
-    { id: 'customer', label: 'Receiver', minWidth: 120, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.entity?.name || r.customerName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.customerName || '').toLowerCase() },
-    { id: 'amount', label: 'Amount', minWidth: 100, getValue: r => (
+    { id: 'customer', label: 'Receiver', minChars: MERCHANT_MIN_CHARS, minWidth: 120, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.entity?.name || r.customerName || '—'}</Text>, getSortValue: r => (r.entity?.name || r.customerName || '').toLowerCase() },
+    { id: 'amount', label: 'Amount', contentMinSamples: AMOUNT_CONTENT_SAMPLES, minWidth: 100, getValue: r => (
       r.totalAmount != null
         ? <AmountCell amount={Number(r.totalAmount)} currency={r.currency} amountColor={AMOUNT_COLOR_INCOME} />
         : <Text style={{ fontSize: 14, color: '#95A5A6' }} numberOfLines={1}>—</Text>
     ), getSortValue: r => r.totalAmount != null ? Number(r.totalAmount) : -Infinity },
-    { id: 'date', label: 'Date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
-    { id: 'status', label: 'Status', minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
-    { id: 'createdBy', label: 'Recorder', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{(r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? (r.createdBy ? '…' : '—')}</Text>, getSortValue: r => ((r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? '').toLowerCase() },
-    { id: 'createdAt', label: 'Record date', minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }} numberOfLines={1} ellipsizeMode="tail">{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
-    { id: 'documentNo', label: 'Doc No', minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.documentNo || '—'}</Text>, getSortValue: r => (r.documentNo || '').toLowerCase() },
-    { id: 'handler', label: 'Handler', minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.handlerName || '—'}</Text>, getSortValue: r => (r.handlerName || '').toLowerCase() },
-    { id: 'preparer', label: 'Preparer', minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.preparerName || '—'}</Text>, getSortValue: r => (r.preparerName || '').toLowerCase() },
+    { id: 'date', label: 'Date', contentMinSamples: DATE_CONTENT_SAMPLES, minWidth: 100, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{formatDate(r.date)}</Text>, getSortValue: r => r.date || '' },
+    { id: 'status', label: 'Status', contentMinSamples: STATUS_CONTENT_SAMPLES, minWidth: 100, getValue: r => <StatusBadge label={statusLabels[r.status]} color={statusColors[r.status]} />, getSortValue: r => statusLabels[r.status] || '' },
+    { id: 'createdBy', label: 'Recorder', contentMinSamples: RECORDER_CONTENT_SAMPLES, minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{(r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? (r.createdBy ? '…' : '—')}</Text>, getSortValue: r => ((r as any).createdByUser?.name ?? (r as any).createdByUser?.email?.split('@')[0] ?? '').toLowerCase() },
+    { id: 'createdAt', label: 'Record date', contentMinSamples: RECORD_DATE_CONTENT_SAMPLES, minWidth: 100, getValue: r => <Text style={{ fontSize: 14, color: '#636E72' }} numberOfLines={1} ellipsizeMode="tail">{r.createdAt ? formatTimeAgo(r.createdAt) : formatDate(r.date)}</Text>, getSortValue: r => r.createdAt || r.date || '' },
+    { id: 'documentNo', label: 'Doc No', contentMinSamples: ['DOC-12345'], minWidth: 90, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.documentNo || '—'}</Text>, getSortValue: r => (r.documentNo || '').toLowerCase() },
+    { id: 'handler', label: 'Handler', contentMinSamples: ['Handler'], minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.handlerName || '—'}</Text>, getSortValue: r => (r.handlerName || '').toLowerCase() },
+    { id: 'preparer', label: 'Preparer', contentMinSamples: ['Preparer'], minWidth: 80, getValue: r => <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">{r.preparerName || '—'}</Text>, getSortValue: r => (r.preparerName || '').toLowerCase() },
   ];
 }

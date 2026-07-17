@@ -1,10 +1,10 @@
 /**
  * Web 端通用数据表格：支持列显隐与列顺序。
- * Web 统一规则：
- * - 每次进入表格（storageKey 变化）或全页刷新：读取「表格窗口」`#data-table-wrapper` 宽度（已含侧栏开闭后的可用宽），按列 minWidth 比例分配数据列像素，使 **齿轮列 40px + 数据列 = 容器宽 100%**；写入 intrinsic 并固定。**Realtime 仅刷新数据，不重算列宽。**
- * - 用户手动拖拽列宽后：该列写入 columnWidths；表宽按列像素之和，**大于**当前容器宽时出现横向滚动，**小于**则右端留白；拖拽仍同步 colgroup col。
- * - 手动单列范围 1px～视口宽度 80%；初始分配不受 80% 限制。
- * - 单元格允许 **水平方向内容溢出**（可视重叠），行高仍固定。
+ * Web 列宽规则：
+ * - 自动列宽总和尽量占满容器（齿轮列 40px + 数据列）。各列先取有效最小宽；若最小宽之和 ≤ 可用宽，则按最小宽权重分配剩余空间填满；若最小宽之和 > 可用宽，则各列取最小宽并允许横向溢出。
+ * - 有效最小宽：`minChars`（如商户 30 / 账户 20）或 `contentMinSamples`+表头测宽；否则回退 `minWidth`。
+ * - 全页刷新、换表、改可见列、**容器宽度变化（含右侧 chat 栏开关）** 时重算；**Realtime / 数据更新不重算**。
+ * - 用户手动拖拽写入 columnWidths；单列 1px～视口 80%；表宽=列宽之和（可小于容器留白或大于容器滚动）。
  * - storageKey 区分表格实例；列宽不写 localStorage。
  * 仅 Web 使用；移动端由各页 SectionList 展示。
  */
@@ -20,7 +20,18 @@ export interface DataTableColumn<T> {
   /** 用于表头排序比较；不提供则该列不可排序 */
   getSortValue?: (row: T) => string | number | Date | null | undefined;
   visible?: boolean;
+  /** 回退最小宽（px）；优先于 minChars / contentMinSamples 未配置时使用 */
   minWidth?: number;
+  /**
+   * 按字符数估最小宽（商户/Payee 等不定长列）。与 contentMinSamples 互斥时优先 minChars。
+   * 例：商户 30、账户 20。
+   */
+  minChars?: number;
+  /**
+   * 按表头 + 样例文案测宽得到最小宽（金额、日期、状态标签等定长内容列）。
+   * 不读行数据，故数据更新不会改变最小宽。
+   */
+  contentMinSamples?: string[];
   /** 列最大宽度（px 或 CSS 长度如 50ch）；与 minWidth 一并作用于 th/td，避免单元格被长内容撑开 */
   maxWidth?: number | string;
   /** Web：点击该列单元格不触发表格行 onRowPress（行内编辑） */
@@ -90,6 +101,67 @@ function clampManualColumnWidth(px: number): number {
 }
 
 const GEAR_COLUMN_PX = 40;
+/** th/td 水平 padding 合计（与 thStyle/tdStyle 的 14+14 对齐） */
+const CELL_PAD_X_PX = 28;
+/** 表头排序箭头预留 */
+const SORT_ICON_RESERVE_PX = 18;
+/** 容器宽度变化小于此值不触发重算（避免亚像素抖动） */
+const CONTAINER_RESIZE_EPSILON_PX = 2;
+
+let _measureCanvas: HTMLCanvasElement | null = null;
+
+/** 用与表格一致的字体测文字宽度（不依赖行数据） */
+export function measureTableTextWidthPx(
+  text: string,
+  opts?: { fontSize?: number; fontWeight?: number | string }
+): number {
+  const fontSize = opts?.fontSize ?? 14;
+  const fontWeight = opts?.fontWeight ?? 400;
+  const fallback = Math.ceil(Math.max(1, text.length) * fontSize * 0.55);
+  if (typeof document === 'undefined') return fallback;
+  try {
+    if (!_measureCanvas) _measureCanvas = document.createElement('canvas');
+    const ctx = _measureCanvas.getContext('2d');
+    if (!ctx) return fallback;
+    ctx.font = `${fontWeight} ${fontSize}px ${TABLE_FONT_FAMILY}`;
+    return Math.ceil(ctx.measureText(text).width);
+  } catch {
+    return fallback;
+  }
+}
+
+/** n 个字符宽的最小列宽（含单元格 padding） */
+export function minWidthForChars(charCount: number): number {
+  const sample = '0'.repeat(Math.max(1, Math.floor(charCount)));
+  return measureTableTextWidthPx(sample, { fontSize: 14 }) + CELL_PAD_X_PX;
+}
+
+/** 表头 + 样例文案的内容最小宽（金额/日期/标签等） */
+export function minWidthForContentSamples(label: string, samples: string[]): number {
+  const headerW =
+    measureTableTextWidthPx(label, { fontSize: 13, fontWeight: 600 }) + SORT_ICON_RESERVE_PX;
+  let contentW = 0;
+  for (const s of samples) {
+    if (!s) continue;
+    contentW = Math.max(contentW, measureTableTextWidthPx(s, { fontSize: 14 }));
+  }
+  return Math.max(headerW, contentW) + CELL_PAD_X_PX;
+}
+
+function resolveColumnMinWidthPx(col: {
+  label: string;
+  minWidth?: number;
+  minChars?: number;
+  contentMinSamples?: string[];
+}): number {
+  if (typeof col.minChars === 'number' && col.minChars > 0) {
+    return Math.max(1, minWidthForChars(col.minChars));
+  }
+  if (col.contentMinSamples && col.contentMinSamples.length > 0) {
+    return Math.max(1, minWidthForContentSamples(col.label, col.contentMinSamples));
+  }
+  return Math.max(1, col.minWidth ?? 90);
+}
 
 /** Web：从**本实例**根 View 读宽。勿用 `getElementById('data-table-wrapper')`：Stack 保留上一屏时命中隐藏节点会得到 0。 */
 function readWebDataTableWrapperWidthPx(node: unknown): number {
@@ -106,23 +178,37 @@ function readWebDataTableWrapperWidthPx(node: unknown): number {
   return 0;
 }
 
-/** 将 availablePx 按列 minWidth 比例分为整数像素，且总和严格等于 availablePx */
+/**
+ * 按最小宽分配列宽：
+ * - sum(min) ≤ available → 各列至少 min，剩余按 min 权重填满 available（总和 = available）
+ * - sum(min) > available → 各列取 min，允许表宽溢出容器
+ */
 function distributeFlexColumnWidths(
-  cols: { id: string; minWidth?: number }[],
+  cols: { id: string; minWidth: number }[],
   availablePx: number
 ): Record<string, number> {
-  if (cols.length === 0 || availablePx < 1) return {};
-  const weights = cols.map(c => Math.max(1, c.minWidth ?? 90));
-  const sumW = weights.reduce((a, b) => a + b, 0);
-  const raw = weights.map(w => (availablePx * w) / sumW);
-  const floors = raw.map(x => Math.floor(x));
-  let used = floors.reduce((a, b) => a + b, 0);
-  let rem = availablePx - used;
-  const order = raw.map((x, i) => ({ i, f: x - floors[i] })).sort((a, b) => b.f - a.f);
-  for (let k = 0; k < rem && k < order.length; k++) floors[order[k].i]++;
+  if (cols.length === 0) return {};
+  const mins = cols.map(c => Math.max(1, Math.round(c.minWidth)));
+  const sumMin = mins.reduce((a, b) => a + b, 0);
   const out: Record<string, number> = {};
+
+  if (availablePx < 1 || sumMin >= availablePx) {
+    cols.forEach((c, i) => {
+      out[c.id] = mins[i];
+    });
+    return out;
+  }
+
+  const extra = availablePx - sumMin;
+  const sumW = sumMin;
+  const rawExtra = mins.map(w => (extra * w) / sumW);
+  const floors = rawExtra.map(x => Math.floor(x));
+  let used = floors.reduce((a, b) => a + b, 0);
+  let rem = extra - used;
+  const order = rawExtra.map((x, i) => ({ i, f: x - floors[i] })).sort((a, b) => b.f - a.f);
+  for (let k = 0; k < rem && k < order.length; k++) floors[order[k].i]++;
   cols.forEach((c, i) => {
-    out[c.id] = Math.max(1, floors[i]);
+    out[c.id] = mins[i] + floors[i];
   });
   return out;
 }
@@ -246,20 +332,35 @@ export default function DataTable<T>({
   const pickerWrapRef = useRef<View | null>(null);
   /** 本表格外层 View，用于测量「表格窗口」宽度（与全局 id 解耦） */
   const dataTableWrapperRef = useRef<View | null>(null);
+  /** 挂载后的 DOM 节点；供 ResizeObserver 在 ref 就绪后重新订阅（避免首帧 ref 为空永久不观察） */
+  const [wrapperDomNode, setWrapperDomNode] = useState<HTMLElement | null>(null);
+  const setDataTableWrapperRef = useCallback((node: View | null) => {
+    dataTableWrapperRef.current = node;
+    if (Platform.OS !== 'web' || node == null) {
+      setWrapperDomNode(null);
+      return;
+    }
+    // RN Web：callback ref 即为宿主 DOM 节点
+    const el = node as unknown as HTMLElement;
+    setWrapperDomNode(typeof el.getBoundingClientRect === 'function' ? el : null);
+  }, []);
   const columnResizingRef = useRef(false);
 
   /** 用户拖拽覆盖的列宽（会话内）；进入新表或 storageKey 变化时清空 */
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
-  /** 初始按容器宽比例分配后冻结的列宽；仅 layoutCaptureKey / storageKey 变化时重算，Realtime 不重算 */
+  /** 自动分配后冻结的列宽；layoutCaptureKey / 容器宽度变化时重算，Realtime 不重算 */
   const [intrinsicWidths, setIntrinsicWidths] = useState<Record<string, number>>({});
   const intrinsicCapturedKeyRef = useRef<string | null>(null);
   const columnWidthsRef = useRef(columnWidths);
   columnWidthsRef.current = columnWidths;
+  /** 容器宽度世代：ResizeObserver 检测到侧栏开关等宽度变化时递增，触发重算 */
+  const [containerWidthEpoch, setContainerWidthEpoch] = useState(0);
+  const lastObservedWrapperWidthRef = useRef(0);
 
   const layoutCaptureKey = useMemo(() => {
     const vis = [...visibleIds].sort().join(',');
-    return `${storageKey ?? ''}|${columnIdsFingerprint}|${orderIds.join(',')}|${vis}`;
-  }, [storageKey, columnIdsFingerprint, orderIds, visibleIds]);
+    return `${storageKey ?? ''}|${columnIdsFingerprint}|${orderIds.join(',')}|${vis}|e${containerWidthEpoch}`;
+  }, [storageKey, columnIdsFingerprint, orderIds, visibleIds, containerWidthEpoch]);
 
   const commitColumnWidth = useCallback((colId: string, widthPx: number) => {
     const w = clampManualColumnWidth(widthPx);
@@ -276,6 +377,8 @@ export default function DataTable<T>({
     setColumnWidths({});
     intrinsicCapturedKeyRef.current = null;
     setIntrinsicWidths({});
+    lastObservedWrapperWidthRef.current = 0;
+    setContainerWidthEpoch(0);
     const cols = columnsRef.current;
     setOrderIds(cols.map(c => c.id));
     setVisibleIds(new Set(cols.filter(c => c.visible !== false).map(c => c.id)));
@@ -325,7 +428,31 @@ export default function DataTable<T>({
     return result;
   }, [orderIds, visibleIds, idToColumn]);
 
-  // 按「表格窗口」宽度比例分配初始列宽（含侧栏开闭后的实际宽）；每个 layoutCaptureKey 只算一次；不依赖 data/sections
+  // 容器宽度变化（右侧栏开关、窗口缩放等）→ 递增 epoch 触发重算；数据更新不改宽度故不触发
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof ResizeObserver === 'undefined') return;
+    const node =
+      wrapperDomNode ??
+      (dataTableWrapperRef.current as unknown as HTMLElement | null);
+    if (!node || typeof node.getBoundingClientRect !== 'function') return;
+    const ro = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) return;
+      const w = Math.round(entry.contentRect.width || readWebDataTableWrapperWidthPx(node));
+      if (w < 24) return;
+      const prev = lastObservedWrapperWidthRef.current;
+      if (prev > 0 && Math.abs(w - prev) < CONTAINER_RESIZE_EPSILON_PX) return;
+      lastObservedWrapperWidthRef.current = w;
+      if (prev === 0) return; // 首次观察只记录，交给下方 layout effect 做首次分配
+      intrinsicCapturedKeyRef.current = null;
+      setIntrinsicWidths({});
+      setContainerWidthEpoch((e) => e + 1);
+    });
+    ro.observe(node);
+    return () => ro.disconnect();
+  }, [storageKey, columnIdsFingerprint, wrapperDomNode]);
+
+  // 按「表格窗口」宽度分配列宽；尊重最小宽（可溢出）；每个 layoutCaptureKey 只算一次；不依赖 data/sections
   useLayoutEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
     if (intrinsicCapturedKeyRef.current === layoutCaptureKey) return;
@@ -341,6 +468,7 @@ export default function DataTable<T>({
         requestAnimationFrame(run);
         return;
       }
+      if (w >= 24) lastObservedWrapperWidthRef.current = w;
       const user = columnWidthsRef.current;
       const visible = orderedVisibleColumns;
       if (visible.length === 0 && columns.length > 0 && attempts < 40) {
@@ -355,8 +483,10 @@ export default function DataTable<T>({
       visible.forEach(col => {
         if (user[col.id] != null) reserved += clampManualColumnWidth(user[col.id]);
       });
-      const flexCols = visible.filter(col => user[col.id] == null);
-      const available = Math.max(1, w - GEAR_COLUMN_PX - reserved);
+      const flexCols = visible
+        .filter(col => user[col.id] == null)
+        .map(col => ({ id: col.id, minWidth: resolveColumnMinWidthPx(col) }));
+      const available = Math.max(0, w - GEAR_COLUMN_PX - reserved);
       const next =
         flexCols.length > 0 ? distributeFlexColumnWidths(flexCols, available) : {};
       intrinsicCapturedKeyRef.current = layoutCaptureKey;
@@ -378,7 +508,7 @@ export default function DataTable<T>({
   const columnSizeStyle = useCallback((col: DataTableColumn<T>): { minWidth: number; width: number } => {
     const userW = columnWidths[col.id];
     const frozenW = intrinsicWidths[col.id];
-    const floor = col.minWidth ?? 90;
+    const floor = resolveColumnMinWidthPx(col);
     if (userW != null) {
       const w = clampManualColumnWidth(userW);
       return { minWidth: w, width: w };
@@ -673,7 +803,7 @@ export default function DataTable<T>({
 
   if (Platform.OS !== 'web') return null;
 
-  /** 表宽=齿轮列 + 各数据列 width（px），与初始分配一致；侧栏变宽时列宽不随动，右侧留白；变窄则横向滚动 */
+  /** 表宽=齿轮列 + 各数据列 width（px）；自动分配占满当时容器，最小宽之和过大时可溢出滚动；手动拖拽后可留白或滚动 */
   const totalDataPx = orderedVisibleColumns.reduce((sum, col) => sum + columnSizeStyle(col).width, 0);
   const tableWidthPx = GEAR_COLUMN_PX + totalDataPx;
   const tableStyle = {
@@ -729,7 +859,7 @@ export default function DataTable<T>({
   };
 
   return (
-    <View ref={dataTableWrapperRef} style={styles.wrapper} nativeID="data-table-wrapper">
+    <View ref={setDataTableWrapperRef} style={styles.wrapper} nativeID="data-table-wrapper">
       <ScrollView 
         horizontal 
         style={styles.scroll} 

@@ -7588,3 +7588,22 @@
 
 **关联**  
 - `ChatPanelErrorBoundary.tsx`、`_layout.tsx`、`voucher-table-columns.tsx`、`receipts.tsx` / `invoices.tsx` / `inbound.tsx` / `outbound.tsx`、`assistant-config.ts`、`WebChatPanel.tsx`、`WebChatFab.tsx`、`chat-to-log.tsx`
+
+---
+
+### 2026-07-16（Web：列表表格列宽计算规则优化）
+
+**User（提示词/原意）**  
+- Web 列表表格列宽需优化：1）自动列宽总和占满容器，最小宽之和大于容器则可溢出；2）金额/日期/标签按内容宽，商户列最小 30 字符、账户列 20 字符；3）刷新、开关右侧栏等重算，数据更新不重算。
+
+**Assistant（实现前说明）**  
+- 拟改 `DataTable` 分配算法（最小宽保底 + 填满/溢出）、`ResizeObserver` 监听容器宽（侧栏开关）、列定义 `minChars` / `contentMinSamples`；不依赖行数据以免 Realtime 触发重算。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `DataTable.tsx`：`distributeFlexColumnWidths` 改为先满足有效最小宽，剩余按权重填满；过窄则取最小宽并横向溢出；`ResizeObserver` + wrapper callback ref 在容器宽变化时递增 epoch 重算；测宽工具 `measureTableTextWidthPx` / `minWidthForChars` / `minWidthForContentSamples`；分配 effect 不依赖 `data`/`sections`。  
+- `voucher-table-columns.tsx`：Payee/Payer/Sender/Receiver/`payee` `minChars: 30`，Account `minChars: 20`，Amount/Date/Status 等用 `contentMinSamples`。  
+- **验证**：桌面 Web 开 Expenses，列宽应铺满主区；开关右侧 chat 后列宽重算；Realtime 改行数据列宽不变；缩窄窗口至小于最小宽之和时应出现横向滚动。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/DataTable.tsx`  
+- `vouchap-app/src/mobile-ui/components/voucher-table-columns.tsx`
