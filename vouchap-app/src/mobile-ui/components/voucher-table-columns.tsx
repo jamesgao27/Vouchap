@@ -27,22 +27,24 @@ export const AMOUNT_COLOR_EXPENSE = '#6C5CE7';
 export const AMOUNT_COLOR_INCOME = '#D35400';
 
 /** 金额：币种符号弱化、数字突出；amountColor 与移动端一致：支出紫、收入橙红 */
-function AmountCell({ amount, currency, amountColor = AMOUNT_COLOR_EXPENSE }: { amount: number; currency?: string; amountColor?: string }) {
+function AmountCell({ amount, currency, amountColor = AMOUNT_COLOR_EXPENSE }: { amount?: number | string | null; currency?: string; amountColor?: string }) {
   const symbol = getCurrencySymbol(currency);
+  const n = typeof amount === 'number' ? amount : Number(amount);
+  const safeAmount = Number.isFinite(n) ? n : 0;
   return (
     <Text style={{ fontSize: 14 }} numberOfLines={1} ellipsizeMode="tail">
       <Text style={{ color: '#A0A0A0', fontSize: 12 }}>{symbol}</Text>
-      <Text style={{ fontWeight: '600', color: amountColor }}>{amount.toFixed(2)}</Text>
+      <Text style={{ fontWeight: '600', color: amountColor }}>{safeAmount.toFixed(2)}</Text>
     </Text>
   );
 }
 
 /** 状态：底色标签样式，宽度随文字自适应（不占满单元格） */
-function StatusBadge({ label, color }: { label: string; color: string }) {
+function StatusBadge({ label, color }: { label?: string | null; color?: string | null }) {
   return (
     <View style={{ flexDirection: 'row', alignSelf: 'flex-start' }}>
-      <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: color }}>
-        <Text style={{ fontSize: 12, fontWeight: '600', color: '#fff' }} numberOfLines={1}>{label}</Text>
+      <View style={{ paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, backgroundColor: color || '#95A5A6' }}>
+        <Text style={{ fontSize: 12, fontWeight: '600', color: '#fff' }} numberOfLines={1}>{label || '—'}</Text>
       </View>
     </View>
   );

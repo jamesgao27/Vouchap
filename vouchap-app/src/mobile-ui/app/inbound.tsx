@@ -64,13 +64,15 @@ const getCurrencySymbol = (currency?: string): string => {
   return symbols[currency || 'USD'] || (currency ? `${currency} ` : '$');
 };
 
-const AmountText = ({ amount, currency, style }: { amount: number; currency?: string; style?: any }) => {
+const AmountText = ({ amount, currency, style }: { amount?: number | null; currency?: string; style?: any }) => {
   const symbol = getCurrencySymbol(currency);
   const baseSize = style?.fontSize || 16;
+  const n = typeof amount === 'number' && Number.isFinite(amount) ? amount : Number(amount);
+  const display = Number.isFinite(n) ? n : 0;
   return (
     <Text style={style}>
       <Text style={{ color: '#A0A0A0', fontSize: baseSize - 2 }}>{symbol}</Text>
-      <Text style={{ fontWeight: '600' }}>{amount.toFixed(2)}</Text>
+      <Text style={{ fontWeight: '600' }}>{display.toFixed(2)}</Text>
     </Text>
   );
 };

@@ -151,14 +151,16 @@ const formatAmount = (amount: number, currency?: string): string => {
   return `${symbol}${amount.toFixed(2)}`;
 };
 
-// 金额显示组件：符号弱化，数字突出
-const AmountText = ({ amount, currency, style }: { amount: number; currency?: string; style?: any }) => {
+// 金额显示组件：符号弱化，数字突出（null/undefined/非数字不抛错，避免 Web 列表白屏）
+const AmountText = ({ amount, currency, style }: { amount?: number | null; currency?: string; style?: any }) => {
   const symbol = getCurrencySymbol(currency);
   const baseSize = style?.fontSize || 16;
+  const safeAmount = typeof amount === 'number' && Number.isFinite(amount) ? amount : Number(amount);
+  const display = Number.isFinite(safeAmount) ? safeAmount : 0;
   return (
     <Text style={style}>
       <Text style={{ color: '#A0A0A0', fontSize: baseSize - 2 }}>{symbol}</Text>
-      <Text style={{ fontWeight: '600' }}>{amount.toFixed(2)}</Text>
+      <Text style={{ fontWeight: '600' }}>{display.toFixed(2)}</Text>
     </Text>
   );
 };

@@ -52,7 +52,12 @@ function getPlaceholder(type: ChatPanelType): string {
 }
 
 export default function WebChatFab({ type = 'receipt', variant = 'chat', embedded }: WebChatFabProps) {
-  const { open, openPanel, type: contextType, setType, setInitialStagedFiles } = useChatPanel();
+  const chatPanel = useChatPanel();
+  const open = chatPanel?.open ?? false;
+  const openPanel = chatPanel?.openPanel;
+  const contextType = chatPanel?.type ?? type;
+  const setType = chatPanel?.setType;
+  const setInitialStagedFiles = chatPanel?.setInitialStagedFiles;
   const [hovered, setHovered] = useState(false);
   const [showTypeDropdown, setShowTypeDropdown] = useState(false);
   const [stagedAttachmentFiles, setStagedAttachmentFiles] = useState<StagedAttachmentFile[]>([]);
@@ -118,7 +123,7 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
 
   // 与当前页一致：右侧栏关闭时同步提交类别
   useEffect(() => {
-    if (!open) setType(type);
+    if (!open) setType?.(type);
   }, [type, open, setType]);
 
   const clearLeaveTimeout = useCallback(() => {
@@ -157,8 +162,9 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
   if (open) return null;
 
   const openFullPanel = () => {
+    if (!openPanel) return;
     if (stagedAttachmentFiles.length) {
-      setInitialStagedFiles(stagedAttachmentFiles);
+      setInitialStagedFiles?.(stagedAttachmentFiles);
     }
     openPanel(currentType);
     setStagedAttachmentFiles([]);
@@ -245,7 +251,7 @@ export default function WebChatFab({ type = 'receipt', variant = 'chat', embedde
                           currentType === opt.value && webInputBlockStyles.webTypeDropdownItemActive,
                           h && webInputBlockStyles.webTypeDropdownItemHover,
                         ]}
-                        onPress={() => { setType(opt.value); setShowTypeDropdown(false); }}
+                        onPress={() => { setType?.(opt.value); setShowTypeDropdown(false); }}
                       >
                         <Text style={[webInputBlockStyles.webTypeDropdownItemText, currentType === opt.value && webInputBlockStyles.webTypeDropdownItemTextActive]}>{opt.label}</Text>
                       </Pressable>

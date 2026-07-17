@@ -10,6 +10,7 @@ import WebSidebar, { shouldShowWebSidebar } from '@/components/WebSidebar';
 import { FirmPendingOverlay } from '@/components/FirmPendingOverlay';
 import WebChatFab from '@/components/WebChatFab';
 import WebChatPanel from '@/components/WebChatPanel';
+import { ChatPanelErrorBoundary } from '@/components/ChatPanelErrorBoundary';
 import { ChatPanelProvider, useChatPanel, type ChatPanelType } from '../contexts/ChatPanelContext';
 import { getWebStackHeaderLeftScreenOptions } from '../lib/web-stack-header-left';
 import { useWebViewportKind } from '../lib/web-viewport';
@@ -129,7 +130,11 @@ function LayoutContent() {
     pathname ??
     (Platform.OS === 'web' && typeof window !== 'undefined' ? (window as any).location?.pathname ?? null : null);
   const showSidebar = isDesktopWeb && shouldShowWebSidebar(pathname ?? '/');
-  const { open: chatOpen, setOpen: setChatOpen, setType: setChatType, type: chatType } = useChatPanel();
+  const chatPanelCtx = useChatPanel();
+  const chatOpen = chatPanelCtx?.open ?? false;
+  const setChatOpen = chatPanelCtx?.setOpen;
+  const setChatType = chatPanelCtx?.setType;
+  const chatType = chatPanelCtx?.type;
   const [currentSpace, setCurrentSpace] = useState<{ kind?: string; firmStatus?: string } | null>(null);
 
   const loadSpace = useCallback(async () => {
@@ -157,14 +162,14 @@ function LayoutContent() {
   useEffect(() => {
     if (!isDesktopWeb) return;
     const openDefault = defaultChatOpen(pathname ?? null);
-    setChatOpen(openDefault);
+    setChatOpen?.(openDefault);
   }, [isDesktopWeb, pathname, setChatOpen]);
 
   // Web：主区切换到不同列表时，chat-to-log 提交类别跟随切换
   useEffect(() => {
     if (!isDesktopWeb) return;
     const type = chatTypeFromPathname(pathname ?? null);
-    if (type) setChatType(type);
+    if (type) setChatType?.(type);
   }, [isDesktopWeb, pathname, setChatType]);
 
   // Web：Google Fonts（Poppins 700/900）+ Ionicons（CDN）就绪后再渲染主界面
@@ -567,7 +572,11 @@ textarea:focus-within {
       )}
       </View>
       {showSidebar && !chatDisabled && chatOpen && (
-        <WebChatPanel effectiveType={chatTypeFromPathname(pathnameForType) ?? chatType ?? 'receipt'} />
+        <ChatPanelErrorBoundary
+          resetKey={`${pathnameForType ?? ''}:${chatTypeFromPathname(pathnameForType) ?? chatType ?? 'receipt'}`}
+        >
+          <WebChatPanel effectiveType={chatTypeFromPathname(pathnameForType) ?? chatType ?? 'receipt'} />
+        </ChatPanelErrorBoundary>
       )}
       {showSidebar && !chatDisabled && !chatOpen && isDesktopWeb && pathname !== '/chat-to-log' && !pathname?.startsWith('/receipts') && !pathname?.startsWith('/receipt-items') && !pathname?.startsWith('/invoices') && !pathname?.startsWith('/receipt-details') && !pathname?.startsWith('/invoice-details') && !pathname?.startsWith('/inbound-details') && !pathname?.startsWith('/outbound-details') && !isSettingsPage(pathname ?? '') && (
         <WebChatFab type={chatTypeFromPathname(pathnameForType) ?? 'receipt'} />

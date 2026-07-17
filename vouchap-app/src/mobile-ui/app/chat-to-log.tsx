@@ -83,6 +83,7 @@ import {
   requestAudioPermission,
 } from '@/lib/audio';
 import { showToast } from '@/lib/toast';
+import { getLocalDateString } from '@/lib/date-utils';
 import { useChatPanel } from '../contexts/ChatPanelContext';
 import FirmAddClientModal, {
   type FirmAddClientRecognitionDisplay,
@@ -325,16 +326,72 @@ const getCurrencySymbol = (currency?: string): string => {
 };
 
 // 金额展示：符号弱化、数字突出（与列表页一致）
-const AmountText = ({ amount, currency, style }: { amount: number; currency?: string; style?: any }) => {
+const AmountText = ({ amount, currency, style }: { amount?: number | null; currency?: string; style?: any }) => {
   const symbol = getCurrencySymbol(currency);
   const baseSize = style?.fontSize || 16;
+  const safeAmount = typeof amount === 'number' && Number.isFinite(amount) ? amount : 0;
   return (
     <Text style={style}>
       <Text style={{ color: '#2D3436', fontSize: baseSize - 2 }}>{symbol}</Text>
-      <Text style={{ fontWeight: '600' }}>{amount.toFixed(2)}</Text>
+      <Text style={{ fontWeight: '600' }}>{safeAmount.toFixed(2)}</Text>
     </Text>
   );
 };
+
+/** 异步占位预览（或缺 date/amount）不可按完整卡片渲染，否则 Android 会因 toFixed/split 闪退 */
+function isProcessingOrIncompletePreview(preview?: {
+  status?: string | null;
+  date?: string | null;
+  totalAmount?: number | null;
+} | null): boolean {
+  if (!preview) return true;
+  if (preview.status === 'processing') return true;
+  if (!preview.date || typeof preview.date !== 'string') return true;
+  if (preview.totalAmount == null || !Number.isFinite(Number(preview.totalAmount))) return true;
+  return false;
+}
+
+function buildProcessingReceiptPreviewStub(id: string, imageUrl?: string) {
+  return {
+    id,
+    status: 'processing' as const,
+    supplierName: 'Processing...',
+    totalAmount: 0,
+    date: getLocalDateString(),
+    items: [] as Receipt['items'],
+    ...(imageUrl ? { imageUrl } : {}),
+  };
+}
+
+function buildProcessingInvoicePreviewStub(id: string, imageUrl?: string) {
+  return {
+    id,
+    status: 'processing' as const,
+    customerName: 'Processing...',
+    totalAmount: 0,
+    date: getLocalDateString(),
+    items: [] as Invoice['items'],
+    ...(imageUrl ? { imageUrl } : {}),
+  };
+}
+
+function markReceiptPreviewDeleted(msg: Message): Message {
+  return {
+    ...msg,
+    receiptDeleted: true,
+    receiptPreview: undefined,
+    text: msg.text || 'This expense has been deleted.',
+  };
+}
+
+function markInvoicePreviewDeleted(msg: Message): Message {
+  return {
+    ...msg,
+    invoiceDeleted: true,
+    invoicePreview: undefined,
+    text: msg.text || 'This income has been deleted.',
+  };
+}
 
 interface Message {
   id: string;
@@ -719,10 +776,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             if (msg.invoicePreview?.id) {
               try {
                 const invoice = await getInvoiceById(msg.invoicePreview.id);
-                if (!invoice) return { ...msg, invoiceDeleted: true };
+                if (!invoice) return markInvoicePreviewDeleted(msg);
                 return { ...msg, invoicePreview: invoice, invoiceDeleted: false };
               } catch {
-                return { ...msg, invoiceDeleted: true };
+                return markInvoicePreviewDeleted(msg);
               }
             }
             if (msg.inboundPreview?.id) {
@@ -763,10 +820,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             if (!msg.receiptPreview?.id) return msg;
             try {
               const receipt = await getReceiptById(msg.receiptPreview.id);
-              if (!receipt) return { ...msg, receiptDeleted: true };
+              if (!receipt) return markReceiptPreviewDeleted(msg);
               return { ...msg, receiptPreview: receipt, receiptDeleted: false };
             } catch {
-              return { ...msg, receiptDeleted: true };
+              return markReceiptPreviewDeleted(msg);
             }
           }),
         );
@@ -782,7 +839,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     // 切换助理类型时立即清空列表，只显示当前类型的欢迎语，避免串数据（如 Clients 页仍显示 Expenses 历史）
     setMessages([getWelcomeMessage(voucherType)]);
     setHasMoreHistory(false);
-    setOldestLoadedAt(undefined);
+    setOldestLoadedAt(null);
 
     const seq = ++historyLoadSeqRef.current;
 
@@ -793,7 +850,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         if (voucherType === 'tax-filing' && !effectiveProjectId) {
           setMessages([getWelcomeMessage(voucherType)]);
           setHasMoreHistory(false);
-          setOldestLoadedAt(undefined);
+          setOldestLoadedAt(null);
           return;
         }
         const projectFilter = voucherType === 'tax-filing' ? effectiveProjectId : undefined;
@@ -906,10 +963,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               if (msg.invoicePreview?.id) {
                 try {
                   const invoice = await getInvoiceById(msg.invoicePreview.id);
-                  if (!invoice) return { ...msg, invoiceDeleted: true };
+                  if (!invoice) return markInvoicePreviewDeleted(msg);
                   return { ...msg, invoicePreview: invoice, invoiceDeleted: false };
                 } catch {
-                  return { ...msg, invoiceDeleted: true };
+                  return markInvoicePreviewDeleted(msg);
                 }
               }
               if (msg.inboundPreview?.id) {
@@ -950,10 +1007,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               if (!msg.receiptPreview?.id) return msg;
               try {
                 const receipt = await getReceiptById(msg.receiptPreview.id);
-                if (!receipt) return { ...msg, receiptDeleted: true };
+                if (!receipt) return markReceiptPreviewDeleted(msg);
                 return { ...msg, receiptPreview: receipt, receiptDeleted: false };
               } catch {
-                return { ...msg, receiptDeleted: true };
+                return markReceiptPreviewDeleted(msg);
               }
             }),
           );
@@ -1116,10 +1173,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
           if (msg.invoicePreview?.id) {
             try {
               const invoice = await getInvoiceById(msg.invoicePreview.id);
-              if (!invoice) return { ...msg, invoiceDeleted: true };
+              if (!invoice) return markInvoicePreviewDeleted(msg);
               return { ...msg, invoicePreview: invoice, invoiceDeleted: false };
             } catch {
-              return { ...msg, invoiceDeleted: true };
+              return markInvoicePreviewDeleted(msg);
             }
           }
           if (msg.inboundPreview?.id) {
@@ -1160,10 +1217,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
           if (!msg.receiptPreview?.id) return msg;
           try {
             const receipt = await getReceiptById(msg.receiptPreview.id);
-            if (!receipt) return { ...msg, receiptDeleted: true };
+            if (!receipt) return markReceiptPreviewDeleted(msg);
             return { ...msg, receiptPreview: receipt, receiptDeleted: false };
           } catch {
-            return { ...msg, receiptDeleted: true };
+            return markReceiptPreviewDeleted(msg);
           }
         }),
       );
@@ -1681,7 +1738,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   prompt: name,
                   response: '',
                   requestData: { imageUrl: fileUrl, mimeType: file.mimeType, async: true },
-                  responseData: { invoicePreview: { id: invoiceId, status: 'processing', customerName: 'Processing...', imageUrl: fileUrl } },
+                  responseData: { invoicePreview: buildProcessingInvoicePreviewStub(invoiceId, fileUrl) },
                   success: true,
                   attachmentUrl: fileUrl,
                 });
@@ -1743,7 +1800,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   prompt: name,
                   response: '',
                   requestData: { imageUrl: fileUrl, mimeType: file.mimeType, async: true },
-                  responseData: { receiptPreview: { id: receiptId, status: 'processing', supplierName: 'Processing...', imageUrl: fileUrl } },
+                  responseData: { receiptPreview: buildProcessingReceiptPreviewStub(receiptId, fileUrl) },
                   success: true,
                   attachmentUrl: fileUrl,
                 });
@@ -1902,9 +1959,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             showToast(e instanceof Error ? e.message : 'Upload failed', 'error');
             removeFromStaged();
             appendMessages([{ id: `img-err-${file.id}`, text: `❌ ${file.name ?? 'File'} failed`, isUser: false, timestamp: new Date() }]);
-            if (Platform.OS === 'web' && typeof file.uri === 'string' && file.uri.startsWith('blob:')) {
-              URL.revokeObjectURL(file.uri);
-            }
+            // blob revoke 统一放 finally；receipt/invoice 不得在此提前 revoke
           } finally {
             // receipt/invoice 异步识别仍可能用到本地 blob，由后台任务结束后再 revoke
             if (
@@ -1992,7 +2047,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             prompt: text,
             response: '',
             requestData: { rawText: text, async: true },
-            responseData: { invoicePreview: { id: invoiceId, status: 'processing', customerName: 'Processing...' } },
+            responseData: { invoicePreview: buildProcessingInvoicePreviewStub(invoiceId) },
             success: true,
           });
           setIsProcessing(false);
@@ -2048,7 +2103,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             prompt: text,
             response: '',
             requestData: { rawText: text, async: true },
-            responseData: { receiptPreview: { id: receiptId, status: 'processing', supplierName: 'Processing...' } },
+            responseData: { receiptPreview: buildProcessingReceiptPreviewStub(receiptId) },
             success: true,
           });
           setIsProcessing(false);
@@ -2129,7 +2184,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     const recognizeFn = () => {
       if (voucherType === 'inbound') return recognizeInboundFromText(text);
       if (voucherType === 'outbound') return recognizeOutboundFromText(text);
-      return recognizeInboundFromText(text);
+      throw new Error(`Unsupported text recognition for voucher type: ${voucherType}`);
     };
 
     const addTextSuccess = async (result: Awaited<ReturnType<typeof recognizeFn>>) => {
@@ -2347,7 +2402,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             prompt: `Voice input (${duration}s)`,
             response: '',
             requestData: { audioDurationSeconds: duration, async: true },
-            responseData: { invoicePreview: { id: invoiceId, status: 'processing', customerName: 'Processing...' } },
+            responseData: { invoicePreview: buildProcessingInvoicePreviewStub(invoiceId) },
             success: true,
             attachmentUrl: audioUrl,
           });
@@ -2406,7 +2461,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             prompt: `Voice input (${duration}s)`,
             response: '',
             requestData: { audioDurationSeconds: duration, async: true },
-            responseData: { receiptPreview: { id: receiptId, status: 'processing', supplierName: 'Processing...' } },
+            responseData: { receiptPreview: buildProcessingReceiptPreviewStub(receiptId) },
             success: true,
             attachmentUrl: audioUrl,
           });
@@ -2478,7 +2533,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       const recognizeFn = () => {
         if (voucherType === 'inbound') return recognizeInboundFromAudio(localUri);
         if (voucherType === 'outbound') return recognizeOutboundFromAudio(localUri);
-        return recognizeInboundFromAudio(localUri);
+        throw new Error(`Unsupported voice recognition for voucher type: ${voucherType}`);
       };
 
       const addVoiceSuccess = async (result: Awaited<ReturnType<typeof recognizeFn>>) => {
@@ -2753,6 +2808,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             )}
             {/* 识别结果预览卡片：仅当前助理类型匹配时展示，避免切换后串数据 */}
             {message.receiptPreview && (voucherType === 'receipt' || message.voucherType === 'receipt') && (
+              isProcessingOrIncompletePreview(message.receiptPreview) ? (
+                <View style={[styles.receiptPreviewCard, { minHeight: 72, justifyContent: 'center', alignItems: 'center' }]}>
+                  <ActivityIndicator size="small" color="#6C5CE7" />
+                </View>
+              ) : (
               <View style={styles.receiptPreviewCard}>
                 <View style={styles.receiptPreviewHeader}>
                   <Ionicons name="receipt" size={20} color="#6C5CE7" />
@@ -2842,7 +2902,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                         <View key={index} style={styles.receiptPreviewItemRow}>
                           <Text style={styles.receiptPreviewItemName}>{item.name}</Text>
                           <Text style={styles.receiptPreviewItemPrice}>
-                            {item.price.toFixed(2)}
+                            {(typeof item.price === 'number' && Number.isFinite(item.price) ? item.price : 0).toFixed(2)}
                           </Text>
                         </View>
                       ))}
@@ -2965,10 +3025,16 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   </TouchableOpacity>
                 </View>
               </View>
+              )
             )}
 
             {/* 发票识别结果预览卡片 */}
             {message.invoicePreview && (voucherType === 'invoice' || message.voucherType === 'invoice') && (
+              isProcessingOrIncompletePreview(message.invoicePreview) ? (
+                <View style={[styles.receiptPreviewCard, { minHeight: 72, justifyContent: 'center', alignItems: 'center' }]}>
+                  <ActivityIndicator size="small" color="#6C5CE7" />
+                </View>
+              ) : (
               <View style={styles.receiptPreviewCard}>
                 <View style={styles.receiptPreviewHeader}>
                   <Ionicons name="document-text" size={20} color="#6C5CE7" />
@@ -3012,7 +3078,9 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                       {message.invoicePreview.items.map((item, index) => (
                         <View key={index} style={styles.receiptPreviewItemRow}>
                           <Text style={styles.receiptPreviewItemName}>{item.name}</Text>
-                          <Text style={[styles.receiptPreviewItemPrice, { color: '#D35400' }]}>{item.price.toFixed(2)}</Text>
+                          <Text style={[styles.receiptPreviewItemPrice, { color: '#D35400' }]}>
+                            {(typeof item.price === 'number' && Number.isFinite(item.price) ? item.price : 0).toFixed(2)}
+                          </Text>
                         </View>
                       ))}
                     </View>
@@ -3064,6 +3132,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                   </TouchableOpacity>
                 </View>
               </View>
+              )
             )}
 
             {/* 入库单识别结果预览卡片 */}
@@ -3257,11 +3326,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 </View>
                 <View style={styles.receiptPreviewContent}>
                   <View style={{ marginBottom: 6 }}>
-                    <Text style={styles.receiptPreviewLabel}>{message.clientPreview.summary.totalCount} client(s) found.</Text>
-                    <Text style={styles.receiptPreviewLabel}>{message.clientPreview.summary.completeCount} with full name/organization.</Text>
-                    <Text style={styles.receiptPreviewLabel}>{message.clientPreview.summary.incompleteCount} will use email as display name.</Text>
+                    <Text style={styles.receiptPreviewLabel}>{message.clientPreview.summary?.totalCount ?? 0} client(s) found.</Text>
+                    <Text style={styles.receiptPreviewLabel}>{message.clientPreview.summary?.completeCount ?? 0} with full name/organization.</Text>
+                    <Text style={styles.receiptPreviewLabel}>{message.clientPreview.summary?.incompleteCount ?? 0} will use email as display name.</Text>
                   </View>
-                  {message.clientPreview.items.slice(0, 10).map((item, idx) => (
+                  {(message.clientPreview.items ?? []).slice(0, 10).map((item, idx) => (
                     <View key={idx} style={styles.receiptPreviewRow}>
                       <Text style={styles.receiptPreviewValue} numberOfLines={1}>
                         {[item.contactName, item.orgName].filter(Boolean).join(' · ') || item.email}
@@ -3269,8 +3338,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                       <Text style={[styles.receiptPreviewLabel, { fontSize: 12 }]} numberOfLines={1}>{item.email}</Text>
                     </View>
                   ))}
-                  {message.clientPreview.items.length > 10 && (
-                    <Text style={[styles.receiptPreviewLabel, { marginTop: 4 }]}>… and {message.clientPreview.items.length - 10} more</Text>
+                  {(message.clientPreview.items?.length ?? 0) > 10 && (
+                    <Text style={[styles.receiptPreviewLabel, { marginTop: 4 }]}>… and {(message.clientPreview.items?.length ?? 0) - 10} more</Text>
                   )}
                 </View>
                 <View style={styles.receiptPreviewActions}>

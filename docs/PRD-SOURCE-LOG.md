@@ -7447,3 +7447,144 @@
 
 **关联**  
 - `vouchap-app/package.json` 等版本文件
+
+---
+
+### 2026-07-14（EAS：全平台 production 构建）
+
+**User（提示词/原意）**  
+- 全平台构建 production。
+
+**Assistant（实现前说明）**  
+- 在 `vouchap-app` 执行 `eas build --platform all --profile production --non-interactive`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已提交 EAS production：Android versionCode remote 自增 57→58；iOS buildNumber 40→41（`appVersionSource: remote` + `autoIncrement`，与本地 app.config 参考值可能不一致）。  
+- Android：https://expo.dev/accounts/aimlink/projects/vouchap/builds/6cdbd6f8-d8b9-4449-939e-b6f3fda43089  
+- iOS：https://expo.dev/accounts/aimlink/projects/vouchap/builds/1436a1b3-68e8-46c2-9679-f671c4bf19d5  
+
+**关联**  
+- `vouchap-app/eas.json` production profile
+
+---
+
+### 2026-07-14（chat-to-log：修复 blob revoke 与 inbound fallback 误路由）
+
+**User（提示词/原意）**  
+- 核实并修复：1）附件 catch 无条件 revoke blob，破坏 receipt/invoice 后台识别；2）文字/语音 recognizeFn 非 inbound/outbound 时错误 fallback 到 inbound。
+
+**Assistant（实现前说明）**  
+- 确认两处均存在；catch 与 finally 策略对齐；fallback 改为显式 throw。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- catch 中对 receipt/invoice 跳过 `URL.revokeObjectURL`；文字/语音 `recognizeFn` 未知类型抛错，不再误调 inbound。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/chat-to-log.tsx`
+
+---
+
+### 2026-07-15（查询：Google Play 审核隐私政策链接）
+
+**User（提示词/原意）**  
+- Google Play 审核提示隐私权政策页面错误；询问 Vouchap 应用用的隐私权网页链接是哪个。
+
+**Assistant（实现前说明）**  
+- 无代码变更；检索 app 内 PRIVACY_URL / privacy 配置。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- App 内统一为 `https://vouchap.com/privacy`（`register.tsx`、`EngagementConsentModal.tsx`）。Play Console 商店页隐私政策链接需人工对照是否同一 URL；网站 `/privacy` 若 404/构建失败会导致审核拒审。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/register.tsx`
+
+---
+
+### 2026-07-15（澄清：Play 审核隐私链接 vs App 内链接）
+
+**User（提示词/原意）**  
+- 为何 Google 审核发现的是 `https://help.aim.link/docs/Privacy-Policy`，而代码里是 vouchap.com/privacy？
+
+**Assistant（实现前说明）**  
+- 无代码变更；全仓检索该 URL，并核对 Play 商店公开页与 help.aim.link 可达性。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- Vouchap 代码库**不含** `help.aim.link/docs/Privacy-Policy`；App 内仍为 `https://vouchap.com/privacy`。  
+- Play 公开页 `play.google.com/store/apps/details?id=com.vouchap.app` 上展示的隐私政策正是旧 aim.link 链接；该链接现 302 到 `/404`。  
+- 结论：审核读的是 **Play Console「隐私权政策」商店字段**（历史填的 aim.link），不是当前 App 内嵌链接。需在 Console 改为 `https://www.vouchap.com/privacy`（或 `https://vouchap.com/privacy`）。
+
+**关联**  
+- Google Play Console → App content / Store listing Privacy policy  
+
+---
+
+### 2026-07-15（说明：Play Console 隐私政策字段修改位置）
+
+**User（提示词/原意）**  
+- Play 商店页隐私链接在哪里改？为何会是 Google 反馈的 aim.link 链接。
+
+**Assistant（实现前说明）**  
+- 无代码变更；说明 Console 入口与公开商店页证据。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 公开页 `play.google.com/store/apps/details?id=com.vouchap.app` 已展示 `help.aim.link/docs/Privacy-Policy`，来自 Play Console「隐私权政策」URL，与 App 包无关。修改路径：Play Console → Vouchap → 应用内容（App content）→ 隐私权政策 → 编辑 URL → 保存；部分账号也在「政策」相关声明中。改完后公开页应显示新链接，无需重打包。
+
+**关联**  
+- Google Play Console / `com.vouchap.app`
+
+---
+
+### 2026-07-15（Play Console：找不到「应用内容」菜单）
+
+**User（提示词/原意）**  
+- 没有找到「应用内容」菜单项。
+
+**Assistant（实现前说明）**  
+- 无代码变更；按 Google 现行文档路径说明。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 现行入口为左侧 **政策与计划（Policy and programs）→ 应用内容（App content）→ 隐私权政策**，不是一级菜单「应用内容」。也可用控制台顶部搜索 “Privacy policy” / “隐私权政策”。须先进入具体应用 Vouchap，不要停在「所有应用」列表页。
+
+**关联**  
+- https://support.google.com/googleplay/android-developer/answer/9859455
+
+---
+
+### 2026-07-16（Android：进入 chat-to-log 闪退）
+
+**User（提示词/原意）**  
+- 昨天新构建的 Android 版只要进 chat to log 就闪退；Web 端提交给 Eric 可正常识别。
+
+**Assistant（实现前说明）**  
+- 怀疑与异步识别改动有关：chat log 写入的 `receiptPreview`/`invoicePreview` 占位缺少 `date`/`totalAmount`，进页加载历史后 `AmountText` 对 `undefined` 调 `toFixed` 会在原生生产包直接闪退；Web 侧 ErrorBoundary/未重开面板时不易复现。拟加固金额渲染、processing 占位展示，并补全落库 stub 字段。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `vouchap-app/src/mobile-ui/app/chat-to-log.tsx`：  
+  1）`AmountText` 与行项目价格对非数字金额兜底；  
+  2）`status===processing` 或缺 date/amount 时显示 spinner，不渲染完整预览卡；  
+  3）异步 `saveChatLog` 的 preview stub 补齐 `date`/`totalAmount`/`items`；  
+  4）历史 enrich 拉取失败时清除残缺 preview，避免再渲染崩溃路径。  
+- **验证**：装含此修复的 Android 包后进入 chat-to-log（尤其此前 Web 异步提交过 Eric 的账号）；应不再闪退。若仍闪退，请抓 logcat 中 `ReactNativeJS` / fatal 栈。  
+- **残留**：识别仍为客户端异步 Promise；杀进程会中断进行中的识别。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/app/chat-to-log.tsx`  
+- 异步识别提交：`a3bf720`
+
+---
+
+### 2026-07-16（Web：进入列表页白屏）
+
+**User（提示词/原意）**  
+- Web 端进入列表页会白屏。
+
+**Assistant（实现前说明）**  
+- 费用/收入等列表桌面 Web 默认打开右侧 chat；chat-to-log 或表格 `AmountCell`/`AmountText` 对空金额 `toFixed` 抛错会拖垮整页。拟：金额兜底、chat 侧 ErrorBoundary、助理配置与 FAB context 空值防护。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `ChatPanelErrorBoundary`，包住 `_layout` 中的 `WebChatPanel`（chat 崩不影响主列表）。  
+- 加固 `voucher-table-columns` `AmountCell`、receipts/invoices/inbound/outbound `AmountText`；`getAssistantInfo` 缺类型回退 Eric；`WebChatPanel`/`WebChatFab`/`_layout` 对 `useChatPanel()` 空值安全；chat clientPreview `items` 可选链。  
+- **验证**：桌面 Web 登录后进 Expenses/Income 等列表，主表应可见；若右侧 chat 仍异常应显示 Retry 而非整页白屏。浏览器控制台可看 `[ChatPanelErrorBoundary]`。
+
+**关联**  
+- `ChatPanelErrorBoundary.tsx`、`_layout.tsx`、`voucher-table-columns.tsx`、`receipts.tsx` / `invoices.tsx` / `inbound.tsx` / `outbound.tsx`、`assistant-config.ts`、`WebChatPanel.tsx`、`WebChatFab.tsx`、`chat-to-log.tsx`

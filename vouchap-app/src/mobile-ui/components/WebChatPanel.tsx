@@ -17,7 +17,7 @@ const PANEL_NATIVE_ID = 'web-chat-panel';
 
 /** effectiveType: 由当前路由决定，保证在 Clients 页一定显示 Client Assistant，不串成 Expenses */
 export default function WebChatPanel(props: { effectiveType?: ChatPanelType }) {
-  const { open, type, setType, closePanel } = useChatPanel();
+  const chatPanel = useChatPanel();
   const [currentSpace, setCurrentSpace] = useState<{ kind?: string } | null>(null);
   const [showTypePicker, setShowTypePicker] = useState(false);
 
@@ -29,10 +29,11 @@ export default function WebChatPanel(props: { effectiveType?: ChatPanelType }) {
     return () => { cancelled = true; };
   }, []);
 
-  if (Platform.OS !== 'web' || !open) return null;
+  if (Platform.OS !== 'web' || !chatPanel?.open) return null;
 
+  const { type, setType, closePanel } = chatPanel;
   const typeOptions = getChatToLogAllowedTypes(currentSpace);
-  const displayType = props.effectiveType ?? type;
+  const displayType = props.effectiveType ?? type ?? 'receipt';
   const assistant = getAssistantInfo(displayType);
 
   return (
