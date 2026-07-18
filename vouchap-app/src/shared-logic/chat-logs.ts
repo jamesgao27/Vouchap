@@ -503,3 +503,33 @@ export async function updateChatLogResponseData(
     return { error: e instanceof Error ? e : new Error('Failed to update chat log') };
   }
 }
+
+/** Persist latest receipt/invoice preview onto the newest chat log for that voucher (async recognition). */
+export async function updateLatestChatLogPreviewForVoucher(opts: {
+  receiptId?: string;
+  invoiceId?: string;
+  responseData: Record<string, unknown>;
+}): Promise<void> {
+  try {
+    const user = await getCurrentUser();
+    if (!user) return;
+    const spaceId = user.currentSpaceId || user.spaceId;
+    if (!spaceId) return;
+    if (!opts.receiptId && !opts.invoiceId) return;
+
+    let q = supabase
+      .from('ai_chat_logs')
+      .select('id')
+      .eq('space_id', spaceId)
+      .order('created_at', { ascending: false })
+      .limit(1);
+    if (opts.receiptId) q = q.eq('receipt_id', opts.receiptId);
+    if (opts.invoiceId) q = q.eq('invoice_id', opts.invoiceId);
+
+    const { data, error } = await q.maybeSingle();
+    if (error || !data?.id) return;
+    await updateChatLogResponseData(data.id, opts.responseData);
+  } catch (e) {
+    console.warn('[chat-logs] updateLatestChatLogPreviewForVoucher failed:', e);
+  }
+}

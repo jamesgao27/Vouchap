@@ -95,23 +95,45 @@ export default function ReceiptDetailsScreen() {
   } | null>(null);
   const [fileDetailForModal, setFileDetailForModal] = useState<FileDetailModalFile | null>(null);
   const editingRef = useRef(false);
+  const receiptStatusRef = useRef<string | null>(null);
 
   useEffect(() => {
     editingRef.current = editing;
   }, [editing]);
 
+  const applyReceiptFormInputs = useCallback((data: Receipt) => {
+    setTaxInputText((data.tax || 0).toString());
+    const priceTexts: { [index: number]: string } = {};
+    (data.items || []).forEach((item, index) => {
+      priceTexts[index] = String(item.price ?? 0);
+    });
+    setPriceInputTexts(priceTexts);
+  }, []);
+
   const loadReceipt = useCallback(async (options?: { forceSyncEdited?: boolean }) => {
     if (!id) return;
     try {
       const data = await getReceiptById(id);
+      const prevStatus = receiptStatusRef.current;
+      const nextStatus = data?.status ?? null;
+      const recognitionJustFinished =
+        prevStatus === 'processing' && !!nextStatus && nextStatus !== 'processing';
+      receiptStatusRef.current = nextStatus;
       setReceipt(data);
 
-      // 编辑态下保持草稿，不被实时刷新覆盖；仅在明确需要时强制同步
-      const shouldSyncEdited = options?.forceSyncEdited ?? !editingRef.current;
-      if (shouldSyncEdited) {
+      // 编辑态默认不覆盖草稿；识别中 / 识别刚完成必须同步，否则 UI 一直停在 Processing 占位
+      const shouldSyncEdited =
+        options?.forceSyncEdited ??
+        !editingRef.current ||
+        nextStatus === 'processing' ||
+        recognitionJustFinished;
+      if (shouldSyncEdited && data) {
         setEditedReceipt(data);
+        if (nextStatus === 'processing' || recognitionJustFinished || options?.forceSyncEdited) {
+          applyReceiptFormInputs(data);
+        }
       }
-      
+
       // 仅语音录入才显示回放按钮（document 的 attachment_url 不得当作 audio）
       try {
         const chatLogs = await getChatLogsByReceiptId(id);
@@ -121,16 +143,11 @@ export default function ReceiptDetailsScreen() {
         console.log('Failed to get chat logs for audio:', chatError);
         setAudioUrl(null);
       }
-      
-      // 如果是新创建的小票，自动进入编辑模式（仅首轮初始化时执行）
-      if (isNew === 'true' && shouldSyncEdited) {
+
+      // 新单：识别完成后再自动进入编辑（processing 期间保持只读并跟随 realtime）
+      if (isNew === 'true' && data && data.status !== 'processing' && shouldSyncEdited) {
         setEditing(true);
-        setTaxInputText((data?.tax || 0).toString());
-        const priceTexts: { [index: number]: string } = {};
-        (data?.items || []).forEach((item, index) => {
-          priceTexts[index] = String(item.price ?? 0);
-        });
-        setPriceInputTexts(priceTexts);
+        applyReceiptFormInputs(data);
       }
     } catch (error) {
       showToast('Failed to load receipt details', 'error');
@@ -138,7 +155,7 @@ export default function ReceiptDetailsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id, isNew]);
+  }, [id, isNew, applyReceiptFormInputs]);
 
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {
@@ -155,7 +172,9 @@ export default function ReceiptDetailsScreen() {
     if (!id) return;
     let ch: ReturnType<typeof supabase.channel> | null = null;
     let chItems: ReturnType<typeof supabase.channel> | null = null;
-    const refresh = () => loadReceipt();
+    const refresh = () => {
+      void loadReceipt();
+    };
     ch = supabase
       .channel(`receipt-detail-${id}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'receipts', filter: `id=eq.${id}` }, refresh)
@@ -168,7 +187,16 @@ export default function ReceiptDetailsScreen() {
       if (ch) supabase.removeChannel(ch);
       if (chItems) supabase.removeChannel(chItems);
     };
-  }, [id]);
+  }, [id, loadReceipt]);
+
+  // Fallback poll while recognition is in progress (Realtime on receipts can miss updates on some devices)
+  useEffect(() => {
+    if (!id || receipt?.status !== 'processing') return;
+    const timer = setInterval(() => {
+      void loadReceipt();
+    }, 2500);
+    return () => clearInterval(timer);
+  }, [id, receipt?.status, loadReceipt]);
 
   // 当页面获得焦点时（从其他页面返回），只重新加载分类、用途和支付账户（因为这些可能在管理页面被修改）
   // 小票数据不需要重新加载，除非id改变

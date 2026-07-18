@@ -42,7 +42,14 @@ import {
 import { getInvoiceById, saveInvoice } from '@/lib/invoices';
 import { saveInbound, getInboundById } from '@/lib/inbound';
 import { saveOutbound, getOutboundById } from '@/lib/outbound';
-import { saveChatLog, getChatLogsPaginated, updateChatLogResponseData, VoucherLogType, type ChatLog } from '@/lib/chat-logs';
+import {
+  saveChatLog,
+  getChatLogsPaginated,
+  updateChatLogResponseData,
+  updateLatestChatLogPreviewForVoucher,
+  VoucherLogType,
+  type ChatLog,
+} from '@/lib/chat-logs';
 import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
 import { getCurrentSpace } from '@/lib/auth';
 import { getChatToLogAllowedTypes, getChatToLogAllowedTypeValues } from '@/lib/chat-to-log-allowed-types';
@@ -649,15 +656,75 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   
   // 组件挂载状态，后台重试完成后仅在校验通过后更新 UI
   const mountedRef = useRef(true);
-
-  useEffect(() => {
-    messagesRef.current = messages;
-  }, [messages]);
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
 
   useEffect(() => {
     mountedRef.current = true;
     return () => { mountedRef.current = false; };
   }, []);
+
+  // While async recognition runs, refresh processing preview cards from DB (covers missed UI updates / leave-and-return).
+  useEffect(() => {
+    if (voucherType !== 'receipt' && voucherType !== 'invoice') return;
+    let cancelled = false;
+    const tick = async () => {
+      if (cancelled || !mountedRef.current) return;
+      const pending = messagesRef.current.filter((m) =>
+        voucherType === 'receipt'
+          ? isProcessingOrIncompletePreview(m.receiptPreview)
+          : isProcessingOrIncompletePreview(m.invoicePreview as any),
+      );
+      if (pending.length === 0) return;
+      await Promise.all(
+        pending.map(async (m) => {
+          try {
+            if (voucherType === 'receipt' && m.receiptPreview?.id) {
+              const receipt = await getReceiptById(m.receiptPreview.id);
+              if (!receipt || cancelled || !mountedRef.current) return;
+              if (isProcessingOrIncompletePreview(receipt)) return;
+              setMessages((prev) =>
+                prev.map((row) =>
+                  row.id === m.id ? { ...row, receiptPreview: receipt, receiptDeleted: false } : row,
+                ),
+              );
+              void updateLatestChatLogPreviewForVoucher({
+                receiptId: receipt.id,
+                responseData: { receiptPreview: receipt },
+              });
+              return;
+            }
+            if (voucherType === 'invoice' && m.invoicePreview?.id) {
+              const invoice = await getInvoiceById(m.invoicePreview.id);
+              if (!invoice || cancelled || !mountedRef.current) return;
+              if (isProcessingOrIncompletePreview(invoice as any)) return;
+              setMessages((prev) =>
+                prev.map((row) =>
+                  row.id === m.id
+                    ? { ...row, invoicePreview: invoice as Invoice, invoiceDeleted: false, voucherType: 'invoice' }
+                    : row,
+                ),
+              );
+              void updateLatestChatLogPreviewForVoucher({
+                invoiceId: invoice.id,
+                responseData: { invoicePreview: invoice },
+              });
+            }
+          } catch {
+            /* ignore poll errors */
+          }
+        }),
+      );
+    };
+    const id = setInterval(() => {
+      void tick();
+    }, 2500);
+    void tick();
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [voucherType]);
 
   useEffect(() => {
     if (isAiInventoryType && !showAiInventory) router.replace('/');
@@ -1760,6 +1827,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                       }
                       return;
                     }
+                    void updateLatestChatLogPreviewForVoucher({
+                      invoiceId,
+                      responseData: { invoicePreview: invoice },
+                    });
                     if (!mountedRef.current) return;
                     const previewMessage: Message = {
                       id: `img-preview-${file.id}`,
@@ -1824,6 +1895,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                       }
                       return;
                     }
+                    void updateLatestChatLogPreviewForVoucher({
+                      receiptId,
+                      responseData: { receiptPreview: receipt },
+                    });
                     if (!mountedRef.current) return;
                     const previewMessage: Message = {
                       id: `img-preview-${file.id}`,
@@ -2055,8 +2130,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             try {
               const updated = await processInvoiceFromTextInBackground(text, invoiceId);
               const invoice = updated ?? (await getInvoiceById(invoiceId));
-              if (!mountedRef.current) return;
               if (!invoice) {
+                if (!mountedRef.current) return;
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === loadingCardId
@@ -2066,6 +2141,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 );
                 return;
               }
+              void updateLatestChatLogPreviewForVoucher({
+                invoiceId,
+                responseData: { invoicePreview: invoice },
+              });
+              if (!mountedRef.current) return;
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === loadingCardId
@@ -2111,8 +2191,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             try {
               await processReceiptFromTextInBackground(text, receiptId);
               const receipt = await getReceiptById(receiptId);
-              if (!mountedRef.current) return;
               if (!receipt) {
+                if (!mountedRef.current) return;
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === loadingCardId
@@ -2122,6 +2202,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 );
                 return;
               }
+              void updateLatestChatLogPreviewForVoucher({
+                receiptId,
+                responseData: { receiptPreview: receipt },
+              });
+              if (!mountedRef.current) return;
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === loadingCardId
@@ -2413,8 +2498,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             try {
               const updated = await processInvoiceFromAudioInBackground(localUri, invoiceId);
               const invoice = updated ?? (await getInvoiceById(invoiceId));
-              if (!mountedRef.current) return;
               if (!invoice) {
+                if (!mountedRef.current) return;
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === loadingCardId
@@ -2424,6 +2509,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 );
                 return;
               }
+              void updateLatestChatLogPreviewForVoucher({
+                invoiceId,
+                responseData: { invoicePreview: invoice },
+              });
+              if (!mountedRef.current) return;
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === loadingCardId
@@ -2472,8 +2562,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             try {
               await processReceiptFromAudioInBackground(localUri, receiptId);
               const receipt = await getReceiptById(receiptId);
-              if (!mountedRef.current) return;
               if (!receipt) {
+                if (!mountedRef.current) return;
                 setMessages((prev) =>
                   prev.map((m) =>
                     m.id === loadingCardId
@@ -2483,6 +2573,11 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                 );
                 return;
               }
+              void updateLatestChatLogPreviewForVoucher({
+                receiptId,
+                responseData: { receiptPreview: receipt },
+              });
+              if (!mountedRef.current) return;
               setMessages((prev) =>
                 prev.map((m) =>
                   m.id === loadingCardId

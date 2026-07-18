@@ -399,8 +399,16 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
     const user = await getCurrentUser();
     if (!user) throw new Error('Not logged in');
 
-    const spaceId = user.currentSpaceId || user.spaceId;
-    if (!spaceId) throw new Error('No space selected');
+    // Always update against the receipt's own space_id. Using the session's current space can
+    // no-op the header update (0 rows) while receipt_items still write — looks like "items async, receipt stuck".
+    const { data: existingRow, error: existingErr } = await supabase
+      .from('receipts')
+      .select('id, space_id')
+      .eq('id', receiptId)
+      .maybeSingle();
+    if (existingErr) throw existingErr;
+    if (!existingRow?.space_id) throw new Error('Receipt not found');
+    const spaceId = String(existingRow.space_id);
 
     let entityId = receipt.entityId ?? undefined;
     const payeeName = (receipt.supplierName ?? receipt.storeName ?? '').trim();
@@ -527,13 +535,17 @@ export async function updateReceipt(receiptId: string, receipt: Partial<Receipt>
           : null;
     }
 
-    const { error: receiptError } = await supabase
+    const { data: updatedRows, error: receiptError } = await supabase
       .from('receipts')
       .update(updateData)
       .eq('id', receiptId)
-                .eq('space_id', spaceId);
+      .eq('space_id', spaceId)
+      .select('id');
 
     if (receiptError) throw receiptError;
+    if (!updatedRows?.length) {
+      throw new Error(`Receipt update matched no rows (id=${receiptId}, space_id=${spaceId})`);
+    }
 
     if (receipt.items !== undefined) {
       await replaceReceiptItemsForReceipt(receiptId, receipt.items);

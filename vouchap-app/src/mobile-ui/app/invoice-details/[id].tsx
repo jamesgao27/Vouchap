@@ -83,19 +83,41 @@ export default function InvoiceDetailsScreen() {
   } | null>(null);
   const [fileDetailForModal, setFileDetailForModal] = useState<FileDetailModalFile | null>(null);
   const editingRef = useRef(false);
+  const invoiceStatusRef = useRef<string | null>(null);
 
   useEffect(() => {
     editingRef.current = editing;
   }, [editing]);
 
+  const applyInvoiceFormInputs = useCallback((data: Invoice) => {
+    setTaxInputText((data.tax || 0).toString());
+    const priceTexts: { [index: number]: string } = {};
+    (data.items || []).forEach((item, index) => {
+      priceTexts[index] = String(item.price ?? 0);
+    });
+    setPriceInputTexts(priceTexts);
+  }, []);
+
   const loadInvoice = useCallback(async (options?: { forceSyncEdited?: boolean }) => {
     if (!id) return;
     try {
       const data = await getInvoiceById(id);
+      const prevStatus = invoiceStatusRef.current;
+      const nextStatus = data?.status ?? null;
+      const recognitionJustFinished =
+        prevStatus === 'processing' && !!nextStatus && nextStatus !== 'processing';
+      invoiceStatusRef.current = nextStatus;
       setInvoice(data);
-      const shouldSyncEdited = options?.forceSyncEdited ?? !editingRef.current;
-      if (shouldSyncEdited) {
+      const shouldSyncEdited =
+        options?.forceSyncEdited ??
+        !editingRef.current ||
+        nextStatus === 'processing' ||
+        recognitionJustFinished;
+      if (shouldSyncEdited && data) {
         setEditedInvoice(data);
+        if (nextStatus === 'processing' || recognitionJustFinished || options?.forceSyncEdited) {
+          applyInvoiceFormInputs(data);
+        }
       }
       // 加载与该收入单相关的语音记录（用于回放按钮）：仅匹配 responseData.invoicePreview.id === 当前收入单 id
       try {
@@ -112,14 +134,9 @@ export default function InvoiceDetailsScreen() {
       } catch (chatError) {
         console.log('Failed to get chat logs for invoice audio:', chatError);
       }
-      if (isNew === 'true' && shouldSyncEdited) {
+      if (isNew === 'true' && data && data.status !== 'processing' && shouldSyncEdited) {
         setEditing(true);
-        setTaxInputText((data?.tax || 0).toString());
-        const priceTexts: { [index: number]: string } = {};
-        (data?.items || []).forEach((item, index) => {
-          priceTexts[index] = String(item.price ?? 0);
-        });
-        setPriceInputTexts(priceTexts);
+        applyInvoiceFormInputs(data);
       }
     } catch (error) {
       showToast('Failed to load invoice details', 'error');
@@ -127,7 +144,7 @@ export default function InvoiceDetailsScreen() {
     } finally {
       setLoading(false);
     }
-  }, [id, isNew]);
+  }, [id, isNew, applyInvoiceFormInputs]);
 
   useEffect(() => {
     const task = InteractionManager.runAfterInteractions(() => {

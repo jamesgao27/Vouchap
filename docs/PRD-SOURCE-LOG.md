@@ -7755,3 +7755,22 @@
 
 **关联**  
 - `src/shared-logic/chat-logs.ts`、`FileDetailModal.tsx`、`receipt-details/[id].tsx`、`invoice-details/[id].tsx`
+
+---
+
+### 2026-07-18（拍照异步识别后 receipt 主数据不刷新）
+
+**User（提示词/原意）**  
+- App 上提交拍照后，item 识别会异步进行，但 receipt 的数据没有异步更新。
+
+**Assistant（实现前说明）**  
+- 怀疑两点：`updateReceipt` 用「当前 session space」过滤，识别期间切空间会导致主表 0 行更新而 `receipt_items` 仍写入；详情页编辑态 / `isNew` 下 realtime 不覆盖 `editedReceipt`，UI 停在 Processing。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `updateReceipt` 改为按单据自身 `space_id` 更新并校验影响行数。  
+- 详情页：processing / 识别完成强制同步表单；processing 期间轮询；`isNew` 识别完成后再进编辑。  
+- Chat：识别完成后回写 chat log preview，并对 processing 卡片轮询刷新。  
+- **验证**：拍照后留在列表/详情/Chat，应看到 Payee/金额/状态与 items 一并从 Processing 变为识别结果。
+
+**关联**  
+- `database.ts` `updateReceipt`、`receipt-details`、`invoice-details`、`chat-to-log.tsx`、`chat-logs.ts`
