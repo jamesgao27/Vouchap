@@ -8027,6 +8027,25 @@
 
 ---
 
+### 2026-07-22（确认全端新 logo + 全平台 production 构建）
+
+**User（提示词/原意）**  
+- 确认 logo 已全部更换，然后构建全平台 production。
+
+**Assistant（实现前说明）**  
+- 核对 app/website/原生图标/aim-link partner；用铺满构图刷新 `logo2` 并 `icons:sync`；再 EAS iOS+Android production、`expo export -p web`、website `next build`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- Logo 确认：`logo/logo3/favicon` 同源透明新标；`logo2`/AppIcon/mipmap 已同步新税票标；website + public favicon.ico；partner 已对齐。  
+- Web：`expo export` → `dist/`（含新 logo 与 favicon.ico）成功；website `next build` 成功。  
+- EAS production：iOS **2.6.5 (43)** 已完成；Android **versionCode 60** 构建中/待完成。本地 buildNumber/versionCode 已对齐 43/60。  
+- 链接见回复正文。
+
+**关联**  
+- EAS iOS `10461115-…` / Android `a47c2e13-…`
+
+---
+
 ### 2026-07-22（vouchap-app：移动端 logo 全量替换为新图标）
 
 **User（提示词/原意）**  
