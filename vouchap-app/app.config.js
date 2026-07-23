@@ -80,10 +80,10 @@ export default {
       ],
       "expo-document-picker"
     ],
-    // Web favicon：与全站主品牌 logo.png 一致（大屏左侧栏单独用 logo3，见 WebSidebar）
+    // Web favicon：优先 public/favicon.ico（透明无白边，与 website 同源）；无 ico 时回退 favicon.png
     web: {
       name: "Vouchap",
-      favicon: "./assets/logo.png"
+      favicon: "./assets/favicon.png"
     },
     // 子路径部署（如 Cloudflare Pages 在 /app/）：设置 EXPO_PUBLIC_WEB_BASE_PATH=/app，否则图标/资源可能 404
     ...(process.env.EXPO_PUBLIC_WEB_BASE_PATH

@@ -332,9 +332,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     paddingBottom: 0,
   },
+  /** Fixed 96 CSS px mark; logo3 asset is cropped to fill the box. */
   logoImage: {
     width: 96,
     height: 96,
+    minWidth: 96,
+    minHeight: 96,
     borderRadius: 18,
     alignSelf: 'center',
     marginBottom: 0,

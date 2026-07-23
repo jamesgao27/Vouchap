@@ -7974,3 +7974,74 @@
 
 **关联**  
 - `WebSidebar.tsx`
+
+---
+
+### 2026-07-22（vouchap-app Web：侧栏 logo 维持 96px 视觉）
+
+**User（提示词/原意）**  
+- web 端左上角图片又变小了，维持 96px。
+
+**Assistant（实现前说明）**  
+- `logoImage` 样式已是 96×96；新 `logo3` 画布白边过大，`contain` 下紫标视觉偏小。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 裁切 `logo3.png` 白边并铺满 1024 画布；样式保留 96 并加 `minWidth/minHeight: 96`。刷新 Web 确认。
+
+**关联**  
+- `WebSidebar.tsx`、`assets/logo3.png`
+
+---
+
+### 2026-07-22（vouchap-app Web：页签 favicon 对齐 website）
+
+**User（提示词/原意）**  
+- web 端浏览器页签上 logo 过小，应跟 website 一样。
+
+**Assistant（实现前说明）**  
+- Expo 将 `web.favicon` 缩成 48px `contain`；带大白边的 `logo.png` 会让页签图标过小。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增铺满画布的 `assets/favicon.png`（与 `logo3`/`logo.png` 同构图），`app.config.js` 指向它；同步 website `public/logo.png` 并 cache-bust `v=20260722c`；已清 `.expo` favicon 缓存。需重启 `npm run web` 并硬刷新。
+
+**关联**  
+- `app.config.js`、`assets/favicon.png`、`vouchap-website/app/layout.tsx`
+
+---
+
+### 2026-07-22（favicon：去掉白边并统一 website / web app）
+
+**User（提示词/原意）**  
+- vouchap-website 的 favicon 刚才很完美，现在却有白边；web 端应用 favicon 仍不一致。
+
+**Assistant（实现前说明）**  
+- 先前用不透明白底图覆盖了网站透明标；Expo 又用 `contain` 从带白边源图生成页签图标。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 从源图角点 flood-fill 重建 **RGBA 透明、铺满** 的 `logo.png`/`favicon.png`/`logo3.png`；website 与 app 同源。  
+- 写入 `vouchap-app/public/favicon.ico`（Expo 优先用 public 下用户 ico，不再二次 contain）与 `vouchap-website/public/favicon.ico`；website metadata `v=20260722d`。  
+- 需重启 website / `npm run web`，硬刷新页签（必要时清站点数据）。
+
+**关联**  
+- `public/favicon.ico`、`assets/favicon.png`、`vouchap-website/public/logo.png`、`layout.tsx`
+
+---
+
+### 2026-07-22（vouchap-app：移动端 logo 全量替换为新图标）
+
+**User（提示词/原意）**  
+- 移动端 app 的 logo 也全部替换成新图标；若需更高分辨率用附图。
+
+**Assistant（实现前说明）**  
+- 附图文件名含 2048，实为 JPEG 1024×1024；`logo.png`（登录等）、`logo2.png`/`icon.png`（启动器）、`logo3.png`（Web 侧栏）仍多为旧标。拟用附图作源：1024→`logo`/`logo3`，放大 2048 不透明→`logo2`/`icon`，再跑 `sync-native-launcher-icons-from-logo2.sh`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已备份 `logo-prev` / `logo2-prev` / `icon-prev`；用附图生成新 `logo.png`、`logo3.png`（1024）、`logo2.png`、`icon.png`（2048 不透明）。  
+- 已同步 iOS `AppIcon` 1024 与 Android 各 `mipmap-*` launcher webp。  
+- 代码引用路径未改（仍 `require(.../logo.png)` 等）。桌面图标需重新安装/构建原生包才更新；登录页等热更新可见。  
+- 附图并非真 2048；启动器用 Lanczos 放大至 2048。曾误用 flood-fill 伤色已回退为干净不透明 PNG。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/assets/{logo,logo2,logo3,icon}.png`  
+- `scripts/sync-native-launcher-icons-from-logo2.sh`  
+- `ios/.../AppIcon.appiconset/`、`android/.../mipmap-*/`
