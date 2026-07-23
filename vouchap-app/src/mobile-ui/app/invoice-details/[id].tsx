@@ -110,9 +110,7 @@ export default function InvoiceDetailsScreen() {
       setInvoice(data);
       const shouldSyncEdited =
         options?.forceSyncEdited ??
-        !editingRef.current ||
-        nextStatus === 'processing' ||
-        recognitionJustFinished;
+        (!editingRef.current || nextStatus === 'processing' || recognitionJustFinished);
       if (shouldSyncEdited && data) {
         setEditedInvoice(data);
         if (nextStatus === 'processing' || recognitionJustFinished || options?.forceSyncEdited) {

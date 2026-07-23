@@ -7774,3 +7774,203 @@
 
 **关联**  
 - `database.ts` `updateReceipt`、`receipt-details`、`invoice-details`、`chat-to-log.tsx`、`chat-logs.ts`
+
+---
+
+### 2026-07-18（启动本地 Web 测试服务器）
+
+**User（提示词/原意）**  
+- 运行本地测试服务器。
+
+**Assistant（实现前说明）**  
+- 无代码计划；在 `vouchap-app` 执行 `npm run web`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 8081 已被占用，改在 **http://localhost:8082** 启动。  
+- 首启因 `??` 与 `||` 混用 SyntaxError 失败，已给 receipt/invoice details 加括号修复。
+
+**关联**  
+- `receipt-details/[id].tsx`、`invoice-details/[id].tsx`
+
+---
+
+### 2026-07-18（Gemini 模型轮询：单模型 429 不应终止整条链路）
+
+**User（提示词/原意）**  
+- 模型调用的轮询机制还有问题：limits 还有余量的 text-out 模型还没用完，只有 3.5 Flash 超量，就不再调用而显示 API 可用量不足。（附 AI Studio Rate limits 截图）
+
+**Assistant（实现前说明）**  
+- 假设：`recognizeReceiptFromImage` / `recognizeInvoiceFromImage` 在 catch 里把 `quota`/`429` 与 API Key 错误一并 `break`，导致首模 3.5 Flash 限流后不再试 2.5 Flash / Flash Lite 等。  
+- 拟改：`vouchap-app/src/shared-logic/gemini.ts` — 按模型额度错误改为 `continue`；仅 API Key/401 才中止。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `isGeminiPerModelQuotaOrRateLimitMessage` / `isGeminiAuthFailureMessage`；支出/收入图片识别循环在 429/quota/resource_exhausted 时继续下一模型；最终仅当 try-order 全部失败才抛「all tried models」额度错误。  
+- **验证**：3.5 Flash RPD/RPM 已红、其它 Flash 仍有余量时，识别应落到 2.5 Flash 或 Lite；日志应出现 `quota/rate-limited, next model...`。  
+- **残留**：其它识别路径（文档/文本）本就 `continue` 全错误，无需改；产品侧 Client 识别次数拦截与本问题无关。
+
+**关联**  
+- `vouchap-app/src/shared-logic/gemini.ts`
+
+---
+
+### 2026-07-22（vouchap-website：替换新 Logo）
+
+**User（提示词/原意）**  
+- 设计了新的 logo，给 vouchap-website 替换一下看看效果。（附 512×512 PNG）
+
+**Assistant（实现前说明）**  
+- 站点统一引用 `public/logo.png`（Navbar / Footer / Showcase / favicon / auth confirm）。  
+- 新图带白底，拟做角点洪水抠白后写入 `logo.png`，旧文件备份为 `logo-prev-20260501.png`，并 bump 缓存参数。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已替换 `vouchap-website/public/logo.png`（角点去白底、放大至 1024）；备份旧标；Navbar/Footer/Showcase/layout/auth 增加 `?v=20260722a`。  
+- **验证**：本地 `npm run dev` → http://localhost:3000 看顶栏与 `/showcase`；暗色模式应无白方块。  
+- **残留**：若抠白误伤纸张边缘，可用设计原图再出透明版覆盖。
+
+**关联**  
+- `vouchap-website/public/logo.png`、`Navbar.tsx`、`Footer.tsx`、`ShowcaseSlides.tsx`
+
+---
+
+### 2026-07-22（vouchap-website：新 Logo 显示放大约 150%）
+
+**User（提示词/原意）**  
+- 新 logo 图片过小，应 150% 左右才合适。
+
+**Assistant（实现前说明）**  
+- 无资产替换；仅放大 Navbar / Footer / Showcase / auth confirm 的显示尺寸约 ×1.5。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- Navbar：48→72px；Footer：40→60px；Showcase hero/梯形标同步 ×1.5；auth 容器同步。  
+- **验证**：刷新 http://localhost:3000 与 `/showcase`。
+
+**关联**  
+- `Navbar.tsx`、`Footer.tsx`、`ShowcaseSlides.tsx`、`app/auth/confirm/page.tsx`
+
+---
+
+### 2026-07-22（vouchap-website：压缩顶栏高度、减少 logo 上下留白）
+
+**User（提示词/原意）**  
+- 顶栏的高度压缩一点，图片上下留白减小。
+
+**Assistant（实现前说明）**  
+- Navbar 现为 `h-20` + 大 logo，透明边距也偏多。拟：`h-14`、logo 贴边；裁剪 `logo.png` 透明边；商店徽章间距略收。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 顶栏 `h-20`→`h-14`，logo `h-12`；裁剪 PNG 透明边并 bump `?v=20260722b`；Login/社交与徽章间距收紧。  
+- **验证**：刷新首页顶栏，图标应更贴边、栏更矮。
+
+**关联**  
+- `Navbar.tsx`、`public/logo.png`、`StoreDownloadBadges.tsx`
+
+---
+
+### 2026-07-22（vouchap-website：顶栏行高回调，logo 维持 150% 尺寸）
+
+**User（提示词/原意）**  
+- 图片现在又太小了，应维持刚才的大小的基础上裁剪减小顶栏行高。且现在行高压缩太过了。
+
+**Assistant（实现前说明）**  
+- 上一轮把栏压到 `h-14`、logo 缩到 `h-12`，过紧且图偏小。拟：logo 恢复 `h-[4.5rem]`；栏用介于 `h-20` 与 `h-14` 的 `h-[4.75rem]`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- Navbar：logo `4.5rem`；行高 `4.75rem`（约 76px，略低于原 80px）；字号/右侧控件间距适度恢复。  
+- **验证**：刷新首页，logo 应与放大版相当，栏略矮但不挤。
+
+**关联**  
+- `vouchap-website/components/Navbar.tsx`
+
+---
+
+### 2026-07-22（aim-link-website：底部友情链接 Vouchap logo 替换）
+
+**User（提示词/原意）**  
+- aim.link-website 的底部友情链接的 logo 也替换。
+
+**Assistant（实现前说明）**  
+- Footer 使用 `public/assets/partner-vouchap.png`；拟用 vouchap-website 已裁切的新 `logo.png` 覆盖，并略放大显示高度、加缓存参数。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已替换 `partner-vouchap.png`（旧图备份 `partner-vouchap-prev.png`）；Footer 显示高度 `2.75rem`→`3.5rem`，`?v=20260722b`。  
+- **验证**：本地打开 aim-link-website 看页脚 Vouchap 卡片。
+
+**关联**  
+- `aim-link-website/public/assets/partner-vouchap.png`、`src/components/Footer.jsx`
+
+---
+
+### 2026-07-22（vouchap-app Web：左上角 logo3 换新标 + 分辨率说明）
+
+**User（提示词/原意）**  
+- 用新 logo 替换 vouchap 应用 web 端左上角 logo；是否需要更高分辨率图片？
+
+**Assistant（实现前说明）**  
+- Web 侧栏 `WebSidebar` 用 `assets/logo3.png`，显示约 144×144。Retina 约需 ≥288px 源图；现有新标 512/1024 已够，无需更高分辨率。  
+- 旧 logo3 为圆裁 + 金描边字标；新标为正方形图标，拟改圆角并去掉金描边。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已用站上裁切版覆盖 `logo3.png`（备份 `logo3-prev.png`，1024²）；`borderRadius` 72→28；字标去掉金色描边。  
+- **分辨率结论**：不需要更高分辨率；侧栏 CSS 144px，1024 源图远超 2x/3x。仅当超大 hero/打印再考虑 2K 或 SVG。  
+- **验证**：`npm run web` 看左侧栏品牌区。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/assets/logo3.png`、`WebSidebar.tsx`
+
+---
+
+### 2026-07-22（启动 vouchap-app Web 测试服务器）
+
+**User（提示词/原意）**  
+- 运行 vouchap 的 web 端测试服务器。
+
+**Assistant（实现前说明）**  
+- 无代码变更；在 `vouchap-app` 执行 `npm run web`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已启动 Expo Web；见终端输出的 localhost 地址。
+
+**关联**  
+- `vouchap-app` `npm run web`
+
+---
+
+### 2026-07-22（vouchap-app Web：侧栏 logo 缩小）
+
+**User（提示词/原意）**  
+- 左上角图片过大。
+
+**Assistant（实现前说明）**  
+- `WebSidebar` logo 现为 144×144；拟缩到约 72，并略调字标字号/间距。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `logoImage` 144→72，`borderRadius` 28→14；`brandText` 25→20。刷新 Web 即可。
+
+**关联**  
+- `WebSidebar.tsx`
+
+---
+
+### 2026-07-22（vouchap-app Web：侧栏 logo 改为 96px）
+
+**User（提示词/原意）**  
+- 96px
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `logoImage` 设为 96×96（`borderRadius` 18）；字标略调至 22。刷新即可。
+
+**关联**  
+- `WebSidebar.tsx`
+
+---
+
+### 2026-07-22（vouchap-app Web：侧栏 Vouchap 字重减轻）
+
+**User（提示词/原意）**  
+- logo 下的 Vouchap 名称字体过粗。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `brandText` `fontWeight` 800→600，字距略收。刷新即可。
+
+**关联**  
+- `WebSidebar.tsx`

@@ -124,9 +124,7 @@ export default function ReceiptDetailsScreen() {
       // 编辑态默认不覆盖草稿；识别中 / 识别刚完成必须同步，否则 UI 一直停在 Processing 占位
       const shouldSyncEdited =
         options?.forceSyncEdited ??
-        !editingRef.current ||
-        nextStatus === 'processing' ||
-        recognitionJustFinished;
+        (!editingRef.current || nextStatus === 'processing' || recognitionJustFinished);
       if (shouldSyncEdited && data) {
         setEditedReceipt(data);
         if (nextStatus === 'processing' || recognitionJustFinished || options?.forceSyncEdited) {

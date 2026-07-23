@@ -365,6 +365,33 @@ function clearModelCacheIfUnavailable(err: unknown) {
   }
 }
 
+/** API key / 401: abort the whole try-order (all models share the same key). */
+function isGeminiAuthFailureMessage(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes('api key') ||
+    m.includes('api_key') ||
+    m.includes('invalid api key') ||
+    /\b401\b/.test(m)
+  );
+}
+
+/**
+ * Free-tier limits are per model (RPM/RPD). 3.5 Flash can be exhausted while
+ * 2.5 Flash / Flash Lite still have quota — must try the next model, not stop.
+ */
+function isGeminiPerModelQuotaOrRateLimitMessage(msg: string): boolean {
+  const m = msg.toLowerCase();
+  return (
+    m.includes('quota') ||
+    m.includes('429') ||
+    m.includes('rate limit') ||
+    m.includes('resource_exhausted') ||
+    m.includes('resource exhausted') ||
+    m.includes('too many requests')
+  );
+}
+
 /** 小票识别统一 JSON 输出规范（与下游 ensureGeminiParsedReceiptItems、strip 税行后处理一致） */
 const RECEIPT_JSON_ITEMS_RULE =
   'items: ≥1 merchandise/service row only—do NOT list sales-tax breakdown lines (GST, HST, PST, QST, RST, VAT, TVQ, “N% tax”, etc.) as items; put their sum in "tax" (or 0 if only pre-tax subtotal + one total tax line). Each item: name, categoryName, attributionName, price; itemAlias when line is SKU/code/cryptic (plain English label, no amounts in itemAlias).';
@@ -730,16 +757,19 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
         geminiDevLog(`  Model ${modelName} bad output, next model...`);
         continue;
       }
-      // 认证 / 额度：不必换模型
-      if (
-        errorMsg.includes('api key') ||
-        errorMsg.includes('401') ||
-        errorMsg.includes('403') ||
-        errorMsg.includes('quota') ||
-        errorMsg.includes('429') ||
-        errorMsg.includes('permission')
-      ) {
+      // 单模型免费档 RPM/RPD 耗尽：继续轮询其它仍有余量的 Text-out 模型
+      if (isGeminiPerModelQuotaOrRateLimitMessage(errorMsg)) {
+        geminiDevLog(`  Model ${modelName} quota/rate-limited, next model...`);
+        continue;
+      }
+      // 仅 API Key / 401 对整条链路无效，才中止
+      if (isGeminiAuthFailureMessage(errorMsg)) {
         break;
+      }
+      // 403 / permission 可能仅针对某一模型，继续尝试
+      if (errorMsg.includes('403') || errorMsg.includes('permission') || errorMsg.includes('forbidden')) {
+        geminiDevLog(`  Model ${modelName} permission error, next model...`);
+        continue;
       }
       // 其余错误：尝试列表中的下一模型
       geminiDevLog(`  Model ${modelName} error, next model if any...`);
@@ -753,13 +783,15 @@ export async function recognizeReceipt(imageUrl: string): Promise<GeminiReceiptR
   if (lastError) {
     const errorMsg = lastError.message.toLowerCase();
 
-    if (errorMsg.includes('api key') || errorMsg.includes('api_key') || errorMsg.includes('invalid api key') || errorMsg.includes('401')) {
+    if (isGeminiAuthFailureMessage(errorMsg)) {
       throwGeminiProxyUnavailable(`Gemini rejected the request (often invalid or missing server GEMINI_API_KEY). Original: ${lastError.message}`);
     }
 
-    // 配额相关错误
-    if (errorMsg.includes('quota') || errorMsg.includes('429') || errorMsg.includes('rate limit')) {
-      throw new Error(`API quota exhausted or limit reached\nOriginal error: ${lastError.message}`);
+    // 仅当 try-order 内全部模型都耗尽额度后才报
+    if (isGeminiPerModelQuotaOrRateLimitMessage(errorMsg)) {
+      throw new Error(
+        `API quota exhausted or limit reached on all tried models (${GEMINI_STATIC_MODEL_LIST_LABEL})\nOriginal error: ${lastError.message}`,
+      );
     }
 
     // 权限相关错误
@@ -1034,15 +1066,16 @@ export async function recognizeInvoiceFromImage(imageUrl: string): Promise<Gemin
         geminiDevLog(`  Model ${modelName} bad output, next model...`);
         continue;
       }
-      if (
-        errorMsg.includes('api key') ||
-        errorMsg.includes('401') ||
-        errorMsg.includes('403') ||
-        errorMsg.includes('quota') ||
-        errorMsg.includes('429') ||
-        errorMsg.includes('permission')
-      ) {
+      if (isGeminiPerModelQuotaOrRateLimitMessage(errorMsg)) {
+        geminiDevLog(`  Model ${modelName} quota/rate-limited, next model...`);
+        continue;
+      }
+      if (isGeminiAuthFailureMessage(errorMsg)) {
         break;
+      }
+      if (errorMsg.includes('403') || errorMsg.includes('permission') || errorMsg.includes('forbidden')) {
+        geminiDevLog(`  Model ${modelName} permission error, next model...`);
+        continue;
       }
       geminiDevLog(`  Model ${modelName} error, next model if any...`);
       continue;
@@ -1054,12 +1087,14 @@ export async function recognizeInvoiceFromImage(imageUrl: string): Promise<Gemin
   if (lastError) {
     const errorMsg = lastError.message.toLowerCase();
 
-    if (errorMsg.includes('api key') || errorMsg.includes('api_key') || errorMsg.includes('invalid api key') || errorMsg.includes('401')) {
+    if (isGeminiAuthFailureMessage(errorMsg)) {
       throwGeminiProxyUnavailable(`Gemini rejected the request (often invalid or missing server GEMINI_API_KEY). Original: ${lastError.message}`);
     }
 
-    if (errorMsg.includes('quota') || errorMsg.includes('429') || errorMsg.includes('rate limit')) {
-      throw new Error(`API quota exhausted or limit reached\nOriginal error: ${lastError.message}`);
+    if (isGeminiPerModelQuotaOrRateLimitMessage(errorMsg)) {
+      throw new Error(
+        `API quota exhausted or limit reached on all tried models (${GEMINI_STATIC_MODEL_LIST_LABEL})\nOriginal error: ${lastError.message}`,
+      );
     }
 
     if (errorMsg.includes('permission') || errorMsg.includes('403') || errorMsg.includes('forbidden')) {

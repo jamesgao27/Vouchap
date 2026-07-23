@@ -333,27 +333,24 @@ const styles = StyleSheet.create({
     paddingBottom: 0,
   },
   logoImage: {
-    width: 144,
-    height: 144,
-    borderRadius: 72,
+    width: 96,
+    height: 96,
+    borderRadius: 18,
     alignSelf: 'center',
-    marginBottom: -2,
+    marginBottom: 0,
   },
-  /** 字标与 logo 收紧间距；黑字 + 金边（Web 用 webkit 描边，与 logo3 黑金一致） */
+  /** Wordmark under mark */
   brandText: {
-    marginTop: -8,
+    marginTop: 4,
     textAlign: 'center',
     alignSelf: 'stretch',
-    fontSize: 25,
-    fontWeight: '800',
-    color: '#1F1402',
-    letterSpacing: 0.35,
+    fontSize: 22,
+    fontWeight: '600',
+    color: '#1a1a1a',
+    letterSpacing: 0.2,
     ...(Platform.OS === 'web'
       ? ({
           fontFamily: 'Poppins, system-ui, sans-serif',
-          // react-native-web → 浏览器：填充色 + 金色描边
-          WebkitTextStroke: '1.25px #C9A24D',
-          WebkitTextFillColor: '#1F1402',
         } as Record<string, unknown>)
       : {}),
   },

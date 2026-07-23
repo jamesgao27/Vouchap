@@ -656,7 +656,6 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   
   // 组件挂载状态，后台重试完成后仅在校验通过后更新 UI
   const mountedRef = useRef(true);
-  const messagesRef = useRef(messages);
   messagesRef.current = messages;
 
   useEffect(() => {
