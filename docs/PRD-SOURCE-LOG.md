@@ -8064,3 +8064,96 @@
 - `vouchap-app/src/mobile-ui/assets/{logo,logo2,logo3,icon}.png`  
 - `scripts/sync-native-launcher-icons-from-logo2.sh`  
 - `ios/.../AppIcon.appiconset/`、`android/.../mipmap-*/`
+
+---
+
+### 2026-07-22（vouchap-website：营销截图 / logo 修图替换）
+
+**User（提示词/原意）**  
+- vouchap-website 中用到的界面截图、logo 需全部更换；根据新 logo 图片以及 web 端实现效果，直接修图实现。
+
+**Assistant（实现前说明）**  
+- 营销站 `public/logo.png` 已是新税票标；`public/logo3.png` 仍为旧标；`public/vouchap_landing_assets/*.png` 9 张产品截图侧栏/邀请页仍为旧金盾或紫盾 AI 标。  
+- 拟对照 WebSidebar（logo3 +「Vouchap」字标）与 `client-join`（64 圆角标在上、firm 名在下）用 PIL 合成替换；备份旧图；bump `ASSET_V` / logo cache。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已修图替换 7 张桌面截图侧栏旧金盾 → 新税票 logo +「Vouchap」字标；邀请页 `web_secure_portal_invite.png` 仅替换标题上方旧标区域（标题像素保持不变）。  
+- `web_cody_assistant.png` 无产品标（助手头像），未改。  
+- 同步 `public/logo3.png`、重生成 `favicon.ico`；`ASSET_V=20260722`；logo cache `20260722e`。  
+- 旧图备份：`public/vouchap_landing_assets/_prev_20260722/`。  
+- **验证**：硬刷新营销站首页 / Hero / TaxPainSolutions / Firm invite；确认侧栏与邀请页均为新标。  
+- **残留**：截图整体 UI 仍为历史界面（非现网实时截屏）；仅品牌标被替换。若需与现网像素级一致，需登录 platform 重截。
+
+**关联**  
+- `vouchap-website/public/vouchap_landing_assets/`、`public/logo.png`、`public/logo3.png`、`public/favicon.ico`  
+- `lib/landingAssets.ts`（`ASSET_V`）
+
+---
+
+### 2026-07-22（vouchap-website：撤销截图贴图覆盖）
+
+**User（提示词/原意）**  
+- 不是 p 图而是贴图覆盖，效果不行；去除这次修改，后续手动重新截图替换。
+
+**Assistant（实现前说明）**  
+- 无新实现；从 `_prev_20260722` 恢复 9 张 landing 截图；回滚 `ASSET_V` / logo cache；`logo3`/`favicon` 恢复 git HEAD；删除备份目录。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 9 张 landing 截图已从备份恢复为贴图前原件；已删 `_prev_20260722`。  
+- `ASSET_V` 仍为 `20260502`；品牌 logo cache（`20260722e`）与 git HEAD 品牌提交保持一致，未回滚。  
+- 用户后续自行重截并替换 `public/vouchap_landing_assets/` 后需再 bump `ASSET_V`。
+
+**关联**  
+- `vouchap-website/public/vouchap_landing_assets/`、`lib/landingAssets.ts`
+
+---
+
+### 2026-07-22（vouchap-website：Hero 空白恢复）
+
+**User（提示词/原意）**  
+- Hero 区内容缺失了，检查恢复。
+
+**Assistant（实现前说明）**  
+- 排查 Hero 文案/图是否被删；对照 DOM 与截屏；怀疑 framer-motion `opacity:0` + 开发服 chunk 异常。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 根因：本地 Next `.next` 与 dev server 不同步，`main-app.js` 等 chunk 404 → 客户端未水合；Hero 的 `motion.div` 初始 `opacity:0` 无法 animate，首屏空白。  
+- 修复：`Hero.tsx` 初始改为可见（`opacity:1`，仅轻微位移动画）；清理 `.next` 并重启 `npm run dev -p 3000`。  
+- 验证：Playwright 下 Hero 文案与邀请截图可见，`_next` chunk 无 404。硬刷新浏览器即可。
+
+**关联**  
+- `vouchap-website/components/Hero.tsx`
+
+---
+
+### 2026-07-22（vouchap-website：顶栏/页脚 logo 略缩小）
+
+**User（提示词/原意）**  
+- 顶栏和脚部的新 logo 太大了一点，略微缩小。
+
+**Assistant（实现前说明）**  
+- Navbar 现 `h-[4.5rem]`（约 72px），Footer `h-[3.75rem]`（约 60px）；拟各缩约一档。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- Navbar：logo `3.75rem`（60px），栏高 `4.25rem`。  
+- Footer：logo `h-12`（48px）。  
+- 硬刷新即可看效果。
+
+**关联**  
+- `components/Navbar.tsx`、`components/Footer.tsx`
+
+---
+
+### 2026-07-23（vouchap-app：发布 2.6.6 全平台 production 构建）
+
+**User（提示词/原意）**  
+- vouchap 版本号更新为 2.6.6，重新全平台构建 production。
+
+**Assistant（实现前说明）**  
+- 自 2.6.5 / iOS 43 / Android 60 递增为 2.6.6 / 44 / 61；同步 package.json、lock、app.json、app.config.js、build.gradle、Info.plist；commit+push 后 `eas build --platform all --profile production`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 版本文件已更新；提交信息：`发布版本号 2.6.6 (Build 44/61)`；EAS 全平台 production 构建已发起（链接见回复）。
+
+**关联**  
+- `vouchap-app` 版本文件、EAS production
