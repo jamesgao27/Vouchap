@@ -8,6 +8,52 @@
 
 ---
 
+### 2026-08-04（Dashboard Custom：From/To/Apply 同排右侧）
+
+**User（提示词/原意）**  
+- Custom 后不要出现新行，在按钮右端显示 from-to-apply。
+
+**Assistant（实现前说明）**  
+- 调整 `DashboardPeriodSelector`：Custom 选中后 From/To/Apply 紧接在 pill 行右侧同排，不再单独换行；去掉 WebDashboardView 为 Custom 预留的额外标题行高度。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已改 `DashboardPeriodSelector.tsx`（单行 `flexDirection: 'row'` + `nowrap`）；`WebDashboardView` 移除 `DASHBOARD_HEADER_CUSTOM_EXTRA`。刷新 Web 即可验证。
+
+**关联**  
+- `DashboardPeriodSelector.tsx`、`WebDashboardView.tsx`
+
+### 2026-08-04（运行 Web 测试服务器）
+
+**User（提示词/原意）**  
+- 运行测试服务器。
+
+**Assistant（实现前说明）**  
+- 无代码变更；在 `vouchap-app` 启动 `npm run web`（Expo web），用于验证 Dashboard 时间区间。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已后台启动 `npm run web`；Metro 监听 `http://localhost:8081`。浏览器打开该地址即可测 Dashboard。
+
+**关联**  
+- `vouchap-app` → `npm run web`
+
+### 2026-08-04（Web Dashboard：标题行快捷时间区间）
+
+**User（提示词/原意）**  
+- vouchap 的 web 端 dashboard 需增加快捷时间区间选择，放在 dashboard 标题行，可快速选择当月、三个月、今年、过去 12 个月、自定义时间段等。
+
+**Assistant（实现前说明）**  
+- 目标：`WebDashboardView`（Client Dashboard）；现状为全量拉取后聚合，无日期筛选；提交曲线硬截近 30 日。  
+- 计划：新增可复用 `DashboardPeriodSelector`（英文文案：This month / 3 months / This year / Past 12 months / Custom）；按单据 `date`（提交曲线用 `createdAt || date`）过滤后再聚合；默认 Past 12 months；Custom 用 web `input[type=date]` + Apply。  
+- Firm Insights（`CrmDashboardView`）本轮不改（状态快照类图表与时间区间语义不同）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 [`vouchap-app/src/mobile-ui/components/DashboardPeriodSelector.tsx`](vouchap-app/src/mobile-ui/components/DashboardPeriodSelector.tsx)；改 [`WebDashboardView.tsx`](vouchap-app/src/mobile-ui/components/WebDashboardView.tsx)：标题行右侧挂载区间选择，窄屏/homeCompact 在图表上方展示；四图均按区间过滤；提交序列上限 90 日。  
+- **验证**：Web 打开 Client Dashboard，切换 This month / 3 months / This year / Past 12 months，图表应变；Custom 选 From/To 点 Apply 后图表更新。  
+- **残留**：`components/` 与 `src/mobile-ui/components/` 为硬链接；根目录副本的相对路径 `../lib/web-viewport` 在 `tsc` 下仍会报既有路径问题（运行时 `@/components` 指向 mobile-ui）。
+
+**关联**  
+- `DashboardPeriodSelector.tsx`、`WebDashboardView.tsx`
+
 ### 2026-05-12（Vouchap：订阅/账单/权益 — CRM 订单驱动 + 试用 + Firm 年消耗）
 
 **User（提示词/原意）**  
@@ -8153,7 +8199,9 @@
 - 自 2.6.5 / iOS 43 / Android 60 递增为 2.6.6 / 44 / 61；同步 package.json、lock、app.json、app.config.js、build.gradle、Info.plist；commit+push 后 `eas build --platform all --profile production`。
 
 **Assistant（实现后说明 / 本轮结论）**  
-- 版本文件已更新；提交信息：`发布版本号 2.6.6 (Build 44/61)`；EAS 全平台 production 构建已发起（链接见回复）。
+- 版本文件已更新并 push：`发布版本号 2.6.6 (Build 44/61)`（EAS remote 亦自增至 iOS 44 / Android 61）。
+- Android：https://expo.dev/accounts/aimlink/projects/vouchap/builds/1ff3d66a-d4cc-4055-a615-aef66de27020
+- iOS：https://expo.dev/accounts/aimlink/projects/vouchap/builds/a106f13b-fef7-47e5-af9d-5467431f6053
 
 **关联**  
 - `vouchap-app` 版本文件、EAS production

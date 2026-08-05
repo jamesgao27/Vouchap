@@ -3,11 +3,17 @@
  */
 import { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, Platform, ScrollView, useWindowDimensions } from 'react-native';
-import Svg, { Path, Rect, G, Defs, LinearGradient, Stop, Text as SvgText, Circle } from 'react-native-svg';
+import Svg, { Path, Rect, G, Text as SvgText, Circle } from 'react-native-svg';
 import { Ionicons } from '@expo/vector-icons';
 import { getAllReceiptsForList, getAllReceipts } from '@/lib/database';
 import { getAllInvoices } from '@/lib/invoices';
 import { isMobileWebWidth } from '../lib/web-viewport';
+import DashboardPeriodSelector, {
+  type DashboardDateRange,
+  type DashboardPeriodPreset,
+  isDateInRange,
+  resolveDashboardPeriodRange,
+} from './DashboardPeriodSelector';
 
 const CHART_COLORS = ['#6C5CE7', '#D35400', '#00B894', '#0984E3', '#FDCB6E', '#E17055', '#636E72'];
 const FONT_FAMILY = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
@@ -16,6 +22,8 @@ const DASHBOARD_SPACING = 32;
 const CARD_PADDING = 16;
 const SIDEBAR_WIDTH = 240;
 const DASHBOARD_HEADER_HEIGHT = 60;
+/** Cap submission-series X points so dense custom ranges stay readable */
+const MAX_SUBMISSION_DATES = 90;
 
 function getMonthKey(dateStr: string): string {
   if (!dateStr || typeof dateStr !== 'string') return '';
@@ -34,6 +42,13 @@ export default function WebDashboardView({ homeCompact = false }: { homeCompact?
   const [receipts, setReceipts] = useState<any[]>([]);
   const [invoices, setInvoices] = useState<any[]>([]);
   const [receiptsWithItems, setReceiptsWithItems] = useState<any[]>([]);
+  const [periodPreset, setPeriodPreset] = useState<DashboardPeriodPreset>('last_12_months');
+  const [customRange, setCustomRange] = useState<DashboardDateRange | null>(null);
+
+  const activeRange = useMemo(
+    () => resolveDashboardPeriodRange(periodPreset, customRange),
+    [periodPreset, customRange]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -59,25 +74,29 @@ export default function WebDashboardView({ homeCompact = false }: { homeCompact?
   }, []);
 
   const { byMonth, byAccount, byCategory, bySubmitterDate } = useMemo(() => {
+    const filteredReceipts = receipts.filter((r) => isDateInRange(r.date, activeRange));
+    const filteredInvoices = invoices.filter((inv) => isDateInRange(inv.date, activeRange));
+    const filteredReceiptsWithItems = receiptsWithItems.filter((r) => isDateInRange(r.date, activeRange));
+
     const monthExp: Record<string, number> = {};
     const monthInc: Record<string, number> = {};
-    receipts.forEach((r) => {
+    filteredReceipts.forEach((r) => {
       const k = getMonthKey(r.date);
       if (k) monthExp[k] = (monthExp[k] || 0) + Number(r.totalAmount ?? 0);
     });
-    invoices.forEach((inv) => {
+    filteredInvoices.forEach((inv) => {
       const k = getMonthKey(inv.date);
       if (k) monthInc[k] = (monthInc[k] || 0) + Number(inv.totalAmount ?? 0);
     });
 
     const accountMap: Record<string, number> = {};
-    receipts.forEach((r) => {
+    filteredReceipts.forEach((r) => {
       const name = r.account?.name || 'Unset';
       accountMap[name] = (accountMap[name] || 0) + Number(r.totalAmount ?? 0);
     });
 
     const categoryMap: Record<string, number> = {};
-    receiptsWithItems.forEach((r) => {
+    filteredReceiptsWithItems.forEach((r) => {
       (r.items || []).forEach((item: any) => {
         const name = item.category?.name || 'Uncategorized';
         const amount = Number(item.price ?? 0);
@@ -87,9 +106,9 @@ export default function WebDashboardView({ homeCompact = false }: { homeCompact?
 
     const submitterDateMap: Record<string, Record<string, number>> = {};
     const allDates = new Set<string>();
-    [...receipts, ...invoices].forEach((r) => {
+    [...filteredReceipts, ...filteredInvoices].forEach((r) => {
       const dateKey = getDateKey(r.createdAt || r.date);
-      if (!dateKey) return;
+      if (!dateKey || !isDateInRange(dateKey, activeRange)) return;
       allDates.add(dateKey);
       const name = r.createdByUser?.name || r.createdByUser?.email?.split('@')[0] || 'Unknown';
       if (!submitterDateMap[name]) submitterDateMap[name] = {};
@@ -102,7 +121,7 @@ export default function WebDashboardView({ homeCompact = false }: { homeCompact?
       byCategory: categoryMap,
       bySubmitterDate: { data: submitterDateMap, dates: Array.from(allDates).sort() },
     };
-  }, [receipts, invoices, receiptsWithItems]);
+  }, [receipts, invoices, receiptsWithItems, activeRange]);
 
   const monthKeys = useMemo(() => {
     const set = new Set<string>([
@@ -145,7 +164,10 @@ export default function WebDashboardView({ homeCompact = false }: { homeCompact?
   const categoryEntries = Object.entries(byCategory).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).slice(0, 10);
   const maxCategoryVal = Math.max(1, ...categoryEntries.map(([, v]) => v));
   const submitterNames = Object.keys(bySubmitterDate.data);
-  const dateRange = bySubmitterDate.dates.slice(-30);
+  const dateRange =
+    bySubmitterDate.dates.length > MAX_SUBMISSION_DATES
+      ? bySubmitterDate.dates.slice(-MAX_SUBMISSION_DATES)
+      : bySubmitterDate.dates;
   const maxCount = Math.max(
     1,
     ...submitterNames.flatMap((name) => dateRange.map((d) => bySubmitterDate.data[name][d] || 0))
@@ -153,7 +175,17 @@ export default function WebDashboardView({ homeCompact = false }: { homeCompact?
 
   // 桌面 Web 宽屏：2x2；窄窗（移动浏览器）：单列，按宽度定图表高度，避免 2x2 压扁纵横比
   const isDesktopGrid = !isMobileWebWidth(screenWidth);
-  const showDashboardPageHeader = isDesktopGrid;
+  const showDashboardPageHeader = true;
+  const headerHeight = DASHBOARD_HEADER_HEIGHT;
+
+  const periodSelector = (
+    <DashboardPeriodSelector
+      preset={periodPreset}
+      customRange={customRange}
+      onPresetChange={setPeriodPreset}
+      onCustomRangeChange={setCustomRange}
+    />
+  );
 
   let cardWidth: number;
   let cardHeight: number;
@@ -162,7 +194,7 @@ export default function WebDashboardView({ homeCompact = false }: { homeCompact?
 
   if (isDesktopGrid) {
     const viewportWidth = screenWidth - SIDEBAR_WIDTH;
-    const viewportHeight = screenHeight - DASHBOARD_HEADER_HEIGHT;
+    const viewportHeight = screenHeight - headerHeight;
     cardWidth = Math.floor((viewportWidth - 3 * DASHBOARD_SPACING) / 2);
     cardHeight = Math.floor((viewportHeight - 3 * DASHBOARD_SPACING) / 2);
     chartWidth = Math.max(200, cardWidth - 2 * CARD_PADDING);
@@ -380,6 +412,7 @@ export default function WebDashboardView({ homeCompact = false }: { homeCompact?
   if (homeCompact && !isDesktopGrid) {
     return (
       <View style={styles.homeCompactRoot}>
+        <View style={styles.homeCompactPeriod}>{periodSelector}</View>
         {chartGrid}
       </View>
     );
@@ -389,8 +422,11 @@ export default function WebDashboardView({ homeCompact = false }: { homeCompact?
     <View style={styles.container}>
       {showDashboardPageHeader ? (
         <View style={styles.header}>
-          <Ionicons name="stats-chart-outline" size={28} color="#6C5CE7" />
-          <Text style={styles.title}>Dashboard</Text>
+          <View style={styles.headerLeft}>
+            <Ionicons name="stats-chart-outline" size={28} color="#6C5CE7" />
+            <Text style={styles.title}>Dashboard</Text>
+          </View>
+          {periodSelector}
         </View>
       ) : null}
       <ScrollView
@@ -408,13 +444,21 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F8F9FA' },
   header: {
     flexDirection: 'row',
-    alignItems: 'center',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 16,
     paddingHorizontal: 20,
-    paddingTop: Platform.OS === 'web' ? 24 : 16,
-    paddingBottom: 8,
+    paddingTop: Platform.OS === 'web' ? 20 : 16,
+    paddingBottom: 12,
     backgroundColor: '#FFF',
     borderBottomWidth: 1,
     borderBottomColor: '#E9ECEF',
+    flexWrap: 'wrap',
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    minHeight: 36,
   },
   title: { fontSize: 22, fontWeight: '700', color: '#2D3436', marginLeft: 10 },
   subtitle: {
@@ -470,5 +514,9 @@ const styles = StyleSheet.create({
     width: '100%',
     gap: DASHBOARD_SPACING,
     paddingBottom: 8,
+  },
+  homeCompactPeriod: {
+    width: '100%',
+    alignItems: 'stretch',
   },
 });
