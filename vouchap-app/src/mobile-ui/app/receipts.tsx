@@ -23,6 +23,7 @@ import * as ImagePicker from 'expo-image-picker';
 // DocumentScanner 将在需要时动态导入（因为它在 Expo Go 中不可用）
 import Constants from 'expo-constants';
 import { getReceiptsForListFirstPaint, getAllReceiptsForList, getAllReceipts, deleteReceipt } from '@/lib/database';
+import { getCanonicalEntityId } from '@/lib/entities';
 import { Receipt, ReceiptStatus } from '@/types';
 import { format } from 'date-fns';
 import { supabase } from '@/lib/supabase';
@@ -858,7 +859,7 @@ export default function ReceiptsScreen() {
     
     receipts.forEach(receipt => {
       const payeeName = receipt.entity?.name || receipt.supplierName || '—';
-      const payeeKey = `supplier-${receipt.entity?.id || receipt.supplierId || 'none'}`;
+      const payeeKey = `supplier-${getCanonicalEntityId(receipt) || 'none'}`;
       
       if (!grouped.has(payeeKey)) {
         grouped.set(payeeKey, []);

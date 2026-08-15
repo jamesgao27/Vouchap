@@ -27,7 +27,7 @@ import { sortScopeTagsForDisplay } from '@/lib/sort-scope-tags-for-display';
 import { getAccounts, mergeAccount } from '@/lib/accounts';
 import { getSupplierOptions } from '@/lib/customer-supplier-list';
 import { normalizeNameForCompare } from '@/lib/name-utils';
-import { mergeEntity } from '@/lib/entities';
+import { mergeEntity, getCanonicalEntityId } from '@/lib/entities';
 import { getChatLogsByReceiptId } from '@/lib/chat-logs';
 import { getLocalDateString } from '@/lib/date-utils';
 import { playAudio, stopPlayback } from '@/lib/audio';
@@ -658,8 +658,7 @@ export default function ReceiptDetailsScreen() {
   const handleSelectSupplier = (option: { id: string; name: string; source: 'supplier' | 'customer' } | null) => {
     if (!editedReceipt) return;
     setShowSupplierPicker(false);
-    const currentId = receipt?.supplierId ?? receipt?.supplierCustomerId ?? null;
-    const currentSource = receipt?.supplierId ? ('supplier' as const) : receipt?.supplierCustomerId ? ('customer' as const) : null;
+    const currentId = getCanonicalEntityId(receipt);
     if (option === null) {
       setEditedReceipt({
         ...editedReceipt,
@@ -699,9 +698,9 @@ export default function ReceiptDetailsScreen() {
         supplierCustomer: undefined,
       });
     }
-    // 从空改为选择时不弹三选项；仅当已有供应商/客户或关联方且换成另一个时弹窗（合并 entity 后 receipt 可能只有 entityId）
-    const hasExistingLink = !!(receipt?.supplierId ?? receipt?.supplierCustomerId ?? receipt?.entityId ?? receipt?.entity?.id);
-    if ((currentSource !== option.source || currentId !== option.id) && hasExistingLink) {
+    // 从空改为选择时不弹三选项；仅当已有 Payee 且换成另一个时弹窗
+    const hasExistingLink = !!currentId;
+    if (option.id !== currentId && hasExistingLink) {
       setDuplicateNameModalPayload({
         code: option.source === 'supplier' ? 'SUPPLIER_NAME_EXISTS' : 'CUSTOMER_NAME_EXISTS',
         duplicateName: option.name,

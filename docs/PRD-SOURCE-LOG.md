@@ -8,6 +8,82 @@
 
 ---
 
+### 2026-08-15（运行测试服务器）
+
+**User（提示词/原意）**  
+- 运行测试服务器。
+
+**Assistant（实现前说明）**  
+- 无代码变更。在 `vouchap-app` 启动 `npm run web`（Expo web），用于验证 income Payer merge / 分组修复。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已后台启动 `npm run web`；Metro 监听 `http://localhost:8081`。浏览器打开该地址即可测 Income 选 Payer 三选项与按 Payer 分组。
+
+**关联**  
+- `vouchap-app` → `npm run web`
+
+### 2026-08-15（Income 改 Payer 不弹 merge 三选项；按 Payer 分组未合并已 merge 的 entity）
+
+**User（提示词/原意）**  
+- income 记录中，通过选择已有 entity 修改 payer，没有触发 entity merge 三选项对话框（app 与 web 都没有）。  
+- income 的 web 端列表按 payer 分组时，已经 merge 的 payer 没有合并同组。  
+- 检查 receipt 等其他模块是否同样问题并修复。
+
+**Assistant（实现前说明）**  
+- 收入单已统一为 `entities.entityId`，但详情选单仍用已废弃的 `customerId`/`customerSupplierId` 判断是否弹出 Replace / Replace all (Merge) / Do not replace，导致 `currentId` 恒为空、弹窗不触发；Confirm 时的 merge 路径同样读不到关联方。  
+- 列表分组键用原始 `entityId`（未跟随 `merged_into_id`），而 receipt 已用解析后的 `entity.id`。  
+- inbound/outbound 详情同样只写 `supplierId`/`customerId`，保存实际读 `entityId`，同类缺陷一并修。  
+- 拟改：`getCanonicalEntityId`；invoice/inbound/outbound 详情选单与 merge；invoices/receipts/inbound/outbound 分组；`getInvoiceById` 等按 merge 解析展示。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `getCanonicalEntityId`；income 选已有 Payer 会弹三选项，merge 用规范化 entity id；列表按 Payer 分组用规范化 id。  
+- receipt 选单比较改为 canonical id（原先靠 `hasExistingLink` 多数能弹，但重选同一 Payee 可能误弹）。  
+- inbound Sender / outbound Receiver 选单、merge、分组同步改为 `entityId`。  
+- **验证**：编辑已有 Payer 的 income，从选单换另一个已有 entity → 应出现三选项；Replace only this 只改本单，Replace all (Merge) 合并 entity；web 按 Payer 分组，已 merge 的应同一组。receipt / inbound / outbound 同样走一遍。  
+- **残留**：inbound/outbound 详情若明细加载失败会提前返回，可能仍不带解析后的 entity（少见）。
+
+**关联**  
+- `vouchap-app/src/shared-logic/entities.ts`  
+- `vouchap-app/src/mobile-ui/app/invoice-details/[id].tsx`  
+- `vouchap-app/src/mobile-ui/app/invoices.tsx`
+
+### 2026-08-15（Wholestore 提案按 B2B 计划书重写：功能架构 + 工期成本）
+
+**User（提示词/原意）**  
+- 结合「面向厂家与经销商的 B2B 下单、履约与结算平台」计划书重写 proposal。  
+- 核心：门户 + Finale + QBO；MVP 12–16 周、完整版 20–28 周。  
+- 重点：功能架构规划、开发时间与成本分析。  
+- 附 PDF 与正文功能清单、三系统分工、启动前五项确认。
+
+**Assistant（实现前说明）**  
+- 无业务代码。覆盖八能力域、三系统事实来源与防重复入账、MVP/完整版切分、S1→S2→S3 工期、人周与三档成本情景。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已重写 [`docs/PROPOSAL-Wholestore.md`](docs/PROPOSAL-Wholestore.md)。报价假设：单厂家、QBO、价盘在门户、MVP 不做退货/多级审批。  
+- **验证**：对照计划书五项启动确认是否接受提案第 8 节假设。  
+- **残留**：Payment 写入者、开票时点、是否做移动端加项，仍待拍板。
+
+**关联**  
+- `docs/PROPOSAL-Wholestore.md`
+
+### 2026-08-15（Wholestore 架构提案，不动代码）
+
+**User（提示词/原意）**  
+- 新应用取名为 wholestore；先不动代码，写一份 proposal。  
+- proposal 中不用体现已有资源可以复用。  
+- 前序约束：新应用也要 firm/client（工厂/经销商）、各 space 多 user；两应用注册的 space 与 user 独立。
+
+**Assistant（实现前说明）**  
+- 无代码变更。写独立产品/架构提案：Wholestore 定位、域模型、平台与产品分层、双 Supabase、同步迭代与分期；不写现有工程可复用清单。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 [`docs/PROPOSAL-Wholestore.md`](docs/PROPOSAL-Wholestore.md)。  
+- **验证**：阅读提案第 10 节开放问题后拍板，再进入实施。  
+- **残留**：engagement 是否进平台、Factory 审核、认领路径等仍待决策。
+
+**关联**  
+- `docs/PROPOSAL-Wholestore.md`
+
 ### 2026-08-04（Dashboard Custom：From/To/Apply 同排右侧）
 
 **User（提示词/原意）**  

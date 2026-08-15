@@ -27,7 +27,7 @@ import { sortScopeTagsForDisplay } from '@/lib/sort-scope-tags-for-display';
 import { getAccounts, mergeAccount } from '@/lib/accounts';
 import { getCustomerOptions } from '@/lib/customer-supplier-list';
 import { normalizeNameForCompare } from '@/lib/name-utils';
-import { mergeEntity } from '@/lib/entities';
+import { mergeEntity, getCanonicalEntityId } from '@/lib/entities';
 import { getChatLogsPaginated } from '@/lib/chat-logs';
 import { playAudio, stopPlayback } from '@/lib/audio';
 import { Invoice, InvoiceItem, Category, Attribution, VoucherStatus, Account } from '@/types';
@@ -229,14 +229,21 @@ export default function InvoiceDetailsScreen() {
             }
             await saveInvoice({ ...editedInvoice, id, status: 'confirmed' as VoucherStatus });
           } else {
-            const currentSource = invoice.customerId ? ('customer' as const) : invoice.customerSupplierId ? ('supplier' as const) : null;
-            const currentId = invoice.customerId ?? invoice.customerSupplierId ?? null;
+            const currentId = getCanonicalEntityId(invoice);
             const targetId = payload.targetId;
-            const targetSource = payload.targetSource;
-            if (currentId && targetId && currentSource && targetSource && currentId !== targetId && currentSource === targetSource) {
+            if (currentId && targetId && currentId !== targetId) {
               await mergeEntity([currentId], targetId);
             }
-            await saveInvoice({ ...editedInvoice, id, status: 'confirmed' as VoucherStatus });
+            await saveInvoice({
+              ...editedInvoice,
+              id,
+              status: 'confirmed' as VoucherStatus,
+              entityId: targetId ?? editedInvoice.entityId,
+              entity: targetId
+                ? { id: targetId, name: payload.duplicateName || editedInvoice.customerName, spaceId: editedInvoice.spaceId, isAiRecognized: false }
+                : editedInvoice.entity,
+              customerName: payload.duplicateName || editedInvoice.customerName,
+            });
           }
         } else {
           const reverted = { ...editedInvoice, id, status: 'confirmed' as VoucherStatus };
@@ -244,11 +251,9 @@ export default function InvoiceDetailsScreen() {
             reverted.accountId = invoice.accountId;
             reverted.account = invoice.account;
           } else {
-            reverted.customerName = invoice.customer?.name ?? invoice.customerSupplier?.name ?? invoice.customerName ?? '';
-            reverted.customerId = invoice.customerId;
-            reverted.customerSupplierId = invoice.customerSupplierId;
-            reverted.customer = invoice.customer;
-            reverted.customerSupplier = invoice.customerSupplier;
+            reverted.customerName = invoice.entity?.name ?? invoice.customerName ?? '';
+            reverted.entityId = invoice.entityId ?? invoice.entity?.id;
+            reverted.entity = invoice.entity;
           }
           await saveInvoice(reverted);
         }
@@ -277,7 +282,7 @@ export default function InvoiceDetailsScreen() {
       const targetId = error?.targetId as string | undefined;
       const targetSource = error?.targetSource as 'customer' | 'supplier' | undefined;
 
-      if (code === 'CUSTOMER_NAME_EXISTS' || code === 'SUPPLIER_NAME_EXISTS') {
+      if (code === 'CUSTOMER_NAME_EXISTS' || code === 'SUPPLIER_NAME_EXISTS' || code === 'ENTITY_NAME_EXISTS') {
         setDuplicateNameModalPayload({
           code,
           duplicateName: duplicateName || '',
@@ -334,16 +339,14 @@ export default function InvoiceDetailsScreen() {
         const origAccount = invoice.account ?? (invoice.accountId ? accounts.find((a) => a.id === invoice.accountId) : undefined);
         setEditedInvoice((prev) => (prev ? { ...prev, accountId: invoice.accountId, account: origAccount } : prev));
       } else {
-        const origName = invoice.customer?.name ?? invoice.customerSupplier?.name ?? invoice.customerName ?? '';
+        const origName = invoice.entity?.name ?? invoice.customerName ?? '';
         setEditedInvoice((prev) =>
           prev
             ? {
                 ...prev,
                 customerName: origName,
-                customerId: invoice.customerId,
-                customerSupplierId: invoice.customerSupplierId,
-                customer: invoice.customer,
-                customerSupplier: invoice.customerSupplier,
+                entityId: invoice.entityId ?? invoice.entity?.id,
+                entity: invoice.entity,
               }
             : prev
         );
@@ -370,18 +373,25 @@ export default function InvoiceDetailsScreen() {
       }
       return;
     }
-    const origName = invoice.customer?.name ?? invoice.customerSupplier?.name ?? invoice.customerName ?? '';
-    setEditedInvoice((prev) => (prev ? { ...prev, customerName: origName } : prev));
+    const origName = invoice.entity?.name ?? invoice.customerName ?? '';
+    setEditedInvoice((prev) =>
+      prev
+        ? {
+            ...prev,
+            customerName: origName,
+            entityId: invoice.entityId ?? invoice.entity?.id,
+            entity: invoice.entity,
+          }
+        : prev
+    );
     try {
       const reverted = {
         ...editedInvoice,
         id,
         status: 'confirmed' as VoucherStatus,
         customerName: origName,
-        customerId: invoice.customerId,
-        customerSupplierId: invoice.customerSupplierId,
-        customer: invoice.customer,
-        customerSupplier: invoice.customerSupplier,
+        entityId: invoice.entityId ?? invoice.entity?.id,
+        entity: invoice.entity,
       };
       await saveInvoice(reverted);
       setEditing(false);
@@ -428,8 +438,7 @@ export default function InvoiceDetailsScreen() {
         return;
       }
       let finalTargetId = payload.targetId;
-      let finalTargetSource = payload.targetSource;
-      if (finalTargetId == null || finalTargetSource == null) {
+      if (finalTargetId == null) {
         const options = await getCustomerOptions();
         const nameToFind = (payload.duplicateName || '').trim();
         const found = nameToFind ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFind)) : null;
@@ -443,25 +452,20 @@ export default function InvoiceDetailsScreen() {
           return;
         }
         finalTargetId = found.id;
-        finalTargetSource = found.source;
       }
       const savePayload = {
         ...editedInvoice,
         id,
         status: 'confirmed' as VoucherStatus,
         customerName: payload.duplicateName || editedInvoice.customerName,
-        customerId: finalTargetSource === 'customer' ? finalTargetId : undefined,
-        customerSupplierId: finalTargetSource === 'supplier' ? finalTargetId : undefined,
-        customer: finalTargetSource === 'customer' ? { id: finalTargetId, name: payload.duplicateName } : undefined,
-        customerSupplier: finalTargetSource === 'supplier' ? { id: finalTargetId, name: payload.duplicateName } : undefined,
+        entityId: finalTargetId,
+        entity: {
+          id: finalTargetId,
+          name: payload.duplicateName || editedInvoice.customerName,
+          spaceId: editedInvoice.spaceId,
+          isAiRecognized: false,
+        },
       };
-      if (finalTargetSource === 'customer') {
-        (savePayload as any).customerSupplierId = undefined;
-        (savePayload as any).customerSupplier = undefined;
-      } else {
-        (savePayload as any).customerId = undefined;
-        (savePayload as any).customer = undefined;
-      }
       await saveInvoice(savePayload);
       setEditing(false);
       loadInvoice();
@@ -505,15 +509,13 @@ export default function InvoiceDetailsScreen() {
         loadInvoice();
         return;
       }
-      const currentSource = invoice.customerId ? ('customer' as const) : invoice.customerSupplierId ? ('supplier' as const) : null;
-      const currentId = invoice.customerId ?? invoice.customerSupplierId ?? null;
-      if (!currentId || !currentSource) {
+      const currentId = getCanonicalEntityId(invoice);
+      if (!currentId) {
         showToast('This income has no linked Payer to merge.', 'info');
         return;
       }
       let finalTargetId = payload.targetId;
-      let finalTargetSource = payload.targetSource;
-      if (finalTargetId == null || finalTargetSource == null) {
+      if (finalTargetId == null) {
         const options = await getCustomerOptions();
         const nameToFindMerge = (payload.duplicateName || '').trim();
         const found = nameToFindMerge ? options.find((o) => normalizeNameForCompare(o.name) === normalizeNameForCompare(nameToFindMerge)) : null;
@@ -522,17 +524,27 @@ export default function InvoiceDetailsScreen() {
           return;
         }
         finalTargetId = found.id;
-        finalTargetSource = found.source;
       }
       if (finalTargetId === currentId) {
         showToast('Already linked to this Payer.', 'info');
         return;
       }
-      if (currentSource !== finalTargetSource) {
-        showToast('Current link type differs from target. Use "Replace this voucher" instead.', 'info');
-        return;
-      }
       await mergeEntity([currentId], finalTargetId);
+      if (editedInvoice && id) {
+        await saveInvoice({
+          ...editedInvoice,
+          id,
+          status: 'confirmed' as VoucherStatus,
+          entityId: finalTargetId,
+          entity: {
+            id: finalTargetId,
+            name: payload.duplicateName || editedInvoice.customerName,
+            spaceId: editedInvoice.spaceId,
+            isAiRecognized: false,
+          },
+          customerName: payload.duplicateName || editedInvoice.customerName,
+        });
+      }
       setEditing(false);
       loadInvoice();
     } catch (e: any) {
@@ -633,51 +645,28 @@ export default function InvoiceDetailsScreen() {
   const handleSelectCustomer = (option: { id: string; name: string; source: 'customer' | 'supplier' } | null) => {
     if (!editedInvoice) return;
     setShowCustomerPicker(false);
-    const currentId = invoice?.customerId ?? invoice?.customerSupplierId ?? null;
-    const currentSource = invoice?.customerId ? ('customer' as const) : invoice?.customerSupplierId ? ('supplier' as const) : null;
+    const currentId = getCanonicalEntityId(invoice);
     if (option === null) {
       setEditedInvoice({
         ...editedInvoice,
         customerName: editedInvoice.customerName ?? '',
-        customerId: undefined,
-        customerSupplierId: undefined,
-        customer: undefined,
-        customerSupplier: undefined,
         entityId: undefined,
         entity: undefined,
       });
       return;
     }
-    if (option.source === 'customer') {
-      setEditedInvoice({
-        ...editedInvoice,
-        customerName: option.name,
-        customerId: option.id,
-        customerSupplierId: undefined,
-        customer: { id: option.id, name: option.name } as any,
-        customerSupplier: undefined,
-        entityId: option.id,
-        entity: { id: option.id, name: option.name, spaceId: editedInvoice.spaceId } as any,
-      });
-    } else {
-      setEditedInvoice({
-        ...editedInvoice,
-        customerName: option.name,
-        customerId: undefined,
-        customerSupplierId: option.id,
-        customer: undefined,
-        customerSupplier: { id: option.id, name: option.name } as any,
-        entityId: option.id,
-        entity: { id: option.id, name: option.name, spaceId: editedInvoice.spaceId } as any,
-      });
-    }
-    // 从空改为选择时不弹三选项；仅当已有客户且换成另一个时弹窗
-    if ((currentSource !== option.source || currentId !== option.id) && currentId) {
+    setEditedInvoice({
+      ...editedInvoice,
+      customerName: option.name,
+      entityId: option.id,
+      entity: { id: option.id, name: option.name, spaceId: editedInvoice.spaceId, isAiRecognized: false },
+    });
+    // 从空改为选择时不弹三选项；仅当已有 Payer 且换成另一个时弹窗
+    if (currentId && option.id !== currentId) {
       setDuplicateNameModalPayload({
-        code: option.source === 'customer' ? 'CUSTOMER_NAME_EXISTS' : 'SUPPLIER_NAME_EXISTS',
+        code: 'ENTITY_NAME_EXISTS',
         duplicateName: option.name,
         targetId: option.id,
-        targetSource: option.source,
         triggeredBy: 'dropdown',
       });
       setShowDuplicateNameModal(true);
@@ -1330,7 +1319,9 @@ export default function InvoiceDetailsScreen() {
                 {(() => {
                   const hasLinkedForMerge = duplicateNameModalPayload?.code === 'ACCOUNT_NAME_EXISTS'
                     ? !!invoice?.accountId
-                    : !!(invoice?.customerId ?? invoice?.customerSupplierId);
+                    : !!getCanonicalEntityId(invoice) &&
+                      !!duplicateNameModalPayload?.targetId &&
+                      getCanonicalEntityId(invoice) !== duplicateNameModalPayload.targetId;
                   return (
                     <TouchableOpacity
                       style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge, !hasLinkedForMerge && { opacity: 0.5 }]}
@@ -1512,10 +1503,9 @@ export default function InvoiceDetailsScreen() {
             <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
               {customerOptions.map((opt) => {
                 const isSelected =
-                  (opt.source === 'customer' && editedInvoice?.customerId === opt.id) ||
-                  (opt.source === 'supplier' && editedInvoice?.customerSupplierId === opt.id) ||
                   editedInvoice?.entityId === opt.id ||
-                  editedInvoice?.entity?.id === opt.id;
+                  editedInvoice?.entity?.id === opt.id ||
+                  getCanonicalEntityId(editedInvoice) === opt.id;
                 return (
                   <TouchableOpacity
                     key={`${opt.source}-${opt.id}`}

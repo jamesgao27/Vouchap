@@ -2,7 +2,7 @@ import { supabase } from './supabase';
 import { Inbound, InboundItem, Sku } from '@/types';
 import { getCurrentUser } from './auth';
 import { getSkuById } from './skus';
-import { findOrCreateEntity, getEntityMergeMap, getEntityById } from './entities';
+import { findOrCreateEntity, getEntityMergeMap, getEntityById, resolveEntityId } from './entities';
 
 function rowToInbound(row: any, items: InboundItem[] = []): Inbound {
   const entity = row.entities ? {
@@ -200,7 +200,28 @@ export async function getInboundById(inboundId: string): Promise<Inbound | null>
       specification: sku?.description,
     };
   });
-  return rowToInbound(row, items);
+  const user = await getCurrentUser();
+  const spaceId = user?.currentSpaceId || user?.spaceId || row.space_id;
+  let entities = row.entities;
+  if (row.entity_id && spaceId) {
+    const resolvedId = await resolveEntityId(spaceId, row.entity_id);
+    const e = await getEntityById(resolvedId);
+    if (e) {
+      entities = {
+        id: e.id,
+        space_id: e.spaceId,
+        name: e.name,
+        tax_number: e.taxNumber,
+        phone: e.phone,
+        address: e.address,
+        is_ai_recognized: e.isAiRecognized,
+        merged_into_id: e.mergedIntoId,
+        created_at: e.createdAt,
+        updated_at: e.updatedAt,
+      };
+    }
+  }
+  return rowToInbound({ ...row, entities, supplier_name: entities?.name ?? row.supplier_name }, items);
 }
 
 const INVALID_ENTITY_NAMES = ['processing', 'processing...', 'pending', 'pending...', 'loading', 'loading...', '识别中', '处理中', '待处理'];

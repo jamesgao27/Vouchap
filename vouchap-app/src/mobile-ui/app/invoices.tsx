@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getCurrentUser, getCurrentSpace } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { getInvoicesForListFirstPaint, getAllInvoicesWithItems, deleteInvoice, saveInvoice } from '@/lib/invoices';
+import { getCanonicalEntityId } from '@/lib/entities';
 import { Invoice } from '@/types';
 import { format } from 'date-fns';
 import { getExchangeRates, sumAmountsInCurrency } from '@/lib/exchange-rates';
@@ -407,7 +408,7 @@ export default function InvoicesScreen() {
     const grouped = new Map<string, Invoice[]>();
     list.forEach(inv => {
       const payerName = inv.entity?.name || inv.customerName || '—';
-      const payerKey = `customer-${inv.entityId || inv.customerId || 'none'}`;
+      const payerKey = `customer-${getCanonicalEntityId(inv) || 'none'}`;
       if (!grouped.has(payerKey)) grouped.set(payerKey, []);
       grouped.get(payerKey)!.push(inv);
     });

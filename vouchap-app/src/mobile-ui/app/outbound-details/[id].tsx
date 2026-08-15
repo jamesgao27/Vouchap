@@ -19,7 +19,7 @@ import { getOutboundById, saveOutbound, deleteOutbound } from '@/lib/outbound';
 import { supabase, uploadOutboundImage } from '@/lib/supabase';
 import { processImageForUpload } from '@/lib/image-processor';
 import { getCustomerOptions } from '@/lib/customer-supplier-list';
-import { mergeEntity } from '@/lib/entities';
+import { mergeEntity, getCanonicalEntityId } from '@/lib/entities';
 import { Outbound, OutboundItem, VoucherStatus } from '@/types';
 import { format } from 'date-fns';
 import { showAiInventory } from '@/lib/feature-flags';
@@ -117,7 +117,7 @@ export default function OutboundDetailsScreen() {
       const duplicateName = (error?.duplicateName ?? '') as string;
       const targetId = error?.targetId as string | undefined;
       const targetSource = error?.targetSource as 'customer' | 'supplier' | undefined;
-      if (code === 'CUSTOMER_NAME_EXISTS' || code === 'SUPPLIER_NAME_EXISTS') {
+      if (code === 'CUSTOMER_NAME_EXISTS' || code === 'SUPPLIER_NAME_EXISTS' || code === 'ENTITY_NAME_EXISTS') {
         setDuplicateNameModalPayload({
           code,
           duplicateName: duplicateName || '',
@@ -145,20 +145,39 @@ export default function OutboundDetailsScreen() {
     setDuplicateNameModalPayload(null);
     if (payload?.triggeredBy === 'dropdown') {
       if (!outbound) return;
-      const origName = outbound.customerName ?? '';
-      setEditedOutbound((prev) => (prev ? { ...prev, customerName: origName, customerId: outbound.customerId } : prev));
+      const origName = outbound.entity?.name ?? outbound.customerName ?? '';
+      setEditedOutbound((prev) =>
+        prev
+          ? {
+              ...prev,
+              customerName: origName,
+              entityId: outbound.entityId ?? outbound.entity?.id,
+              entity: outbound.entity,
+            }
+          : prev
+      );
       return;
     }
     if (!outbound || !editedOutbound || !id) return;
-    const origName = outbound.customerName ?? '';
-    setEditedOutbound((prev) => (prev ? { ...prev, customerName: origName, customerId: outbound.customerId } : prev));
+    const origName = outbound.entity?.name ?? outbound.customerName ?? '';
+    setEditedOutbound((prev) =>
+      prev
+        ? {
+            ...prev,
+            customerName: origName,
+            entityId: outbound.entityId ?? outbound.entity?.id,
+            entity: outbound.entity,
+          }
+        : prev
+    );
     try {
       const reverted = {
         ...editedOutbound,
         id,
         status: 'confirmed' as VoucherStatus,
         customerName: origName,
-        customerId: outbound.customerId,
+        entityId: outbound.entityId ?? outbound.entity?.id,
+        entity: outbound.entity,
       };
       await saveOutbound(reverted);
       setEditing(false);
@@ -184,7 +203,13 @@ export default function OutboundDetailsScreen() {
         ...editedOutbound,
         id,
         status: 'confirmed' as VoucherStatus,
-        customerId: finalTargetId,
+        entityId: finalTargetId,
+        entity: {
+          id: finalTargetId,
+          name: finalName || '',
+          spaceId: editedOutbound.spaceId,
+          isAiRecognized: false,
+        },
         customerName: finalName,
       });
       setEditing(false);
@@ -199,9 +224,8 @@ export default function OutboundDetailsScreen() {
     if (!payload || !outbound) return;
     setShowDuplicateNameModal(false);
     setDuplicateNameModalPayload(null);
-    const currentId = outbound.customerId;
+    const currentId = getCanonicalEntityId(outbound);
     const finalTargetId = payload.targetId;
-    const finalTargetSource = payload.targetSource;
     if (!currentId || !finalTargetId) {
       showToast('No linked Receiver to merge or target not found.', 'info');
       return;
@@ -210,17 +234,19 @@ export default function OutboundDetailsScreen() {
       showToast('Already linked to this Receiver.', 'info');
       return;
     }
-    if (finalTargetSource !== 'customer' && finalTargetSource !== 'supplier') {
-      showToast('Target type unknown.', 'info');
-      return;
-    }
     try {
       await mergeEntity([currentId], finalTargetId);
       await saveOutbound({
         ...(editedOutbound || outbound),
         id: id!,
         status: 'confirmed' as VoucherStatus,
-        customerId: finalTargetId,
+        entityId: finalTargetId,
+        entity: {
+          id: finalTargetId,
+          name: payload.duplicateName || outbound.customerName || '',
+          spaceId: outbound.spaceId,
+          isAiRecognized: false,
+        },
         customerName: payload.duplicateName || outbound.customerName,
       });
       setEditing(false);
@@ -245,17 +271,17 @@ export default function OutboundDetailsScreen() {
     setShowCustomerPicker(false);
     setEditedOutbound({
       ...editedOutbound,
-      customerId: option.id,
+      entityId: option.id,
+      entity: { id: option.id, name: option.name, spaceId: editedOutbound.spaceId, isAiRecognized: false },
       customerName: option.name,
     });
-    const currentId = outbound?.customerId;
-    // 从空改为选择时不弹三选项；仅当已有客户且换成另一个时弹窗
+    const currentId = getCanonicalEntityId(outbound);
+    // 从空改为选择时不弹三选项；仅当已有 Receiver 且换成另一个时弹窗
     if (option.id !== currentId && currentId) {
       setDuplicateNameModalPayload({
-        code: option.source === 'customer' ? 'CUSTOMER_NAME_EXISTS' : 'SUPPLIER_NAME_EXISTS',
+        code: 'ENTITY_NAME_EXISTS',
         duplicateName: option.name,
         targetId: option.id,
-        targetSource: option.source,
         triggeredBy: 'dropdown',
       });
       setShowDuplicateNameModal(true);
@@ -779,7 +805,10 @@ export default function OutboundDetailsScreen() {
                   <Text style={styles.duplicateModalButtonReplaceText}>Replace only this</Text>
                 </TouchableOpacity>
                 {(() => {
-                  const hasLinkedForMerge = !!outbound?.customerId;
+                  const hasLinkedForMerge =
+                    !!getCanonicalEntityId(outbound) &&
+                    !!duplicateNameModalPayload?.targetId &&
+                    getCanonicalEntityId(outbound) !== duplicateNameModalPayload.targetId;
                   return (
                     <TouchableOpacity
                       style={[styles.duplicateModalButton, styles.duplicateModalButtonMerge, !hasLinkedForMerge && { opacity: 0.5 }]}
@@ -830,17 +859,17 @@ export default function OutboundDetailsScreen() {
               {customerOptions.map((opt) => (
                 <TouchableOpacity
                   key={`${opt.source}-${opt.id}`}
-                  style={[styles.pickerOption, editedOutbound?.customerId === opt.id && styles.pickerOptionSelected]}
+                  style={[styles.pickerOption, editedOutbound?.entityId === opt.id && styles.pickerOptionSelected]}
                   onPress={() => handleSelectCustomer(opt)}
                 >
                   <View style={[styles.pickerColorIndicator, { backgroundColor: '#6C5CE7' }]} />
                   <Text
-                    style={[styles.pickerOptionText, editedOutbound?.customerId === opt.id && styles.pickerOptionTextSelected]}
+                    style={[styles.pickerOptionText, editedOutbound?.entityId === opt.id && styles.pickerOptionTextSelected]}
                     numberOfLines={1}
                   >
                     {opt.name}
                   </Text>
-                  {editedOutbound?.customerId === opt.id && (
+                  {editedOutbound?.entityId === opt.id && (
                     <Ionicons name="checkmark" size={20} color="#6C5CE7" />
                   )}
                 </TouchableOpacity>

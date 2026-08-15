@@ -348,9 +348,11 @@ export async function getInvoiceById(invoiceId: string): Promise<Invoice | null>
   const spaceId = user?.currentSpaceId || user?.spaceId;
   if (spaceId) {
     let entityRow = inv.entities;
-    if (inv.entity_id && !entityRow) {
+    if (inv.entity_id) {
       const resolvedId = await resolveEntityId(spaceId, inv.entity_id);
-      entityRow = (await getEntityById(resolvedId)) ?? undefined;
+      if (!entityRow || (entityRow as any).id !== resolvedId) {
+        entityRow = (await getEntityById(resolvedId)) ?? entityRow;
+      }
     }
     if (entityRow && typeof (entityRow as any).space_id === 'undefined' && (entityRow as any).spaceId) {
       (entityRow as any).space_id = (entityRow as any).spaceId;

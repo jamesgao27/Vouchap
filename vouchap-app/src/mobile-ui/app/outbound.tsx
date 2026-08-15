@@ -21,6 +21,7 @@ import { showAiInventory } from '@/lib/feature-flags';
 import { getCurrentUser, getCurrentSpace } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { getOutboundForListFirstPaint, getAllOutbound, deleteOutbound, saveOutbound } from '@/lib/outbound';
+import { getCanonicalEntityId } from '@/lib/entities';
 import { Outbound } from '@/types';
 import { format } from 'date-fns';
 import { VoucherStatus } from '@/types';
@@ -519,7 +520,7 @@ export default function OutboundScreen() {
     const grouped = new Map<string, Outbound[]>();
     data.forEach(inv => {
       const receiverName = (inv as any).entity?.name || inv.customerName || '—';
-      const receiverKey = `receiver-${(inv as any).entity?.id || inv.customerId || 'none'}`;
+      const receiverKey = `receiver-${getCanonicalEntityId(inv) || 'none'}`;
       if (!grouped.has(receiverKey)) grouped.set(receiverKey, []);
       grouped.get(receiverKey)!.push(inv);
     });

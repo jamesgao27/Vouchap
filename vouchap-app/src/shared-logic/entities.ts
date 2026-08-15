@@ -354,6 +354,18 @@ export async function resolveEntityId(spaceId: string, entityId: string): Promis
   return current;
 }
 
+/** 列表分组 / 替换弹窗用：已 merge 的 entity 归一到最终目标 id。 */
+export function getCanonicalEntityId(record?: {
+  entityId?: string | null;
+  entity?: { id?: string; mergedIntoId?: string | null } | null;
+} | null): string | null {
+  if (!record) return null;
+  const merged = record.entity?.mergedIntoId;
+  if (merged) return merged;
+  if (record.entity?.id) return record.entity.id;
+  return record.entityId ?? null;
+}
+
 export async function getEntityById(id: string): Promise<Entity | null> {
   const user = await getCurrentUser();
   if (!user) return null;

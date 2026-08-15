@@ -21,6 +21,7 @@ import { showAiInventory } from '@/lib/feature-flags';
 import { getCurrentUser, getCurrentSpace } from '@/lib/auth';
 import { supabase } from '@/lib/supabase';
 import { getInboundForListFirstPaint, getAllInbound, deleteInbound, saveInbound } from '@/lib/inbound';
+import { getCanonicalEntityId } from '@/lib/entities';
 import { Inbound } from '@/types';
 import { format } from 'date-fns';
 import { VoucherStatus } from '@/types';
@@ -480,7 +481,7 @@ export default function InboundScreen() {
     const grouped = new Map<string, Inbound[]>();
     data.forEach(inv => {
       const senderName = (inv as any).entity?.name || inv.supplierName || '—';
-      const senderKey = `sender-${(inv as any).entity?.id || inv.supplierId || 'none'}`;
+      const senderKey = `sender-${getCanonicalEntityId(inv) || 'none'}`;
       if (!grouped.has(senderKey)) grouped.set(senderKey, []);
       grouped.get(senderKey)!.push(inv);
     });
