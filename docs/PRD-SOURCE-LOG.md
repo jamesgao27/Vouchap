@@ -8,6 +8,22 @@
 
 ---
 
+### 2026-09-07（右栏提交历史图片预览只有黑罩）
+
+**User（提示词/原意）**  
+- 问题仍在。右栏提交历史里预览图片只有黑色遮罩；receipts 详情页预览正常。问二者是否该用同一套组件。
+
+**Assistant（实现前说明）**  
+- 已是同一组件 `AttachmentImagePreviewModal`。详情页挂在整页，右栏挂在 420px panel 内，RN-web Modal 被裁切/尺寸算错。拟 Web 上 portal 到 document.body。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 仍共用该组件。Web 预览挂到 `document.body`，尺寸用 `window.innerWidth/Height`。Portalflow 已同步。未 commit。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/AttachmentImagePreviewModal.tsx`
+
+---
+
 ### 2026-09-07（Web 图片预览只有下载图标没有内容）
 
 **User（提示词/原意）**  
