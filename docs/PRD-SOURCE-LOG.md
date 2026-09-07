@@ -8,6 +8,22 @@
 
 ---
 
+### 2026-09-07（右栏图片与 PDF 预览仍失败：改到页面根节点）
+
+**User（提示词/原意）**  
+- 右侧栏预览问题仍在，且右侧栏 PDF 也无法预览。
+
+**Assistant（实现前说明）**  
+- 图片和 PDF 浮窗都还在 420px 右栏内部。拟把预览状态提到 ChatPanelContext，在 `_layout` 用与 receipts 相同的 `AttachmentImagePreviewModal` / `FileDetailModal` 挂到页面根。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `ChatPreviewHost`。右栏点图片/PDF 走 context，浮窗与详情页同一套组件、同一层级。Portalflow 已同步。未 commit。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/ChatPreviewHost.tsx`、`ChatPanelContext.tsx`
+
+---
+
 ### 2026-09-07（右栏提交历史图片预览只有黑罩）
 
 **User（提示词/原意）**  

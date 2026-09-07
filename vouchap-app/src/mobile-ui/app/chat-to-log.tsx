@@ -760,13 +760,30 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     };
   }, [isPanel, inputFocusRef]);
 
+  const showImagePreview = useCallback((url: string) => {
+    if (chatPanel) {
+      chatPanel.openImagePreview(url);
+      return;
+    }
+    setAttachmentImageModalUrl(url);
+  }, [chatPanel]);
+
+  const showFileDetail = useCallback((file: FileDetailModalFile | null) => {
+    if (chatPanel) {
+      if (file) chatPanel.openFilePreview(file);
+      else chatPanel.closeFilePreview();
+      return;
+    }
+    setAttachmentDetailForModal(file);
+  }, [chatPanel]);
+
   // 识别后卡片点击：拉取附件详情并填入浮窗
   useEffect(() => {
     if (!selectedAttachmentForModal) {
-      setAttachmentDetailForModal(null);
+      showFileDetail(null);
       return;
     }
-    setAttachmentDetailForModal(null); // 先清空，避免短暂显示上一次附件
+    showFileDetail(null); // 先清空，避免短暂显示上一次附件
     const { attachmentId } = selectedAttachmentForModal;
     let cancelled = false;
     getProjectTodoAttachmentById(attachmentId).then((raw) => {
@@ -784,7 +801,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         status: raw.status,
         extracted_data: raw.extracted_data,
       };
-      setAttachmentDetailForModal(file);
+      showFileDetail(file);
     }).catch(() => {
       if (!cancelled) {
         setSelectedAttachmentForModal(null);
@@ -792,7 +809,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       }
     });
     return () => { cancelled = true; };
-  }, [selectedAttachmentForModal?.attachmentId, selectedAttachmentForModal?.projectId]);
+  }, [selectedAttachmentForModal?.attachmentId, selectedAttachmentForModal?.projectId, showFileDetail]);
 
   // attachments 模式：有 projectId 时加载 task 列表（用于识别文件后自动匹配）
   useEffect(() => {
@@ -1327,7 +1344,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       imageUrl: url,
       hideRightPanel: true,
     };
-    setAttachmentDetailForModal(file);
+    showFileDetail(file);
   };
 
   const handlePreviewDetails = async (message: Message) => {
@@ -2823,18 +2840,22 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
 
   const mainContent = (
     <>
-      <AttachmentImagePreviewModal
-        visible={!!attachmentImageModalUrl}
-        uri={attachmentImageModalUrl}
-        onClose={() => setAttachmentImageModalUrl(null)}
-      />
-      {attachmentDetailForModal ? (
-        <Modal visible transparent animationType="fade">
-          <FileDetailModal
-            file={attachmentDetailForModal}
-            onClose={() => { setSelectedAttachmentForModal(null); setAttachmentDetailForModal(null); }}
+      {!chatPanel ? (
+        <>
+          <AttachmentImagePreviewModal
+            visible={!!attachmentImageModalUrl}
+            uri={attachmentImageModalUrl}
+            onClose={() => setAttachmentImageModalUrl(null)}
           />
-        </Modal>
+          {attachmentDetailForModal ? (
+            <Modal visible transparent animationType="fade">
+              <FileDetailModal
+                file={attachmentDetailForModal}
+                onClose={() => { setSelectedAttachmentForModal(null); setAttachmentDetailForModal(null); }}
+              />
+            </Modal>
+          ) : null}
+        </>
       ) : null}
       <FirmAddClientModal
         visible={!!recognitionAddClientModal}
@@ -2901,7 +2922,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                     message={message}
                     playingAudioId={playingAudioId}
                     onPlayAudio={handlePlayAudio}
-                    onPreviewImage={setAttachmentImageModalUrl}
+                    onPreviewImage={showImagePreview}
                     onOpenDocument={openFileInModal}
                   />
                 ) : (

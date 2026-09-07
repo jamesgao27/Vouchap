@@ -738,7 +738,16 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
 }
 
 const styles = StyleSheet.create({
-  overlay: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 100 },
+  overlay: {
+    position: Platform.OS === 'web' ? 'fixed' : 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 200000,
+  } as any,
   backdrop: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)' },
   card: {
     width: Math.min(Dimensions.get('window').width * 0.98, 960),
