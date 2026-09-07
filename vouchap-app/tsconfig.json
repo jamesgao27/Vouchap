@@ -4,6 +4,8 @@
     "strict": true,
     "baseUrl": ".",
     "paths": {
+      "@adaven/platform-core": ["../../Adaven-platform/packages/platform-core/src/index.ts"],
+      "@adaven/platform-ui": ["../../Adaven-platform/packages/platform-ui/src/index.ts"],
       "@/lib/categories": ["./src/shared-logic/categories.ts"],
       "@/lib/*": ["./src/shared-logic/*"],
       "@/components/*": ["./src/mobile-ui/components/*"],

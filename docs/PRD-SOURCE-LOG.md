@@ -8,6 +8,783 @@
 
 ---
 
+### 2026-09-07（Vouchap/Portalflow：PDF 预览白屏、Web 粘贴截图、图片长按保存）
+
+**User（提示词/原意）**  
+- Vouchap 应用三点优化：1）App 端预览 PDF 失败，浮窗白屏；2）Web 右侧栏支持从剪贴板粘贴截图；3）移动端预览附件图片可长按保存到本地。Portalflow 同步同样优化。
+
+**Assistant（实现前说明）**  
+- PDF 白屏：iOS 用 WKWebView 直接开 file:// PDF 常空白；Android 把整份 PDF 塞进 HTML + 单一 cdnjs，国内 CDN/体积都会失败；左侧预览区在原生缺少明确高度。拟改为与 Word 预览相同：本地下载 PDF，旁路写 HTML，PDF.js 多 CDN，WebView 给最小高度。  
+- Web 粘贴：chat-to-log / WebChatFab 加 document paste，只收 image/*。  
+- 长按保存：统一 AttachmentImagePreviewModal；无 expo-media-library 时走系统分享。两端各改一份拷贝，不改 Vouchap 库表。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- Vouchap 与 Portalflow 均已改：`writeNativePdfPreviewHtmlPage`、侧栏 Ctrl/⌘V 贴图、图片预览长按/下载按钮保存。现有商店包没有 MediaLibrary 原生模块时会弹出系统分享（iOS 可选 Save Image）。PDF 需真机验证；Web 粘贴需登录后在右栏试。未 commit。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/FileDetailModal.tsx`  
+- `vouchap-app/src/mobile-ui/components/AttachmentImagePreviewModal.tsx`  
+- `Adaven-platform/apps/portalflow-app` 同源文件
+
+---
+
+### 2026-09-07（CRM Vouchap：全部客户 68 vs 我的客户 88）
+
+**User（提示词/原意）**  
+- CRM 中 Vouchap 的客户：显示全部客户 68，我的客户却有 88，查看原因和问题。
+
+**Assistant（实现前说明）**  
+- 「全部客户」来自产品库现有 `spaces`（68）；「我的客户」来自 Hub `ops_assignments` 行数，迁库时把旧 Vouchap 88 条分配原样 upsert 过来，含已删空间。客户列表页已做交集所以列表不会到 88，工作台数字没有。拟：工作台/订单按现有租户 ∩ 分配计数；Hub 删除指向已不存在空间的分配。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 实测：68 个现有空间、88 条分配全挂在 `jamesgao@aim.link`，其中 20 条 tenant 已不在 `spaces`，跟进 0。已从 Hub 删除这 20 条，剩余 68=68。Dashboard / SpaceOrders 改为只统计仍存在的租户。刷新 CRM 即可看到两边都是 68；前端防御需再部署才进生产。
+
+**关联**  
+- `Adaven-CRM/src/pages/Dashboard.tsx`  
+- `Adaven-CRM/src/pages/SpaceOrders.tsx`
+
+---
+
+### 2026-09-07（CRM 仓库更名为 Adaven-CRM）
+
+**User（提示词/原意）**  
+- 代码仓库和 git 项目更名为 Adaven-CRM。
+
+**Assistant（实现前说明）**  
+- GitHub `jamesgao27/Vouchap-crm` → `Adaven-CRM`；本地目录 `/Users/macbook/vouchap-crm` → `/Users/macbook/Adaven-CRM`。同步当前文档/规则里的仓库名。不改历史 PRD 附录原文。不提交业务代码。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- GitHub 与本地目录已更名。Vouchap `.cursorrules` / README 改为指向 `Adaven-CRM`。Adaven-platform 架构文档同步。Cursor 多根 Workspace 需把旧路径换成 `/Users/macbook/Adaven-CRM`。
+
+**关联**  
+- `https://github.com/jamesgao27/Adaven-CRM`  
+- `/Users/macbook/Adaven-CRM`
+
+---
+
+### 2026-09-06（Wholestore proposal 精简并迁到 Adaven-platform）
+
+**User（提示词/原意）**  
+- 客户反馈 Vouchap 项目里上次写的 proposal 过于复杂。按 Adaven-platform 规范架构优化；内容以计划功能模块为主；定价按开发部署 8000 美元、后续每月 200 美元订阅反算明细与付费节奏；proposal 文件放到 Adaven-platform。
+
+**Assistant（实现前说明）**  
+- 不改业务代码。旧稿过重处：逐页表格、ERP/QBO/物流检查清单、人周/CAD 算法、多档订阅。新稿对齐 Vendor/Dealer 独立租户、Web+扫码、ERP/QBO 仍为外部账本；七个模块金额加总 = 8000；月费四项加总 = 200；付款 40/40/20 + 上线起月订。新文件写在 Adaven `docs/PROPOSAL-Wholestore.md`；Vouchap 旧稿只加归档说明。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已写入 `Adaven-platform/docs/PROPOSAL-Wholestore.md`。Vouchap `docs/PROPOSAL-Wholestore.md` 顶部标明已归档、指向新路径。无代码变更。订阅只保留 $200/月，未另设年付档。
+
+**关联**  
+- `Adaven-platform/docs/PROPOSAL-Wholestore.md`  
+- `Vouchap/docs/PROPOSAL-Wholestore.md`（归档）
+
+---
+
+### 2026-09-04（Wholestore 库也统一为 provider/consumer；不动 Vouchap）
+
+**User（提示词/原意）**  
+- Wholestore 的数据库中也应该如此规范统一。以上一切都不动现有的 Vouchap 应用及其数据库。
+
+**Assistant（实现前说明）**  
+- 只改 Adaven `foyecolycmxcneflpant` 与 `wholestore-app` / `packages/db-platform` 追加 SQL。不碰 `giuacjbfsyrristkigmz`、不改 Vouchap 应用。历史 010–035 不重写，追加 036。UI 路由 `/dealers` 与文案 Dealer/Vendor 保留。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 远程已 apply `20260904160000_overlay_no_ui_words_in_db.sql`（因 030–035 当年用 `db query` 未入 migration history，先 repair 为 applied 再 push）。表 `consumer_follow_ups` / `consumer_invite_tokens`，列 `max_consumers`；RPC 如 `create_consumer_with_space`、`consumer_apply_to_provider`、`provider_accept_consumer_invite_token`、`ensure_provider_default_poster`。OUT 列 `provider_name` / `consumer_name`。  
+- 应用查询：`provider.ts` / `consumer.ts` / `dealer-invites.ts` / `posters.ts`。同源副本 `packages/db-platform/sql/036_overlay_no_ui_words_in_db.sql`。未改 Vouchap。未 commit。
+
+**关联**  
+- Adaven `apps/wholestore-app/supabase/migrations/20260904160000_overlay_no_ui_words_in_db.sql`
+
+---
+
+### 2026-09-04（库内不要 dealer / firm / client：只保留 provider/consumer）
+
+**User（提示词/原意）**  
+- 数据库中也不应该有 dealer。firm/client、vendor/dealer 都是前端 UI 用词；数据库的 space 应该全部是 provider/consumer。
+
+**Assistant（实现前说明）**  
+- 上一轮为对齐 Wholestore 把 follow-up / invite token 改成了 `dealer_*` / `max_dealers`。纠正：Portalflow 库对象只用 provider/consumer。已 apply 的 150000 不改 checksum，追加 152000。应用查询跟着改。不碰冻结 Vouchap。Wholestore `dealer_*` 本轮不扩 scope。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `20260904152000_overlay_no_ui_words_in_db.sql` 已 push 到 `xvqlqvtfogxkfeillvig`：`dealer_follow_ups`→`consumer_follow_ups`，`dealer_invite_tokens`→`consumer_invite_tokens`，`max_dealers`→`max_consumers`；顺带把遗留 firm/client 的 index/constraint/policy/trigger 名改成 provider/consumer。`spaces.client_profile_type`（household/business）保留。  
+- `firm.ts` / `firm-clients.ts` 已改表名与列名。远程 overlay 表/列/约束/策略名查询无 dealer，也无（非 confirm/profile 的）firm/client。未 commit。
+
+**关联**  
+- Adaven `apps/portalflow-app/supabase/migrations/20260904152000_overlay_no_ui_words_in_db.sql`
+
+---
+
+### 2026-09-04（Portalflow overlay 对齐 Wholestore 的 provider/consumer 标识）
+
+**User（提示词/原意）**  
+- 把 Portalflow 空库上的 firm/client 表名、列名、RPC 改成与 Wholestore 相同的 provider/consumer 标识；产品 UI 仍叫 Firm/Client，且不把订单/SKU 收成 Wholestore 的 order_lines 模型。按已批准计划实现，不要改 plan 文件本身。
+
+**Assistant（实现前说明）**  
+- 冻结 Vouchap 库与仓库不动。只对 Portalflow `xvqlqvtfogxkfeillvig` 追加 rename 迁移，不重写 200+ 条历史迁移。UI 文案与 `/firm` 路由、Portalflow 独有 `sku_items` / 1:1 orders / groups / permission_roles 保留。应用查询改为 `.schema('provider')` 与新列名/RPC 名；TS 产品层仍用 Firm/Client 变量名。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已 `db push`：`20260904150000_overlay_provider_consumer_identifiers.sql`（schema `firm`→`provider`，表/列/RPC rename，新建 `consumer.consumers`，PostgREST schemas = `public, graphql_public, crm, provider, consumer`）。函数体全局 `firm.` 替换曾误伤别名 `us_firm`，改为只替换 schema 限定出现。  
+- 追加 `20260904151000_overlay_provider_search_path.sql`：`pg_get_functiondef` 的 `SET search_path TO 'public', 'firm'` 未被第一条迁移改到；现已全部改为 `provider, consumer`，远程 leftover = 0。无 `firm` schema。  
+- 应用：`firm.ts` / `firm-clients.ts` / `auth.ts` / quota / entitlements / permissions / realtime 等改为 `provider` schema、`providers`/`consumers`/`dealer_*` 表、`provider_space_id`/`consumer_space_id`/`consumer_id`、对应 RPC。`p_client_name` 与 `spaces.client_profile_type` 未改。JSON 配额键读 `consumer_recognition`。  
+- 文档：`config.toml`、`ARCHITECTURE-PLATFORM.md`、`APPLY.md`。未 commit、未碰 `giuacjbfsyrristkigmz`。
+
+**关联**  
+- Adaven `apps/portalflow-app/supabase/migrations/20260904150000_overlay_provider_consumer_identifiers.sql`  
+- Adaven `apps/portalflow-app/supabase/migrations/20260904151000_overlay_provider_search_path.sql`
+
+---
+
+### 2026-09-04（Portalflow 使用与 Vouchap 相同的 Gemini key）
+
+**User（提示词/原意）**  
+- Gemini 的 key 采用原 Vouchap 一样的。
+
+**Assistant（实现前说明）**  
+- 从冻结库 `giuacjbfsyrristkigmz` 的 Function secrets / 本机历史取出 `GEMINI_API_KEY`，写入 Portalflow `xvqlqvtfogxkfeillvig`。不把密钥写入仓库或对话。不改 Vouchap。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- Vouchap 上确实有 `GEMINI_API_KEY`（及 DeepSeek 相关 secrets）。本机可还原同一把 Google key。对 Portalflow 执行 `supabase secrets set` 返回 403（当前 CLI 账号无写 secrets 权限）。已把该 key 放进剪贴板；需 Owner 在 Dashboard Secrets 粘贴为 `GEMINI_API_KEY`。未复制 DeepSeek。
+
+**关联**  
+- Adaven `apps/portalflow-app/supabase/APPLY.md`
+
+---
+
+### 2026-09-04（Portalflow Auth URL 已配；SMTP / AI 密钥稍后）
+
+**User（提示词/原意）**  
+- Auth URL Configuration 已经配置；SMTP 与 Functions 密钥（原 2、3）随后处理。
+
+**Assistant（实现前说明）**  
+- 无代码变更。记下 Auth 已完成，不代配 SMTP / GEMINI。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 登录/OAuth/邀请跳转可以按 `https://portalflow.pages.dev` 与 `portalflow://` 走。邀请邮件要等 SMTP；AI 识别要等 Function secrets。已把 `APPLY.md` 待办改成「稍后」。
+
+**关联**  
+- Adaven `apps/portalflow-app/supabase/APPLY.md`
+
+---
+
+### 2026-09-04（Portalflow 新库 xvqlqvtfogxkfeillvig；其余基础设施直接处理）
+
+**User（提示词/原意）**  
+- Portalflow 的 Supabase 项目 ID 是 `xvqlqvtfogxkfeillvig`；其他直接处理。
+
+**Assistant（实现前说明）**  
+- 只连这个空库，不碰冻结 Vouchap `giuacjbfsyrristkigmz`、Wholestore `foyecolycmxcneflpant`、Pages `vouchap`。计划：link + `db push` 修历史迁移、配 `.env`/GitHub secrets、建 Pages `portalflow`、推 Auth/API、部署 Edge Functions、Direct Upload Web。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已 link 并 `db push` 至 `20260904020000`（含 kernel `provider`/`consumer`、`create_space_with_user`、CRM `sku_edition`/`space_orders`、storage buckets）。过程中修了几条「旧库升级」迁移：`client_labels` FK 顺序、`suppliers.merged_into_id`、purposes `usage_count`/`scope`、补 CRM 建表。  
+- PostgREST：`ALTER ROLE authenticator` 已暴露 `public, graphql_public, crm, firm`。CLI `config push` 因账号对 API 设置 403，Auth Site URL / Redirect 需 Owner 在 Dashboard 手填。  
+- Functions：`gemini-proxy`、`send-invitation-email` 已部署；尚未设 `GEMINI_API_KEY` / SMTP。  
+- GitHub secrets `PORTALFLOW_EXPO_PUBLIC_*`、Pages `portalflow`（无 Git）已就绪；`npm run portalflow:deploy:web` 已发到 `https://portalflow.pages.dev/`（bundle 指向新库）。未迁任何 Vouchap 用户。原生 EAS 仍待 `eas init`。
+
+**关联**  
+- Adaven `apps/portalflow-app/supabase/APPLY.md`、`docs/PUBLISH.md`
+
+---
+
+### 2026-09-04（Adaven 按理想 B2B 内核开发 Portalflow；新库；不迁 Vouchap 用户）
+
+**User（提示词/原意）**  
+- Adaven-platform 现在按照理想的 B2B 底层修改，按照迁移到新 supabase 的方案，新底层开发的 Vouchap 采用新名字 Portalflow，不用考虑 Vouchap 已有的用户数据的包袱。
+
+**Assistant（实现前说明）**  
+- 原 Vouchap 仓库 / 生产库 / Pages `vouchap` 冻结不动。Adaven 内应用改名为 Portalflow，内核 kind 只用 provider/consumer，UI 仍为 Firm/Client。新空 Supabase + 新 Pages `portalflow`，不迁用户。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `apps/vouchap-app` → `apps/portalflow-app`；根脚本 `portalflow:*`；CI 改为 `deploy-portalflow-web.yml`（目标 Pages `portalflow`，密钥 `PORTALFLOW_EXPO_PUBLIC_*`）。已删除会误发到现网 `vouchap` 的旧 workflow。  
+- 空间创建：`create_space_core(p_kind)` + 产品 RPC `create_space_with_user` 包一层写 `firm.*`；`spaces.kind` 默认 `consumer`。  
+- 品牌：scheme/bundle `portalflow` / `com.portalflow.app`，未沿用 Vouchap EAS id。原生 `ios/Vouchap` 树尚未 prebuild 改名。  
+- 新库尚未创建：需用户新建 Supabase、`db push`（见 `apps/portalflow-app/supabase/APPLY.md`）、建 Pages `portalflow`、配 GitHub secrets。已解除对本机 CLI 指向 `giuacjbfsyrristkigmz` 的 link 缓存。
+
+**关联**  
+- Adaven `docs/ARCHITECTURE-PLATFORM.md`、`docs/PUBLISH.md`、`apps/portalflow-app/supabase/APPLY.md`
+
+---
+
+
+**User（提示词/原意）**  
+- Vouchap 原代码库维持不变；Adaven-platform 中的 Vouchap 用新方式（内核 provider/consumer）。再分析 app 过渡：原库改名 or 迁新库。
+
+**Assistant（实现前说明）**  
+- 不改原仓库代码。把 next 设计与 A/B/C 切流写进 `docs/ARCHITECTURE-PLATFORM.md`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 开发必须对着 clone/staging，不能往生产库写新 kind。  
+- 原库改名会立刻打断未升级的原生包。迁新库可双跑但 auth/OAuth 难。同库双词兼容（firm≡provider）适合要保住 vouchap.com 和旧 Store 包。推荐：staging 用新库开发；生产优先 C 或等旧客户端下线再 A。
+
+**关联**  
+- `docs/ARCHITECTURE-PLATFORM.md` · Vouchap cutover
+
+---
+
+
+**User（提示词/原意）**  
+- 再明确：1）各 app 不同 Supabase、不同账号池，独立业务应用。2）space 底层类型是 provider/consumer；业务层 Vouchap=Firm/Client，Wholestore=Vendor/Dealer，以后其他 B2B 再映射其他角色名。
+
+**Assistant（实现前说明）**  
+- 把该约定写入 `docs/ARCHITECTURE-PLATFORM.md`、kernel SQL 注释、`platform-core` 的 `kind` 类型。不改 Vouchap 生产库、不改 Wholestore 现有 Factory 文案（仅记录 canonical 为 Vendor）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 内核 kind 固定两值；产品只改 `spaceKinds` 的 label。Vouchap 现网仍写 firm/client，属待切齐的 gap，不能靠迁库到 Wholestore 解决。
+
+**关联**  
+- `docs/ARCHITECTURE-PLATFORM.md` · Space kinds；`packages/db-platform/sql/000_kernel.sql`
+
+---
+
+### 2026-09-04（space/user 并非同一套基础平台，与最初构想差异）
+
+**User（提示词/原意）**  
+- 按当前设计，两个应用在 space/user 层面并非同一套基础平台，与最初构想不同。希望公司基于 B2B 的所有应用都用同一套 space/user 架构和代码，避免多版本维护。
+
+**Assistant（实现前说明）**  
+- 无代码变更。拆清三层：内核代码、内核 schema、是否同一套账号数据。对照现状与可收敛路径。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 代码层 `platform-core` / `platform-ui` 已是一套；分叉在内核 SQL：`000_kernel.sql` 把 `spaces.kind` 写成 provider|consumer，Vouchap 库是 firm|client。  
+- 「同一套架构和代码」应对齐为：通用 kernel 表+RPC（kind 为产品注入的字符串），产品 overlay 分库；不必把 Vouchap 用户迁库或改 kind 取值。  
+- 「同一套账号（一个登录打通所有产品）」是另一决策，当前文档是 share code, not accounts。
+
+**关联**  
+- `packages/db-platform/sql/000_kernel.sql`、`001_create_space_core.sql`、`packages/platform-core/src/spaces.ts`
+
+---
+
+
+**User（提示词/原意）**  
+- 数据库层面 Vouchap 原库是 firm/client，通用平台改成 provider/consumer，检查差异。  
+- 用户数据迁移：1）原库改表名（已发布 app 会挂）；2）新建 Supabase 项目、发布成功后再迁数据。
+
+**Assistant（实现前说明）**  
+- 无代码变更。对照 Vouchap migrations（`firm`/`client`）、`packages/db-platform`（Wholestore `provider`/`consumer`）、以及「禁止把 db-platform 打到 Vouchap 库」的约定。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- provider/consumer 是 Wholestore 新库的命名，不是把 Vouchap 生产库改名。Vouchap 应继续用 `giuacjbfsyrristkigmz` + firm/client。  
+- 两套 schema 不是 1:1（报税收据/CRM billing vs posters/marketplace；SKU/订单模型不同）。  
+- 推荐：Vouchap 上线 Adaven 副本时只换前端、不迁库。不要用方案 1 改原库。方案 2 适用于新产品空库（Wholestore 已是），不适用于把 Vouchap 用户搬进 provider 模型。
+
+**关联**  
+- `packages/db-platform/sql/010_wholestore_provider_consumer.sql`、`apps/wholestore-app/supabase/APPLY.md`、Vouchap `firm` schema
+
+---
+
+
+**User（提示词/原意）**  
+- 目前 Vouchap 应用还是用的原代码库，对比与迁移到 Adaven-platform 的对应代码差异。
+
+**Assistant（实现前说明）**  
+- 无代码变更。对照 `/Users/macbook/Vouchap/vouchap-app` 与 `Adaven-platform/apps/vouchap-app`（含 `packages/platform-*`）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 产品业务 src 几乎相同（收据/Firm/报税等未改）；差异集中在内核屏从本地实现改为 `platform-ui` 再导出、`configureProductUi`、Management 菜单（Space roles、billing）、以及发布（workspace + Direct Upload / Actions vs 原仓库 file: 依赖 + Pages Git）。  
+- 两边 version 都是 2.6.6；Supabase migrations 210 个文件一致。
+
+**关联**  
+- `Vouchap/vouchap-app`、`Adaven-platform/apps/vouchap-app`、`packages/platform-ui`、`packages/platform-core`
+
+---
+
+
+**User（提示词/原意）**  
+- factory 侧管理 dealer 需完全复用 firm 管理 client：  
+  1. 填 email 定向邀请  
+  2. 发出二维码或链接进行公开邀请  
+  3. 对 dealer 进行分类打标、添加跟进记录、查阅历史订单  
+  4. 页面元素和交互应完全复用
+
+**Assistant（实现前说明）**  
+- 对照 Vouchap `app/firm/clients.tsx` / `client/[id]` / `FirmAddClientModal` / open-invite token。映射到 `provider.consumers`，不抄 `firm.*`、不代建 space、Factory 不直插订单。  
+- SQL 033：`labels` / `last_follow_up_at` / `invite_token_id`、`provider.dealer_invite_tokens`、`provider.dealer_follow_ups`；公开邀请 accept 为 DEFINER RPC，Dealer 侧建单。  
+- UI：Dealers 工具栏 Add dealer / Open invite / Group / Filter / Search；详情 Info（标签+跟进）+ Orders。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- SQL：`packages/db-platform/sql/033_dealer_invites_labels_followups.sql`（Wholestore 库 `foyecolycmxcneflpant` 执行）。  
+- 列表对齐 Clients：绿/黄点、Status 优先首标签、Last follow-up、First order；Add dealer 必填 email（pending 定向邀请）；Open invite 选已发布 SKU + 有效期 + QR/Copy/History。  
+- 详情：Info 打标与 Follow-up history；订单事件写入跟进；无 Factory「New order」。落地页 `/dealer-join?token=`。  
+- 验证：Factory 发定向邀请后列表黄点；打标签后 Status 列显示标签；写跟进后 Last follow-up 更新；公开邀请链接以 Dealer 账号接受后出现 enrollment + 订单。  
+- 残留：未做 Firm 权限组 Groups；未发邀请邮件（与 Vouchap 勾选 disabled 一致）；Assignee 列占位为 —。
+
+**关联**  
+- `apps/wholestore-app/src/app/dealers`、`src/app/dealer-join.tsx`、`src/lib/dealer-invites.ts`、`packages/db-platform/sql/033_dealer_invites_labels_followups.sql`
+
+---
+
+### 2026-08-21（Wholestore Provider 复用 Vouchap Firm：Dealer / Order / SKU）
+
+**User（提示词/原意）**  
+- Wholestore 的 provider 端，复用 Vouchap 的 firm 端。  
+- 增加客户（client → dealer）、订单（engagement → order）主数据；订单支持多 SKU。  
+- 同样支持配置 SKU；SKU 较 Vouchap 简化，不需 items。  
+- 页面结构和元素（如表格样式和交互）上应完全复用 Vouchap 已有的设计。
+
+**Assistant（实现前说明）**  
+- 把 Firm 共用的 DataTable / CenterModal / ProjectListCardAndRow 抽到 `platform-ui`，Vouchap 改为 re-export。  
+- Wholestore 新增 `provider.skus`、`provider.orders`、`provider.order_lines`；Dealer 沿用 `provider.consumers`（允许 pending、无 space）。  
+- 页面：Dealers / Orders / Catalog 对齐 Firm Clients / Engagements / Service Catalog 的工具栏 + 表格/卡片，SKU 详情只保留 Info（无 Todos/items）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 共用组件：`packages/platform-ui/src/list/*`；Vouchap `components/DataTable.tsx` 等改为从 `@adaven/platform-ui` 导出。  
+- SQL：`packages/db-platform/sql/030_provider_catalog_orders.sql`（需在 Wholestore 库执行）。订单 1:N SKU；SKU 无 items。  
+- Provider 侧栏：Insights / Dealers / Orders / Catalog。文案 English。  
+- 验证：Factory space 登录后侧栏三栏目；Add dealer / Add order（多选 SKU+数量）/ New SKU；表格列显隐与 Firm 同一套 DataTable。  
+- 残留：须先跑 030 SQL，否则列表会报 relation does not exist；Dealer 认领/邀请链路未做（仅主数据）；无价格/ERP。
+
+**关联**  
+- `apps/wholestore-app/src/app/dealers`、`orders`、`catalog`、`src/lib/provider.ts`、`packages/db-platform/sql/030_provider_catalog_orders.sql`
+
+---
+
+### 2026-08-21（基础功能在 Management 内复用；侧栏只放业务页）
+
+**User（提示词/原意）**  
+- 现在看起来基础页面仍然不是复用，而是模仿另写的。  
+- 约定的基础功能，应该都在 management 页面内。  
+- Web 端左侧栏的各栏目都是业务页面。
+
+**Assistant（实现前说明）**  
+- 纠正把 Team / Space roles 做成内核侧栏栏目的做法。Vouchap `management.tsx` 才是设置中枢真源，应整页迁入 `platform-ui`，两边 re-export 同一份。  
+- 侧栏只保留 chrome（品牌、点空间/用户进 Management）+ 各产品 `getSidebarNavItems` 业务导航。Members / Space roles 只作为 Management 菜单项。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `packages/platform-ui/src/screens/ManagementScreen.tsx` 为 Vouchap 原 management 迁入后的内核页；`apps/vouchap-app` 与 `apps/wholestore-app` 的 `management.tsx` 均为 `export { ManagementScreen as default }`。  
+- WebSidebar 去掉 Team / Space roles；Vouchap 业务栏（Dashboard/Expenses/Income 或 Firm Insights/Clients…）经 `getVouchapSidebarNavItems` 注入；Wholestore 侧栏目前只有 Dashboard。  
+- Management 菜单：内核 Members + Space roles，产品行由 `getManagementMenuItems` 追加（含原硬编码的 Subscription and billing）。  
+- 验证：改 Management 布局只动 `packages/platform-ui`；Wholestore 侧栏不应再出现 Team/Space roles；点空间名进入与 Vouchap 同一套 Management。  
+- 残留：Wholestore 尚无 logo 上传（未配 `uploadSpaceImage`）；Create Space 弹窗在 Management 内仍存在但入口主要走 setup-space。
+
+**关联**  
+- `packages/platform-ui/src/screens/ManagementScreen.tsx`、`packages/platform-ui/src/chrome/WebSidebar.tsx`、`packages/platform-ui/src/product.ts`、`docs/ARCHITECTURE-PLATFORM.md`
+
+---
+
+### 2026-08-21（Adaven-platform 为唯一 SoT；基础页必须复用而非复制）
+
+**User（提示词/原意）**  
+- 后续 Vouchap 和 Wholestore 都应在 Adaven-platform 代码库中，Cloudflare 根目录是各自的 app 文件夹，才能共用同一套基础代码。  
+- 后续 Vouchap 迭代全部走 Adaven-platform（仍关联原 Supabase、原 Cloudflare Pages、原 Expo/EAS）。现在的 Vouchap git 只留备份。  
+- 共用的基础功能页面应**完全复用**，而不是复制模仿一份。
+
+**Assistant（实现前说明）**  
+- 纠正先前「Pages 根目录留空 monorepo 根」的做法：Dashboard 根目录应对齐现有模式，改为 `apps/vouchap-app` / `apps/wholestore-app`，构建时 `cd ../.. && npm ci` 安装 workspace 包。  
+- 将 login / register / reset-password / setup-space / space-members / handle-invitations / invite / space roles 从 Wholestore 拷贝页抽到 `packages/platform-ui`；两 app 路由只 re-export。Vouchap 的 Firm 证明等产品字段用 `configureProductUi` 的 extras slot，不复制整页。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `packages/platform-ui` 现含内核屏幕 + toast/确认框；两 app 的对应 `app/*.tsx` 已改为 `export { XxxScreen as default } from '@adaven/platform-ui'`。  
+- Cloudflare：同一 Pages 项目 **`vouchap`**，Git 改为 `Adaven-platform`，Root = `apps/vouchap-app`，构建 `cd ../.. && npm ci && npm run web:export --workspace=vouchap-app`，输出 `dist`，分支 `main`。Wholestore 新项目 Root = `apps/wholestore-app`。EAS 增加 `eas-build-pre-install`。  
+- 验证：改内核页只动 `packages/platform-ui`；Vouchap 登录品牌仍为 Vouchap（bootstrap `configureProductUi`）；不要往错误 Pages 项目部署。  
+- 残留：Vouchap `management` / WebSidebar 仍含产品导航（收据/Firm），未整页抽核；Wholestore `management.tsx` 仍是独立空间设置页。
+
+### 2026-08-21（核对 Dashboard：现有 Pages 项目名是 vouchap）
+
+**User（提示词/原意）**  
+- 贴了 Cloudflare 截图：这是 Vouchap 现在的配置。
+
+**Assistant（实现前说明）**  
+- 截图确认生产项目 slug 是 **`vouchap`**（不是先前猜测的 `vouchap-app`）。Git 仍是 `jamesgao27/Vouchap`，根目录 `vouchap-app`，构建 `npx expo export -p web`，输出 `dist`，生产分支 `AI-Tax-filing`。  
+- 须把 CLI/`wrangler.toml` 改成 `--project-name=vouchap`，文档写成「改这个项目、不要新建」。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `wrangler.toml` `name` 与 `deploy:web` 已改为 `vouchap`。  
+- `docs/PUBLISH.md` 记录了当前 Dashboard 值，以及迁到 `Adaven-platform` 时同一项目应改成：空根目录、`npm ci && npm run web:export --workspace=vouchap-app`、输出 `apps/vouchap-app/dist`、生产分支 `main`。  
+- 验证：Dashboard 项目名仍是 vouchap；CLI `npm run vouchap:deploy:web` 必须打到该项目。
+
+### 2026-08-21（同一 monorepo：Vouchap 仍发到现有 Cloudflare，Wholestore 独立项目）
+
+**User（提示词/原意）**  
+- 需要注意同一个项目中，支持 Vouchap 仍发布到现在已有的 Cloudflare 项目。也就是以后 Adaven-platform 项目中，同一套统一的基础功能，支持发布不同的业务应用（当前是 Vouchap 和 Wholestore 两个）。
+
+**Assistant（实现前说明）**  
+- 内核共用、账号/Supabase/Pages 不共用。Vouchap 的 `deploy:web` 原先没有 `--project-name`，在 monorepo 里可能误打到别的 Pages 项目。  
+- 计划：根文档 `docs/PUBLISH.md`；Vouchap `wrangler.toml` 钉死现有项目名并用 `--project-name=vouchap-app`；Wholestore 仍用 `wholestore`；Git 侧同一 GitHub 仓挂两个 Pages 项目。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `docs/PUBLISH.md`：一套内核、每应用独立 Pages。根脚本 `vouchap:deploy:web` / `wholestore:deploy:web`。  
+- Vouchap：`apps/vouchap-app/wrangler.toml` + `deploy:web --project-name=vouchap-app`。若 Dashboard 项目 slug 不是 `vouchap-app`，只改 toml 的 `name`，不要新建项目。  
+- Git：现有 Vouchap Pages 项目把源仓库改到 `Adaven-platform`（不要新建）；Wholestore 另建 Pages 项目连同一仓。  
+- 验证：Dashboard 确认 Vouchap 项目名与 toml 一致后 `npm run vouchap:deploy:web`；Wholestore `npm run wholestore:deploy:web` 只出现 `wholestore`。
+
+### 2026-08-21（按 Vouchap 页面复制 Wholestore Space/Members + Cloudflare Web）
+
+**User（提示词/原意）**  
+- 可以注册通了。按照 Vouchap 的页面完全复制，实现 Wholestore 的 space 和 members 的完整功能。web 端同样通过 Cloudflare 来构建发布。
+
+**Assistant（实现前说明）**  
+- 注册已通；Wholestore 当时是极简壳页，不是 Vouchap 的 login/setup-space/space-members/handle-invitations/management/WebSidebar。  
+- 计划从 `Adaven-platform/apps/vouchap-app` 拷贝这些页面，auth/邀请走 `@adaven/platform-core`；Firm CRM 不搬。Space type 用 Factory(Provider)/Dealer(Consumer)。  
+- Web 发布对齐 Vouchap：`expo export -p web` + `wrangler pages deploy dist`，独立 Pages 项目 `wholestore`，不用 Vouchap 域名。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- Wholestore 已对齐 Vouchap 交互：登录/注册/重置密码、Setup Space、邀请队列与 `/invite/[id]`、Team（pending/declined/cancelled/removed）、Management（改空间名、切空间、登出）、Space roles、Web 左侧栏。  
+- Cloudflare：`apps/wholestore-app/docs/DEPLOY-CLOUDFLARE.md`；本地 `npm run wholestore:deploy:web`。本机 `wrangler` 未登录，未能实际上传到 Pages；构建 `expo export -p web` 已成功。  
+- 验证：`npm run wholestore:web` 走创建空间 → 邀请 → 接受；`npx wrangler login` 后再 `npm run wholestore:deploy:web`。  
+- 已知限制：无 send-invitation-email Edge Function；空间 logo 上传未搬（无 storage）；不搬 Firm/订单。
+
+### 2026-08-21（Wholestore 登录报 EAS Secrets / Supabase 未配置）
+
+**User（提示词/原意）**  
+- 报错：网络配置错误：Supabase 未正确配置。请在 EAS Secrets 中设置 EXPO_PUBLIC_SUPABASE_URL / ANON_KEY。
+
+**Assistant（实现前说明）**  
+- 本地 web 不需要 EAS Secrets。终端 `env: export` 只有 URL；磁盘 `.env` 的 ANON_KEY 为空。文案是 platform-core 从 Vouchap 抄来的误导信息。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已把 Wholestore `.env` 的 anon key 写回磁盘并加引号；`app.config.js` 自行读 `.env`（空值也会覆盖）。  
+- 登录错误改为英文、指向 `.env` + 重启 Expo，不再提 EAS Secrets。  
+- 验证：停掉当前 `wholestore:web` 再开一次，登录/注册不应再出现该报错。
+
+### 2026-08-21（Wholestore 完整 Space / User / 邀请 / 内部权限）
+
+
+**User（提示词/原意）**  
+- 看到新库已经建了一些表了，但跟 Vouchap 相比还不够。需要完整实现创建 space、user、space member 邀请、space 内部权限配置。
+
+**Assistant（实现前说明）**  
+- 新库已有 `users/spaces/user_spaces/space_invitations` 和 `create_space_core`，但缺接受/拒绝/移除/改角色 RPC，应用也只有只读成员列表。  
+- 权限对齐 Vouchap 空间内核：Admin / Member（`is_admin`），不搬 Firm `permission_roles`（订单经理）。  
+- 计划：`020_space_membership.sql` + platform-core API + Wholestore 邀请/角色/切换空间界面；SQL 只推 `foyecolycmxcneflpant`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- SQL：`accept/decline_space_invitation`、`remove_space_member`、`set_space_member_admin`、`leave_space`、邀请可读 RPC、邀请可选 Admin、最后一名管理员保护。  
+- 应用：注册/登录后处理待接受邀请；Team 邀请/移除；Space roles 改 Admin/Member；邀请深链 `/invite/[id]`。  
+- 验证：在 Wholestore 库执行 `020`；用两个邮箱走创建空间 → 邀请 → 接受 → 改角色 → 移除。  
+- 已知限制：未部署 `send-invitation-email` Edge Function，邀请链接需手动分享；无 Firm 订单级角色。
+
+**关联**：`packages/db-platform/sql/020_space_membership.sql`、`apps/wholestore-app/src/app/{members,permissions,handle-invitations,invite}`
+
+### 2026-08-21（james.aim.link 能否改成 Developer）
+
+
+**User（提示词/原意）**  
+- `james.aim.link@gmail.com` 的权限改为 Developer 行不行？看起来权限是够的。
+
+**Assistant（实现前说明）**  
+- 无代码。对照官方 Access Control：Developer 能改库内容，不能改项目设置。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 可以改成 Developer。日常 `db query` / 推 SQL 够用。Owner 仍建议留给 `jamesgao27@gmail.com`。  
+- 不能做的：改 API Exposed schemas、Auth、账单、加人。此前 PATCH PostgREST 属于设置，以后要改需 Owner。先前说 Developer 不够推 SQL，过严。
+
+### 2026-08-21（Wholestore 组织已邀请原账号；CLI 推 SQL）
+
+
+**User（提示词/原意）**  
+- 新 supabase 组织已邀请原账号 `james.aim.link@gmail.com`。
+
+**Assistant（实现前说明）**  
+- 先确认 CLI 能看到 Adaven2 / `foyecolycmxcneflpant`，再只对该库执行 `000_kernel.sql`、`010_wholestore_provider_consumer.sql`，并暴露 `provider`/`consumer` schema。不动 Vouchap。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- CLI 已可见 org Adaven2 与项目 Wholestore。两份 SQL 均 `exit 0`。  
+- 已建：`public.users/spaces/user_spaces/space_invitations`，`provider.providers/consumers/member_consumers`，`consumer.consumers`；`spaces.kind` 为 provider|consumer；`create_space_core` 等 RPC 存在。  
+- PostgREST Exposed schemas 已含 `provider, consumer`。可用 `npm run wholestore:web` 做注册/建 Space。
+
+**关联**  
+- `packages/db-platform/sql/000_kernel.sql`  
+- `packages/db-platform/sql/010_wholestore_provider_consumer.sql`
+
+### 2026-08-21（Wholestore 库在另一账号/组织）
+
+
+**User（提示词/原意）**  
+- Wholestore 的 supabase 库在另一个账号名下，organization slug：`ugmjeltmjiqmwevwlfnk`。Owner 是 `jamesgao27@gmail.com`。
+
+**Assistant（实现前说明）**  
+- 无代码变更。核对 CLI（`james.aim.link@gmail.com`）对该 org 是否仍 403，并写出可执行授权步骤。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- org `ugmjeltmjiqmwevwlfnk` 与项目 `foyecolycmxcneflpant` 对该 CLI 仍 403。SQL 未推。  
+- 授权：用 owner 在 https://supabase.com/dashboard/org/ugmjeltmjiqmwevwlfnk/team 邀请 `james.aim.link@gmail.com` 为 Owner；或本机 `supabase login` 换成 `jamesgao27@gmail.com`。完成后说「再推 SQL」。
+
+**关联**  
+- `apps/wholestore-app/supabase/APPLY.md`
+
+### 2026-08-21（CLI 推 Wholestore SQL：账号无项目权限）
+
+
+**User（提示词/原意）**  
+- 直接 CLI 推送 SQL；如需配置和授权请具体说明。
+
+**Assistant（实现前说明）**  
+- 用本机已登录的 Supabase CLI 推 `000_kernel.sql` + `010_wholestore_provider_consumer.sql` 到 `foyecolycmxcneflpant`。  
+- 若仍 403，列出当前登录身份与可见项目，给出授权步骤。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- CLI 身份：`james.aim.link@gmail.com`，组织仅 **Adaven**（`wcprddhnpjlfhlwwwqvg`）。可见项目只有 Vouchap、aim.link。  
+- `foyecolycmxcneflpant` API 403，SQL **未推送**。需要把该项目授权给此邮箱，或提供数据库密码后再推。
+
+**关联**  
+- `apps/wholestore-app/supabase/APPLY.md`
+
+### 2026-08-21（Wholestore 新库 kernel：provider/consumer，先不加业务）
+
+
+**User（提示词/原意）**  
+- anon key 已加；准备推新库创建 Wholestore 数据库。  
+- schema / 表 / 变量：有 firm 改为 provider，client 改为 consumer。  
+- 先做好 space、user、provider/consumer 等基础结构，先不加业务。
+
+**Assistant（实现前说明）**  
+- 只对 `foyecolycmxcneflpant` 写 SQL，不动 Vouchap。  
+- 内核：`public.users/spaces/user_spaces/space_invitations`；叠加 `provider` / `consumer` schema。  
+- 不建订单、价格、发票、ERP 表。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- SQL：`packages/db-platform/sql/000_kernel.sql` + `010_wholestore_provider_consumer.sql`。  
+- `create_space_core(..., p_kind)`：`provider` 写 `provider.providers`，`consumer` 写 `consumer.consumers`。入驻关系表 `provider.consumers`（原 firm.clients）。  
+- 当前 CLI 账号对 Wholestore 项目 403，无法代跑 SQL Editor；请在该项目 Dashboard 按 `apps/wholestore-app/supabase/APPLY.md` 执行，并 Exposed schemas 加上 `provider`、`consumer`。  
+- 建 Space UI 可选 Factory (Provider) / Dealer (Consumer)。
+
+**关联**  
+- `apps/wholestore-app/supabase/APPLY.md`
+
+### 2026-08-21（Vouchap 仍用原 Supabase；Wholestore 绑 foyecolycmxcneflpant）
+
+
+**User（提示词/原意）**  
+- Vouchap 应用仍然关联原 supabase 项目。  
+- Wholestore 关联 supabase 项目 ID：`foyecolycmxcneflpant`。
+
+**Assistant（实现前说明）**  
+- 不改 Vouchap URL（`giuacjbfsyrristkigmz`）；把该 .env 拷进 monorepo 的 `apps/vouchap-app`。  
+- 新建 `apps/wholestore-app`，env / config.toml 指向 `https://foyecolycmxcneflpant.supabase.co`。  
+- 不 apply SQL；anon key 需用户从 Dashboard 填入（CLI 无读密钥权限）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- Vouchap：`https://giuacjbfsyrristkigmz.supabase.co`。  
+- Wholestore 壳：登录 / 注册 / 建 Space / 成员，走 platform-core。  
+- 请把 `apps/wholestore-app/.env` 的 `EXPO_PUBLIC_SUPABASE_ANON_KEY` 填上后 `npm run wholestore:web`。  
+- SQL 仍未推到 Wholestore 库，注册/建 Space 会失败直到 apply kernel schema。
+
+**关联**  
+- `apps/wholestore-app`  
+- `apps/vouchap-app/.env`（不入库）
+
+### 2026-08-21（Vouchap 迁入 Adaven-platform；原仓改为备份）
+
+
+**User（提示词/原意）**  
+- vouchap 迁移进来。  
+- 后续 Vouchap 项目是否作为备份不再更新？  
+- vouchap 的更新迭代是否也通过 Platform 内来推送和构建？
+
+**Assistant（实现前说明）**  
+- 确认模型：Adaven-platform/`apps/vouchap-app` 为应用 SoT；jamesgao27/Vouchap 作历史备份；website/crm 仍独立。  
+- 改 platform 包不等于自动上架 Vouchap，须在 `apps/vouchap-app` 显式 EAS / Cloudflare。EAS projectId 与 bundle id 不变。  
+- rsync 工作区（排除 Pods/node_modules），npm workspaces 钉死 platform `0.1.0`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已迁入并 push：https://github.com/jamesgao27/Adaven-platform （`apps/vouchap-app`）。  
+- 原 `/Users/macbook/Vouchap` README 已加「开发已搬家」说明（本地）；历史仓不要再改应用代码。  
+- **验证**：在 Adaven-platform 根 `npm install --legacy-peer-deps` 后 `npm run vouchap:web`。  
+- **残留**：Wholestore 未建；SQL 未 apply；原 Vouchap GitHub 尚未 push 冻结 README。
+
+**关联**  
+- https://github.com/jamesgao27/Adaven-platform  
+- `apps/vouchap-app`
+
+### 2026-08-21（Adaven-platform 推 GitHub；去掉误建的家目录 git）
+
+
+**User（提示词/原意）**  
+- 继续迁移，把新的项目推送到 github。  
+- Changes 界面上有个 macbook 的代码项目，应该是没有对应的 git 项目。
+
+**Assistant（实现前说明）**  
+- `macbook` 多半是 `/Users/macbook/.git` 误 init 的家目录空仓库，会让 Cursor Changes 把整个用户目录当成一个项目。确认无 commit / 无 remote 后只删 `.git` 元数据。  
+- Adaven-platform 补齐未跟踪源码、做首 commit，用 `gh repo create` 推到 jamesgao27。不 apply SQL。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已删除 `/Users/macbook/.git`（2026-03-09 误建，从未 commit）。Changes 里的 macbook 项应消失；若仍在，刷新/重开窗口。  
+- GitHub **private**：https://github.com/jamesgao27/Adaven-platform  
+- SQL 仅作为仓库源码存在，未推到任何 Supabase。  
+- **残留**：Vouchap 原生工程仍在原仓；Wholestore 壳未建。
+
+**关联**  
+- https://github.com/jamesgao27/Adaven-platform  
+- `/Users/macbook/Adaven-platform`
+
+### 2026-08-21（阶段 B：平台代码迁入 Adaven-platform，先不推 SQL）
+
+
+**User（提示词/原意）**  
+- 继续迁移代码，先不推 sql。
+
+**Assistant（实现前说明）**  
+- 把 session / 邀请 / 成员 / OAuth / Space 切换 UI 从 Vouchap 迁入 `@adaven/platform-core` 与 `@adaven/platform-ui`；Vouchap 旧路径改 re-export。  
+- `createSpace` 仍留在 Vouchap，继续调用产品 RPC `create_space_with_user`。  
+- 不 apply、不 push `db-platform` SQL / `create_space_core` migration。  
+- 不搬家 `ios/` `android/`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `Adaven-platform/packages/platform-core` 现含注入 client 的 auth、invitations、members、oauth、hooks。  
+- Vouchap：`file:` 依赖 + Metro alias/`watchFolders`；`supabase.ts` 调用 `bindPlatformClient`；`auth.ts` 仅保留 Firm 富集与 `createSpace`。  
+- SQL 文件仍在仓库中但未部署。  
+- **验证**：`vouchap-app` 下 `npm install` 后启动 Web/dev-client，走登录、setup-space、邀请、切换 Space。  
+- **残留**：原生工程仍在 Vouchap；Wholestore 壳未建；slim RPC 未上线。
+
+**关联**  
+- `/Users/macbook/Adaven-platform/packages/platform-core`  
+- `/Users/macbook/Adaven-platform/packages/platform-ui`  
+- `vouchap-app/src/shared-logic/auth.ts`
+
+### 2026-08-21（开始实施跨应用平台内核，仓库名 Adaven-platform）
+
+
+**User（提示词/原意）**  
+- 开始实施（Space / 成员 / 邀请 / 第三方登录平台内核）。  
+- 代码库名改为 **Adaven-platform**（不是 `/Users/macbook/apps`）。  
+- 此前已确认：只共用代码、各应用独立 Supabase；第三方登录均为平台公共能力，Google 只是示例。
+
+**Assistant（实现前说明）**  
+- 按计划先做阶段 A（Vouchap 就地解耦），同时初始化 `/Users/macbook/Adaven-platform` 骨架。  
+- 拟拆：`createSpaceCore` + `registerOnSpaceCreated`；邀请页去掉对 `firm-clients` 的直接 import；管理页抽出 Switch Space；登录页接入按配置显示的第三方按钮。  
+- 不搬家 `vouchap-app` 原生工程；不改生产 `create_space_with_user` 的 Firm/CRM 种子（另加 slim `create_space_core`）。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- Vouchap：`auth.ts` 的 JS 种子改走 `vouchap-space-bootstrap` hook；`handle-invitations` 经 `shouldRedirectToFirmClaim`；`SpaceSwitcherModal` + `ThirdPartyAuthButtons`；SQL `20260821120000_create_space_core.sql`。  
+- 新建 `/Users/macbook/Adaven-platform`（packages + docs/ARCHITECTURE-PLATFORM.md）。  
+- **验证**：注册 → setup-space → 邀请 → 切换 Space；收据仍按 `space_id` 隔离。第三方按钮在未配置 Client ID 时不显示。需在 Supabase 执行新 migration 后 Wholestore 才能用 slim RPC。  
+- **残留**：Vouchap 创建 Space 仍走产品 RPC `create_space_with_user`；`getCurrentSpace` 仍查 `firm.firms`；阶段 B 才把 `vouchap-app` 迁入 Adaven-platform。
+
+**关联**  
+- `/Users/macbook/Adaven-platform`  
+- `vouchap-app/src/shared-logic/platform/`  
+- `vouchap-app/supabase/migrations/20260821120000_create_space_core.sql`
+
+### 2026-08-21（提交身份还原统一为 james.zjgao@gmail.com）
+
+
+**User（提示词/原意）**  
+- 提交身份还原统一成 Cursor 账号：`james.zjgao@gmail.com`。
+
+**Assistant（实现前说明）**  
+- 无业务代码。撤销上一轮分仓库钉邮箱：全局改回 `james.zjgao@gmail.com`；去掉 7 个 `jamesgao27` 仓库与 23 个 `James-aim-link` 仓库的 local `user.email`，全部继承全局。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 全局与抽查仓库 effective 均为 `James <james.zjgao@gmail.com>`，无 local 覆盖。仅影响之后的新提交。GitHub remote / `gh` 登录仍为 `jamesgao27`，未改。
+
+**关联**  
+- `~/.gitconfig`；各仓库 `.git/config`（已 unset `user.email`）
+
+### 2026-08-21（jamesgao27 仓库提交邮箱改为 jamesgao27@gmail.com）
+
+**User（提示词/原意）**  
+- 关联到 `jamesgao27` 的，提交身份的邮箱改为 `jamesgao27@gmail.com`。
+
+**Assistant（实现前说明）**  
+- 无业务代码。拟：全局 `user.email` + 七个 `jamesgao27` 仓库的 local `user.email` 改为新邮箱；`aim.link/` 下 `James-aim-link` 仓库钉 local 为原有效邮箱 `james.zjgao@gmail.com`，避免被全局带走。不改写历史提交。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 全局与 7 个仓库（Vouchap、vouchap-website、vouchap-crm、aim.link-v2、aim-link-website、Project-map、antbim-website）effective 均为 `James <jamesgao27@gmail.com>`。  
+- `James-aim-link` 23 个仓库已钉 `james.zjgao@gmail.com`。仅影响之后的新提交。  
+- **残留**：请在 GitHub 账号 Settings → Emails 添加并验证 `jamesgao27@gmail.com`，提交才会显示为已关联。
+
+**关联**  
+- `~/.gitconfig`；各仓库 `.git/config` `user.email`
+
+### 2026-08-21（GitHub 用户名 jameszjgao → jamesgao27：本地 remote / gh 关联）
+
+**User（提示词/原意）**  
+- GitHub 代码库账户用户名由 `jameszjgao` 改为 `jamesgao27`；本地要做调整以正确关联。  
+- 另一个账户 `james-aim-link` 不变。
+
+**Assistant（实现前说明）**  
+- 无业务代码变更。只改 `jameszjgao` 名下仓库的 `origin` URL、GitHub CLI 登录名与钥匙串 HTTPS 凭证用户名；`aim.link/` 下 `James-aim-link` remote 一律不改。  
+- GitHub 已将原 `jameszjgao/vouchap-web` 重定向为 `jamesgao27/ProjectMap`，Project-map 本地 origin 拟改为该现名。  
+- 全局 `user.name` / `user.email`（`James` / `james.zjgao@gmail.com`）是提交身份，不是 GitHub 登录名，保持不动。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已更新 origin：`Vouchap`、`Vouchap-website`、`Vouchap-crm`、`aim.link-v2`、`aim-link-website`、`antbim-website` → `https://github.com/jamesgao27/<同名>.git`；`Project-map` → `https://github.com/jamesgao27/ProjectMap.git`。  
+- `gh` 现为 `jamesgao27`（keyring）；`hosts.yml` 与钥匙串 `github.com` / `gh:github.com` 账户名已同步；`gh auth setup-git` 将 `github.com` HTTPS 凭证助手设为 `gh`。  
+- `git ls-remote` 已通：Vouchap、aim.link-v2、Project-map、vouchap-website。工作区内无残留 `jameszjgao` remote；`aim.link/` 下 `James-aim-link` remote 仍为 46 条。  
+- **残留**：提交邮箱仍是 `james.zjgao@gmail.com`；若要改 Git 提交身份需另说。`aim.link/` 若干 remote URL 内嵌 PAT（既有做法，本轮未动）。
+
+**关联**  
+- 各仓库 `.git/config` `remote.origin.url`；`~/.config/gh/hosts.yml`；`~/.gitconfig` credential helper
+
+### 2026-08-17（Wholestore 提案：成本单价改为 CAD 3000/人周）
+
+**User（提示词/原意）**  
+- 成本单价按照 3000 加元/人周，约合 2200 美元/人周。
+
+**Assistant（实现前说明）**  
+- 无代码。只改 `docs/PROPOSAL-Wholestore.md` 第 9、12 节金额；人周数不变。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 单价改为 CAD 3,000 / 人周（约 USD 2,200）。MVP 13 人周 ≈ CAD 39k / USD 29k；适配 5.5–6.5 人周 ≈ CAD 16.5k–19.5k / USD 12k–14k。
+
+**关联**  
+- `docs/PROPOSAL-Wholestore.md`
+
+### 2026-08-17（Wholestore 提案：压缩编码人周，PM 提示词与 AI 出码同步）
+
+**User（提示词/原意）**  
+- 工作量预估压缩开发人员编码人周。  
+- 采用 AI 编程；产品经理定义产品的同时输出提示词，编码同步完成。
+
+**Assistant（实现前说明）**  
+- 无代码。改提案第 8–9、12 节：报价改为「产品+提示词 / 联调 / 验收」，模块表只计 PM 人日、开发编码加计为 0；日历 S2 随定义窗口缩短。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- MVP 立项 **13 人周**（约 USD 47k）；完整版累计约 23 人周；适配 **5.5–6.5 人周**（约 USD 20k–23k）；S2 日历 6–9 周。联调与等授权不打折。  
+- **残留**：费率仍为示意；AI 出码质量依赖提示词与走查，未改业务代码。
+
+**关联**  
+- `docs/PROPOSAL-Wholestore.md`
+
+### 2026-08-17（Wholestore 提案：功能细化到页面级，技术细节节略）
+
+**User（提示词/原意）**  
+- 功能模块等描述需细化到页面级：大模块 + 模块具体交互页面。  
+- 实现的技术细节要节略。
+
+**Assistant（实现前说明）**  
+- 无代码。改 `docs/PROPOSAL-Wholestore.md` 第 5 节为 M1–M10 下的页面表（谁、端、页上做什么）；压缩技术栈、表名、Worker/RLS 等实现段；第 6 / 9 节改为按页面验收与按页面估人周。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已重写：导览 + 各模块页面清单（含 Ship / Tracking / Sync Issues 等）；MVP vs 完整版改为「必须有的页面」；技术仅保留选型表。报价人周未改（48 / 7–8）。  
+- **残留**：无线框；页面英文名可在评审时微调。
+
+**关联**  
+- `docs/PROPOSAL-Wholestore.md`
+
+### 2026-08-16（Wholestore 提案：按工作量报价 + 功能架构/客户配合为重点）
+
+**User（提示词/原意）**  
+- 报价按正常工作量计算。  
+- 程序代码开发全采用 Cursor（开发人员成本集约）。  
+- 数据库和后端用 Supabase，前端用 Cloudflare。  
+- proposal 重点：功能架构（模块及各自如何实现）+ 客户需配合的工作（确定 ERP、QuickBooks、物流的适配版本和 API 授权等）。
+
+**Assistant（实现前说明）**  
+- 无代码。重写 `docs/PROPOSAL-Wholestore.md`：技术栈前置；第 5 节按 M1–M10 写清功能与实现层；第 7 节单列客户交付（Finale/QBO/承运商版本与授权）；报价用人周×费率，Cursor 只压缩可编码部分，不再用 1 万美元替代工作量。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已重写提案。标准 MVP 约 48 人周（示意约 USD 173k，公司立项）；单客户适配 7–8 人周（示意约 USD 25k–29k @ $90/人时）+ 订阅；客户义务以 ERP/QBO/物流确认书为开工门禁。  
+- **残留**：费率可改、人周保持；若 ERP 非 Finale 需重估；未改业务代码。
+
+**关联**  
+- `docs/PROPOSAL-Wholestore.md`
+
+### 2026-08-15（Wholestore 提案：扫码物流 + 客户只付适配/$10k 上限）
+
+**User（提示词/原意）**  
+- 增加 order 的 shipping 关联：发货扫码在 Wholestore 订单上绑定物流单号，双方可查阅物流进展。  
+- 按公司标准产品研发；对客户收费只计适配定制。  
+- 客户首期预算上限不超过 1 万美元；后续订阅每月数百美元。
+
+**Assistant（实现前说明）**  
+- 无代码。改提案：物流为标准 MVP（扫码绑 tracking、轨迹展示、移动发货）；成本改为对内人周 vs 对外 $10k 适配包 + 月费档。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已更新 [`docs/PROPOSAL-Wholestore.md`](docs/PROPOSAL-Wholestore.md)。客户首期 3–4 周适配、≤ USD 10,000；订阅示意 $299–699/月；80+ 人周研发不向客户开票。  
+- **残留**：轨迹 API 供应商与超量计价、面单条码规则需在 S1 验证。
+
+**关联**  
+- `docs/PROPOSAL-Wholestore.md`
+
 ### 2026-08-15（运行测试服务器）
 
 **User（提示词/原意）**  
@@ -8281,3 +9058,188 @@
 
 **关联**  
 - `vouchap-app` 版本文件、EAS production
+
+---
+
+### 2026-08-21（Wholestore：CLI 推送 provider catalog/orders SQL）
+
+**User（提示词/原意）**  
+- 你用 cli 推送 sql。
+
+**Assistant（实现前说明）**  
+- 仅对 Wholestore 项目 `foyecolycmxcneflpant` 执行 `030_provider_catalog_orders.sql`；不碰 Vouchap `giuacjbfsyrristkigmz`。Wholestore 缺 `supabase/.temp/project-ref`，CLI `--linked` 认不出项目，先补 ref 再 `db query`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已用 `supabase db query --linked --workdir apps/wholestore-app` 推送 `20260822000000_provider_catalog_orders.sql`。  
+- 推送前核对 schema 仅有 `provider`/`consumer`、无 `firm`。  
+- 远程已有 `provider.skus` / `orders` / `order_lines`（均 RLS）；`provider.consumers.consumer_space_id` 可空，并有 `contact_name` / `contact_email`。  
+- 已 `NOTIFY pgrst, 'reload schema'`。刷新 Dealers / Orders / Catalog 即可。未 git commit。
+
+**关联**  
+- `Adaven-platform/apps/wholestore-app/supabase/migrations/20260822000000_provider_catalog_orders.sql`  
+- `packages/db-platform/sql/030_provider_catalog_orders.sql`
+
+---
+
+### 2026-08-21（Adaven-platform：内核一升同升、发版各自独立）
+
+**User（提示词/原意）**  
+- 代码库结构要有公共基础，但应用版本发布各自独立。  
+- 确认理解：第一层即可；内核一升同升、不需差分版本，只是不一定同步都发布。按这个理解配置到位。
+
+**Assistant（实现前说明）**  
+- 不拆仓、不上 Changesets / 分叉 `@adaven/*` 版本。npm workspaces 继续始终链接 HEAD。  
+- 发版耦合来自 Cloudflare Git 自动构建（尤其 watch `packages/**`）。改为 Pages Direct Upload，`git push` 不部署。  
+- 改 `docs/PUBLISH.md`、两套 DEPLOY 文档、ARCHITECTURE、README、wrangler 注释、Cursor 规则；Dashboard 的 Disconnect Git 需用户在控制台点一次。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 发版契约已写入 `docs/PUBLISH.md`：内核共用 HEAD；Web 只跑 `npm run vouchap:deploy:web` / `wholestore:deploy:web`。  
+- 禁止把 Pages `vouchap` / `wholestore` 接到 Git；Vouchap 若仍连旧仓 `AI-Tax-filing`，需在 Dashboard **Disconnect**，否则旧仓 push 仍会覆盖线上。  
+- 规则：`.cursor/rules/independent-release.mdc`。去掉无用的 `changeset` 脚本。  
+- 代码仓库配不到 Cloudflare 开关；用户需在 Dashboard 断开 Vouchap 的 Git 连接。未 git commit。
+
+**关联**  
+- `Adaven-platform/docs/PUBLISH.md`、`docs/ARCHITECTURE-PLATFORM.md`、`.cursor/rules/independent-release.mdc`
+
+---
+
+### 2026-08-21（Wholestore：Dealer/Order 双向 + SKU Marketplace）
+
+**User（提示词/原意）**  
+- dealer 和 order 数据复用 Vouchap 应用的双向数据模式，即 factory 端的 dealer 关联另一个 space（consumer 类的 space），order 是供需双方的共同数据。sku 是 provider 数据，可发布给 consumer 在 Marketplace 查阅和选择。
+
+**Assistant（实现前说明）**  
+- 对照 Vouchap `firm.clients.client_space_id`、共享 `firm.orders`、`list_published_skus_for_client_catalog` / `client_create_onboarding_order_from_published_sku`；不抄 WBS、税务、双重确认、`order_managers`。  
+- 拟加 `031` SQL（仅 Wholestore）：enrollment 回填 `orders.consumer_space_id`；SKU 已发布才对已关联 Dealer 可见；跨厂 Marketplace 用 DEFINER RPC；Factory 代建 Dealer space + admin 邀请；Dealer 下单按厂拆单。  
+- 应用：Dealers 显示 Linked/No space；Consumer 侧栏 Marketplace + Orders；订单页按空间种类分视角。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- SQL `packages/db-platform/sql/031_bidirectional_dealer_orders_marketplace.sql` 已用 CLI 推到 **仅** `foyecolycmxcneflpant`（无 `firm` schema）；`NOTIFY pgrst`。  
+- RPC：`create_dealer_with_space`、`list_published_skus_for_marketplace`、`consumer_create_order_from_published_skus`、`claim_pending_dealer`（认领 pending 暂无独立 UI）。  
+- Factory 填邮箱代建 consumer space 并发管理员邀请；不填则 pending、无 space，该 Dealer 看不到订单直到关联。  
+- Marketplace 多厂选 SKU → 每厂一张共享 onboarding 订单。Consumer 只读订单，onboarding 可取消。  
+- 验证：Factory 发布 SKU → Dealer Marketplace 可见并下单；双方 Orders 看到同一行。未 git commit。未部署 Web。
+
+**关联**  
+- `Adaven-platform/packages/db-platform/sql/031_bidirectional_dealer_orders_marketplace.sql`  
+- `apps/wholestore-app/src/lib/consumer.ts`、`src/app/marketplace/index.tsx`
+
+---
+
+### 2026-08-21（Wholestore：取消代建；Factory 不可自建订单）
+
+**User（提示词/原意）**  
+- 回顾 Vouchap 已取消代建以免垃圾 space；Factory–Dealer 更不该代建。  
+- 按回顾方案继续规范，并更硬一点：Factory 侧不能自建订单（Vouchap 仍保留 Firm 可建订单）。
+
+**Assistant（实现前说明）**  
+- 对齐 Vouchap `createInviteeOnly` / `createPendingOrderForInvitee`：Add dealer 只写 pending enrollment，不 `INSERT spaces`。  
+- 订单唯一创建路径：Dealer Marketplace RPC。RLS 禁止 authenticated 直接 INSERT `provider.orders`。  
+- 认领：邮箱匹配 pending + `claim_pending_dealer`；Marketplace 下单时自动认领。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- SQL `032_no_on_behalf_dealer_factory_orders.sql` 已推到 Wholestore `foyecolycmxcneflpant`；`NOTIFY pgrst`。未动 Vouchap。  
+- `create_dealer_with_space` 改为只建 pending（必填 email、不建 space）。`orders_insert` WITH CHECK false。  
+- 去掉 Factory Add order / `NewOrderModal` / `createOrder`。Dealer Dashboard 可 Link 匹配邮箱的 pending。  
+- Factory 仍可处理已有订单（改状态、改行项目）。未 git commit。未部署 Web。
+
+**关联**  
+- `packages/db-platform/sql/032_no_on_behalf_dealer_factory_orders.sql`  
+- `apps/wholestore-app/src/app/orders/index.tsx`、`src/app/dealers/`、`src/lib/consumer.ts`
+
+---
+
+### 2026-08-21（启动 Adaven-platform 中 Vouchap 测试服务器）
+
+**User（提示词/原意）**  
+- 把 Adaven-platform 项目中的 Vouchap 应用的测试服务器也启动。
+
+**Assistant（实现前说明）**  
+- 无代码变更。Wholestore Web 已占用 `8081`；在 `apps/vouchap-app` 用 `expo start --web --port 8082` 另起 Vouchap，避免抢端口。`.env` 指向 Vouchap Supabase `giuacjbfsyrristkigmz`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已后台启动；Metro 监听 **http://localhost:8082**。未打开浏览器（`BROWSER=none`），以免覆盖 Wholestore 标签。  
+- Wholestore 仍在 `http://localhost:8081`。两套测服可并行。
+
+**关联**  
+- `Adaven-platform/apps/vouchap-app` → `npm run web -- --port 8082`
+
+---
+
+### 2026-08-21（Wholestore：海报 Marketing + 专卖店 Marketplace + 邀请只认领）
+
+**User（提示词/原意）**  
+- 公开邀请必须选海报。  
+- Marketplace 先做成专卖店：先看各厂介绍海报，再进单一供应商商品列表；预留以后多厂 SKU 平铺大市场。  
+- 一厂一张默认海报、挂上全部已发布 SKU；没有 featured 时用默认海报。  
+- Factory 端增加 Marketing 模块，管理海报和发布。  
+- 结合此前对齐：邀请只建关系、接受不建订单；海报与商品 SKU 为独立 M:N。
+
+**Assistant（实现前说明）**  
+- SQL `034`：`provider.posters` + `poster_skus`；每厂一张 `is_system_default`、至多一张 `is_marketplace_featured`；SKU 发布/下架同步默认海报。  
+- `dealer_invite_tokens` 去掉 `sku_id`，改为必填 `poster_id`；`dealer_accept_invite_token` 只认领。  
+- Marketplace RPC：`list_marketplace_factory_posters` / `list_store_skus_for_factory`（featured 已发布否则默认）。  
+- 应用：Factory 侧栏 Marketing；Open invite Step 1 选海报；Dealer 先厂海报再店铺下单。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- SQL `034_posters_marketing_storefront.sql` 已用 CLI 推到 **仅** `foyecolycmxcneflpant`；`NOTIFY pgrst`。未动 Vouchap。  
+- 已有 Factory 回填默认海报；旧 open-invite token 迁到该厂默认海报，无法映射的 token 删除。  
+- Factory：Catalog 只管 SKU 主数据；Marketing 管海报、发布、Marketplace 店招、自定义海报勾选 SKU。默认海报 SKU 自动维护、不可删。  
+- Open invite 必选已发布海报；Accept 只 enrollment，落地页展示海报介绍 + SKU 摘要，成功后回 Dashboard。  
+- Marketplace 两步：工厂海报网格 → `/marketplace/[providerSpaceId]` 店铺 SKU + 购物车（仍走 `consumer_create_order_from_published_skus`）。原全站 SKU 平铺 RPC 保留未接 UI。  
+- 验证：Factory Marketing 见默认海报；发布 SKU 后默认海报自动带上；Dealer Marketplace 先见厂海报再进店下单；Open invite 不选海报无法生成。未 git commit。未部署 Web。
+
+**关联**  
+- `Adaven-platform/packages/db-platform/sql/034_posters_marketing_storefront.sql`  
+- `apps/wholestore-app/src/app/marketing/`、`src/app/marketplace/`、`src/lib/posters.ts`
+
+---
+
+### 2026-08-21（Wholestore：定向邀请绑海报；橱窗可看不可买）
+
+**User（提示词/原意）**  
+- 定向邀请也需要选定关联的海报。  
+- Dealer Marketplace「先进店再下单」理解有误：从工厂展示海报是申请成为经销商，不是直接下单。已绑定的厂才是专卖店；未绑定只是橱窗，可看不可买。
+
+**Assistant（实现前说明）**  
+- SQL `035`：`provider.consumers.poster_id`；`create_dealer_with_space` 必填已发布海报。  
+- 下单 RPC 取消自动认领/自动建 enrollment，仅 `approved` + 已绑 space 可下单。  
+- 新增 `dealer_apply_to_factory`：橱窗申请（已有定向邮箱邀请则直接认领为 approved）。  
+- Marketplace 海报带 `relation_status`（none/pending/enrolled）。Factory 详情对「已申请未批准」提供 Approve。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- SQL 已推到 **仅** `foyecolycmxcneflpant`。Add dealer 必须选海报，右侧预览介绍 + SKU。  
+- Marketplace 卡片标 Showcase / Application sent / Your store。未绑定厂页可浏览 SKU、按钮 Apply；申请后等 Factory 批准；已绑定才显示购物车下单。  
+- 若 Factory 已用同一邮箱发过定向邀请，Dealer 在橱窗点 Apply 会直接认领并开通店铺。  
+- 验证：Add dealer 不选海报不能保存；未绑定 Dealer 点 Place order 应被 RPC 拒绝；申请后 Factory Dealers 详情可 Approve。未 git commit。未部署 Web。
+
+**关联**  
+- `packages/db-platform/sql/035_directed_invite_poster_showcase.sql`  
+- `apps/wholestore-app/src/components/FactoryAddDealerModal.tsx`、`src/app/marketplace/`
+
+---
+
+### 2026-08-21（Dealer 视角：无 Marketplace；供应商模块分店门与橱窗）
+
+**User（提示词/原意）**  
+- 从 dealer 的视角，现阶段不存在 marketplace。  
+- 应是供应商模块展示各专卖店，其中有入口可以去寻找更多的供应商。  
+- 专卖店的店门与展示的橱窗不需并列。  
+- 文案上供应商也不应特指 factory。
+
+**Assistant（实现前说明）**  
+- 侧栏与主入口改为 `/suppliers` +「Suppliers」。主列表只显示 `relationStatus === enrolled` 的专卖店；「Find more suppliers」进 `/suppliers/discover` 只显示橱窗/申请中。  
+- 详情 `/suppliers/[id]`：已绑定可下单，未绑定仅橱窗 + Apply。旧 `/marketplace` 做 Redirect。  
+- Dealer 可见文案用 supplier / store / showcase，不写 Marketplace、不特指 factory。API/RPC 名保持 marketplace/factory。  
+- Factory 端「Marketplace」作为 featured 海报标签改为 Featured，避免暗示存在 Marketplace 模块。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新路由：`src/app/suppliers/index.tsx`（店门）、`discover.tsx`（橱窗）、`[providerSpaceId].tsx`（店或橱窗）。  
+- `marketplace/*` Redirect 到 `/suppliers`。侧栏 Dealer：Suppliers。Dashboard 卡改为 Suppliers + 已绑店数。  
+- dealer-join：Supplier invite；接受后去 `/suppliers`。订单表 Dealer 列「Supplier」。  
+- 无新 SQL。未 git commit。未部署 Web。  
+- 验证：Dealer 侧栏无 Marketplace；Suppliers 网格只有已绑店；点 Find more suppliers 才见橱窗；橱窗页不能下单；旧 `/marketplace` 会跳转。
+
+**关联**  
+- `Adaven-platform/apps/wholestore-app/src/app/suppliers/`  
+- `src/bootstrap.ts`、`src/app/index.tsx`、`src/app/dealer-join.tsx`

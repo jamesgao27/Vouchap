@@ -33,6 +33,8 @@
     "@xmldom/xmldom": "^0.8.11",
     "buffer": "^6.0.3",
     "date-fns": "^3.0.0",
+    "@adaven/platform-core": "file:../../Adaven-platform/packages/platform-core",
+    "@adaven/platform-ui": "file:../../Adaven-platform/packages/platform-ui",
     "decimal.js": "^10.6.0",
     "docx-preview": "^0.3.7",
     "expo": "~54.0.31",

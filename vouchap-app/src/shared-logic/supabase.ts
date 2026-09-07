@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Platform } from 'react-native';
 import * as ImageManipulator from 'expo-image-manipulator';
+import { bindPlatformClient } from '@adaven/platform-core';
 
 type SupabaseAuthStorage = {
   getItem: (key: string) => Promise<string | null>;
@@ -75,6 +76,8 @@ export const supabase = createClient(
     },
   }
 );
+
+bindPlatformClient(supabase);
 
 // Storage Bucket 名称配置
 const STORAGE_BUCKET = 'receipts';
