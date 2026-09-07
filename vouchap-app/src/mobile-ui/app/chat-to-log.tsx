@@ -279,13 +279,13 @@ function restorePromptFromLog(log: ChatLog): Message | null {
   const taxFilingFileName = (log.requestData as any)?.fileName as string | undefined;
   const fileUrlFromRequest = (log.requestData as any)?.imageUrl as string | undefined;
 
-  // 判断文档类型：优先用文件名判，兜底用 prompt 判
+  // 统一取附件 URL：expenses 存在 requestData.imageUrl，tax-filing 存在 attachmentUrl
+  const attachUrl = fileUrlFromRequest ?? log.attachmentUrl ?? undefined;
+
+  // 判断文档类型：优先用文件名判，兜底用 prompt 与附件 URL 判
   const effectiveFileName = taxFilingFileName ?? log.prompt;
   const isDocFile =
     isPreviewableDoc(effectiveFileName) || looksLikeDocumentAttachmentUrl(attachUrl);
-
-  // 统一取附件 URL：expenses 存在 requestData.imageUrl，tax-filing 存在 attachmentUrl
-  const attachUrl = fileUrlFromRequest ?? log.attachmentUrl ?? undefined;
 
   let requestImageUrl: string | undefined;
   let documentUrl: string | undefined;

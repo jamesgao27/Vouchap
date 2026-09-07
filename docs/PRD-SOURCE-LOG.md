@@ -8,6 +8,31 @@
 
 ---
 
+### 2026-09-07（回归：右栏不加载历史记录 — restorePromptFromLog TDZ）
+
+**User（提示词/原意）**  
+- 右侧栏直接不加载历史记录了。
+
+**Assistant（实现前说明）**  
+- 我上一轮为「PDF 用 URL 兜底判断」在 `restorePromptFromLog` 里写成
+  `const isDocFile = isPreviewableDoc(...) || looksLikeDocumentAttachmentUrl(attachUrl);`，
+  但 `attachUrl` 的 `const` 声明在其**下一行**。这是 TDZ：每条历史记录还原都会抛
+  `ReferenceError: Cannot access 'attachUrl' before initialization`，整个右栏历史列表因此为空。
+- 上一轮自测只覆盖了孤立的预览组件（临时 smoke 页），没有渲染真实历史，所以没抓到。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 把 `attachUrl` 的声明移到 `isDocFile` 之前；Vouchap 与 Portalflow 同步。
+- 验证（不再只测孤立组件）：
+  1. `tsc --noEmit`：`chat-to-log.tsx` 不再有 TS2448 used-before-declaration（`inbound/outbound.tsx` 的同类报错为既有问题）。
+  2. `expo export -p web` 打包通过（等同 CF 构建）。
+  3. 从**打包产物**里抽出线上真正执行的 `restorePromptFromLog`（压缩后为 `he`），对 text / image / pdf(带扩展名) / pdf(仅 URL 带 query) / tax-filing 附件 / audio 六类日志实跑：全部不抛错，且 pdf 归 `documentUrl`、图片归 `imageUrl`。
+- 顺带删除已无引用的 `ChatPreviewHost.tsx`（两仓库），避免以后又被接回 context 那条失败路径。
+
+**关联**  
+- `chat-to-log.tsx`（`restorePromptFromLog`）
+
+---
+
 ### 2026-09-07（右栏图片/PDF：改回 chat-to-log 本地浮窗并自测）
 
 **User（提示词/原意）**  
