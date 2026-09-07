@@ -99,7 +99,8 @@ import FirmAddClientModal, {
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 import { AttachmentImagePreviewModal } from '@/components/AttachmentImagePreviewModal';
 import { webInputBlockStyles } from '../styles/web-input-block-styles';
-import { CHAT_WEB_COMPOSER_NATIVE_ID, MAC_SCREENSHOT_CLIPBOARD_HINT } from '../lib/use-web-clipboard-image-paste';
+import { CHAT_WEB_COMPOSER_NATIVE_ID } from '../lib/use-web-clipboard-image-paste';
+import { WebChatComposerField } from '../components/WebChatComposerField';
 import {
   CHAT_STAGED_FILES_DISPLAY_MAX,
   chatStagedFilesOverflowLabel,
@@ -635,7 +636,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [oldestLoadedAt, setOldestLoadedAt] = useState<string | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
-  const inputRef = useRef<TextInput>(null);
+  const inputRef = useRef<{ focus: () => void } | null>(null);
   const messagesRef = useRef<Message[]>([]);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   
@@ -1472,21 +1473,28 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     }
   }, [effectiveProjectId, isProcessing, voucherType, isDesktopWeb]);
 
+  const lastPasteAtRef = useRef(0);
+  const stagePastedImages = useCallback((files: { id: string; uri: string; name?: string; mimeType?: string }[]) => {
+    if (isProcessing || !files.length) return;
+    const now = Date.now();
+    if (now - lastPasteAtRef.current < 400) return;
+    lastPasteAtRef.current = now;
+    if (voucherType === 'tax-filing' && !effectiveProjectId) {
+      showToast('Open from a tax-filing project to attach files.', 'info');
+      return;
+    }
+    setStagedAttachmentFiles((prev) => [...prev, ...files]);
+    setIsVoiceMode(false);
+    showToast('Screenshot added.', 'success');
+  }, [effectiveProjectId, isProcessing, voucherType]);
+
   useEffect(() => {
     if (Platform.OS !== 'web' || !chatPanel) return;
-    chatPanel.appendStagedFilesRef.current = (files) => {
-      if (isProcessing || !files.length) return;
-      if (voucherType === 'tax-filing' && !effectiveProjectId) {
-        showToast('Open from a tax-filing project to attach files.', 'info');
-        return;
-      }
-      setStagedAttachmentFiles((prev) => [...prev, ...files]);
-      setIsVoiceMode(false);
-    };
+    chatPanel.appendStagedFilesRef.current = stagePastedImages;
     return () => {
       chatPanel.appendStagedFilesRef.current = null;
     };
-  }, [chatPanel, effectiveProjectId, isProcessing, voucherType]);
+  }, [chatPanel, stagePastedImages]);
 
   /** Web：仅选择文件夹（可多选），将文件夹内的所有文件展开为待上传列表。 */
   const pickFoldersForSend = useCallback(() => {
@@ -3666,20 +3674,15 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               ) : null}
               <View style={webInputBlockStyles.webInputRow}>
                 <View style={webInputBlockStyles.webInputWrapper}>
-                  <TextInput
+                  <WebChatComposerField
                     ref={inputRef}
-                    style={webInputBlockStyles.webInput}
-                    placeholder={getInputPlaceholder(voucherType)}
-                    placeholderTextColor="#95A5A6"
                     value={inputText}
                     onChangeText={setInputText}
-                    multiline
-                    maxLength={500}
+                    placeholder={getInputPlaceholder(voucherType)}
                     editable={!isProcessing}
-                    returnKeyType="send"
-                    onSubmitEditing={handleSend}
-                    blurOnSubmit={false}
+                    maxLength={500}
                     onFocus={() => setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100)}
+                    onPasteImages={stagePastedImages}
                   />
                 </View>
               </View>
@@ -3751,7 +3754,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               </View>
             </View>
             <Text style={webInputBlockStyles.webInputDisclaimer}>
-              AI Assistant may make mistakes. {MAC_SCREENSHOT_CLIPBOARD_HINT}
+              AI Assistant may make mistakes. Paste a screenshot with ⌘V or Ctrl+V.
             </Text>
           </View>
         ) : (

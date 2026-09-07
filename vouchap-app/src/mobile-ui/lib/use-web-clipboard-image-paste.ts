@@ -33,6 +33,37 @@ function eachClipboardItem(data: DataTransfer, visit: (item: DataTransferItem) =
   for (let i = 0; i < items.length; i++) visit(items[i]);
 }
 
+function fileFromDataUrl(dataUrl: string): File | null {
+  const m = dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/i);
+  if (!m) return null;
+  const mime = m[1];
+  const bin = atob(m[2]);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const ext = mime.split('/')[1]?.replace('+xml', '') || 'png';
+  return new File([bytes], `screenshot.${ext}`, { type: mime });
+}
+
+function filesFromHtmlClipboard(html: string, out: ClipboardStagedFile[], seen: Set<string>) {
+  const re = /<img[^>]+src=["'](data:image\/[^"']+)["']/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(html))) {
+    pushImageFile(out, seen, fileFromDataUrl(match[1]));
+  }
+}
+
+export async function filesFromClipboardItems(items: ClipboardItem[]): Promise<ClipboardStagedFile[]> {
+  const out: ClipboardStagedFile[] = [];
+  const seen = new Set<string>();
+  for (const item of items) {
+    const type = item.types.find((t) => t.startsWith('image/'));
+    if (!type) continue;
+    const blob = await item.getType(type);
+    pushImageFile(out, seen, new File([blob], `screenshot-${Date.now()}.png`, { type }));
+  }
+  return out;
+}
+
 export function filesFromClipboard(data: DataTransfer | null | undefined): ClipboardStagedFile[] {
   if (!data) return [];
   const out: ClipboardStagedFile[] = [];
@@ -45,6 +76,12 @@ export function filesFromClipboard(data: DataTransfer | null | undefined): Clipb
   });
   if (data.files?.length) {
     for (let i = 0; i < data.files.length; i++) pushImageFile(out, seen, data.files[i]);
+  }
+  try {
+    const html = data.getData('text/html');
+    if (html) filesFromHtmlClipboard(html, out, seen);
+  } catch {
+    /* ignore */
   }
   return out;
 }

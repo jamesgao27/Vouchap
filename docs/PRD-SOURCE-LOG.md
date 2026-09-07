@@ -8,6 +8,22 @@
 
 ---
 
+### 2026-09-07（微信能粘贴、Web 右栏仍不能：textarea 不带图片）
+
+**User（提示词/原意）**  
+- 仍然不行，粘贴无反应。此刻在微信等处可以粘贴截图，说明图已在剪贴板，只是 Web 右栏输入框没把剪贴板截图转成暂存文件。
+
+**Assistant（实现前说明）**  
+- 微信是原生读系统剪贴板。Chrome/Safari 对 `textarea`（RN TextInput）的 paste 往往不带 `clipboardData.files`。拟把右栏输入改成 contenteditable，⌘V 时读文件；另用隐藏 contenteditable 接未聚焦输入框时的粘贴。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `WebChatComposerField` 替换桌面右栏 TextInput。粘贴图会进暂存并 toast Screenshot added。需再部署后硬刷新，点进右栏输入框再 ⌘V。未 commit。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/WebChatComposerField.tsx`
+
+---
+
 ### 2026-09-07（⌘V 仍无反应：全局粘贴 + Mac 截图说明）
 
 **User（提示词/原意）**  
