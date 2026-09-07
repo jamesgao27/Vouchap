@@ -274,6 +274,8 @@ function restorePromptFromLog(log: ChatLog): Message | null {
 
   const isImageType = log.type === 'image';
   const isAudioType = log.type === 'audio';
+  // PDF/Office 以 document 存储，无法识别类型的原始附件存 attachment；两者都要还原出可点开的 URL
+  const isDocumentType = log.type === 'document' || log.type === 'attachment';
 
   // tax-filing 以 fileName 存储干净的文件名；其他模块 imageUrl 存 URL
   const taxFilingFileName = (log.requestData as any)?.fileName as string | undefined;
@@ -289,8 +291,8 @@ function restorePromptFromLog(log: ChatLog): Message | null {
 
   let requestImageUrl: string | undefined;
   let documentUrl: string | undefined;
-  if (isImageType) {
-    if (isDocFile) {
+  if (isImageType || isDocumentType) {
+    if (isDocumentType || isDocFile) {
       documentUrl = attachUrl;
     } else {
       requestImageUrl = attachUrl;

@@ -9529,3 +9529,33 @@
 **关联**  
 - `Adaven-platform/apps/wholestore-app/src/app/suppliers/`  
 - `src/bootstrap.ts`、`src/app/index.tsx`、`src/app/dealer-join.tsx`
+
+---
+
+### 2026-09-07（右侧栏预览：PDF 点不开 / 图片只有空框 —— 定位到真正根因）
+
+**User（提示词/原意）**
+- 「历史记录有加载，但右侧栏的预览问题仍在，图片预览出来了个框但没有成功预览，pdf 仍点不开。」
+
+**Assistant（实现前说明）**
+- 前几轮一直在改「预览浮窗挂在哪、用 RN Modal 还是 DOM 元素、尺寸怎么算」，方向错了：那些改动不可能影响「点击无反应」。
+- 本轮改为从数据链路回溯：先确认历史消息还原出来的 URL 到底有没有值，再确认 URL 能不能被浏览器取到。
+- 预计触碰 `chat-to-log.tsx`（`restorePromptFromLog`）、`AttachmentImagePreviewModal.tsx`、`FileDetailModal.tsx`。
+
+**Assistant（实现后说明 / 本轮结论）**
+两个问题是**互相独立的两个根因**，都不在渲染层：
+
+1. **PDF 点不开 = 气泡处于 disabled**。`ChatLog.type` 定义为 `image | text | audio | document | attachment`，PDF/Office 上传时写入的是 `document`（无法识别类型写 `attachment`，见 `saveChatLog` 各调用点）。但 `restorePromptFromLog` 只在 `type === 'image'` 分支里赋 `documentUrl` / `imageUrl`，导致 document/attachment 记录还原后两个 URL 都是 `undefined`；气泡靠文件名正则仍然画了出来，但 `disabled={!(documentUrl || imageUrl)}` 为真，点击**完全不触发 onPress**。已改为 `image | document | attachment` 都还原 URL，且 document/attachment 一律走 `documentUrl`。
+2. **图片只有空框 = 资源 403**。`tax-filing` 是私有 bucket，公共 URL 取不到，必须 `createSignedUrl`。此前只有 `FileDetailModal` 的 PDF 分支调了 `getTaxFilingViewUrl`，图片路径（`AttachmentImagePreviewModal` 与 `FileDetailModal` 的 image 分支）都在用原始 URL，`<img>` 拿到了尺寸但加载失败，所以是「有框没图」。两处均改为异步换签名 URL；`getTaxFilingViewUrl` 对非 tax-filing URL 与签名失败都返回原 URL，故对 receipts 等公共 bucket 无副作用。另给图片预览加了 `onError` 兜底文案，避免以后再出现「空框且无任何提示」。
+
+**验证**
+- `tsc --noEmit`：`src/mobile-ui` 无新增错误（余下为仓库既有的 RN 类型定义问题，如 `Image.onLongPress`）。
+- `expo export -p web` 构建通过。
+- 从**打包产物**中抽出 minified 的 `restorePromptFromLog` 实际执行六种日志形状：tax-filing PDF、expense PDF、无扩展名 attachment 三种从修复前的 `clickable=false` 变为 `true` 并带出 `documentUrl`；普通图片仍走 `imageUrl`；伪装成 image 的 PDF 走 `documentUrl`；语音不受影响。
+- 未 git commit，未部署。签名 URL 的 403 场景需线上账号复验。
+
+**关联**
+- `vouchap-app/src/mobile-ui/app/chat-to-log.tsx`（`restorePromptFromLog`）
+- `vouchap-app/src/mobile-ui/components/AttachmentImagePreviewModal.tsx`
+- `vouchap-app/src/mobile-ui/components/FileDetailModal.tsx`
+- `vouchap-app/src/shared-logic/chat-logs.ts`（`ChatLog.type` 取值定义）

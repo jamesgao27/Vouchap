@@ -325,6 +325,7 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
   /** Web：签名 URL 供 `<object>`；blob: 供部分浏览器内嵌更稳定（仅 PDF） */
   const [webPdfBlobUrl, setWebPdfBlobUrl] = useState<string | null>(null);
   const [pdfSignedUrl, setPdfSignedUrl] = useState<string | null>(null);
+  const [imageSignedUrl, setImageSignedUrl] = useState<string | null>(null);
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
 
@@ -392,6 +393,27 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
 
   const webPdfEmbedSrc = Platform.OS === 'web' ? webPdfBlobUrl ?? pdfSignedUrl ?? file.imageUrl : file.imageUrl;
 
+  // 图片同样可能来自私有 bucket（tax-filing），公共 URL 会 403，需换签名 URL
+  useEffect(() => {
+    if (paneKind !== 'image' || !file.imageUrl) {
+      setImageSignedUrl(null);
+      return;
+    }
+    const src = file.imageUrl;
+    if (/^(blob:|data:|file:)/i.test(src)) {
+      setImageSignedUrl(src);
+      return;
+    }
+    let cancelled = false;
+    setImageSignedUrl(src);
+    void getTaxFilingViewUrl(src)
+      .then((signed) => { if (!cancelled && signed) setImageSignedUrl(signed); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [paneKind, file.imageUrl]);
+
+  const imageSrc = imageSignedUrl ?? file.imageUrl;
+
   // Android：拦截硬件返回键，优先关闭预览浮窗而不是直接退出页面
   useEffect(() => {
     if (Platform.OS !== 'android') return;
@@ -429,7 +451,7 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
         return (
           <View style={[styles.thumb, styles.thumbWebIframeHost]}>
             {React.createElement('img', {
-              src: file.imageUrl as string,
+              src: imageSrc as string,
               alt: file.name || 'Attachment',
               style: {
                 width: '100%',
@@ -445,10 +467,10 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
       }
       return (
         <Image
-          source={{ uri: file.imageUrl as string }}
+          source={{ uri: imageSrc as string }}
           style={styles.thumb}
           resizeMode="contain"
-          onLongPress={() => promptSaveAttachmentImage(file.imageUrl as string)}
+          onLongPress={() => promptSaveAttachmentImage(imageSrc as string)}
           delayLongPress={350}
         />
       );
