@@ -1,8 +1,8 @@
 # Vouchap
 
-> **App development moved.** The Expo app now lives in [Adaven-platform](https://github.com/jamesgao27/Adaven-platform) at `apps/vouchap-app`. Push, EAS, and Cloudflare builds happen there. This repository is a **historical backup** — do not continue iterating the mobile/web app here.
+> **Independent product.** This repository is the live Vouchap app (`vouchap-app`). It is a full standalone codebase and must **not** depend on `Adaven-platform` or `@adaven/platform-*`.
 >
-> Marketing site (`vouchap-website`) and CRM (`Adaven-CRM`, formerly `vouchap-crm`) stay in their own repos.
+> Portalflow (in [Adaven-platform](https://github.com/jamesgao27/Adaven-platform)) mirrors Vouchap business flows but uses the platform space kernel. Marketing site (`vouchap-website`) and CRM (`Adaven-CRM`) stay in their own repos.
 
 一个基于 React Native + Expo 的家庭记账应用，支持拍摄消费小票，使用 Gemini AI 识别并整理成明细，存储到 Supabase 数据库。
 

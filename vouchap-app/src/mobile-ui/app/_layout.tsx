@@ -2,7 +2,6 @@ import { Stack, usePathname } from 'expo-router';
 import React, { useEffect, useState, useCallback } from 'react';
 import { View, StyleSheet, Platform, Text } from 'react-native';
 import * as Font from 'expo-font';
-import '@/lib/vouchap-space-bootstrap';
 import { validateSupabaseConfig } from '@/lib/supabase';
 import { getCurrentSpace } from '@/lib/auth';
 import { ToastHost } from '@/components/ToastHost';

@@ -8,6 +8,56 @@
 
 ---
 
+### 2026-09-07（CF 仍失败：vouchap-space-bootstrap 引用 @adaven）
+
+**User（提示词/原意）**  
+- 贴出 Cloudflare 构建日志：`4915374` 已能跑 Metro，但 `Unable to resolve module @adaven/platform-core` from `vouchap-space-bootstrap.ts`，由 `_layout.tsx` 引入。
+
+**Assistant（实现前说明）**  
+- 拆依赖的删除还在工作区未进该提交。拟提交并推送：删 bootstrap / 平台包装文件，去掉 `_layout` 的 import。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已提交推送上述删除。CF 不应再解析 `@adaven/*`。构建成功后硬刷新再测右栏粘贴。
+
+**关联**  
+- `vouchap-app/src/shared-logic/vouchap-space-bootstrap.ts`、`vouchap-app/src/mobile-ui/app/_layout.tsx`
+
+---
+
+### 2026-09-07（确认：Vouchap 独立全套；Portalflow 对齐并走平台 space）
+
+**User（提示词/原意）**  
+- Vouchap 维持独立全套代码，不应依赖 Adaven-platform。  
+- Portalflow 业务完全对齐 Vouchap，并依赖 Adaven-platform 统一 space 架构。  
+- 右侧栏粘贴图片只需剪贴板 → 临时文件并关联，不需与文字混排。
+
+**Assistant（实现前说明）**  
+- 上一轮用 vendor 打进 `@adaven/*` 只为修 CF 构建，与「Vouchap 独立」冲突。拟从耦合前提交恢复 auth/space/metro/package.json，删除 vendor 与平台包装文件；粘贴保持 staged files。Portalflow 继续依赖 `@adaven/platform-*`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已恢复 Vouchap 自洽 auth / invitations / members / supabase / login / management；去掉 `@adaven` 依赖、`vendor/`、space-bootstrap 与未使用的 contenteditable 输入框。Metro 不再 watch 仓外 `Adaven-platform`（CF 构建不再 ENOENT）。Portalflow 仍走平台 space；右栏 ⌘V 只进附件暂存条。需 commit + push 后 CF 才会用这份独立代码构建。
+
+**关联**  
+- `vouchap-app/metro.config.js`、`vouchap-app/src/shared-logic/auth.ts`、`docs/ARCHITECTURE-PLATFORM.md`（Adaven）
+
+---
+
+### 2026-09-07（Cloudflare 构建失败：ENOENT Adaven-platform）
+
+**User（提示词/原意）**  
+- Cloudflare 最近几次提交都构建失败。日志里 Metro 去 `stat('/opt/buildhome/Adaven-platform')`，目录不存在，所以线上仍是旧包、看不到剪贴板图标。
+
+**Assistant（实现前说明）**  
+- 根因：`metro.config.js` 无条件把 `../../Adaven-platform` 加进 `watchFolders`；`package.json` 用 `file:` 指向该旁路仓库。CF Pages 只克隆 Vouchap。拟把 `platform-core` / `platform-ui` 打进 `vouchap-app/vendor/`，Metro 仅在目录存在时 watch。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已 vendor 两包；`package.json` 改为 `file:./vendor/platform-*`；Metro / tsconfig 在本机有旁路仓时仍优先用它，CF 上走 vendor。需 commit + push 后 CF 才会重新构建。未部署 Direct Upload。
+
+**关联**  
+- `vouchap-app/metro.config.js`、`vouchap-app/vendor/`、`vouchap-app/package.json`
+
+---
+
 ### 2026-09-07（粘贴仍无反应：只转暂存文件，不混排）
 
 **User（提示词/原意）**  
