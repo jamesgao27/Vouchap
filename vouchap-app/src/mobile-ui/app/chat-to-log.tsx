@@ -96,7 +96,7 @@ import FirmAddClientModal, {
   type FirmAddClientRecognitionDisplay,
   type FirmAddClientBatchRow,
 } from '@/components/FirmAddClientModal';
-import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
+import { FileDetailModal, type FileDetailModalFile, looksLikeDocumentAttachmentUrl, looksLikePdfUrl } from '@/components/FileDetailModal';
 import { AttachmentImagePreviewModal } from '@/components/AttachmentImagePreviewModal';
 import { webInputBlockStyles } from '../styles/web-input-block-styles';
 import { CHAT_WEB_COMPOSER_NATIVE_ID, filesFromClipboardItems } from '../lib/use-web-clipboard-image-paste';
@@ -281,7 +281,8 @@ function restorePromptFromLog(log: ChatLog): Message | null {
 
   // 判断文档类型：优先用文件名判，兜底用 prompt 判
   const effectiveFileName = taxFilingFileName ?? log.prompt;
-  const isDocFile = isPreviewableDoc(effectiveFileName);
+  const isDocFile =
+    isPreviewableDoc(effectiveFileName) || looksLikeDocumentAttachmentUrl(attachUrl);
 
   // 统一取附件 URL：expenses 存在 requestData.imageUrl，tax-filing 存在 attachmentUrl
   const attachUrl = fileUrlFromRequest ?? log.attachmentUrl ?? undefined;
@@ -530,9 +531,12 @@ const UserMessageBubble = memo(function UserMessageBubble({
       <View style={styles.userMediaMessageContent}>
         <TouchableOpacity
           style={styles.userMediaThumb}
-          onPress={() => message.documentUrl && onOpenDocument(message.documentUrl, message.text)}
-          activeOpacity={message.documentUrl ? 0.8 : 1}
-          disabled={!message.documentUrl}
+          onPress={() => {
+            const url = message.documentUrl || message.imageUrl;
+            if (url) onOpenDocument(url, message.text);
+          }}
+          activeOpacity={message.documentUrl || message.imageUrl ? 0.8 : 1}
+          disabled={!(message.documentUrl || message.imageUrl)}
         >
           <Ionicons
             name={/\.pdf$/i.test(message.text) ? 'document-text-outline' : 'document-outline'}
@@ -760,26 +764,22 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     };
   }, [isPanel, inputFocusRef]);
 
-  const openImagePreview = chatPanel?.openImagePreview;
-  const openFilePreview = chatPanel?.openFilePreview;
-  const closeFilePreview = chatPanel?.closeFilePreview;
+  const showFileDetail = useCallback((file: FileDetailModalFile | null) => {
+    setAttachmentDetailForModal(file);
+  }, []);
 
   const showImagePreview = useCallback((url: string) => {
-    if (isPanel && openImagePreview) {
-      openImagePreview(url);
+    if (looksLikePdfUrl(url) || looksLikeDocumentAttachmentUrl(url)) {
+      showFileDetail({
+        id: `doc-${Date.now()}`,
+        name: 'Document',
+        imageUrl: url,
+        hideRightPanel: true,
+      });
       return;
     }
     setAttachmentImageModalUrl(url);
-  }, [isPanel, openImagePreview]);
-
-  const showFileDetail = useCallback((file: FileDetailModalFile | null) => {
-    if (isPanel && openFilePreview && closeFilePreview) {
-      if (file) openFilePreview(file);
-      else closeFilePreview();
-      return;
-    }
-    setAttachmentDetailForModal(file);
-  }, [isPanel, openFilePreview, closeFilePreview]);
+  }, [showFileDetail]);
 
   // 识别后卡片点击：拉取附件详情并填入浮窗
   useEffect(() => {
@@ -1347,7 +1347,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
       imageUrl: url,
       hideRightPanel: true,
     };
-    showFileDetail(file);
+    setTimeout(() => showFileDetail(file), 0);
   };
 
   const handlePreviewDetails = async (message: Message) => {
@@ -2843,22 +2843,18 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
 
   const mainContent = (
     <>
-      {!(isPanel && chatPanel) ? (
-        <>
-          <AttachmentImagePreviewModal
-            visible={!!attachmentImageModalUrl}
-            uri={attachmentImageModalUrl}
-            onClose={() => setAttachmentImageModalUrl(null)}
+      <AttachmentImagePreviewModal
+        visible={!!attachmentImageModalUrl}
+        uri={attachmentImageModalUrl}
+        onClose={() => setAttachmentImageModalUrl(null)}
+      />
+      {attachmentDetailForModal ? (
+        <Modal visible transparent animationType="fade" onRequestClose={() => { setSelectedAttachmentForModal(null); setAttachmentDetailForModal(null); }}>
+          <FileDetailModal
+            file={attachmentDetailForModal}
+            onClose={() => { setSelectedAttachmentForModal(null); setAttachmentDetailForModal(null); }}
           />
-          {attachmentDetailForModal ? (
-            <Modal visible transparent animationType="fade">
-              <FileDetailModal
-                file={attachmentDetailForModal}
-                onClose={() => { setSelectedAttachmentForModal(null); setAttachmentDetailForModal(null); }}
-              />
-            </Modal>
-          ) : null}
-        </>
+        </Modal>
       ) : null}
       <FirmAddClientModal
         visible={!!recognitionAddClientModal}

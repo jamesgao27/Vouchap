@@ -8,6 +8,26 @@
 
 ---
 
+### 2026-09-07（右栏图片/PDF：改回 chat-to-log 本地浮窗并自测）
+
+**User（提示词/原意）**  
+- 详情页 pdf 预览已修好，其他问题仍在。修改后需自测。
+
+**Assistant（实现前说明）**  
+- 右栏继续走 ChatPanelContext + ChatPreviewHost 仍失败。拟改回与详情页相同：在 `ChatToLogContent` 内本地挂 `AttachmentImagePreviewModal` + `<Modal><FileDetailModal/></Modal>`（RN Modal 会 portal 到 body，不需另做 host）。
+- PDF 点不开还可能是 documentUrl 未还原、或打开后同一 click 打在 backdrop 上立刻关闭。
+- 自测：临时在 420px overflow:hidden 栏内挂同一套组件，Playwright 点开图片/PDF。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- chat-to-log 不再把预览提到 context；右栏与全页都用本地 state。
+- 历史还原用 URL 判断文档；PDF URL 点缩略图走 FileDetailModal；openFileInModal 延后一帧。
+- Playwright：420px 栏内点图片 → `<img>` natural 800×600、绘制 1288×792；点 PDF → iframe 936×831。通过后已删临时 smoke 页。
+
+**关联**  
+- `chat-to-log.tsx`、`AttachmentImagePreviewModal.tsx`、`_layout.tsx`
+
+---
+
 ### 2026-09-07（确认右栏=chat-to-log；PDF 点不开 / 图只有遮罩 / 详情页 PDF 未铺满）
 
 **User（提示词/原意）**  

@@ -11,7 +11,6 @@ import { FirmPendingOverlay } from '@/components/FirmPendingOverlay';
 import WebChatFab from '@/components/WebChatFab';
 import WebChatPanel from '@/components/WebChatPanel';
 import { WebChatClipboardPasteHost } from '@/components/WebChatClipboardPasteHost';
-import { ChatPreviewHost } from '@/components/ChatPreviewHost';
 import { ChatPanelErrorBoundary } from '@/components/ChatPanelErrorBoundary';
 import { ChatPanelProvider, useChatPanel, type ChatPanelType } from '../contexts/ChatPanelContext';
 import { getWebStackHeaderLeftScreenOptions } from '../lib/web-stack-header-left';
@@ -598,7 +597,6 @@ textarea:focus-within {
       )}
       <ToastHost />
       <ConfirmModalHost />
-      <ChatPreviewHost />
     </View>
   );
 }

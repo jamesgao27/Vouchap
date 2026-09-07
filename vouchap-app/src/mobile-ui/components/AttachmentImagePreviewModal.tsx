@@ -25,36 +25,39 @@ interface AttachmentImagePreviewModalProps {
 /** Full-screen image preview. Web uses a DOM img (same as FileDetailModal); native uses RN Image. */
 export function AttachmentImagePreviewModal({ visible, uri, onClose }: AttachmentImagePreviewModalProps) {
   const { width, height } = useOverlayViewportSize();
+  const frameStyle = {
+    width: Math.max(width * 0.92, 1),
+    height: Math.max(height * 0.88, 1),
+    zIndex: 1,
+  } as const;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        {uri && Platform.OS === 'web'
-          ? React.createElement('img', {
+        {uri && Platform.OS === 'web' ? (
+          <View style={frameStyle} pointerEvents="box-none">
+            {React.createElement('img', {
               src: uri,
               alt: '',
               style: {
-                maxWidth: Math.max(width * 0.92, 1),
-                maxHeight: Math.max(height * 0.88, 1),
+                width: '100%',
+                height: '100%',
                 objectFit: 'contain',
-                zIndex: 1,
-                position: 'relative',
                 display: 'block',
               },
               onClick: (e: { stopPropagation: () => void }) => e.stopPropagation(),
-            })
-          : uri
-            ? (
-              <Image
-                source={{ uri }}
-                style={styles.imageFill}
-                resizeMode="contain"
-                onLongPress={() => promptSaveAttachmentImage(uri)}
-                delayLongPress={350}
-              />
-            )
-            : null}
+            })}
+          </View>
+        ) : uri ? (
+          <Image
+            source={{ uri }}
+            style={styles.imageFill}
+            resizeMode="contain"
+            onLongPress={() => promptSaveAttachmentImage(uri)}
+            delayLongPress={350}
+          />
+        ) : null}
         <TouchableOpacity style={styles.close} onPress={onClose} hitSlop={8}>
           <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.9)" />
         </TouchableOpacity>
