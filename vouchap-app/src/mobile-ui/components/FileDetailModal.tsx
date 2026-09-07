@@ -424,13 +424,13 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
 
     if (paneKind === 'image') {
       return (
-        <Pressable
+        <Image
+          source={{ uri: file.imageUrl as string }}
           style={styles.thumb}
+          resizeMode="contain"
           onLongPress={() => promptSaveAttachmentImage(file.imageUrl as string)}
           delayLongPress={350}
-        >
-          <Image source={{ uri: file.imageUrl as string }} style={styles.thumb} resizeMode="contain" />
-        </Pressable>
+        />
       );
     }
 

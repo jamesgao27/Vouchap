@@ -8,6 +8,22 @@
 
 ---
 
+### 2026-09-07（Web 图片预览只有下载图标没有内容）
+
+**User（提示词/原意）**  
+- Web 端图片预览出问题：有下载 icon，但没有预览内容。
+
+**Assistant（实现前说明）**  
+- 为长按保存把 Image 包进 Pressable，Web 上百分比高度塌成 0，只剩绝对定位的下载/关闭按钮。拟用视口像素尺寸直接渲染 Image。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- `AttachmentImagePreviewModal` Web 用窗口宽高画图；`FileDetailModal` 图片预览不再包 Pressable。Portalflow 已同步。未 commit。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/AttachmentImagePreviewModal.tsx`
+
+---
+
 ### 2026-09-07（⌘V 长按会多次粘贴）
 
 **User（提示词/原意）**  
