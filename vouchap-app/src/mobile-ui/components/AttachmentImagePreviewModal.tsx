@@ -1,6 +1,7 @@
-import { Modal, View, Image, Pressable, TouchableOpacity, StyleSheet, Platform, Alert, useWindowDimensions } from 'react-native';
+import { Modal, View, Image, Pressable, TouchableOpacity, StyleSheet, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { saveAttachmentImageToDevice } from '@/lib/save-image-to-device';
+import { useOverlayViewportSize } from '../lib/web-viewport';
 
 export function promptSaveAttachmentImage(uri: string) {
   if (!uri) return;
@@ -20,95 +21,53 @@ interface AttachmentImagePreviewModalProps {
   onClose: () => void;
 }
 
-function useViewportSize() {
-  const dims = useWindowDimensions();
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    return {
-      width: window.innerWidth || dims.width || 800,
-      height: window.innerHeight || dims.height || 600,
-    };
-  }
-  return dims;
-}
-
-/** Full-screen image preview. Long-press (or the download button) saves the image. */
+/** Full-screen image preview. Same Modal contract on web and native (receipts, inbound, chat). */
 export function AttachmentImagePreviewModal({ visible, uri, onClose }: AttachmentImagePreviewModalProps) {
-  const { width, height } = useViewportSize();
-  const imageSize =
+  const { width, height } = useOverlayViewportSize();
+  const imageStyle =
     Platform.OS === 'web'
-      ? { width: Math.max(width * 0.92, 1), height: Math.max(height * 0.88, 1) }
+      ? { width: Math.max(width * 0.92, 1), height: Math.max(height * 0.88, 1), zIndex: 1 }
       : styles.imageFill;
 
-  if (!visible) return null;
-
-  const overlay = (
-    <View style={[styles.backdrop, Platform.OS === 'web' && styles.backdropWeb]}>
-      <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-      {uri ? (
-        <Image
-          source={{ uri }}
-          style={imageSize}
-          resizeMode="contain"
-          onLongPress={() => promptSaveAttachmentImage(uri)}
-          delayLongPress={350}
-        />
-      ) : null}
-      <TouchableOpacity style={styles.close} onPress={onClose} hitSlop={8}>
-        <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.9)" />
-      </TouchableOpacity>
-      {uri ? (
-        <TouchableOpacity
-          style={styles.save}
-          onPress={() => promptSaveAttachmentImage(uri)}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Save image"
-        >
-          <Ionicons name="download-outline" size={28} color="rgba(255,255,255,0.95)" />
-        </TouchableOpacity>
-      ) : null}
-    </View>
-  );
-
-  // Right-rail chat mounts this inside a 420px panel. RN-web Modal can stay
-  // clipped there; pin the overlay to document.body so it matches receipts.
-  if (Platform.OS === 'web' && typeof document !== 'undefined') {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { createPortal } = require('react-dom') as typeof import('react-dom');
-    return createPortal(<View style={styles.webPortalRoot}>{overlay}</View>, document.body);
-  }
-
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      {overlay}
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
+        {uri ? (
+          <Image
+            source={{ uri }}
+            style={imageStyle}
+            resizeMode="contain"
+            onLongPress={() => promptSaveAttachmentImage(uri)}
+            delayLongPress={350}
+          />
+        ) : null}
+        <TouchableOpacity style={styles.close} onPress={onClose} hitSlop={8}>
+          <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.9)" />
+        </TouchableOpacity>
+        {uri ? (
+          <TouchableOpacity
+            style={styles.save}
+            onPress={() => promptSaveAttachmentImage(uri)}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Save image"
+          >
+            <Ionicons name="download-outline" size={28} color="rgba(255,255,255,0.95)" />
+          </TouchableOpacity>
+        ) : null}
+      </View>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  webPortalRoot: {
-    position: 'fixed',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 200000,
-  } as any,
   backdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.85)',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  backdropWeb: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    width: '100%',
-    height: '100%',
-  } as any,
   imageFill: {
     width: '100%',
     height: '100%',

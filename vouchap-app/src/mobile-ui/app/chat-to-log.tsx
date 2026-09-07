@@ -761,21 +761,21 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   }, [isPanel, inputFocusRef]);
 
   const showImagePreview = useCallback((url: string) => {
-    if (chatPanel) {
+    if (isPanel && chatPanel) {
       chatPanel.openImagePreview(url);
       return;
     }
     setAttachmentImageModalUrl(url);
-  }, [chatPanel]);
+  }, [isPanel, chatPanel]);
 
   const showFileDetail = useCallback((file: FileDetailModalFile | null) => {
-    if (chatPanel) {
+    if (isPanel && chatPanel) {
       if (file) chatPanel.openFilePreview(file);
       else chatPanel.closeFilePreview();
       return;
     }
     setAttachmentDetailForModal(file);
-  }, [chatPanel]);
+  }, [isPanel, chatPanel]);
 
   // 识别后卡片点击：拉取附件详情并填入浮窗
   useEffect(() => {
@@ -2840,7 +2840,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
 
   const mainContent = (
     <>
-      {!chatPanel ? (
+      {!(isPanel && chatPanel) ? (
         <>
           <AttachmentImagePreviewModal
             visible={!!attachmentImageModalUrl}

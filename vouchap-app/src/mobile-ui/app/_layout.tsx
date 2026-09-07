@@ -598,6 +598,7 @@ textarea:focus-within {
       )}
       <ToastHost />
       <ConfirmModalHost />
+      <ChatPreviewHost />
     </View>
   );
 }
@@ -628,7 +629,6 @@ export default function RootLayout() {
     <ChatPanelProvider>
       <WebChatClipboardPasteHost />
       <LayoutContent />
-      <ChatPreviewHost />
     </ChatPanelProvider>
   );
 }

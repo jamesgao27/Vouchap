@@ -40,6 +40,7 @@ import {
   iosWebViewAllowingReadAccessUrlForFileUri,
 } from '@/lib/office-inline-preview';
 import { promptSaveAttachmentImage } from './AttachmentImagePreviewModal';
+import { useOverlayViewportSize } from '../lib/web-viewport';
 
 const IMAGE_EXTENSIONS = ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic'];
 
@@ -131,6 +132,7 @@ const WEB_CARD_NATIVE_ID = 'file-detail-modal-card';
 const WEB_LEFT_NATIVE_ID = 'file-detail-modal-left';
 
 export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
+  const overlayViewport = useOverlayViewportSize();
   const extractedPreview =
     file.extractedPreview ?? (file.extracted_data ? buildExtractedPreview(file.extracted_data) : []);
   const showRightPanel = !file.hideRightPanel;
@@ -423,6 +425,24 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
     }
 
     if (paneKind === 'image') {
+      if (Platform.OS === 'web') {
+        return (
+          <View style={[styles.thumb, styles.thumbWebIframeHost]}>
+            {React.createElement('img', {
+              src: file.imageUrl as string,
+              alt: file.name || 'Attachment',
+              style: {
+                width: '100%',
+                height: '100%',
+                minHeight: 420,
+                objectFit: 'contain',
+                display: 'block',
+                backgroundColor: '#fff',
+              } as object,
+            })}
+          </View>
+        );
+      }
       return (
         <Image
           source={{ uri: file.imageUrl as string }}
@@ -583,27 +603,19 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
     if (Platform.OS === 'web' && file.imageUrl) {
       return (
         <View style={[styles.thumb, styles.thumbWebIframeHost]}>
-          {React.createElement(
-            'object',
-            {
-              data: webPdfEmbedSrc as string,
-              type: 'application/pdf',
-              style: {
-                width: '100%',
-                height: '100%',
-                minHeight: 420,
-                border: 'none',
-                borderRadius: 10,
-                display: 'block',
-              } as any,
-              'aria-label': 'Document preview',
-            },
-            React.createElement(
-              'p',
-              { style: { padding: 16, color: '#636E72', fontSize: 14 } },
-              'Embedded preview is not available in this browser. Use “Open in new tab” below.',
-            ),
-          )}
+          {React.createElement('iframe', {
+            src: webPdfEmbedSrc as string,
+            title: 'Document preview',
+            style: {
+              width: '100%',
+              height: '70vh',
+              minHeight: 420,
+              border: 'none',
+              borderRadius: 10,
+              display: 'block',
+              backgroundColor: '#fff',
+            } as object,
+          })}
         </View>
       );
     }
@@ -668,7 +680,18 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
   return (
     <View style={styles.overlay} pointerEvents="box-none">
       <Pressable style={styles.backdrop} onPress={onClose} />
-      <View nativeID={WEB_CARD_NATIVE_ID} style={[styles.card, Platform.OS === 'web' && styles.cardWeb]}>
+      <View
+        nativeID={WEB_CARD_NATIVE_ID}
+        style={[
+          styles.card,
+          Platform.OS === 'web' && styles.cardWeb,
+          {
+            width: Math.min(overlayViewport.width * 0.98, 960),
+            height: overlayViewport.height * 0.95,
+            maxHeight: overlayViewport.height * 0.95,
+          },
+        ]}
+      >
         <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
           <Ionicons name="close" size={24} color="#636E72" />
         </TouchableOpacity>
@@ -750,9 +773,6 @@ const styles = StyleSheet.create({
   } as any,
   backdrop: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)' },
   card: {
-    width: Math.min(Dimensions.get('window').width * 0.98, 960),
-    height: '95%',
-    maxHeight: '95%',
     backgroundColor: '#FFF',
     borderRadius: 12,
     overflow: 'hidden',

@@ -3,7 +3,10 @@ import { useChatPanel } from '../contexts/ChatPanelContext';
 import { AttachmentImagePreviewModal } from './AttachmentImagePreviewModal';
 import { FileDetailModal } from './FileDetailModal';
 
-/** Page-root host so right-rail image/PDF preview is not clipped by the 420px panel. */
+/**
+ * Same preview tree as receipt-details: AttachmentImagePreviewModal + Modal > FileDetailModal.
+ * Must sit inside LayoutContent's full-viewport root, not inside the 420px rail.
+ */
 export function ChatPreviewHost() {
   const chat = useChatPanel();
   if (!chat) return null;

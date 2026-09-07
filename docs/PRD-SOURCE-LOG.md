@@ -8,6 +8,48 @@
 
 ---
 
+### 2026-09-07（右栏预览：先分析再收回同一套组件）
+
+**User（提示词/原意）**  
+- 问题依旧。预览应该用同一套组件。需要深刻分析原因再修改或重构。刚才每一轮修改都已经 push 并走了 Cloudflare 部署。
+
+**Assistant（实现前说明）**  
+对照收据详情页（可用）与右栏（黑罩 / PDF 空白）后，结论不是「缺一套预览组件」，而是同一套组件被挂错、Web 分支被改成另一条实现：
+1. 收据详情页：页面内本地 state + `AttachmentImagePreviewModal` + `<Modal><FileDetailModal/></Modal>`，挂在整页 `View` 里。这是可用契约。
+2. 右栏：`useChatPanel()` 在 Provider 下恒为真，于是用 `if (chatPanel)` 把预览整段切走；浮窗改由 `ChatPreviewHost` 渲染，且挂在 `LayoutContent` 外面（Provider 兄弟节点，没有整页 flex 根）。
+3. 为修右栏又改了共享组件的 Web 路径：Pressable 包 Image（高度塌 0）→ 手写 `createPortal(View)` → 再分出 `WebAttachmentLightbox`。收据页能看见的是页内 80×80 缩略图（固定宽高），不是这条被改过的浮窗路径。
+4. `FileDetailModal` 卡片宽高在 `StyleSheet.create` 时用 `Dimensions.get('window')` / `height:'95%'` 写死，父级高度为 0 时白卡片和 iframe 都看不见，只剩遮罩。
+
+拟收回同一套组件：删 lightbox；图片浮窗回到 RN `Modal`（与收据页相同）；`ChatPreviewHost` 挪进 `LayoutContent` 根节点；右栏仅在 `isPanel` 时把 state 提到 host；卡片尺寸改用浏览器视口像素。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 已删除 `WebAttachmentLightbox`。`AttachmentImagePreviewModal` 全平台再走 RN `Modal`；Web 上 Image 用 `window.innerWidth/Height`，不再 `width/height: 100%`。
+- `ChatPreviewHost` 挂到 `LayoutContent` 根（与 Toast/Confirm 同级），JSX 与收据详情页相同。
+- `chat-to-log` 只用 `isPanel && chatPanel` 提升预览 state；全页 `/chat-to-log` 仍用本地浮窗。
+- `FileDetailModal` 卡片宽高改为渲染时视口像素。Portalflow 已对齐。
+- 需 push 后在 CF 上验证：右栏点历史图片应出大图；点 Open original PDF 应出同一套文件浮窗；收据详情页点缩略图预览应仍可用。
+
+**关联**  
+- `AttachmentImagePreviewModal.tsx`、`FileDetailModal.tsx`、`ChatPreviewHost.tsx`、`_layout.tsx`、`chat-to-log.tsx`
+
+---
+
+### 2026-09-07（右栏预览依旧失败：改用浏览器原生 img/iframe）
+
+**User（提示词/原意）**  
+- 问题依旧。右栏图片预览和 PDF 预览都不行。
+
+**Assistant（实现前说明）**  
+- RN-web Modal/Image 在侧栏场景下多次失败。拟 Web 用挂到 document.body 的原生 `<img>` / `<iframe>`，不再依赖 RN Image 尺寸。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `WebAttachmentLightbox`。图片预览走原生 img；PDF 浮窗也 portal 到 body，左栏用 iframe。改动仍在本地，须 push 后 CF 构建才会上线。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/WebAttachmentLightbox.tsx`
+
+---
+
 ### 2026-09-07（右栏图片与 PDF 预览仍失败：改到页面根节点）
 
 **User（提示词/原意）**  
