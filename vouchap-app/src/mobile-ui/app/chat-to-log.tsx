@@ -99,11 +99,7 @@ import FirmAddClientModal, {
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 import { AttachmentImagePreviewModal } from '@/components/AttachmentImagePreviewModal';
 import { webInputBlockStyles } from '../styles/web-input-block-styles';
-import {
-  CHAT_WEB_COMPOSER_NATIVE_ID,
-  extractClipboardImageFiles,
-  useWebClipboardImagePaste,
-} from '../lib/use-web-clipboard-image-paste';
+import { CHAT_WEB_COMPOSER_NATIVE_ID, MAC_SCREENSHOT_CLIPBOARD_HINT } from '../lib/use-web-clipboard-image-paste';
 import {
   CHAT_STAGED_FILES_DISPLAY_MAX,
   chatStagedFilesOverflowLabel,
@@ -1476,26 +1472,21 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     }
   }, [effectiveProjectId, isProcessing, voucherType, isDesktopWeb]);
 
-  const stageClipboardImages = useCallback((files: { id: string; uri: string; name?: string; mimeType?: string }[]) => {
-    if (isProcessing || !files.length) return;
-    if (voucherType === 'tax-filing' && !effectiveProjectId) {
-      showToast('Open from a tax-filing project to attach files.', 'info');
-      return;
-    }
-    setStagedAttachmentFiles((prev) => [...prev, ...files]);
-    setIsVoiceMode(false);
-  }, [effectiveProjectId, isProcessing, voucherType]);
-
-  useWebClipboardImagePaste(stageClipboardImages, Platform.OS === 'web' && !isProcessing);
-
-  const onWebComposerPaste = useCallback((e: unknown) => {
-    const files = extractClipboardImageFiles(e);
-    if (!files.length) return;
-    const ev = e as { preventDefault?: () => void; stopPropagation?: () => void };
-    ev.preventDefault?.();
-    ev.stopPropagation?.();
-    stageClipboardImages(files);
-  }, [stageClipboardImages]);
+  useEffect(() => {
+    if (Platform.OS !== 'web' || !chatPanel) return;
+    chatPanel.appendStagedFilesRef.current = (files) => {
+      if (isProcessing || !files.length) return;
+      if (voucherType === 'tax-filing' && !effectiveProjectId) {
+        showToast('Open from a tax-filing project to attach files.', 'info');
+        return;
+      }
+      setStagedAttachmentFiles((prev) => [...prev, ...files]);
+      setIsVoiceMode(false);
+    };
+    return () => {
+      chatPanel.appendStagedFilesRef.current = null;
+    };
+  }, [chatPanel, effectiveProjectId, isProcessing, voucherType]);
 
   /** Web：仅选择文件夹（可多选），将文件夹内的所有文件展开为待上传列表。 */
   const pickFoldersForSend = useCallback(() => {
@@ -3632,9 +3623,8 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         {isDesktopWeb ? (
           <View
             nativeID={CHAT_WEB_COMPOSER_NATIVE_ID}
-            // @ts-expect-error web DOM id + paste — RN-web nativeID is not always queryable as #id
+            // @ts-expect-error web DOM id
             id={CHAT_WEB_COMPOSER_NATIVE_ID}
-            onPaste={onWebComposerPaste}
             style={webInputBlockStyles.webInputOuter}
           >
             <View style={webInputBlockStyles.webInputBlock}>
@@ -3690,7 +3680,6 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                     onSubmitEditing={handleSend}
                     blurOnSubmit={false}
                     onFocus={() => setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100)}
-                    {...(Platform.OS === 'web' ? { onPaste: onWebComposerPaste } : {})}
                   />
                 </View>
               </View>
@@ -3762,7 +3751,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               </View>
             </View>
             <Text style={webInputBlockStyles.webInputDisclaimer}>
-              AI Assistant may make mistakes. Paste a screenshot with Ctrl+V or ⌘V.
+              AI Assistant may make mistakes. {MAC_SCREENSHOT_CLIPBOARD_HINT}
             </Text>
           </View>
         ) : (

@@ -8,6 +8,22 @@
 
 ---
 
+### 2026-09-07（⌘V 仍无反应：全局粘贴 + Mac 截图说明）
+
+**User（提示词/原意）**  
+- 仍然不行，⌘V 没反应。
+
+**Assistant（实现前说明）**  
+- 监听仍挂在 chat-to-log 输入框上，RN-web 可能吃掉事件；Mac 的 ⌘⇧4 是存文件不是进剪贴板，⌘V 会是空的。拟在 ChatPanelProvider 根上挂全局 paste，写入 appendStagedFilesRef；空剪贴板且右栏已开时 toast 说明用 ⌃⌘⇧4。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 新增 `WebChatClipboardPasteHost`。成功会 toast “Screenshot added.”；右栏打开且剪贴板没有图时提示 Mac 快捷键。需再 push / 部署后硬刷新。未 commit。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/WebChatClipboardPasteHost.tsx`
+
+---
+
 ### 2026-09-07（Web 右栏粘贴截图仍无效：修复监听）
 
 **User（提示词/原意）**  
