@@ -228,7 +228,7 @@ function isRecognitionResultUnrecognizable(result: { confidence?: number }): boo
 const isImageMime = (mime?: string) => !mime || mime.startsWith('image/');
 /** 是否可内嵌预览的文档（PDF / Word / Excel / PowerPoint 等） */
 const isPreviewableDoc = (name?: string, mime?: string) => {
-  const lower = name?.toLowerCase() ?? '';
+  const lower = (name ?? '').split(/[#?]/)[0].toLowerCase();
   if (lower.endsWith('.pdf')) return true;
   if (/\.(docx?|xlsx?|pptx?|csv)$/i.test(lower)) return true;
   const m = mime || '';
@@ -760,27 +760,30 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
     };
   }, [isPanel, inputFocusRef]);
 
+  const openImagePreview = chatPanel?.openImagePreview;
+  const openFilePreview = chatPanel?.openFilePreview;
+  const closeFilePreview = chatPanel?.closeFilePreview;
+
   const showImagePreview = useCallback((url: string) => {
-    if (isPanel && chatPanel) {
-      chatPanel.openImagePreview(url);
+    if (isPanel && openImagePreview) {
+      openImagePreview(url);
       return;
     }
     setAttachmentImageModalUrl(url);
-  }, [isPanel, chatPanel]);
+  }, [isPanel, openImagePreview]);
 
   const showFileDetail = useCallback((file: FileDetailModalFile | null) => {
-    if (isPanel && chatPanel) {
-      if (file) chatPanel.openFilePreview(file);
-      else chatPanel.closeFilePreview();
+    if (isPanel && openFilePreview && closeFilePreview) {
+      if (file) openFilePreview(file);
+      else closeFilePreview();
       return;
     }
     setAttachmentDetailForModal(file);
-  }, [isPanel, chatPanel]);
+  }, [isPanel, openFilePreview, closeFilePreview]);
 
   // 识别后卡片点击：拉取附件详情并填入浮窗
   useEffect(() => {
     if (!selectedAttachmentForModal) {
-      showFileDetail(null);
       return;
     }
     showFileDetail(null); // 先清空，避免短暂显示上一次附件

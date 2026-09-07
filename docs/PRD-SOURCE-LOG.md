@@ -8,6 +8,27 @@
 
 ---
 
+### 2026-09-07（确认右栏=chat-to-log；PDF 点不开 / 图只有遮罩 / 详情页 PDF 未铺满）
+
+**User（提示词/原意）**  
+- 确认理解的右侧栏就是 chat-to-log 么？问题依旧：pdf 点不开，图片只有遮罩。详情页 pdf 预览窗没有布满浮窗。
+
+**Assistant（实现前说明）**  
+- 是：Web 右侧栏 = `WebChatPanel` 内嵌的 `ChatToLogContent`（`chat-to-log.tsx`）。
+- 详情页 PDF 底部留白：iframe 写死 `height: 70vh`，卡片约 95vh。
+- 右栏 PDF 点不开：`selectedAttachmentForModal == null` 的 effect 在 `showFileDetail` 因 context 更新重建后立刻 `showFileDetail(null)`，刚打开的 PDF 被关掉。
+- 右栏图片只有遮罩：Web 浮窗里 RN `Image` 不绘图；`FileDetailModal` 左栏已经用 DOM `<img>`。图片浮窗应在同一 `Modal` 里同样用 `<img>`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- PDF iframe 改为铺满左栏；solo 模式去掉 aspectRatio 限制。
+- 去掉「无选中附件就关闭文件预览」；`showFileDetail` 改为依赖稳定的 open/close 回调。
+- `AttachmentImagePreviewModal` Web 端在原 Modal 内用 `<img>`（与 FileDetailModal 一致）。Portalflow 已对齐。
+
+**关联**  
+- `FileDetailModal.tsx`、`AttachmentImagePreviewModal.tsx`、`chat-to-log.tsx`
+
+---
+
 ### 2026-09-07（右栏预览：先分析再收回同一套组件）
 
 **User（提示词/原意）**  

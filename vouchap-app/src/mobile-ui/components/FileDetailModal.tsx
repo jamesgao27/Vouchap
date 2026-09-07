@@ -608,8 +608,7 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
             title: 'Document preview',
             style: {
               width: '100%',
-              height: '70vh',
-              minHeight: 420,
+              height: '100%',
               border: 'none',
               borderRadius: 10,
               display: 'block',
@@ -701,6 +700,7 @@ export function FileDetailModal({ file, onClose }: FileDetailModalProps) {
             style={[
               styles.left,
               Platform.OS === 'web' && styles.leftWeb,
+              showRightPanel && Platform.OS === 'web' && styles.leftWithSidePanel,
               !showRightPanel && styles.leftSolo,
             ]}
           >
@@ -798,31 +798,38 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
-    flex: Platform.OS === 'web' ? undefined : 1,
-    minHeight: Platform.OS === 'web' ? 420 : 280,
-    aspectRatio: Platform.OS === 'web' ? 440 / 600 : undefined,
+    flex: 1,
+    minHeight: Platform.OS === 'web' ? 0 : 280,
     alignSelf: 'stretch',
-    width: Platform.OS === 'web' ? '61.8%' : '100%',
-    ...(Platform.OS === 'web'
-      ? {
-          flexShrink: 0,
-          minWidth: 0,
-        }
-      : null),
+    width: '100%',
+    minWidth: 0,
+  },
+  leftWithSidePanel: {
+    width: '61.8%',
+    flexGrow: 0,
+    flexShrink: 0,
+    aspectRatio: 440 / 600,
+    minHeight: 420,
   },
   leftSolo: {
     flex: 1,
+    width: '100%',
     maxWidth: '100%',
+    height: '100%',
+    minHeight: 0,
+    padding: Platform.OS === 'web' ? 12 : 16,
   },
   leftWeb: {
     overscrollBehavior: 'contain',
   } as any,
-  thumb: { width: '100%', height: '100%', minHeight: 240, borderRadius: 10, backgroundColor: '#FFF' },
+  thumb: { width: '100%', height: '100%', minHeight: 0, borderRadius: 10, backgroundColor: '#FFF' },
   thumbWebIframeHost:
     Platform.OS === 'web'
       ? {
-          minHeight: 420,
-          flexGrow: 1,
+          flex: 1,
+          width: '100%',
+          height: '100%',
+          minHeight: 0,
           alignSelf: 'stretch',
           position: 'relative',
           overflow: 'hidden',

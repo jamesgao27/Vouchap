@@ -1,3 +1,4 @@
+import React from 'react';
 import { Modal, View, Image, Pressable, TouchableOpacity, StyleSheet, Platform, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { saveAttachmentImageToDevice } from '@/lib/save-image-to-device';
@@ -21,27 +22,39 @@ interface AttachmentImagePreviewModalProps {
   onClose: () => void;
 }
 
-/** Full-screen image preview. Same Modal contract on web and native (receipts, inbound, chat). */
+/** Full-screen image preview. Web uses a DOM img (same as FileDetailModal); native uses RN Image. */
 export function AttachmentImagePreviewModal({ visible, uri, onClose }: AttachmentImagePreviewModalProps) {
   const { width, height } = useOverlayViewportSize();
-  const imageStyle =
-    Platform.OS === 'web'
-      ? { width: Math.max(width * 0.92, 1), height: Math.max(height * 0.88, 1), zIndex: 1 }
-      : styles.imageFill;
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
-        {uri ? (
-          <Image
-            source={{ uri }}
-            style={imageStyle}
-            resizeMode="contain"
-            onLongPress={() => promptSaveAttachmentImage(uri)}
-            delayLongPress={350}
-          />
-        ) : null}
+        {uri && Platform.OS === 'web'
+          ? React.createElement('img', {
+              src: uri,
+              alt: '',
+              style: {
+                maxWidth: Math.max(width * 0.92, 1),
+                maxHeight: Math.max(height * 0.88, 1),
+                objectFit: 'contain',
+                zIndex: 1,
+                position: 'relative',
+                display: 'block',
+              },
+              onClick: (e: { stopPropagation: () => void }) => e.stopPropagation(),
+            })
+          : uri
+            ? (
+              <Image
+                source={{ uri }}
+                style={styles.imageFill}
+                resizeMode="contain"
+                onLongPress={() => promptSaveAttachmentImage(uri)}
+                delayLongPress={350}
+              />
+            )
+            : null}
         <TouchableOpacity style={styles.close} onPress={onClose} hitSlop={8}>
           <Ionicons name="close-circle" size={36} color="rgba(255,255,255,0.9)" />
         </TouchableOpacity>
