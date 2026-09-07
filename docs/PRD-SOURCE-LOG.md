@@ -8,6 +8,22 @@
 
 ---
 
+### 2026-09-07（Web 右栏粘贴截图仍无效：修复监听）
+
+**User（提示词/原意）**  
+- 已经 git 更新且 Cloudflare 自动部署成功，但 web 端测试仍不能粘贴截图。
+
+**Assistant（实现前说明）**  
+- 上一版 document 冒泡监听 + 要求 `#chat-web-composer` contains(target)。RN-web 的 `nativeID` 常常不会变成 DOM `id`，焦点在 TextInput 时会被直接 return；TextInput 还会 stopPropagation。拟：捕获阶段监听、给 composer/panel 写真实 `id`、TextInput onPaste、必要时 `clipboard.read()`。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- Vouchap / Portalflow 已改钩子与输入区。需再 push 后等 Cloudflare 部署，硬刷新后再试：打开右栏，截图后 Ctrl/⌘V。未 commit。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/lib/use-web-clipboard-image-paste.ts`
+
+---
+
 ### 2026-09-07（Vouchap/Portalflow：PDF 预览白屏、Web 粘贴截图、图片长按保存）
 
 **User（提示词/原意）**  
