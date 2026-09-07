@@ -3779,7 +3779,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               </View>
             </View>
             <Text style={webInputBlockStyles.webInputDisclaimer}>
-              AI Assistant may make mistakes. ⌘V / Ctrl+V pastes a screenshot as an attachment.
+              AI Assistant may make mistakes. 
             </Text>
           </View>
         ) : (

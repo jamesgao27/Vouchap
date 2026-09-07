@@ -8,6 +8,22 @@
 
 ---
 
+### 2026-09-07（⌘V 长按会多次粘贴）
+
+**User（提示词/原意）**  
+- 粘贴转文件已可用，但按住 ⌘V / Ctrl+V 过久会多次粘贴。不必比对内容是否相同，一次按键响应一次即可。
+
+**Assistant（实现前说明）**  
+- 系统会发 key repeat，host 的 keydown 每次都 `clipboard.read()`。拟忽略 `e.repeat`，同一次按住只 claim 一次，松开后再允许下一次。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- Vouchap / Portalflow 的 `WebChatClipboardPasteHost`：repeat 忽略；按住期间只入库一次。未 commit。部署后硬刷新再试长按 ⌘V。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/WebChatClipboardPasteHost.tsx`
+
+---
+
 ### 2026-09-07（CF 仍失败：vouchap-space-bootstrap 引用 @adaven）
 
 **User（提示词/原意）**  

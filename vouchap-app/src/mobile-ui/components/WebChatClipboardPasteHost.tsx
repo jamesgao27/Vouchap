@@ -42,7 +42,17 @@ export function WebChatClipboardPasteHost() {
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
 
+    let shortcutHeld = false;
+    let shortcutHandled = false;
+
+    const claimShortcut = () => {
+      if (shortcutHandled) return false;
+      shortcutHandled = true;
+      return true;
+    };
+
     const takeImagesFromClipboardApi = () => {
+      if (!claimShortcut()) return;
       const clip = navigator.clipboard;
       if (!clip || typeof clip.read !== 'function') return;
       void clip.read()
@@ -58,6 +68,7 @@ export function WebChatClipboardPasteHost() {
       if (files.length) {
         e.preventDefault();
         e.stopPropagation();
+        if (!claimShortcut()) return;
         applyFiles(files);
         return;
       }
@@ -66,16 +77,28 @@ export function WebChatClipboardPasteHost() {
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'v') return;
+      if (e.repeat || shortcutHeld) return;
+      shortcutHeld = true;
+      shortcutHandled = false;
       takeImagesFromClipboardApi();
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      const key = e.key.toLowerCase();
+      if (key !== 'v' && e.key !== 'Meta' && e.key !== 'Control') return;
+      shortcutHeld = false;
+      shortcutHandled = false;
     };
 
     document.addEventListener('paste', onPaste, true);
     window.addEventListener('paste', onPaste, true);
     window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keyup', onKeyUp, true);
     return () => {
       document.removeEventListener('paste', onPaste, true);
       window.removeEventListener('paste', onPaste, true);
       window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('keyup', onKeyUp, true);
     };
   }, [applyFiles]);
 
