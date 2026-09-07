@@ -12,33 +12,20 @@ if (process.env.METRO_USE_WATCHMAN !== '1') {
 }
 
 const projectRoot = __dirname;
-const adavenPlatformRoot = path.resolve(projectRoot, '../../Adaven-platform');
 const originalResolveRequest = config.resolver.resolveRequest;
 const webShimPath = path.resolve(projectRoot, 'react-native-web-shim.js');
 const rnwRoot = path.resolve(projectRoot, 'node_modules', 'react-native-web');
-
-function resolveExistingFile(base) {
-  const candidates = [
-    base,
-    base + '.ts',
-    base + '.tsx',
-    base + '.js',
-    base + '.jsx',
-    path.join(base, 'index.ts'),
-    path.join(base, 'index.tsx'),
-    path.join(base, 'index.js'),
-  ];
-  for (const p of candidates) {
-    if (fs.existsSync(p) && fs.statSync(p).isFile()) return path.resolve(p);
-  }
-  return null;
-}
 
 function resolveAlias(moduleName) {
   if (moduleName.startsWith('@/lib/')) {
     const sub = moduleName.slice('@/lib/'.length);
     const base = path.join(projectRoot, 'src', 'shared-logic', sub);
-    return resolveExistingFile(base) || path.resolve(base);
+    const exts = ['', '.ts', '.tsx', '.js', '.jsx'];
+    for (const ext of exts) {
+      const p = base + ext;
+      if (fs.existsSync(p)) return path.resolve(p);
+    }
+    return path.resolve(base);
   }
   if (moduleName.startsWith('@/components/')) {
     const sub = moduleName.slice('@/components/'.length);
@@ -59,20 +46,6 @@ function resolveAlias(moduleName) {
       if (fs.existsSync(p)) return path.resolve(p);
     }
     return path.resolve(basePath);
-  }
-  if (moduleName === '@adaven/platform-core' || moduleName.startsWith('@adaven/platform-core/')) {
-    const sub =
-      moduleName === '@adaven/platform-core'
-        ? 'index'
-        : moduleName.slice('@adaven/platform-core/'.length);
-    return resolveExistingFile(path.join(adavenPlatformRoot, 'packages/platform-core/src', sub));
-  }
-  if (moduleName === '@adaven/platform-ui' || moduleName.startsWith('@adaven/platform-ui/')) {
-    const sub =
-      moduleName === '@adaven/platform-ui'
-        ? 'index'
-        : moduleName.slice('@adaven/platform-ui/'.length);
-    return resolveExistingFile(path.join(adavenPlatformRoot, 'packages/platform-ui/src', sub));
   }
   return null;
 }
@@ -106,7 +79,5 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   }
   return context.resolveRequest(context, moduleName, platform);
 };
-
-config.watchFolders = [...(config.watchFolders || []), adavenPlatformRoot];
 
 module.exports = config;

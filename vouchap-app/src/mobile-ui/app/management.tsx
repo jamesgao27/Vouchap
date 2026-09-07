@@ -23,8 +23,6 @@ import { supabase, uploadSpaceImage, uploadUserLogo } from '@/lib/supabase';
 import { Space, UserSpace, User } from '@/types';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '@/lib/alertWeb';
-import { getVouchapManagementMenuItems } from '@/lib/vouchap-management-menu';
-import { SpaceSwitcherModal } from '@/components/platform/SpaceSwitcherModal';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -626,7 +624,19 @@ export default function ManagementScreen() {
     confirmDestructive('Sign Out', 'Are you sure you want to sign out?', doSignOut, { confirmLabel: 'Sign Out' });
   };
 
-  const visibleMenuItems = getVouchapManagementMenuItems(space?.kind);
+  const menuItems = [
+    { id: 'members', title: 'Members', icon: 'people-outline', route: '/space-members', description: 'Manage members & invitations' },
+    { id: 'permissions', title: 'Permissions', icon: 'shield-checkmark-outline', route: '/firm/permissions', description: 'Roles and permission scopes settings' },
+    { id: 'claim', title: 'Claim engagement', icon: 'link-outline', route: '/auth/claim', description: 'Link your space with a pending engagement from a firm' },
+    { id: 'accounts', title: 'Accounts', icon: 'wallet-outline', route: '/accounts-manage', description: 'Manage and merge accounts' },
+    { id: 'entities', title: 'Entities', icon: 'storefront-outline', route: '/entities-manage', description: 'Payee/Payer/Sender/Receiver' },
+    { id: 'expense-settings', title: 'Expense Settings', icon: 'card-outline', route: '/expense-settings', description: 'Categories and attributions' },
+    { id: 'income-settings', title: 'Income Settings', icon: 'cash-outline', route: '/income-settings', description: 'Categories and attributions' },
+  ];
+  // firm 管理界面隐去收支设置、账户、Entities，仅保留 Members + Permission
+  const visibleMenuItems = space?.kind === 'firm'
+    ? menuItems.filter((item) => item.id === 'members' || item.id === 'permissions')
+    : menuItems.filter((item) => item.id !== 'claim' && item.id !== 'permissions');
 
   return (
     <View style={styles.container}>
@@ -972,18 +982,93 @@ export default function ManagementScreen() {
         </TouchableOpacity>
       </View>
 
-      <SpaceSwitcherModal
+      {/* Space Switch Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
         visible={showSpaceSwitch}
-        spaces={spaces}
-        currentSpaceId={space?.id}
-        switching={switching}
-        onClose={() => setShowSpaceSwitch(false)}
-        onSwitch={handleSwitchSpace}
-        onCreateNew={() => {
-          setShowSpaceSwitch(false);
-          router.push('/setup-space');
-        }}
-      />
+        onRequestClose={() => setShowSpaceSwitch(false)}
+      >
+        <TouchableOpacity
+          style={styles.pickerOverlay}
+          activeOpacity={1}
+          onPress={() => setShowSpaceSwitch(false)}
+        >
+          <View style={styles.pickerBottomSheet} onStartShouldSetResponder={() => true}>
+            <View style={styles.pickerHandle} />
+            <View style={[styles.pickerHeader, styles.pickerHeaderCenter]}>
+              <Text style={[styles.pickerTitle, switching && styles.pickerTitleHidden]}>Switch Space</Text>
+              {switching && (
+                <View style={styles.pickerHeaderSpinnerWrap}>
+                  <ActivityIndicator size="small" color="#6C5CE7" />
+                </View>
+              )}
+            </View>
+            <ScrollView style={styles.pickerScrollView} showsVerticalScrollIndicator={false}>
+              {spaces.map((userSpace) => (
+                <TouchableOpacity
+                  key={userSpace.spaceId}
+                  style={[
+                    styles.pickerOption,
+                    space?.id === userSpace.spaceId && styles.pickerOptionSelected
+                  ]}
+                  onPress={() => handleSwitchSpace(userSpace.spaceId)}
+                  disabled={switching || space?.id === userSpace.spaceId}
+                >
+                  {userSpace.space?.logoUrl ? (
+                    <Image
+                      source={{ uri: userSpace.space.logoUrl }}
+                      style={[
+                        styles.spaceOptionIconImage,
+                        space?.id === userSpace.spaceId ? { backgroundColor: '#E8F4FD' } : null,
+                      ]}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View
+                      style={[
+                        styles.spaceOptionPlaceholderSquare,
+                        space?.id === userSpace.spaceId ? { borderColor: '#6C5CE7' } : null,
+                      ]}
+                    >
+                      <Ionicons name="business-outline" size={14} color={space?.id === userSpace.spaceId ? "#6C5CE7" : "#636E72"} />
+                    </View>
+                  )}
+                  <View style={styles.spaceOptionContent}>
+                    <Text style={[
+                      styles.pickerOptionText,
+                      space?.id === userSpace.spaceId && styles.pickerOptionTextSelected
+                    ]}>
+                      {userSpace.space?.name || 'Unnamed Space'}
+                    </Text>
+                    {userSpace.space?.address && (
+                      <Text style={styles.spaceOptionAddress} numberOfLines={1}>
+                        {userSpace.space.address}
+                      </Text>
+                    )}
+                  </View>
+                  {space?.id === userSpace.spaceId && (
+                    <Ionicons name="checkmark" size={20} color="#6C5CE7" />
+                  )}
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <View style={styles.modalFooter}>
+              <TouchableOpacity
+                style={styles.createSpaceButton}
+                onPress={() => {
+                  setShowSpaceSwitch(false);
+                  router.push('/setup-space');
+                }}
+                disabled={switching}
+              >
+                <Ionicons name="add-circle-outline" size={20} color="#6C5CE7" />
+                <Text style={styles.createSpaceButtonText}>Create a New</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Web only: switch space success – prompt to refresh */}
       <Modal

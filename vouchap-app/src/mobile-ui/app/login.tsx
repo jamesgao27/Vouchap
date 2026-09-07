@@ -17,7 +17,6 @@ import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
 import { signIn } from '@/lib/auth';
 import { showToast } from '@/lib/toast';
-import { ThirdPartyAuthButtons } from '@/components/platform/ThirdPartyAuthButtons';
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -248,8 +247,6 @@ export default function LoginScreen() {
                 )}
               </TouchableOpacity>
 
-              <ThirdPartyAuthButtons disabled={loading} />
-
               <View style={styles.linksContainerMobile}>
                 <TouchableOpacity style={styles.linkButtonMobile} onPress={() => router.push('/reset-password')}>
                   <Text style={styles.linkTextMobile}>
@@ -408,8 +405,6 @@ export default function LoginScreen() {
                 )}
               </LinearGradient>
             </TouchableOpacity>
-
-            <ThirdPartyAuthButtons disabled={loading} />
           </View>
 
           <View style={styles.footer}>

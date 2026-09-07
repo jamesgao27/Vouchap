@@ -13,7 +13,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { getCurrentUser, getCurrentSpace, setCurrentSpace, getUserSpaces, isAuthenticated } from '@/lib/auth';
 import { initializeAuthCache } from '@/lib/auth-cache';
 import { getPendingInvitationsForUser, acceptInvitation, declineInvitation } from '@/lib/space-invitations';
-import { shouldRedirectToFirmClaim } from '@/lib/vouchap-post-invitation';
+import { getPendingInviteesForEmail } from '@/lib/firm-clients';
 import { supabase } from '@/lib/supabase';
 import { showToast } from '@/lib/toast';
 import { confirmDestructive } from '@/lib/alertWeb';
@@ -147,9 +147,12 @@ export default function HandleInvitationsScreen() {
       }
       
       if (spaces.length === 0) {
-        if (await shouldRedirectToFirmClaim(user.email)) {
-          router.replace('/auth/claim');
-          return;
+        if (user.email) {
+          const { list } = await getPendingInviteesForEmail(user.email).catch(() => ({ list: [] }));
+          if (list?.length > 0) {
+            router.replace('/auth/claim');
+            return;
+          }
         }
         router.replace('/setup-space');
         return;
@@ -165,9 +168,12 @@ export default function HandleInvitationsScreen() {
           const updatedSpace = await getCurrentSpace(true);
           await initializeAuthCache(user, updatedSpace);
         } catch (_) {}
-        if (await shouldRedirectToFirmClaim(user.email)) {
-          router.replace('/auth/claim');
-          return;
+        if (user.email) {
+          const { list } = await getPendingInviteesForEmail(user.email).catch(() => ({ list: [] }));
+          if (list?.length > 0) {
+            router.replace('/auth/claim');
+            return;
+          }
         }
         router.replace('/');
         return;
@@ -180,18 +186,24 @@ export default function HandleInvitationsScreen() {
           const updatedSpace = updatedUser ? await getCurrentSpace(true) : null;
           await initializeAuthCache(updatedUser, updatedSpace);
         } catch (_) {}
-        if (await shouldRedirectToFirmClaim(user.email)) {
-          router.replace('/auth/claim');
-          return;
+        if (user.email) {
+          const { list } = await getPendingInviteesForEmail(user.email).catch(() => ({ list: [] }));
+          if (list?.length > 0) {
+            router.replace('/auth/claim');
+            return;
+          }
         }
         router.replace('/');
         return;
       }
 
       if (spaces.length > 1) {
-        if (await shouldRedirectToFirmClaim(user.email)) {
-          router.replace('/auth/claim');
-          return;
+        if (user.email) {
+          const { list } = await getPendingInviteesForEmail(user.email).catch(() => ({ list: [] }));
+          if (list?.length > 0) {
+            router.replace('/auth/claim');
+            return;
+          }
         }
         // 自动选择最新空间并进入首页
         const sorted = [...spaces].sort((a, b) => {
