@@ -8,6 +8,22 @@
 
 ---
 
+### 2026-09-07（粘贴仍无反应：只转暂存文件，不混排）
+
+**User（提示词/原意）**  
+- 仍然无效，粘贴无任何反应。不需图文混排，也不需在输入区显示图片缩略图；识别到剪切板是截图，应转为临时文件并加到输入区（附件暂存）。
+
+**Assistant（实现前说明）**  
+- 上一版 host 在 composer 上直接 return，composer 的 onPaste 又没打到，等于谁都不处理。按需求改回普通文字输入框；全局 paste / ⌘V 只负责把图片推进 staged files。另加剪贴板按钮作 clipboard.read() 兜底。
+
+**Assistant（实现后说明 / 本轮结论）**  
+- 输入框不再 contenteditable。截图进入上方附件条，不进文字框。部署后硬刷新；⌘V 或点剪贴板图标。若图标提示 Allow clipboard access，浏览器拦了读剪贴板。未 commit。
+
+**关联**  
+- `vouchap-app/src/mobile-ui/components/WebChatClipboardPasteHost.tsx`
+
+---
+
 ### 2026-09-07（微信能粘贴、Web 右栏仍不能：textarea 不带图片）
 
 **User（提示词/原意）**  

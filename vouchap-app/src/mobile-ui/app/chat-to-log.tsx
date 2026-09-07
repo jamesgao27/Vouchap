@@ -99,8 +99,7 @@ import FirmAddClientModal, {
 import { FileDetailModal, type FileDetailModalFile } from '@/components/FileDetailModal';
 import { AttachmentImagePreviewModal } from '@/components/AttachmentImagePreviewModal';
 import { webInputBlockStyles } from '../styles/web-input-block-styles';
-import { CHAT_WEB_COMPOSER_NATIVE_ID } from '../lib/use-web-clipboard-image-paste';
-import { WebChatComposerField } from '../components/WebChatComposerField';
+import { CHAT_WEB_COMPOSER_NATIVE_ID, filesFromClipboardItems } from '../lib/use-web-clipboard-image-paste';
 import {
   CHAT_STAGED_FILES_DISPLAY_MAX,
   chatStagedFilesOverflowLabel,
@@ -636,7 +635,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [oldestLoadedAt, setOldestLoadedAt] = useState<string | null>(null);
   const listRef = useRef<FlatList<Message>>(null);
-  const inputRef = useRef<{ focus: () => void } | null>(null);
+  const inputRef = useRef<TextInput>(null);
   const messagesRef = useRef<Message[]>([]);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   
@@ -3674,15 +3673,20 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               ) : null}
               <View style={webInputBlockStyles.webInputRow}>
                 <View style={webInputBlockStyles.webInputWrapper}>
-                  <WebChatComposerField
+                  <TextInput
                     ref={inputRef}
+                    style={webInputBlockStyles.webInput}
+                    placeholder={getInputPlaceholder(voucherType)}
+                    placeholderTextColor="#95A5A6"
                     value={inputText}
                     onChangeText={setInputText}
-                    placeholder={getInputPlaceholder(voucherType)}
-                    editable={!isProcessing}
+                    multiline
                     maxLength={500}
+                    editable={!isProcessing}
+                    returnKeyType="send"
+                    onSubmitEditing={handleSend}
+                    blurOnSubmit={false}
                     onFocus={() => setTimeout(() => listRef.current?.scrollToOffset({ offset: 0, animated: true }), 100)}
-                    onPasteImages={stagePastedImages}
                   />
                 </View>
               </View>
@@ -3692,6 +3696,27 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
                     <TouchableOpacity style={webInputBlockStyles.webActionIcon} onPress={pickImagesForSend} disabled={isProcessing}>
                       <Ionicons name="image" size={22} color="#636E72" />
                     </TouchableOpacity>
+                    {isDesktopWeb ? (
+                      <TouchableOpacity
+                        style={webInputBlockStyles.webActionIcon}
+                        disabled={isProcessing}
+                        onPress={async () => {
+                          try {
+                            const items = await navigator.clipboard.read();
+                            const files = await filesFromClipboardItems(items);
+                            if (!files.length) {
+                              showToast('No image in clipboard.', 'info');
+                              return;
+                            }
+                            stagePastedImages(files);
+                          } catch {
+                            showToast('Allow clipboard access, then paste again.', 'info');
+                          }
+                        }}
+                      >
+                        <Ionicons name="clipboard-outline" size={22} color="#636E72" />
+                      </TouchableOpacity>
+                    ) : null}
                     {isDesktopWeb ? (
                       <TouchableOpacity
                         style={webInputBlockStyles.webActionIcon}
@@ -3754,7 +3779,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
               </View>
             </View>
             <Text style={webInputBlockStyles.webInputDisclaimer}>
-              AI Assistant may make mistakes. Paste a screenshot with ⌘V or Ctrl+V.
+              AI Assistant may make mistakes. ⌘V / Ctrl+V pastes a screenshot as an attachment.
             </Text>
           </View>
         ) : (
