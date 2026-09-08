@@ -9559,3 +9559,30 @@
 - `vouchap-app/src/mobile-ui/components/AttachmentImagePreviewModal.tsx`
 - `vouchap-app/src/mobile-ui/components/FileDetailModal.tsx`
 - `vouchap-app/src/shared-logic/chat-logs.ts`（`ChatLog.type` 取值定义）
+
+---
+
+### 2026-09-07（右侧栏图片预览：临时附件已被清理导致 404）
+
+**User（提示词/原意）**
+- 「右侧栏 pdf 预览已正常，图片预览仍有问题（如图），按说跟详情页内应该是完全一样的组件和机制。」（附 Expenses 页截图，预览浮窗显示 "Preview unavailable"）
+
+**Assistant（实现前说明）**
+- 用户判断正确：组件与机制确实完全相同，所以差异只可能在**传进去的 URL**。且本次是 Expenses（`receipts` 公共 bucket），排除上一轮的私有 bucket 签名问题。
+- 上一轮加的 `onError` 提示正好证明了 `<img>` 是加载失败而非渲染失败，据此往上游查 URL 来源。
+
+**Assistant（实现后说明 / 本轮结论）**
+- 根因：图片上传到 `{spaceId}/temp/{name}.{ext}` 后写入聊天日志（`requestData.imageUrl`）；识别完成时 `receipt-processor.ts` 会 `uploadReceiptImage` 转存到正式路径 `{spaceId}/receipt_{id}.{ext}` 并 **`deleteTempFile` 删除临时文件**。于是历史记录里的图片 URL 指向一个已不存在的对象 → 404 → 空白预览框；详情页正常是因为它读的是单据表的 `image_url`。
+- 同一段代码里 `source.kind === 'document'` 分支只是 `finalImageUrl = source.fileUrl`，既不转存也不删除，这正好解释了「PDF 修好后正常、图片仍坏」。
+- 修复：新增 `src/shared-logic/chat-attachment-urls.ts`，`resolveVoucherImageUrls(logs)` 对**附件仍指向 `/temp/`** 的日志，按 `receiptId / invoiceId / inboundId / outboundId` 批量回查 `receipts / invoices / inbound / outbound` 的 `image_url` 并覆盖。`restorePromptFromLog` 增加可选入参 `resolvedImageUrl` 优先使用。两个历史加载路径（首屏与分页）都接上，并在 await 后复检 `historyLoadSeqRef`，避免切换项目/类型时的竞态。
+- 该修复对**已有历史记录同样生效**（正式图仍在单据表里），无需数据迁移。单据尚未识别完成（`image_url` 为空或仍是 temp）时不覆盖，此时临时文件还在，原 URL 可用。
+
+**验证**
+- `tsc --noEmit`：改动文件无新增错误。
+- 用 mock Supabase 客户端 esbuild 打包后**实跑** `resolveVoucherImageUrls`：temp→正式替换、单据不存在/未识别完成/非 temp URL/纯文本日志均正确跳过；查询只针对 temp 日志发出，无匹配日志的表不查询。
+- `expo export -p web` 构建通过，产物中确认包含新逻辑。
+
+**关联**
+- `vouchap-app/src/shared-logic/chat-attachment-urls.ts`（新增）
+- `vouchap-app/src/shared-logic/receipt-processor.ts`（根因所在，未改动）
+- `vouchap-app/src/mobile-ui/app/chat-to-log.tsx`

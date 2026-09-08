@@ -50,6 +50,7 @@ import {
   VoucherLogType,
   type ChatLog,
 } from '@/lib/chat-logs';
+import { resolveVoucherImageUrls } from '@/lib/chat-attachment-urls';
 import { showAiInventory, showTaxFiling } from '@/lib/feature-flags';
 import { getCurrentSpace } from '@/lib/auth';
 import { getChatToLogAllowedTypes, getChatToLogAllowedTypeValues } from '@/lib/chat-to-log-allowed-types';
@@ -269,7 +270,7 @@ const openFileUrlExternal = (url: string) => {
  * - tax-filing 用 requestData.fileName 存文件名（prompt 含 "Uploaded: " 前缀，需剥离）
  * - expenses/invoice/inbound/outbound 用 requestData.imageUrl 存文件 URL
  */
-function restorePromptFromLog(log: ChatLog): Message | null {
+function restorePromptFromLog(log: ChatLog, resolvedImageUrl?: string): Message | null {
   if (!log.prompt) return null;
 
   const isImageType = log.type === 'image';
@@ -281,8 +282,9 @@ function restorePromptFromLog(log: ChatLog): Message | null {
   const taxFilingFileName = (log.requestData as any)?.fileName as string | undefined;
   const fileUrlFromRequest = (log.requestData as any)?.imageUrl as string | undefined;
 
-  // 统一取附件 URL：expenses 存在 requestData.imageUrl，tax-filing 存在 attachmentUrl
-  const attachUrl = fileUrlFromRequest ?? log.attachmentUrl ?? undefined;
+  // 统一取附件 URL：expenses 存在 requestData.imageUrl，tax-filing 存在 attachmentUrl。
+  // 日志里存的是识别前的临时 URL，识别后临时文件已被删除，故优先用单据表回填的正式 URL。
+  const attachUrl = resolvedImageUrl ?? fileUrlFromRequest ?? log.attachmentUrl ?? undefined;
 
   // 判断文档类型：优先用文件名判，兜底用 prompt 与附件 URL 判
   const effectiveFileName = taxFilingFileName ?? log.prompt;
@@ -966,11 +968,15 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
           (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
         );
 
+        // 历史里的图片 URL 指向已被清理的临时文件，需换回单据表中的正式 URL
+        const resolvedImageUrls = await resolveVoucherImageUrls(sorted);
+        if (historyLoadSeqRef.current !== seq) return;
+
         // 首次加载：先 push 提交内容再 push 卡片，reverse 后为 [最新…最早]，inverted 下卡片在下、提交在上
         const restoredMessages: Message[] = [];
 
         for (const log of sorted) {
-          const promptMsg = restorePromptFromLog(log);
+          const promptMsg = restorePromptFromLog(log, resolvedImageUrls.get(log.id));
           if (promptMsg) restoredMessages.push(promptMsg);
           const logType = log.voucherType ?? 'receipt';
           if (log.responseData?.invoicePreview && logType === 'invoice') {
@@ -1181,6 +1187,10 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
         (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
       );
 
+      // 历史里的图片 URL 指向已被清理的临时文件，需换回单据表中的正式 URL
+      const resolvedImageUrls = await resolveVoucherImageUrls(sorted);
+      if (historyLoadSeqRef.current !== seq) return;
+
       // 每条记录顺序：先卡片（靠下），再提交内容（靠上），inverted 下显示为卡片在下、提交在上
       const moreMessagesRaw: Message[] = [];
       for (const log of sorted) {
@@ -1254,7 +1264,7 @@ function ChatToLogScreen(props: { voucherType?: VoucherLogType }) {
             timestamp: new Date(log.createdAt),
           });
         }
-        const promptMsg = restorePromptFromLog(log);
+        const promptMsg = restorePromptFromLog(log, resolvedImageUrls.get(log.id));
         if (promptMsg) moreMessagesRaw.push(promptMsg);
       }
 
