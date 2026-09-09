@@ -9586,3 +9586,31 @@
 - `vouchap-app/src/shared-logic/chat-attachment-urls.ts`（新增）
 - `vouchap-app/src/shared-logic/receipt-processor.ts`（根因所在，未改动）
 - `vouchap-app/src/mobile-ui/app/chat-to-log.tsx`
+
+---
+
+### 2026-09-08（Expenses items 列表只显示到 7/24：PostgREST 1000 行上限静默截断）
+
+**User（提示词/原意）**
+- 「发现明显 bug：expenses 的 items 列表模式，只列出了 7 月 24 日之前的 items。分析下原因，vouchap 和 portalflow 应同步修复。」
+
+**Assistant（实现前说明）**
+- 「只到某个日期」是典型的**行数上限截断**而非过滤条件错误：若是日期过滤 bug，边界通常落在业务含义明确的位置，而不是一个任意日期。
+- 先核对 `getAllReceiptLineItemsForList` 的查询是否带分页。
+
+**Assistant（实现后说明 / 本轮结论）**
+- 根因：`getAllReceiptLineItemsForList`（`database.ts`）用 `.select(...).eq('receipts.space_id', spaceId)` 一次性取全部明细，**既没有 `.range()` 也没有 `.order()`**。PostgREST 单请求最多返回服务端 `max-rows`（Supabase 默认 **1000**）行，超出部分**静默丢弃，不报错**。由于没有排序，返回的大致是最早插入的那批，于是表现为「只列出 7/24 之前的 items」——7/24 只是第 1000 行恰好落到的位置，与业务无关。
+- 明细行数是小票数的数倍，所以 records 模式看起来正常、items 模式先撞上限，这也解释了为什么只有 items 列表出问题。
+- 修复：新增 `src/shared-logic/supabase-paging.ts` 的 `fetchAllPages`，`getAllReceiptLineItemsForList` 改为翻页取全并按 `id` 稳定排序。顺带修了同一页面的 `getAllReceiptsForList`（同样无分页，小票数过千后会同样静默丢数据；`created_at` 不唯一，补 `id` 次级排序保证翻页不重不漏）。
+- `fetchAllPages` 只在**返回空页**时停止，而非「不足一页」——若服务端 `max-rows` 小于请求页大小，用「不足一页」判断会再次造成截断。代价是每次全量查询多一次返回空的轻量请求。
+- `getReceiptsForListFirstPaint` 的 `FIRST_PAINT_LIMIT` 是有意的首屏限制，未改动。Income 的明细按单张发票查询（`.eq('invoice_id', ...)`），不受此上限影响。
+- **Portalflow 已同步**：`Adaven-platform/apps/portalflow-app/src/shared-logic/` 应用了逐字符相同的改动（已用 diff 比对确认一致）。
+
+**验证**
+- 两仓库 `tsc --noEmit` 对改动文件均无错误；两仓库 `expo export -p web` 均构建通过。
+- `fetchAllPages` 用模拟 PostgREST（可配置服务端 max-rows）实跑：2500 行/上限 1000 取全且无重无漏；**服务端上限 500 小于请求页大小 1000 时仍能取全**；整页倍数、不足一页、空表、错误立即中断、maxPages 防失控均通过。
+
+**关联**
+- `vouchap-app/src/shared-logic/supabase-paging.ts`（新增）
+- `vouchap-app/src/shared-logic/database.ts`
+- `Adaven-platform/apps/portalflow-app/src/shared-logic/`（同步）
